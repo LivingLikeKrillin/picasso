@@ -1,0 +1,167 @@
+syntax = "proto3";
+
+package picasso.v1;
+
+option java_multiple_files = true;
+option java_package = "dev.picasso.contracts.v1";
+
+import "picasso/v1/common.proto";
+
+// 설계 §4.2. OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조.
+// Reset은 RPC가 아니라 엔진 내부 전이다 — 외부에 노출하면
+// "누가 언제 리셋하는가"라는 정책이 계약에 들어오고, 그 주인은 미션 계층이다.
+enum SkillState {
+  SKILL_STATE_UNSPECIFIED = 0;
+  SKILL_STATE_READY = 1;
+  SKILL_STATE_RUNNING = 2;
+  SKILL_STATE_SUSPENDED = 3;
+  SKILL_STATE_HALTED = 4;
+}
+
+// 설계 §4.3.
+enum ValueType {
+  VALUE_TYPE_UNSPECIFIED = 0;
+  VALUE_TYPE_BOOL = 1;
+  VALUE_TYPE_INTEGER = 2;
+  VALUE_TYPE_NUMBER = 3;
+  VALUE_TYPE_STRING = 4;
+  VALUE_TYPE_ENUM = 5;
+}
+
+// 설계 §5.3. 로봇이 "이 선택 필드를 나는 요구한다"고 말할 수 있어야
+// 보내지 않는 클라이언트가 런타임이 아니라 핸드셰이크에서 걸린다.
+enum OptionalFieldSupport {
+  OPTIONAL_FIELD_SUPPORT_UNSPECIFIED = 0;
+  OPTIONAL_FIELD_SUPPORT_SUPPORTED = 1;
+  OPTIONAL_FIELD_SUPPORT_REQUIRED = 2;
+}
+
+// 파라미터 하나의 선언과 제약. 제약이 값 타입마다 다르므로
+// 해당 없는 필드는 비워 둔다.
+message ParameterDeclaration {
+  string key = 1;
+  ValueType value_type = 2;
+  bool optional = 3;
+
+  // 수치형
+  double min_value = 4;
+  double max_value = 5;
+  string unit = 6;
+
+  // ENUM형 — 허용 값 목록이 없으면 송신 직전 검사가 아무것도 강제하지 못한다.
+  repeated string allowed_values = 7;
+
+  // 문자열형
+  uint32 max_length = 8;
+}
+
+// 스킬 하나의 능력 선언.
+message SkillDeclaration {
+  string skill_type = 1;
+  uint32 major = 2;
+  uint32 minor = 3;
+
+  // 설계 §7.2 — 둘 다 필수 필드다.
+  // "이 스킬이 취소 가능한가"가 코드의 암묵 지식이 아니라 데이터가 된다.
+  // 불리언이 아니라 3값인 이유는 common.proto의 Support 주석에 있다.
+  Support pause_support = 4;
+  Support cancel_support = 5;
+
+  repeated ParameterDeclaration parameters = 6;
+
+  // RFC3339. 비어 있으면 폐기 예고가 없다는 뜻이다.
+  string deprecated_after = 7;
+}
+
+message OptionalFieldDeclaration {
+  // 점표기 경로. 예: "task.parameters.approach_vector"
+  string parameter_path = 1;
+  OptionalFieldSupport support = 2;
+}
+
+// 설계 §7.2 — 한계를 데이터로 선언하면 에뮬레이터가 그것을 강제하는 것만으로
+// 실패 주입이 따로 만들 필요 없이 생긴다.
+message ProtocolLimits {
+  uint32 max_string_length = 1;
+  uint32 max_array_length = 2;
+}
+
+message PublishInterval {
+  uint32 min_seconds = 1;
+
+  // 기본값 30 — VDA5050 §6.6의 상한을 따른다.
+  // 소비자의 신선도 판정 입력이므로 투영에 들어간다.
+  uint32 max_seconds = 2;
+}
+
+// 프로파일의 투영. 설계 §7.2의 "투영에 들어간다" 표가 이 메시지의 명세이며,
+// 게이트가 아니라 §12.2의 투영 일치 시험이 이 정확성을 지킨다.
+// 소요시간·실패 모드·재생 버퍼 크기는 발신자 내부 설정이므로 여기 없다.
+message Capability {
+  string vendor = 1;
+  string model = 2;
+  int32 profile_revision = 3;
+
+  repeated SkillDeclaration skills = 4;
+  repeated OptionalFieldDeclaration optional_fields = 5;
+  ProtocolLimits protocol_limits = 6;
+  PublishInterval publish_interval = 7;
+
+  // 설계 §4.9. 참이면 소비자는 자신이 유일한 명령자임을 전제해야 하고,
+  // 다른 클라이언트가 붙을 수 있는 환경에서는 CONTROL_AUTHORITY_LOST를
+  // 정상 경로로 다뤄야 한다. 조사한 실물 셋이 전부 배타 제어 모델이다.
+  bool exclusive_control_required = 8;
+}
+
+// 클라이언트가 요구하는 능력 집합. 설계 §5.4.
+message CapabilityRequirement {
+  // 헤더의 같은 필드가 권위이며 이것은 페이로드만 보고도 해석되게 둔 복사본이다.
+  // 어긋나면 IDENTITY_MISMATCH로 거절한다.
+  string client_id = 1;
+  string robot_id = 2;
+
+  // 예: "pick_place@^1.2"
+  repeated string requirements = 3;
+
+  // 점표기 경로
+  repeated string optional_fields_used = 4;
+
+  // LIMIT_EXCEEDED의 판정 입력. 이것이 없으면 한계 초과가
+  // 런타임 발행 시점에야 드러난다.
+  ProtocolLimits limits_needed = 5;
+}
+
+message GetCapabilitiesRequest {
+  MessageHeader header = 1;
+  string robot_id = 2;
+}
+
+message GetCapabilitiesResponse {
+  MessageHeader header = 1;
+  Capability capability = 2;
+}
+
+message NegotiateRequest {
+  MessageHeader header = 1;
+  CapabilityRequirement requirement = 2;
+}
+
+// 태스크 RPC들과 달리 이것만 oneof가 아니다 — 의도적인 예외다.
+// 협상은 요구 집합 전체를 한 번에 보므로 거절 사유가 여럿일 수 있고,
+// "무엇 하나 때문에 실패했는가"가 아니라 "무엇무엇이 안 맞는가"를 돌려줘야
+// 클라이언트가 한 번에 고칠 수 있다. 통일하지 말 것.
+message NegotiateResponse {
+  MessageHeader header = 1;
+  bool accepted = 2;
+
+  // accepted가 false면 하나 이상 채워진다. 거절만 하고 이유를 안 주지 않는다.
+  repeated Rejection rejections = 3;
+}
+
+service SkillService {
+  // 유효 능력의 투영을 돌려준다 = 프로파일 - 런타임 오버라이드.
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+
+  // 세션 시작 시 한 번. 태스크를 보내보고 실패하는 것이 아니라 사전 협상이다.
+  rpc Negotiate(NegotiateRequest) returns (NegotiateResponse);
+}
