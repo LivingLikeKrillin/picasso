@@ -3,6 +3,7 @@ package dev.picasso.gate
 import dev.picasso.gate.input.GateInput
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -101,6 +102,73 @@ class GateRunnerTest {
 
         assertTrue(secondRan, "첫 실패에서 멈췄다")
         assertEquals(1, report.failed.size)
+    }
+
+    @Test
+    fun `검사가 하나도 없는 게이트는 만들 수 없다`() {
+        // 빈 목록이면 실패도 건너뜀도 없어 exitCode 0에 출력이 비어 있다.
+        assertFailsWith<IllegalArgumentException> { GateRunner(emptyList()) }
+    }
+
+    @Test
+    fun `검사 id가 중복이면 만들 수 없다`() {
+        val a = check("3", emptySet()) { CheckResult.Passed("3") }
+        assertFailsWith<IllegalArgumentException> { GateRunner(listOf(a, a)) }
+    }
+
+    @Test
+    fun `반드시 있어야 하는 자원이 없으면 건너뜀이 아니라 실패다`() {
+        // 글롭 오타나 빈 디렉터리로 프로파일이 0장이면 검사 3·4·6이 전부
+        // 건너뛰고 종료코드 0이 났다. 초록 빌드의 로그는 아무도 읽지 않는다.
+        val c = check("3", setOf(Resource.PROFILE_DOCUMENT)) { CheckResult.Passed("3") }
+        val report = GateRunner(listOf(c), required = setOf(Resource.PROFILE_DOCUMENT))
+            .run(GateInput())
+
+        assertEquals(1, report.exitCode, "입력이 통째로 비었는데 초록불이 났다")
+        assertEquals(setOf(Resource.PROFILE_DOCUMENT), report.absentRequired)
+        assertTrue(report.render().contains("PROFILE_DOCUMENT"))
+    }
+
+    @Test
+    fun `상시 건너뜀은 required에 넣지 않으므로 실패시키지 않는다`() {
+        // §11.1이 인정하는 상시 건너뜀은 검사 6번의 REGISTRY 하나뿐이다.
+        val c = check("6", setOf(Resource.REGISTRY)) { CheckResult.Passed("6") }
+        val report = GateRunner(listOf(c), required = setOf(Resource.PROFILE_DOCUMENT))
+            .run(GateInput(profiles = emptyList(), malformed = listOf(
+                dev.picasso.gate.input.MalformedProfile("x.json", "깨짐"),
+            )))
+
+        assertEquals(0, report.exitCode)
+        assertTrue(report.render().contains("SKIP"))
+    }
+
+    @Test
+    fun `검사가 딴 id의 결과를 내면 실패로 접는다`() {
+        val c = check("3", emptySet()) { CheckResult.Passed("999") }
+        val report = GateRunner(listOf(c)).run(GateInput())
+
+        assertEquals(1, report.exitCode, "결과의 checkId가 달랐는데 통과했다")
+        assertTrue(report.failed.single().findings.single().message.contains("999"))
+    }
+
+    @Test
+    fun `없는 자원이 비어 있어도 건너뜀은 집계에 남는다`() {
+        // anySkipped를 skippedParts로만 세면 missing이 빈 Skipped가
+        // 집계에서 통째로 사라지고 "건너뛴 검사가 있다" 각주도 안 찍힌다.
+        val report = GateReport(listOf(CheckResult.Skipped("6", emptySet(), "바뀐 프로파일이 없다")))
+
+        assertTrue(report.anySkipped)
+        assertFalse(report.allClean)
+        assertTrue(report.render().contains("통과가 아니다"))
+    }
+
+    @Test
+    fun `통과의 경고도 위치를 출력한다`() {
+        // 어느 스킬인지 없으면 사람이 고칠 수 없다.
+        val c = check("6", emptySet()) {
+            CheckResult.Passed("6", listOf(Finding("6", Severity.WARNING, "축소 후보", "p.json#/skills/0")))
+        }
+        assertTrue(GateRunner(listOf(c)).run(GateInput()).render().contains("p.json#/skills/0"))
     }
 
     @Test

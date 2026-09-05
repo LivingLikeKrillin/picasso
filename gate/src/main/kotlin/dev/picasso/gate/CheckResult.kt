@@ -28,6 +28,7 @@ sealed interface CheckResult {
             require(findings.none { it.severity == Severity.ERROR }) {
                 "통과가 오류 소견을 담을 수 없다"
             }
+            requireSameCheck(checkId, findings)
         }
     }
 
@@ -40,6 +41,7 @@ sealed interface CheckResult {
             require(findings.any { it.severity == Severity.ERROR }) {
                 "실패에는 오류 소견이 하나 이상 있어야 한다"
             }
+            requireSameCheck(checkId, findings)
         }
     }
 
@@ -53,5 +55,16 @@ sealed interface CheckResult {
         val reason: String,
     ) : CheckResult {
         override val skippedParts: Set<Resource> get() = missing
+    }
+}
+
+/**
+ * 소견의 checkId가 결과의 것과 다르면 출력이 거짓말을 한다 —
+ * 어느 검사가 무엇을 막았는지가 게이트의 유일한 산출물이다.
+ */
+private fun requireSameCheck(checkId: String, findings: List<Finding>) {
+    val strays = findings.filter { it.checkId != checkId }.map { it.checkId }.distinct()
+    require(strays.isEmpty()) {
+        "검사 $checkId 의 결과에 다른 검사의 소견이 섞였다: $strays"
     }
 }
