@@ -52,7 +52,7 @@
 
 ### 1.4 완료 기준
 
-§11.2에 **11행**으로 정리한다. 백로그 완료 기준 8행(A-1 1, A-2 2, A-4 2, C-1 1, C-2 1, D-1 1)과 추가 항목 3행이다.
+§11.2에 **14행**으로 정리한다. 백로그 완료 기준 11행(A-1 1, A-2 4, A-4 2, C-1 2, C-2 1, D-1 1)과 §1.2에서 추가한 두 항목의 3행이다.
 
 ## 2. 배경과 근거
 
@@ -117,17 +117,24 @@ picasso/
 ```
 gate      → contracts
 registry  → gate, contracts
-mimic     → contracts   (프로파일 출처는 파일 또는 registry HTTP — 빌드 의존 아님)
+mimic     → contracts
 client    → contracts
-harness   → mimic, client, registry
+harness   → mimic, client
 ```
+
+**런타임 전용 접근 둘.** 아래는 HTTP 호출이며 **빌드 의존이 아니다.** 따라서 상대가 없어도 모듈이 빌드·동작한다.
+
+- `mimic` ⇢ `registry` — 프로파일 로드와 폴링(§9.2·§9.3). 파일 모드에서는 쓰이지 않는다.
+- `harness` ⇢ `registry` — 시험 요청 폴링과 결과 보고(§8.4 ②). 직접 실행 모드에서는 쓰이지 않는다.
+
+이 구분이 §12의 2단계가 `registry` 없이 성립하는 근거다.
 
 `profile/`은 코드가 아니라 파일이며 `gate`가 `contracts`와 대조한다.
 
 **순환을 피하는 두 규칙.**
 
 1. **`registry`는 `mimic`도 `harness`도 모른다.** §8.4 ②의 시험은 `harness`가 수행한다. `registry`는 시험 요청을 `revision_test_request` 행으로 **적재만** 하고, `harness`가 그것을 폴링해 집어간 뒤 결과를 API로 보고한다. §8.5의 "시험 실행 요청" 조작이 이 적재를 뜻한다.
-2. **`mimic`은 `registry`를 빌드 시점에 의존하지 않는다.** 프로파일을 파일에서 읽는 모드와 `registry` HTTP에서 읽는 모드를 둘 다 갖는다(§9.2). §12의 2단계가 `registry` 없이 성립하는 근거다.
+2. **`mimic`과 `harness`는 `registry`를 빌드 시점에 의존하지 않는다.** `mimic`은 프로파일을 파일에서 읽는 모드를 갖고(§9.2), `harness`는 시험을 직접 실행하는 모드를 갖는다. 둘 다 `registry`가 있을 때만 위의 런타임 접근을 쓴다.
 
 ### 3.3 각 모듈의 책임
 
@@ -154,7 +161,7 @@ harness   → mimic, client, registry
 | **gRPC** | 명령과 질의 — §4.4의 RPC 전부, `Negotiate`, `GetSnapshot`, `GetCapabilities` | 요청자가 하나이고 응답이 요청자에게만 간다. 데드라인·취소 전파가 필요하다 |
 | **MQTT** | 발행 — 상태, 이벤트, 연결 상태 | 소비자가 여럿이고 팬아웃이 브로커의 몫이다 |
 
-**§4.7이 정의하는 이벤트는 전부 MQTT `event` 스트림에 나간다.** 태스크 상태 전이도 예외가 아니다. `WatchTask` 스트림은 그 위에 **진행률과 부분결과를 더해** 요청자에게만 보낸다. 즉 이벤트는 두 경로에 다 나가고 진행률은 gRPC에만 나간다 — 중복이 아니라 상세도가 다르다. §11.2의 A-2 시험은 MQTT `event` 스트림만으로 상태를 재구성할 수 있어야 한다는 뜻이 된다.
+**§4.7이 정의하는 이벤트는 전부 MQTT `event` 스트림에 나간다.** 태스크 상태 전이도 예외가 아니다. `WatchTask` 스트림은 그 위에 **진행률과 부분결과를 더해** 요청자에게만 보낸다. 즉 이벤트는 두 경로에 다 나가고 진행률은 gRPC에만 나간다 — 중복이 아니라 상세도가 다르다. 따라서 **전이의 관찰은 `event` 스트림만으로 충분하고**, 구독을 중간에 시작한 소비자는 거기에 스냅샷 하나를 더해 현재 상태를 세운다(§4.7·§4.8).
 
 토픽의 `{stream}` 값 집합은 셋이다 — `state`, `event`, `connection`.
 
@@ -166,9 +173,9 @@ harness   → mimic, client, registry
 
 | 파일 | 담는 것 | 범위 항목 |
 |---|---|---|
-| `skill.proto` | 스킬 상태머신, 능력 선언, 핸드셰이크 | A-1 |
+| `skill.proto` | 스킬 상태머신, `Capability`, `GetCapabilities`, `Negotiate` | A-1 |
 | `task.proto` | 장기 실행 태스크 RPC와 상태 | A-4 |
-| `event.proto` | 상태와 이벤트, 스냅샷, 연결 상태, 공통 헤더 | A-2 |
+| `event.proto` | 상태와 이벤트, `GetSnapshot`, `CapabilityChanged`, 연결 상태, 공통 헤더 | A-2 |
 | `fault.proto` | 결함 모델 | A-2 (A-4의 에러 모델 요구도 함께 만족) |
 
 ### 4.2 스킬 상태머신
@@ -222,8 +229,13 @@ StartTask(TaskRequest)     -> TaskHandle         접수 응답. 종착이 아니
 WatchTask(TaskHandle)      -> stream TaskUpdate  진행률·부분결과·상태 전이
 PauseTask(TaskHandle)      -> Ack                pause_allowed=false면 PAUSE_UNSUPPORTED
 ResumeTask(TaskHandle)     -> Ack
-CancelTask(CancelRequest)  -> CancelAck          CANCELLING을 반환한다
+CancelTask(CancelRequest)  -> CancelAck          cancel_allowed=false면 CANCEL_UNSUPPORTED
+                                                 아니면 CANCELLING을 반환한다
+GetSnapshot(SnapshotReq)   -> Snapshot           현재 상태 + 그 시점의 sequence
+GetCapabilities(CapReq)    -> Capability         유효 능력의 투영 (§7.3)
 ```
+
+`GetSnapshot`의 응답은 기체의 현재 스킬·태스크·결함 상태와 그것이 대응하는 `sequence`를 함께 담는다. 소비자는 그 번호 다음부터 `event`를 이어 붙여 현재를 재구성한다(§4.8). `GetCapabilities`의 응답이 §11.2의 투영 일치 시험 대상이다.
 
 | 상태 | 종착 | 뜻 |
 |---|---|---|
@@ -242,7 +254,7 @@ CancelTask(CancelRequest)  -> CancelAck          CANCELLING을 반환한다
 
 **취소·일시정지 가능 여부는 계약이 아니라 프로파일이 답한다.** 계약에는 거절 코드만 둔다.
 
-**진행률은 `0.0..1.0`의 실수**이며, `mimic`에서는 프로파일이 선언한 스킬 소요시간(§7.2) 대비 경과 비율로 파생한다. 실물 어댑터가 더 나은 근거를 갖는다면 그것을 쓰되 정의역은 같다. 단조 비감소를 계약 불변식으로 둔다.
+**진행률은 `0.0..1.0`의 실수**이며, `mimic`에서는 프로파일이 선언한 스킬 소요시간(§7.2) 대비 경과 비율로 파생한다. 실물 어댑터가 더 나은 근거를 갖는다면 그것을 쓰되 정의역은 같다. **단조 비감소는 `(task_id, revision)` 쌍 안에서만 성립하는 불변식**이며, `revision`이 오르면 진행률은 0으로 재시작한다. `TaskUpdate`가 `revision`을 싣고 있으므로 소비자는 재시작을 위반과 구분할 수 있다.
 
 **멱등성 키는 `(task_id, revision)` 단조쌍이다.** VDA5050의 `(orderId, orderUpdateId)`를 그대로 가져온다.
 
@@ -253,7 +265,7 @@ CancelTask(CancelRequest)  -> CancelAck          CANCELLING을 반환한다
 | 현재보다 낮음 | `OUTDATED_REVISION` 거절 |
 | 현재보다 높음 | 갱신 — 아래 규칙 |
 
-**갱신 규칙.** 갱신은 **비종착 상태에서만 합법**이며, 종착 태스크에 오면 `INVALID_TRANSITION`으로 거절한다. 갱신은 파라미터를 교체하고 태스크를 재시작하지 않는다 — `RUNNING`이면 진행 중인 스킬을 `Halt`한 뒤 새 파라미터로 `Start`하고, 태스크 상태는 `RUNNING`을 유지하며 진행률만 0으로 되돌린다. **갱신은 §8.4의 개정판 pinning을 바꾸지 않는다** — `task.profile_revision_id`는 최초 접수 시점 값을 유지한다. 갱신으로 프로파일이 바뀌면 pinning이 무의미해지기 때문이다.
+**갱신 규칙.** 갱신은 **비종착 상태에서만 합법**이며, 종착 태스크에 오면 `INVALID_TRANSITION`으로 거절한다. 갱신은 파라미터를 교체하고 태스크를 재시작하지 않는다 — `RUNNING`이면 진행 중인 스킬을 `Halt`한 뒤 새 파라미터로 `Start`하고, 태스크 상태는 `RUNNING`을 유지하며 진행률은 새 `revision`에서 0부터 다시 센다. **갱신은 §8.4의 개정판 pinning을 바꾸지 않는다** — `task.profile_revision_id`는 최초 접수 시점 값을 유지한다. 갱신으로 프로파일이 바뀌면 pinning이 무의미해지기 때문이다.
 
 `WatchTask`는 재접속 시 마지막으로 받은 `sequence`부터 이어받는다(§4.8).
 
@@ -303,6 +315,8 @@ Fault {
 상태는 현재값, 이벤트는 발생한 사실이며 **둘 다 발행한다.** 상태만 발행하면 소비자가 전이를 관찰하지 못하고, 이벤트만 있으면 신규 구독자가 현재 상태를 알 수 없다.
 
 이벤트가 되는 전이는 넷이다 — **스킬 상태 전이, 태스크 상태 전이, 결함 발생·해소, 능력 변경**(`CapabilityChanged`). 그 밖의 값 변화는 상태로만 발행한다.
+
+`CapabilityChanged`는 `{robot_id, capability_epoch, added[], removed[], cause}`를 담는다. `cause`는 §8.3의 `capability_epoch_log.cause`와 같은 값 집합이다. **전체 능력을 싣지 않는 것이 의도**다 — 소비자는 delta로 캐시를 갱신하거나, 확신이 없으면 `GetCapabilities`로 전량을 다시 가져온다. 어느 쪽이든 `capability_epoch`가 판정 기준이다.
 
 **연결 상태는 별도 스트림이고 네 값이다.**
 
@@ -368,7 +382,7 @@ Negotiate(CapabilityRequirement) -> NegotiationResult
   CapabilityRequirement { client_id, robot_id, requirements[], optional_fields_used[] }
 ```
 
-`client_id`는 클라이언트가 설정에서 읽어 보내는 자기 식별자다(§8.5의 진단 4번이 이 값으로 집계한다). 로봇은 가능 여부와 **거절 이유**를 반환한다. openTCS `ExplainedBoolean(value, reason)`의 일반화이며, 그 저장소에서 `VehicleCommAdapter`·`VehicleController`·`PeripheralCommAdapter`·`PeripheralController` 네 곳이 같은 관용구를 쓴다.
+`client_id`는 클라이언트가 설정에서 읽어 보내는 자기 식별자다(§8.5의 진단 4번이 이 값으로 집계한다). **`client_id`와 `robot_id`의 권위는 헤더(§5.5)에 있으며**, `CapabilityRequirement` 안의 같은 필드는 페이로드만 보고도 해석되도록 복사해 둔 것이다. 둘이 어긋나면 `INVALID_TRANSITION`으로 거절한다. 로봇은 가능 여부와 **거절 이유**를 반환한다. openTCS `ExplainedBoolean(value, reason)`의 일반화이며, 그 저장소에서 `VehicleCommAdapter`·`VehicleController`·`PeripheralCommAdapter`·`PeripheralController` 네 곳이 같은 관용구를 쓴다.
 
 거절 사유는 §4.3의 `RejectionCode` 중 넷을 쓴다 — `MAJOR_MISMATCH`, `SKILL_ABSENT`, `REQUIRED_OPTIONAL_MISSING`, `LIMIT_EXCEEDED`.
 
@@ -400,7 +414,9 @@ topic: picasso/{major}/{site}/{robot_id}/{stream}
 | `event_id` / `occurred_at` / `state_as_of` | ● | — | ● |
 | `client_id` | — | ● | — |
 
-두 필드가 값을 만든다.
+나머지 필드의 소비자는 이렇다 — `profile_ref`는 §8.5의 진단 1·2(어느 개정판이 이 메시지를 만들었는가), `event_id`는 소비자 측 멱등 처리, `state_as_of`는 신선도 판정(§7.2가 선언한 최대 발행 간격과 대조), `schema_id`는 §6.2의 메시지마다 판정.
+
+두 필드는 따로 설명이 필요하다.
 
 - **`contract_revision`** — `buf` 모듈 다이제스트와 **`contracts/`의 semver 태그를 함께** 싣는다. 다이제스트만으로는 차단 판정을 할 수 없지만 semver가 있으면 major 불일치는 차단, 그 외 불일치는 경보로 갈린다. 경보는 수신 측이 결함 이벤트(`CONTRACT_REVISION_MISMATCH`, 두 불리언 모두 `true`)로 발행해 진단에 남긴다. 남는 한계는 §14의 4번이다.
 - **`capability_epoch`** — 로봇의 유효 능력 집합이 바뀔 때마다 증가한다. 능력을 캐시한 소비자가 매 메시지에서 O(1)로 캐시 유효성을 판정하고, 틀어진 때만 다시 조회한다. 능력의 ETag이며 런타임 능력 축소가 여기서 소비 가능한 신호가 된다.
@@ -461,7 +477,7 @@ VDA5050 `factsheet.schema`의 구조를 따른다.
 | `schema_version` | 이 문서가 따르는 프로파일 JSON Schema의 버전 |
 | 지원 스킬 | 스킬 타입과 `major.minor` |
 | 스킬별 플래그 | `pause_allowed`, `cancel_allowed` (**둘 다 필수 필드**) |
-| 파라미터 선언 | 키, `ValueType`, 선택 여부, **값 범위와 단위**(가반하중 kg, 도달 범위 m 등) |
+| 파라미터 선언 | 키, `ValueType`, 선택 여부, 그리고 제약 — 수치형은 **값 범위와 단위**(가반하중 kg, 도달 범위 m 등), `ENUM`형은 **허용 값 목록**, 문자열은 최대 길이 |
 | 필수 선택 필드 | `{parameter: 점표기 경로, support: SUPPORTED\|REQUIRED}` |
 | 소요시간 | 스킬별 상수(초). 선택적으로 ± 지터 비율. 진행률의 분모(§4.4) |
 | 실패 모드 | `{error_type, rate, can_continue_current_task, can_accept_new_task, retriable, error_hint, active_until}` |
@@ -504,6 +520,8 @@ VDA5050 `factsheet.schema`의 구조를 따른다.
 
 C-1의 완료 기준이 "둘의 차이가 전부 데이터로만 표현됨"이므로 이 일곱이 코드 변경 없이 표현되어야 한다.
 
+**`MAJOR_MISMATCH`는 프로파일 차이가 아니라 요구 집합으로 만든다.** 두 기종이 같은 스킬을 서로 다른 major로 선언하면 A-1의 "같은 코드로 양쪽 제어"가 그 스킬에서 성립하지 않으므로, 대신 **의도적으로 틀린 요구 집합 파일**(공통 스킬을 `@^2.0`으로 요구)을 호환성 시험 전용 픽스처로 둔다. 정상 경로의 요구 집합과 파일이 다르며 A-1 시험에는 쓰이지 않는다.
+
 세 번째 프로파일 `quadruped-c`는 §11.2의 C-2 시험에서만 쓴다.
 
 ## 8. 레지스트리와 저장 (`registry/`)
@@ -529,6 +547,8 @@ C-1의 완료 기준이 "둘의 차이가 전부 데이터로만 표현됨"이�
 
 **두 경우 모두 `runtime_capability_override`에 기록되고 `capability_epoch`가 오른다. `registry`가 이 테이블의 유일한 기록자다.**
 
+**다만 `capability_epoch`의 채번자는 `registry`가 아니라 발신자다.** 헤더에 실리는 값(§5.5)이므로 기체마다 단조 증가시키는 주체는 `mimic`(장차 실물 어댑터)이고, `registry`는 `CapabilityChanged`를 구독해 그 값을 `capability_epoch_log`에 **관측 기록으로** 적재한다. 그래서 `registry`가 없는 구성(§12의 2단계)에서도 epoch가 정상 동작한다. 발신자가 재기동하면 세션이 바뀌므로(§4.8) 소비자는 `session_id` 변화로 캐시를 버리며, epoch를 프로세스 간에 이어 붙일 필요가 없다.
+
 `mimic` 제어 채널의 `RemoveCapability`(§9.5)는 **첫 번째 사건을 흉내내는 것**이다 — 호출하면 `mimic`이 실제 로봇처럼 `CapabilityChanged`를 발행하고 나머지 경로는 동일하다. 제어 채널이 `registry`를 직접 쓰지 않는다.
 
 ### 8.3 관계형 스키마 (PostgreSQL)
@@ -547,8 +567,12 @@ capability_profile(profile_id PK, vendor, model, UNIQUE(vendor, model))
 profile_revision(profile_revision_id PK, profile_id FK, revision INT,
                  document JSONB, document_hash, schema_version,
                  status,   -- DRAFT|VALIDATED|TESTED|ACTIVE|SUPERSEDED|REVOKED
-                 created_by, created_at, activated_at,
+                 created_by, created_at,
+                 activated_by NULL, activated_at NULL,
                  UNIQUE(profile_id, revision))
+  -- revision은 프로파일 문서가 스스로 선언한 값을 그대로 쓴다(§7.2의 기종 좌표).
+  -- 레지스트리는 채번하지 않고 같은 profile_id 안에서 단조 증가만 강제한다.
+  -- 중복이나 역행이면 등록을 거부한다. 파일 모드(§9.2)에서는 이 값이 곧 식별자다.
 
 -- document의 평탄화. 질의용 파생물.
 profile_skill(profile_revision_id FK, skill_type_id FK,
@@ -556,7 +580,9 @@ profile_skill(profile_revision_id FK, skill_type_id FK,
               PK(profile_revision_id, skill_type_id))
 
 profile_skill_param(profile_revision_id, skill_type_id, key,
-                    value_type, optional, min_value, max_value, unit,
+                    value_type, optional,
+                    min_value, max_value, unit,      -- 수치형
+                    allowed_values JSONB,            -- ENUM형. 허용 값 목록
                     PK(profile_revision_id, skill_type_id, key))
 
 -- harness가 폴링해 집어간다. registry는 harness를 모른다(§3.2).
@@ -592,7 +618,16 @@ audit_log(actor, action, target_type, target_id, before JSONB, after JSONB, at)
 
 설계 결정 다섯.
 
-1. **개정판은 UPDATE하지 않는다.** 고치면 새 `revision`을 만들고 활성화한다. 진행 중이던 태스크가 어느 선언으로 시작됐는지 재구성할 수 있어야 하고, 롤백이 "이전 개정판 재활성화" 한 동작이 된다. 활성화 시 같은 `profile_id`의 이전 `ACTIVE`는 `SUPERSEDED`로 전이하며, 사람이 명시적으로 폐기한 개정판만 `REVOKED`가 된다.
+1. **개정판은 UPDATE하지 않는다.** 고치면 새 `revision`을 만들고 활성화한다. 진행 중이던 태스크가 어느 선언으로 시작됐는지 재구성할 수 있어야 하고, 롤백이 "이전 개정판 재활성화" 한 동작이 된다. `status` 전이는 다음뿐이다.
+
+   ```
+   DRAFT ──검증 통과──> VALIDATED ──시험 PASS──> TESTED ──활성화──> ACTIVE
+                                                    ↑                  │
+                                                    └──새 개정판 활성화─┘  (SUPERSEDED)
+   DRAFT | VALIDATED | TESTED | SUPERSEDED ──폐기──> REVOKED
+   ```
+
+   **활성화가 받는 상태는 `TESTED`와 `SUPERSEDED` 둘이다.** `SUPERSEDED`는 이미 시험을 통과하고 한 번 운영된 개정판이므로 재활성화(롤백)에 다시 시험을 요구하지 않는다. `REVOKED`는 어디로도 나가지 못하는 종착이며 활성화 대상이 아니다.
 2. **원본(`document`)과 평탄화 테이블을 둘 다 둔다.** 원본이 진실이고 평탄화는 질의용이다. **평탄화는 트리거가 아니라 등록 시점에 애플리케이션이 계산한다** — 트리거로 두면 DB 안에 로직이 숨는다.
 3. **런타임 축소는 프로파일을 건드리지 않는다.** `runtime_capability_override`에 얹는다. 팔 고장은 기종의 성질이 아니라 이 기체의 지금 상태이므로 층이 다르다. **유효 능력 = 프로파일 − 오버라이드**이며, 이 계산 결과가 `Capability` 투영이 된다.
 4. **`skill_type`과 `skill_type_param`은 배포 시 동기화되는 읽기 전용이다.** `since_minor`가 있어 프로파일이 선언한 minor로 어떤 파라미터가 유효한지 판정할 수 있다.
@@ -603,7 +638,8 @@ audit_log(actor, action, target_type, target_id, before JSONB, after JSONB, at)
 ### 8.4 런타임 갱신
 
 ```
-① 등록    새 개정판 제출 → JSON Schema 검증 + proto 교차검증 → VALIDATED
+① 등록    새 개정판 제출 → DRAFT로 적재 → JSON Schema 검증 + proto 교차검증 → VALIDATED
+          검증 실패 시 DRAFT에 머무르며 사유가 붙는다 (편집 후 재제출 가능)
 ② 시험    registry가 revision_test_request 적재 → harness가 폴링해 집어감
           harness가 후보 개정판으로 mimic을 띄우고 계약 스위트 실행
           결과를 revision_test_run에 보고. PASS면 개정판이 TESTED
@@ -616,7 +652,7 @@ audit_log(actor, action, target_type, target_id, before JSONB, after JSONB, at)
 
 **④가 발신자 측 반영이고 ⑤가 소비자 측 반영이다.** 둘을 나누지 않으면 "무중단 갱신"이 소비자 캐시 이야기로만 읽힌다. `registry`는 `mimic`을 모르므로(§3.2) 밀지 않고 `mimic`이 당긴다.
 
-**③의 승인 조건은 둘이다** — 해당 개정판의 최신 `revision_test_run.result = PASS`, 그리고 승인자 기록. 하나라도 없으면 거부한다.
+**③의 승인 조건은 셋이다** — `status`가 `TESTED` 또는 `SUPERSEDED`, 해당 개정판의 최신 `revision_test_run.result = PASS`(`SUPERSEDED` 재활성화에서는 과거 기록으로 충족된다), 그리고 `activated_by`에 기록될 승인자. 하나라도 없으면 거부한다.
 
 **진행 중인 태스크는 시작 시점 개정판으로 끝까지 간다(pinning).** `task.profile_revision_id`가 최초 접수 시점 값을 유지하므로 갱신이 진행 중인 작업의 발밑을 바꾸지 않는다. **새 태스크는 ④에서 `mimic`이 집어 든 새 개정판으로 접수된다.** 설계노트 §4.3이 위치 레지스트리에서 제기한 "매핑이 바뀌는 순간 진행 중인 태스크는 어느 좌표를 쓰는가"와 같은 문제이며 답도 같다.
 
@@ -628,9 +664,9 @@ audit_log(actor, action, target_type, target_id, before JSONB, after JSONB, at)
 
 **조작 단위가 테이블 행이 아니라 의도여야 한다.** API 한 번 = 트랜잭션 한 번 = 감사 로그 한 줄.
 
-조작: 기종 등록 / 개정판 올리기 / **시험 요청 적재** / 기체를 개정판으로 바인딩 / 롤백 / 능력 차단·해제(`OPERATOR_BLOCKED`).
+조작 여덟: 기종 등록(`capability_profile`) / **기체 등록**(`robot`) / 개정판 올리기(DRAFT 생성·편집·재제출) / **시험 요청 적재** / 기체를 개정판으로 바인딩 / 롤백(이전 개정판 재활성화) / **개정판 폐기**(`REVOKED`) / 능력 차단·해제(`OPERATOR_BLOCKED`).
 
-승인 경계는 하나다 — **DRAFT 편집은 자유, ACTIVATE는 §8.4 ③의 두 조건.**
+승인 경계는 하나다 — **DRAFT 편집은 자유, ACTIVATE는 §8.4 ③의 세 조건.**
 
 진단은 **read-only JSON 엔드포인트 넷**으로 낸다. 화면은 이 넷을 그대로 표로 그리는 한 장이며, 렌더링·집계 축·갱신 주기를 설계 결정으로 두지 않는다(폴링, 기본 10초).
 
@@ -706,7 +742,7 @@ mimic/
 
 `DumpInternalState`가 §11.2 A-2의 오라클이다. 이것이 없으면 "재구성한 상태가 내부 상태와 일치"를 확인할 방법이 `GetSnapshot`뿐인데, 그것은 계약 표면의 투영이라 투영을 투영과 비교하는 순환이 된다.
 
-`ForceFault`가 `task_id`를 선택으로 받는 것은 §4.6이 스킬 수준과 로봇 수준 결함을 구분하기 때문이다. 로봇 수준 결함이 있어야 §11.2의 "이동은 계속됨" 같은 부분 열화를 시험할 수 있다.
+`ForceFault`가 `task_id`를 선택으로 받는 것은 §4.6이 스킬 수준과 로봇 수준 결함을 구분하기 때문이다. 로봇 수준 결함이 있어야 §11.2의 "이동은 계속됨" 같은 부분 열화를 시험할 수 있다. **프로파일에 선언되지 않은 `error_type`을 주입하면 거절한다** — §4.5 전파 규칙 1의 입력인 `retriable`이 프로파일에서만 오므로, 미선언 값을 허용하면 태스크 종착 판정이 미정의가 된다. 새 결함을 시험하려면 프로파일에 먼저 선언한다.
 
 **별도 포트인 것이 설계의 일부다.** 표준 계약과 같은 표면에 두면 프로덕션 소비자가 이 능력에 손댈 수 있고, 그러면 목이 계약을 오염시킨다. `contracts/`에 들어가지 않으며 별도 proto로 `mimic/` 안에 둔다.
 
@@ -748,7 +784,7 @@ mimic/
 | 4 | 프로파일 ↔ proto 교차검증 | proto에 없는 스킬·파라미터 키, 계약이 아는 최신 minor 초과 | 프로파일의 스킬·키를 proto 기술자와 대조 |
 | 5 | `contracts/` 의존 0 | 계약 모듈이 무언가를 알게 되는 것 | 빌드 그래프에서 `contracts`의 프로젝트 의존 수 == 0 |
 | 6 | 능력 어휘 파괴 검사 | §5.2 버전 규칙 위반 | 기준선 대비 diff를 분류하고 선언된 버전 증가와 대조 |
-| 7 | 기종 분기 금지 | A-1의 "같은 클라이언트 코드", §9.1의 "기종별 클래스 없음" | **`client/`와 `mimic/` 소스**에 프로파일의 `vendor`·`model` 값 문자열이 등장하면 실패 |
+| 7 | 기종 분기 금지 | A-1의 "같은 클라이언트 코드", §9.1의 "기종별 클래스 없음" | **`client/`·`mimic/`·`harness/` 소스**에 프로파일의 `vendor`·`model` 값 문자열이 등장하면 실패. 검사 대상 경로는 `gate`의 설정 상수이며 빌드 의존이 아니다 |
 | 8 | 프로파일 전용 변경 확인 | C-2의 "프로파일 한 장" | 변경 파일이 `profile/profiles/**`뿐인 PR에서 다른 모듈 소스 변경 0을 확인하고 전체 스위트 실행 |
 | 9 | 음성 테스트 | 위 여덟이 실제로는 안 막고 있는 상태 | 아래 |
 
@@ -758,7 +794,20 @@ mimic/
 
 **8번의 판정 기준선**은 6번과 같다 — CI에서는 기본 브랜치 대비 `git diff --name-only`다. `quadruped-c`는 **전용 커밋 하나로 추가**하며, 그 커밋의 변경 파일이 `profile/profiles/quadruped-c.json` 한 장뿐이어야 한다. 이 규약을 지키지 않으면 C-2의 증명이 성립하지 않으므로 규약 자체를 9번의 음성 스위트에 넣는다.
 
-**9번**은 의도적으로 깨는 케이스를 스위트로 유지한다 — 필드 번호 재사용, 파라미터 키 삭제 후 minor만 증가, `contracts/`에 의존 추가, proto에 없는 스킬 선언, 프로파일이 계약의 최신 minor 초과 선언, `client/`·`mimic/`에 기종 문자열 삽입, 미등록 `error_type` 사용, 프로파일 커밋에 소스 변경 섞기. 각각이 CI를 실패시키지 못하면 그 자체가 실패다. 게이트를 시험하지 않으면 게이트가 조용히 죽어도 모른다.
+**9번**은 의도적으로 깨는 케이스를 스위트로 유지하며, **1~8번 각각에 최소 하나씩 대응한다.**
+
+| 겨냥 | 음성 케이스 |
+|---|---|
+| 1 | 명명 규칙을 어긴 메시지·필드 이름 추가 |
+| 2 | 필드 번호 재사용 |
+| 3 | 미등록 `error_type` 사용 |
+| 4 | proto에 없는 스킬 선언 / 계약의 최신 minor 초과 선언 |
+| 5 | `contracts/`에 프로젝트 의존 추가 |
+| 6 | 파라미터 키 삭제 후 minor만 증가 |
+| 7 | `client/`·`mimic/`·`harness/`에 기종 문자열 삽입 |
+| 8 | 프로파일 커밋에 소스 변경 섞기 |
+
+각각이 CI를 실패시키지 못하면 그 자체가 실패다. 게이트를 시험하지 않으면 게이트가 조용히 죽어도 모른다.
 
 ## 11. 시험 전략
 
@@ -772,19 +821,22 @@ mimic/
 
 ### 11.2 완료 기준 · 증명 · 관측 지점
 
-| 완료 기준 | 증명하는 시험 | 그것을 가능하게 하는 메커니즘 |
-|---|---|---|
-| **A-1** 능력 집합이 다른 두 로봇을 같은 클라이언트 코드로 제어 | `client`가 두 프로파일의 `mimic`에 동일 코드 경로로 태스크 완주 | 요구 집합이 설정 파일(§5.4) + 게이트 7번 |
-| **A-2** 중간 구독자가 현재 상태와 이후 전이를 재구성 | 태스크 진행 중 신규 구독 → 스냅샷 + MQTT `event`로 재구성한 상태가 내부 상태와 일치 | `DumpInternalState`(§9.5)가 오라클, 재생 버퍼(§4.8), 모든 전이가 `event`로 나감(§3.5) |
-| **A-2** 결손 감지 | `sequence` 결손을 주입하면 소비자가 감지 | `InjectTransportFault(EVENT_LOSS)`(§9.5) |
-| **A-4** 30초+ 태스크의 진행률·중도취소·부분결과 | 가상 시계로 압축. 진행률 단조 비감소, `CANCELLING` → 종착 순서 확인 | `SetClockMode(VIRTUAL)` + `AdvanceClock`(§9.3), 진행률 정의(§4.4) |
-| **A-4** 취소·일시정지 불가 스킬 | `CANCEL_UNSUPPORTED` / `PAUSE_UNSUPPORTED` 반환 | 프로파일 §7.4의 차이 + `PauseTask`(§4.4) |
-| **C-1** 두 기종이 같은 스키마로, 차이가 전부 데이터 | 두 프로파일이 동일 JSON Schema 통과, §7.4의 일곱 차이가 코드 변경 없이 표현 | 게이트 3번·7번 |
-| **C-1** 투영 일치 | `GetCapabilities` 응답 == 프로파일 문서에서 파생한 기대 능력 | §7.3의 런타임 검증. **구현이 능력을 하드코딩하면 여기서 걸린다** |
-| **C-2** 세 번째 기종을 프로파일 한 장으로 | `quadruped-c` 전용 커밋에서 전체 스위트 통과 | **게이트 8번이 소스 변경 0을 CI로 강제** |
-| **D-1** 깨는 PR이 사람 없이 차단 | 게이트 9번의 음성 스위트 | 게이트가 자기 자신을 증명하는 유일한 행이다 — 9번이 1~8번을 대상으로 삼는다 |
-| 능력 호환성 | 핸드셰이크가 §7.4의 거절 넷을 사유와 함께 반환 | `Negotiate`(§5.4) + `handshake_rejection` 적재 |
-| 런타임 축소·갱신 | `RemoveCapability` → `capability_epoch` 증가 → 캐시 무효화 → 해당 스킬만 `CAPABILITY_WITHDRAWN`, 이동은 계속됨. 개정판 활성화 시 진행 중 태스크는 완주, 새 태스크는 새 개정판 | 제어 채널 → `CapabilityChanged`(§8.2), `mimic` 폴링(§9.3), pinning(§8.4) |
+| # | 완료 기준 | 증명하는 시험 | 그것을 가능하게 하는 메커니즘 |
+|---|---|---|---|
+| 1 | **A-1** 능력 집합이 다른 두 로봇을 같은 클라이언트 코드로 제어 | `client`가 두 프로파일의 `mimic`에 동일 코드 경로로 태스크 완주 | 요구 집합이 설정 파일(§5.4) + 게이트 7번 |
+| 2 | **A-2** 중간 구독자가 현재 상태와 이후 전이를 재구성 | 태스크 진행 중 신규 구독 → 스냅샷 + MQTT `event`로 재구성한 상태가 내부 상태와 일치 | `GetSnapshot`(§4.4), `DumpInternalState`(§9.5)가 오라클, 재생 버퍼(§4.8), 모든 전이가 `event`로 나감(§3.5) |
+| 3 | **A-2** 결손·중복·순서 역전에서 복원 | 셋을 각각 주입해 소비자가 결손은 감지하고, 중복은 무시하며, 역전은 재정렬해 같은 최종 상태에 이른다 | `InjectTransportFault(EVENT_LOSS\|DUPLICATE\|REORDER)`(§9.5), `sequence`·`event_id`(§4.8·§5.5) |
+| 4 | **A-2** 멱등 재수신과 revision 규칙 | 같은 `revision` 재전송은 같은 핸들, 낮으면 `OUTDATED_REVISION`, 높으면 갱신. 버퍼 밖 `sequence` 요청은 `SEQUENCE_EVICTED` | §4.4의 4케이스 표, §4.8의 버퍼. `SetSingleStep`/`Step`으로 재전송 시점을 특정 전이에 맞춘다 |
+| 5 | **A-2** 침묵의 세 원인을 구분 | `OFFLINE`·`HIBERNATING`·`CONNECTION_BROKEN`을 각각 강제하면 소비자가 셋을 다르게 판정한다 | `SetConnection`(§9.5), 연결 스트림(§4.7), 최대 발행 간격(§7.2) |
+| 6 | **A-4** 30초+ 태스크의 진행률·중도취소·부분결과 | 가상 시계로 압축. 같은 `revision` 안에서 진행률 단조 비감소, `CANCELLING` → 종착 순서 확인 | `SetClockMode(VIRTUAL)` + `AdvanceClock`(§9.3), 진행률 정의(§4.4) |
+| 7 | **A-4** 취소·일시정지 불가 스킬 | `CANCEL_UNSUPPORTED` / `PAUSE_UNSUPPORTED` 반환 | 프로파일 §7.4의 차이 + `PauseTask`·`CancelTask`(§4.4) |
+| 8 | **C-1** 두 기종이 같은 스키마로, 차이가 전부 데이터 | 두 프로파일이 동일 JSON Schema 통과, §7.4의 일곱 차이가 코드 변경 없이 표현 | 게이트 3번·7번 |
+| 9 | **C-1** 투영 일치 | `GetCapabilities` 응답 == 프로파일 문서에서 파생한 기대 능력 | §7.3의 런타임 검증. **구현이 능력을 하드코딩하면 여기서 걸린다** |
+| 10 | **C-2** 세 번째 기종을 프로파일 한 장으로 | `quadruped-c` 전용 커밋에서 전체 스위트 통과 | **게이트 8번이 소스 변경 0을 CI로 강제** |
+| 11 | **D-1** 깨는 PR이 사람 없이 차단 | 게이트 9번의 음성 스위트 | 게이트가 자기 자신을 증명하는 유일한 행이다 — 9번의 케이스가 1~8번에 하나씩 대응한다(§10.2) |
+| 12 | 능력 호환성 — 거절 | 핸드셰이크가 §5.4의 거절 넷을 각각 사유와 함께 반환 | `Negotiate`(§5.4). 픽스처는 §7.4의 프로파일 차이 셋과 틀린 요구 집합 파일 하나 |
+| 13 | 런타임 축소 | `RemoveCapability` → `capability_epoch` 증가 → 캐시 무효화 → **해당 스킬만 `CAPABILITY_WITHDRAWN`, 이동은 계속됨** | 제어 채널 → `CapabilityChanged`(§8.2·§4.7), 로봇 수준 결함(`ForceFault` without `task_id`) |
+| 14 | 런타임 갱신 | 개정판 활성화 시 진행 중 태스크는 옛 개정판으로 완주하고 새 태스크는 새 개정판으로 접수된다. 롤백도 같은 경로 | `mimic` 폴링(§9.3), pinning(§8.4), `SUPERSEDED` 재활성화(§8.3 결정 1) |
 
 C-2의 "소스 변경 0" 강제가 가장 값이 크다. 이 프로젝트의 주장이 문장이 아니라 **CI 실패 조건**이 된다.
 
@@ -798,34 +850,39 @@ C-2의 "소스 변경 0" 강제가 가장 값이 크다. 이 프로젝트의 주
 
 | 단계 | 만드는 것 | 끝나면 증명되는 것 |
 |---|---|---|
-| **1** | `contracts/`, `profile/schema/`, `gate/`(검사 1~6·9), CI 배선 | D-1의 대부분. 계약과 프로파일이 서로 어긋나면 PR이 막힌다 |
-| **2** | `mimic`(파일 모드), `client`, `harness`, 프로파일 세 장, 게이트 7~8 | **A-1·A-2·A-4·C-1·C-2 전부.** `registry` 없이 프로젝트의 핵심 주장이 CI 실패 조건이 된다 |
+| **1** | `contracts/`, `profile/schema/`, **픽스처 프로파일 한 장**, `gate/`(검사 1~6과 9의 해당 케이스), CI 배선 | D-1의 대부분. 계약과 프로파일이 서로 어긋나면 PR이 막힌다 |
+| **2** | `mimic`(파일 모드), `client`, `harness`(직접 실행 모드), 기종 프로파일 세 장, 게이트 7~8과 9의 나머지 케이스 | **A-1·A-2·A-4·C-1·C-2 전부.** `registry` 없이 프로젝트의 핵심 주장이 CI 실패 조건이 된다 |
 | **3** | `registry`(DB·API·진단 엔드포인트), `mimic` 레지스트리 모드와 폴링 | 추가 항목 둘 — 능력 호환성의 수집·진단, 레지스트리와 런타임 갱신 |
 
 2단계가 `registry` 없이 성립하는 것이 이 분할의 핵심이다(§3.2의 규칙 2, §9.2의 파일 모드). 가장 값이 큰 주장이 가장 적은 인프라로 증명된다.
 
 ## 13. 남길 결정 기록 (ADR · D-2)
 
-각 항목은 대응하는 §14의 한계를 본문에 링크한다.
+각 항목은 대응하는 §14의 한계를 본문에 링크한다. §14의 아홉 한계는 전부 어느 ADR엔가 대응된다.
 
-1. 계약은 proto, 프로파일은 JSON Schema — 이유와 대가
-2. 실패 3분류를 계약에서 빼고 두 불리언으로 대체
-3. 능력 동일성을 major로 결정하는 규칙과 그 집행 한계 (→ §14.1)
-4. 경로·헤더·페이로드의 역할 분리
-5. 검증을 세 시점으로 나눈 이유와 프로덕션 샘플링
-6. gRPC와 MQTT의 역할 분리, 순서를 계약이 보장하는 이유
-7. `Reset`을 RPC로 노출하지 않고 엔진 내부 전이로 둔 것
-8. 즉시 명령과 동시성 어휘(blocking type)를 계약에서 뺀 것 — 소비 표면이 없는 선언은 두지 않는다
-9. 개정판 불변 + 바인딩 이력 보존
-10. 진행 중 태스크의 개정판 pinning과 갱신이 그것을 바꾸지 않는 것
-11. 능력 축소의 두 경로와 `registry`가 유일한 기록자인 이유
-12. `mimic`이 `registry`를 폴링하는 방향 선택 — push를 쓰지 않아 순환을 피한다 (→ §14.5)
-13. `harness`를 분리하고 시험 요청을 행으로 적재해 `registry ↔ harness` 순환을 피한 것
-14. `mimic` 한 프로세스 다중 로봇 — PoC 편의이지 아키텍처 주장이 아님
-15. `gate`를 라이브러리로 두고 CI·registry가 기준선만 달리해 공유
-16. 게이트 7번을 문자열 검사로 둔 것 (→ §14.6)
-17. 인증·인가를 범위 밖으로 두고 신뢰 네트워크를 전제한 것 (→ §14.3)
-18. openTCS·VDA5050에서 가져온 것과 반례로 쓴 것의 출처
+| # | 결정 | 한계 |
+|---|---|---|
+| 1 | 계약은 proto, 프로파일은 JSON Schema — 이유와 대가 | → §14.2 |
+| 2 | 실패 3분류를 계약에서 빼고 두 불리언으로 대체 | — |
+| 3 | 능력 동일성을 major로 결정하는 규칙과 그 집행 한계 | → §14.1 |
+| 4 | 경로·헤더·페이로드의 역할 분리와 `contract_revision`의 semver 병기 | → §14.4 |
+| 5 | 검증을 세 시점으로 나눈 이유와 프로덕션 샘플링 | — |
+| 6 | gRPC와 MQTT의 역할 분리, 순서를 계약이 보장하는 이유 | — |
+| 7 | 세션 단위 시퀀스와 메모리 재생 버퍼 — 지속 저장을 B-1로 미룬 것 | → §14.8 |
+| 8 | `Reset`을 RPC로 노출하지 않고 엔진 내부 전이로 둔 것 | — |
+| 9 | 즉시 명령과 동시성 어휘(blocking type)를 계약에서 뺀 것 — 소비 표면이 없는 선언은 두지 않는다 | — |
+| 10 | 개정판 불변 + 바인딩 이력 보존, `SUPERSEDED` 재활성화로 롤백 | — |
+| 11 | 진행 중 태스크의 개정판 pinning과 갱신이 그것을 바꾸지 않는 것 | — |
+| 12 | 능력 축소의 두 경로, `registry`가 오버라이드의 유일한 기록자이되 epoch의 채번자는 발신자인 것 | — |
+| 13 | `mimic`이 `registry`를 폴링하는 방향 선택 — push를 쓰지 않아 순환을 피한다 | → §14.5 |
+| 14 | `harness`를 분리하고 시험 요청을 행으로 적재해 `registry ↔ harness` 순환을 피한 것 | — |
+| 15 | `mimic` 한 프로세스 다중 로봇 — PoC 편의이지 아키텍처 주장이 아님 | — |
+| 16 | `gate`를 라이브러리로 두고 CI·registry가 기준선만 달리해 공유 | — |
+| 17 | 게이트 7번을 문자열 검사로 둔 것 | → §14.6 |
+| 18 | 인증·인가를 범위 밖으로 두고 신뢰 네트워크를 전제한 것 | → §14.3 |
+| 19 | **실물 없이 계약을 먼저 굳히는 순서를 택한 것** — C-3를 뒤로 미룬 대가와, 그때까지 프로파일을 벤더 문서에서 파생시키는 규율에 의존하는 이유 | → §14.7 |
+| 20 | 사이트 축을 스키마와 토픽 경로에만 남기고 격리·브리지를 비목표로 둔 것 | → §14.9 |
+| 21 | openTCS·VDA5050에서 가져온 것과 반례로 쓴 것의 출처 | — |
 
 ## 14. 알려진 한계
 
