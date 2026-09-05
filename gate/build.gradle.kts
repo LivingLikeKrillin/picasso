@@ -1,10 +1,25 @@
 import org.gradle.api.tasks.PathSensitivity
 
+plugins {
+    application
+}
+
+application {
+    mainClass.set("dev.picasso.gate.cli.MainKt")
+    // Windows 콘솔 코드페이지에서 한글 소견이 깨진다. 게이트가 무엇을
+    // 막았는지가 유일한 산출물인데 읽을 수 없으면 소용이 없다.
+    applicationDefaultJvmArgs = listOf("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
+}
+
 dependencies {
     implementation(libs.protobuf.java)
     implementation(libs.jsonschema.validator)
     implementation(libs.jackson.databind)
     implementation(libs.clikt)
+
+    // networknt가 slf4j-api를 끌고 오는데 구현이 없으면 경고 세 줄이
+    // 게이트 출력 앞에 붙는다. 게이트가 무엇을 막았는지가 유일한 산출물이다.
+    runtimeOnly(libs.slf4j.nop)
 
     // 루트 build.gradle.kts가 junit-jupiter만 넣는다. kotlin.test는 별도다.
     testImplementation(kotlin("test"))
