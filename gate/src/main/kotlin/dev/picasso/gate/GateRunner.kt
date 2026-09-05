@@ -69,7 +69,11 @@ data class GateReport(
                 }
 
                 is CheckResult.Failed -> {
-                    appendLine("FAIL  ${r.checkId}")
+                    append("FAIL  ${r.checkId}")
+                    if (r.skippedParts.isNotEmpty()) {
+                        append("  (부분 건너뜀: ${r.skippedParts.joinToString(", ")})")
+                    }
+                    appendLine()
                     appendAll(r.findings)
                 }
             }

@@ -27,8 +27,15 @@ enum class Resource {
     /** buf 실행기 */
     BUF,
 
-    /** 파괴 검사의 기준선 */
+    /** 프로파일 파괴 검사의 기준선 문서. 검사 6번이 쓴다 */
     BASELINE,
+
+    /**
+     * 계약 파괴 검사의 기준선. `buf breaking --against` 에 넘길 참조다.
+     * 프로파일 기준선과 별개다 — 하나로 묶으면 한쪽만 주어졌을 때
+     * 다른 쪽 검사가 자원이 있다고 믿고 죽는다.
+     */
+    CONTRACT_BASELINE,
 
     /** 이 PR이 바꾼 파일 목록. 검사 8번(2단계)이 쓴다 */
     CHANGED_FILES,

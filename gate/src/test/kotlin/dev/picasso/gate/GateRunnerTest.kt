@@ -163,6 +163,22 @@ class GateRunnerTest {
     }
 
     @Test
+    fun `실패한 검사의 부분 건너뜀도 출력에 남는다`() {
+        // §11.1대로 검사 6번은 실패하면서 동시에 REGISTRY를 건너뛸 수 있다.
+        // 어느 검사가 건너뛰었는지 없으면 각주가 무의미하다.
+        val c = check("6", emptySet()) {
+            CheckResult.Failed(
+                "6",
+                listOf(Finding("6", Severity.ERROR, "축소 거부")),
+                skippedParts = setOf(Resource.REGISTRY),
+            )
+        }
+        val out = GateRunner(listOf(c)).run(GateInput()).render()
+        assertTrue(out.contains("FAIL"))
+        assertTrue(out.contains("REGISTRY"), "실패한 검사의 부분 건너뜀이 출력에 없다")
+    }
+
+    @Test
     fun `통과의 경고도 위치를 출력한다`() {
         // 어느 스킬인지 없으면 사람이 고칠 수 없다.
         val c = check("6", emptySet()) {

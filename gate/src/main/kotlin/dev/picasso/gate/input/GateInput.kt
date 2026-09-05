@@ -1,6 +1,7 @@
 package dev.picasso.gate.input
 
 import dev.picasso.gate.Resource
+import dev.picasso.gate.buf.BufRunner
 import dev.picasso.gate.model.ProfileDocument
 import java.nio.file.Path
 
@@ -38,8 +39,24 @@ data class GateInput(
     /** 저장소 루트 */
     val repoRoot: Path? = null,
 
-    /** buf를 부를 수 있는가 */
-    val bufAvailable: Boolean = false,
+    /** buf 실행기. 없으면 검사 1·2번이 건너뛴다 */
+    val buf: BufRunner? = null,
+
+    /**
+     * `buf breaking --against` 에 그대로 넘어가는 참조.
+     *
+     * **검사가 `contracts/`에서 buf를 돌리므로 경로는 그 디렉터리 기준이다.**
+     * CI는 `../.git#ref=<베이스 SHA>,subdir=contracts` 를 만든다(실측 확인).
+     * `.git#branch=main` 처럼 저장소 루트 기준으로 쓰면 `contracts/.git`을
+     * 찾다 실패한다.
+     *
+     * **게이트는 이것을 해석하지 않는다.** git을 아는 것은 호출 지점의
+     * 일이고, §11.1이 "기준선은 인자로 받는다"고 한 것이 이 뜻이다.
+     * 베이스에 `contracts/`가 아직 없으면(계약 최초 도입 PR) 호출 지점이
+     * 아예 넘기지 않아 검사 2번이 건너뛴다 — 그것이 §11.1의 "기준선이
+     * 없으면 신규"에 해당한다.
+     */
+    val contractBaseline: String? = null,
 
     /**
      * 파괴 검사의 기준선. **기종 좌표** → 기준선 문서 원문.
@@ -69,7 +86,8 @@ data class GateInput(
         if (schemaJson != null) add(Resource.PROFILE_SCHEMA)
         if (descriptor != null) add(Resource.CONTRACT_DESCRIPTOR)
         if (repoRoot != null) add(Resource.REPO)
-        if (bufAvailable) add(Resource.BUF)
+        if (buf != null) add(Resource.BUF)
+        if (contractBaseline != null) add(Resource.CONTRACT_BASELINE)
         if (baseline != null) add(Resource.BASELINE)
         if (changedFiles != null) add(Resource.CHANGED_FILES)
         if (registry != null) add(Resource.REGISTRY)
