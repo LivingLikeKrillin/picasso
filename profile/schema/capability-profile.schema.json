@@ -1,0 +1,344 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://picasso.dev/schema/capability-profile/1.0.0",
+  "title": "Capability Profile",
+  "description": "한 기종을 기술하는 선언. 설계 §7.2의 표가 이 스키마의 명세다. 로봇이 스스로 선언하는 것이 아니라 벤더 문서에서 파생시키는 것이며, 그 한계는 설계 §15.1에 있다. 필드 간 수치 비교와 부분 키 중복 금지는 2020-12로 표현할 수 없어 게이트 검사 3번이 스키마 검증 뒤에 프로그램으로 확인한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "vendor",
+    "model",
+    "revision",
+    "skills",
+    "publish_interval",
+    "replay_buffer_size",
+    "protocol_limits",
+    "exclusive_control_required"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "이 문서가 따르는 프로파일 스키마의 버전. 투영에 들어가지 않는다 — 문서의 메타이지 능력이 아니다.",
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "vendor": {
+      "description": "기종 좌표. 투영에 들어간다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "description": "기종 좌표. 투영에 들어간다. 문서의 동일성은 (vendor, model)이며 설계 §8.3의 capability_profile이 그 쌍에 UNIQUE를 건다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "revision": {
+      "description": "기종 좌표. 투영에 들어간다. 저작자가 매기는 개정 번호이며, 레지스트리는 채번하지 않고 같은 (vendor, model) 안에서 단조 증가만 강제한다(설계 §8.3).",
+      "type": "integer",
+      "minimum": 0
+    },
+
+    "skills": {
+      "description": "지원 스킬 목록. 투영에 들어간다.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/skill" }
+    },
+
+    "optional_fields": {
+      "description": "필수 선택 필드 선언. 투영에 들어간다. 설계 §5.3.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/optionalField" }
+    },
+
+    "publish_interval": {
+      "description": "상태 발행 간격. 투영에 들어간다 — 소비자의 신선도 판정 입력이다. min ≤ max는 스키마로 표현할 수 없어 게이트 검사 3번이 본다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_seconds", "max_seconds"],
+      "properties": {
+        "min_seconds": { "type": "integer", "minimum": 0 },
+        "max_seconds": {
+          "description": "기본값 30 — VDA5050 §6.6의 상한을 따른다.",
+          "type": "integer",
+          "minimum": 1,
+          "default": 30
+        }
+      }
+    },
+
+    "protocol_limits": {
+      "description": "프로토콜 한계. 투영에 들어간다. 한계를 데이터로 선언하면 mimic이 그것을 강제하는 것만으로 실패 주입이 따로 만들 필요 없이 생긴다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_string_length", "max_array_length"],
+      "properties": {
+        "max_string_length": { "type": "integer", "minimum": 1 },
+        "max_array_length": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "exclusive_control_required": {
+      "description": "이 로봇이 배타 제어 모델인가. 투영에 들어간다. 설계 §4.9 — 조사한 실물 셋이 전부 배타 제어 모델이다.",
+      "type": "boolean"
+    },
+
+    "durations": {
+      "description": "스킬별 소요시간. 투영에 들어가지 않는다 — 진행률 파생에만 쓰고 소비자는 진행률을 받지 소요시간을 받지 않는다.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/duration" }
+    },
+
+    "failure_modes": {
+      "description": "실패 모드와 발생률. 투영에 들어가지 않는다 — 발생률은 시뮬레이션 값이고 실제 결함은 Fault로 나간다.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/failureMode" }
+    },
+
+    "replay_buffer_size": {
+      "description": "재생 버퍼에 보관할 기체당 이벤트 개수(설계 §4.8의 N). 투영에 들어가지 않는다 — 발신자 내부 자원이다.",
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+
+  "$defs": {
+    "support": {
+      "description": "3값인 이유는 설계 §7.2 — '지원하지 않음'과 '벤더 문서에 근거가 없어 모름'을 구분하지 못하면 프로파일 작성자가 거짓말을 하게 된다. Agility Digit은 취소 프리미티브 자체가 없어 정확히 이 구분이 필요하다.",
+      "type": "string",
+      "enum": ["YES", "NO", "UNKNOWN"]
+    },
+
+    "valueType": {
+      "description": "계약 skill.proto의 ValueType과 같은 집합이어야 한다. 게이트 검사 4번이 대조한다.",
+      "type": "string",
+      "enum": ["BOOL", "INTEGER", "NUMBER", "STRING", "ENUM"]
+    },
+
+    "resolution": {
+      "description": "실패가 어떻게 풀리는가. 설계 §4.5 전파 규칙 1의 입력이다.",
+      "type": "string",
+      "enum": ["SELF_RETRIABLE", "NEEDS_INTERVENTION", "TERMINAL"]
+    },
+
+    "errorType": {
+      "description": "코어 여덟 또는 X_<VENDOR>_ 접두사. TERMINAL_STATE_VIOLATED와 CONTROL_AUTHORITY_LOST는 어댑터가 런타임에 발행하는 것이라 프로파일에 쓸 수 없다 — 아래 enum에서 제외되어 있고 게이트 검사 3번이 이를 강제한다.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "LOCALIZATION_LOST",
+            "PAYLOAD_LOST",
+            "SKILL_EXECUTION_FAILED",
+            "PARAMETER_OUT_OF_RANGE",
+            "CONTRACT_REVISION_MISMATCH",
+            "INTERNAL_ERROR"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^X_[A-Z0-9]+_[A-Z0-9_]+$"
+        }
+      ]
+    },
+
+    "skill": {
+      "description": "스킬 하나의 선언. 전부 투영에 들어간다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill_type", "major", "minor", "pause_support", "cancel_support", "parameters"],
+      "properties": {
+        "skill_type": {
+          "description": "계약 skill_catalog.proto의 skill_type_name과 일치해야 한다. 게이트 검사 4번이 대조한다.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "major": { "type": "integer", "minimum": 1 },
+        "minor": {
+          "description": "계약이 아는 최신 minor(skill_type_max_minor)를 초과할 수 없다. 게이트 검사 4번이 막는다.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "pause_support": { "$ref": "#/$defs/support" },
+        "cancel_support": { "$ref": "#/$defs/support" },
+        "parameters": {
+          "description": "필수다. 파라미터가 없는 스킬은 빈 배열을 쓴다 — 빠뜨린 것과 없는 것을 구분하기 위해서다. 선언한 minor의 필수 파라미터를 빠뜨렸는지는 게이트 검사 4번이 계약 카탈로그와 양방향 대조로 본다.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/parameter" }
+        },
+        "deprecated_after": {
+          "description": "폐기 예고. 투영에 들어간다. 없으면 예고가 없다는 뜻이다. format이 아니라 pattern으로 막는 이유는 2020-12에서 format이 기본 annotation-only라 검증기에 따라 아무것도 하지 않기 때문이다.",
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+        }
+      }
+    },
+
+    "parameter": {
+      "description": "파라미터 하나의 선언과 제약. 전부 투영에 들어간다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value_type", "optional"],
+      "properties": {
+        "key": {
+          "description": "계약의 파라미터 키와 일치해야 한다. 키는 불변이다 — 의미나 단위가 바뀌면 새 키를 만든다. 벤더 확장(x-<vendor>.<key>)이 여기 올 수 없는 것은 의도다: 설계 §7.3대로 프로파일은 계약을 참조만 하고 확장하지 못한다.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "value_type": { "$ref": "#/$defs/valueType" },
+        "optional": { "type": "boolean" },
+        "min_value": { "type": "number" },
+        "max_value": { "type": "number" },
+        "unit": {
+          "description": "수치형에만. 단위가 바뀌면 새 키를 만든다.",
+          "type": "string"
+        },
+        "allowed_values": {
+          "description": "ENUM형에만. 없으면 송신 직전 검사가 ENUM 파라미터에 아무것도 강제하지 못한다.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "max_length": {
+          "description": "문자열형에만.",
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "allOf": [
+        {
+          "description": "ENUM형이면 allowed_values가 있어야 한다.",
+          "if": {
+            "properties": { "value_type": { "const": "ENUM" } },
+            "required": ["value_type"]
+          },
+          "then": { "required": ["allowed_values"] }
+        },
+        {
+          "description": "수치형이 아니면 min_value/max_value/unit을 쓸 수 없다.",
+          "if": {
+            "not": {
+              "properties": {
+                "value_type": { "enum": ["INTEGER", "NUMBER"] }
+              },
+              "required": ["value_type"]
+            }
+          },
+          "then": {
+            "properties": {
+              "min_value": false,
+              "max_value": false,
+              "unit": false
+            }
+          }
+        },
+        {
+          "description": "ENUM형이 아니면 allowed_values를 쓸 수 없다. 반대 방향도 막아야 description이 거짓말이 되지 않는다.",
+          "if": {
+            "not": {
+              "properties": { "value_type": { "const": "ENUM" } },
+              "required": ["value_type"]
+            }
+          },
+          "then": { "properties": { "allowed_values": false } }
+        },
+        {
+          "description": "문자열형이 아니면 max_length를 쓸 수 없다.",
+          "if": {
+            "not": {
+              "properties": { "value_type": { "const": "STRING" } },
+              "required": ["value_type"]
+            }
+          },
+          "then": { "properties": { "max_length": false } }
+        }
+      ]
+    },
+
+    "optionalField": {
+      "description": "필수 선택 필드 선언. 투영에 들어간다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameter_path", "support"],
+      "properties": {
+        "parameter_path": {
+          "description": "점표기 경로. 예: task.parameters.approach_vector",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+        },
+        "support": {
+          "description": "REQUIRED면 이 필드를 보내지 않는 클라이언트가 런타임이 아니라 핸드셰이크에서 걸린다.",
+          "type": "string",
+          "enum": ["SUPPORTED", "REQUIRED"]
+        }
+      }
+    },
+
+    "duration": {
+      "description": "스킬별 소요시간. 투영에 들어가지 않는다 — 진행률의 분모다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill_type", "seconds"],
+      "properties": {
+        "skill_type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "jitter_ratio": {
+          "description": "0.1이면 ±10%. 시드 기반이라 재현된다.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+
+    "failureMode": {
+      "description": "실패 모드 하나. 투영에 들어가지 않는다 — resolution은 설계 §4.5 전파 규칙 1의 입력으로 어댑터 내부에서만 쓰인다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error_type",
+        "rate",
+        "can_continue_current_task",
+        "can_accept_new_task",
+        "resolution"
+      ],
+      "properties": {
+        "error_type": { "$ref": "#/$defs/errorType" },
+        "skill_type": {
+          "description": "있으면 스킬 수준 결함, 없으면 로봇 수준 결함이다. 설계 §4.6.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "rate": {
+          "description": "이 스킬 실행당 발생 확률. 시뮬레이션 값이다.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "can_continue_current_task": { "type": "boolean" },
+        "can_accept_new_task": { "type": "boolean" },
+        "resolution": { "$ref": "#/$defs/resolution" },
+        "error_hint": {
+          "description": "사람이 취할 조치. NEEDS_INTERVENTION이면 이것이 없는 결함은 실무에서 쓸모가 없다.",
+          "type": "string"
+        },
+        "active_until": {
+          "description": "계약의 Lifetime은 UNTIL(timestamp)도 갖지만 여기서는 의도적으로 뺐다 — 프로파일은 실패의 '모드'를 선언하지 인스턴스를 선언하지 않으므로 절대 시각이 의미를 갖지 않는다. 런타임 결함은 Fault.active_until에서 세 값을 다 쓸 수 있다.",
+          "type": "string",
+          "enum": ["UNTIL_CLEARED", "UNTIL_NEW_TASK"]
+        }
+      },
+      "allOf": [
+        {
+          "description": "사람 개입이 필요한 실패는 무엇을 하라는지 적어야 한다.",
+          "if": {
+            "properties": { "resolution": { "const": "NEEDS_INTERVENTION" } },
+            "required": ["resolution"]
+          },
+          "then": { "required": ["error_hint"] }
+        }
+      ]
+    }
+  }
+}
