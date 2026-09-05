@@ -27,5 +27,15 @@ tasks.withType<Test>().configureEach {
         .withPropertyName("contractDescriptor")
         .withPathSensitivity(PathSensitivity.NONE)
 
+    // 디스크립터와 같은 이유다. 이 선언이 없으면 픽스처나 스키마를 고치고
+    // ./gradlew build를 돌려도 게이트 시험이 UP-TO-DATE로 넘어가 초록이 난다.
+    // 실측으로 확인된 구멍이다 — 픽스처를 CRLF로 바꿔 다섯 시험이 깨지는
+    // 상태에서도 BUILD SUCCESSFUL이 났다.
+    inputs.files(
+        rootProject.file("profile/fixtures"),
+        rootProject.file("profile/schema"),
+    ).withPropertyName("profileInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+
     systemProperty("picasso.descriptor", descriptor.absolutePath)
 }

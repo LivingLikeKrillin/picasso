@@ -3,3 +3,7 @@ tools/buf    text eol=lf
 *.sh         text eol=lf
 gradlew.bat  text eol=crlf
 *.jar        binary
+
+# 게이트 시험이 픽스처를 문자열로 치환한다. CRLF로 체크아웃되면
+# 줄바꿈을 담은 치환이 빗나가고 음성 시험이 조용히 통과한다.
+*.json       text eol=lf
