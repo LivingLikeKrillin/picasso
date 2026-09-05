@@ -1,0 +1,7 @@
+version: v2
+plugins:
+  # 2단계에서 활성화한다. 지금은 디스크립터만 쓴다.
+  # - remote: buf.build/protocolbuffers/java
+  #   out: build/generated/java
+managed:
+  enabled: true
