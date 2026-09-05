@@ -290,6 +290,7 @@ OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조를 언어 �
 | `Reference` | `{key, value}`. `key` ∈ `task_id`, `skill_id`, `robot_id`, `parameter_key` |
 | `Lifetime` | `UNTIL_CLEARED`, `UNTIL_NEW_TASK`, `UNTIL(timestamp)` |
 | `Support` | `YES`, `NO`, `UNKNOWN` — 3값인 이유는 §7.2 |
+| — | **아래 표의 값 이름은 개념 이름이다.** proto에서는 `ENUM_VALUE_PREFIX` 규칙 때문에 enum 이름 접두사가 붙고 0값 `_UNSPECIFIED`가 앞에 온다 — 예: `CONNECTION_BROKEN` → `CONNECTION_STATE_CONNECTION_BROKEN`, `YES` → `SUPPORT_YES`. **wire 상의 이름은 접두사가 붙은 쪽이다.** 값 이름이 바뀌는 것은 §11.2의 6번이 다루는 변화이므로 이 대응을 여기 못 박는다 |
 | `Resolution` | `SELF_RETRIABLE`, `NEEDS_INTERVENTION`, `TERMINAL` — 실패 모드가 어떻게 풀리는가 |
 | `RejectionCode` | 아래 |
 
@@ -1154,13 +1155,28 @@ mimic/
 |---|---|---|---|
 | 1 | `buf lint` | 명명 규칙 이탈 | buf |
 | 2 | `buf breaking` | 필드 번호 재사용, 타입 변경 | buf, 기준선 대비 |
-| 3 | 프로파일 JSON Schema + `error_type` 어휘 | 잘못된 프로파일, 미등록 `error_type` | 스키마 검증 + §4.3의 코어 집합·`X_` 접두사 대조 |
-| 4 | 프로파일 ↔ proto 교차검증 | proto에 없는 스킬·키, 최신 minor 초과 | 프로파일의 스킬·키를 proto 기술자와 대조 |
+| 3 | 프로파일 JSON Schema + **스키마로 표현 불가능한 구조 규칙** | 잘못된 프로파일, 미등록 `error_type`, 뒤집힌 범위, 중복 선언 | 아래 |
+| 4 | 프로파일 ↔ proto 교차검증 | proto에 없는 스킬·키, 최신 minor 초과, **선언한 minor의 필수 파라미터 누락** | **양방향** 대조 — 아래 |
 | 5 | `contracts/` 의존 0 | 계약 모듈이 무언가를 알게 되는 것 | 빌드 그래프에서 프로젝트 의존 수 == 0 |
 | 6 | **능력 어휘 파괴 검사 + 확장/축소 분류** | §5.2 버전 규칙 위반, 파급 미확인 축소 | 아래 |
 | 7 | 기종 분기 금지 | A-1의 "같은 클라이언트 코드", §10.1의 "기종별 클래스 없음" | `client/`·`mimic/`·`harness/` 소스에 프로파일의 `vendor`·`model` 값 문자열이 등장하면 실패 |
 | 8 | 프로파일 전용 변경 확인 | C-2의 "프로파일 한 장" | 변경 파일이 `profile/profiles/**`뿐인지 `git diff --name-only`로 판정 |
 | 9 | 음성 테스트 | 위 여덟이 실제로는 안 막고 있는 상태 | 아래 |
+
+**3번은 JSON Schema 검증만이 아니다.** 2020-12에는 **필드 간 수치 비교가 없고**, `uniqueItems`는 항목 전체를 비교하므로 부분 키 중복을 잡지 못한다. 아래 넷은 스키마 검증 뒤에 프로그램으로 확인한다.
+
+| 규칙 | 놓치면 |
+|---|---|
+| `min_value ≤ max_value` | 뒤집힌 범위가 런타임에야 터진다 |
+| `publish_interval.min_seconds ≤ max_seconds` | 같은 이유 |
+| `(skill_type, major)` 중복 금지 | §5.2가 이 쌍을 동일성으로 규정하는데 둘이 공존하게 된다 |
+| 한 스킬 안 파라미터 `key` 중복 금지 | 어느 선언이 유효한지 미정의가 된다 |
+
+`error_type` 어휘 검사는 스키마의 enum과 `X_` 패턴이 담당하며, **어댑터 전용 둘(`TERMINAL_STATE_VIOLATED`·`CONTROL_AUTHORITY_LOST`)은 그 enum에서 제외**되어 프로파일이 선언할 수 없다.
+
+**4번은 양방향이다.** 프로파일→proto만 보면 **프로파일이 필수 파라미터를 빠뜨려도 통과한다** — 없는 것을 선언하지 않았을 뿐이므로 참조 무결성은 깨지지 않기 때문이다. 그래서 반대 방향도 본다: 프로파일이 `skill_type@major.minor`를 선언했으면, 계약 카탈로그에서 그 major의 **`since_minor ≤ 선언한 minor`이고 `is_optional = false`인 파라미터가 전부 프로파일에 있는지** 확인한다. `since_minor`와 `is_optional`을 옵션으로 선언해 둔 것이 여기서 값을 한다.
+
+**존재성 판정에 주의한다.** 옵션 확장은 proto2 존재성을 가지므로 `skill_type_max_minor = 0`처럼 **명시적으로 0을 준 것과 아예 선언하지 않은 것이 구분된다**(실측 확인). "최신 minor 초과" 판정은 이 구분에 의존하므로 값만 읽지 말고 존재 여부를 함께 본다.
 
 **6번**은 기준선 문서와 새 문서를 diff해 변화를 분류하고 두 가지를 본다.
 

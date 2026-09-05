@@ -26,7 +26,10 @@ jobs:
       - name: buf lint
         run: cd contracts && ../tools/buf lint
 
-      - name: buf breaking (self-check)
+      # --against . 은 자기 자신과 비교하므로 실패할 수 없다.
+      # 회귀 방어가 아니라 buf.yaml의 breaking: 절이 파싱되는지 보는 것이다.
+      # 진짜 회귀 방어는 게이트 검사 2번이 기본 브랜치를 기준선으로 삼을 때 생긴다.
+      - name: buf breaking (config self-check)
         run: cd contracts && ../tools/buf breaking --against .
 
       - name: buf build (descriptor)
