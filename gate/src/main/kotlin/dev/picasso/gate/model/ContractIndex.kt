@@ -35,23 +35,57 @@ data class SkillTypeDef(
     /** 이 minor에서 유효한 파라미터 전부. */
     fun parametersAt(minor: Int): List<ParameterDef> =
         parameters.filter { it.sinceMinor <= minor }
+
+    /**
+     * `since_minor`가 `max_minor`를 넘는 파라미터 — **어떤 유효한 minor에서도
+     * 나타날 수 없다.** 필수인데 이렇게 선언하면 양방향 대조가 그것을 영영
+     * 못 보고, 계약을 잘못 쓴 사람은 아무 말도 듣지 못한다.
+     */
+    fun unreachableParameters(): List<ParameterDef> =
+        if (maxMinorDeclared) parameters.filter { it.sinceMinor > maxMinor } else emptyList()
 }
 
 /**
  * 계약이 소유하는 스킬 어휘. 설계 §5.2·§8.3 결정 4.
  *
  * 최상위 메시지만 훑는다 — 스킬 카탈로그의 규약은 "스킬 타입 하나의 major
- * 하나가 최상위 메시지 하나"다. 중첩 메시지에 옵션을 달면 무시된다.
+ * 하나가 최상위 메시지 하나"다. 중첩 메시지에 스킬 옵션이 달려 있으면
+ * 조용히 무시하지 않고 실패한다.
+ *
+ * **계약 저작 실수를 조용히 삼키지 않는 것이 이 클래스의 절반이다.** 옵션
+ * 미선언·repeated·도달 불가능한 since_minor·중첩 배치·(name, major) 중복은
+ * 전부 proto 쪽 버그인데, 삼키면 검사 4번이 프로파일을 탓하게 되어 사람이
+ * 엉뚱한 파일을 들여다본다.
  */
 class ContractIndex private constructor(
     private val skills: List<SkillTypeDef>,
+    /** 디스크립터에 든 proto 파일 수. 0이면 디스크립터가 낡거나 깨진 것이다. */
+    val scannedFiles: Int,
 ) {
     fun skillTypes(): List<String> = skills.map { it.name }.distinct()
 
-    fun find(name: String, major: Int): SkillTypeDef? =
-        skills.firstOrNull { it.name == name && it.major == major }
+    /**
+     * 중복이면 조용히 하나를 고르지 않고 죽는다. GateRunner가 예외를 Failed로
+     * 접으므로 게이트는 빨간불이 되고 사람은 이유를 읽는다.
+     * [duplicates]를 먼저 보라는 KDoc 경고만으로는 잊으면 그만이다.
+     */
+    fun find(name: String, major: Int): SkillTypeDef? {
+        val hits = skills.filter { it.name == name && it.major == major }
+        check(hits.size <= 1) {
+            "계약에 (name, major) 중복이 있다: $name@$major — duplicates()를 먼저 보라"
+        }
+        return hits.firstOrNull()
+    }
 
     fun all(): List<SkillTypeDef> = skills
+
+    /**
+     * 스킬이 하나도 없다. **계약이 정말 빈 것이 아니라 디스크립터가 낡거나
+     * 깨졌다는 뜻일 가능성이 높다** — 0바이트 디스크립터(buf가 중간에 죽어
+     * 빈 파일을 남긴 경우)는 예외 없이 빈 색인이 된다. 검사 4번이 이것을
+     * 실패로 판정한다.
+     */
+    fun isEmpty(): Boolean = skills.isEmpty()
 
     /**
      * 같은 (name, major)가 둘 이상인 것들. 설계 §8.3의 UNIQUE(name, major).
@@ -83,10 +117,14 @@ class ContractIndex private constructor(
             val set = FileDescriptorSet.parseFrom(descriptorBytes, registry)
 
             val skills = set.fileList.flatMap { file ->
+                // 중첩 메시지에 스킬 옵션을 달면 조용히 무시된다. 그러면
+                // 검사 4번이 "proto에 없는 스킬"이라며 프로파일을 탓하고,
+                // 진짜 버그는 proto에 있는데 사람이 엉뚱한 곳을 본다.
+                file.messageTypeList.forEach { rejectNestedSkills(file, it, extByName) }
                 file.messageTypeList.mapNotNull { msg -> toSkill(file, msg, extByName) }
             }
 
-            return ContractIndex(skills)
+            return ContractIndex(skills, scannedFiles = set.fileCount)
         }
 
         private fun buildRegistry(
@@ -134,6 +172,21 @@ class ContractIndex private constructor(
             return registry to byFullName
         }
 
+        private fun rejectNestedSkills(
+            file: FileDescriptorProto,
+            msg: DescriptorProto,
+            ext: Map<String, Descriptors.FieldDescriptor>,
+        ) {
+            val nameField = ext[OPT_SKILL_NAME] ?: return
+            msg.nestedTypeList.forEach { nested ->
+                check(!nested.options.hasField(nameField)) {
+                    "스킬 타입은 최상위 메시지여야 한다: " +
+                        "${file.name}:${msg.name}.${nested.name} 에 스킬 옵션이 달려 있다"
+                }
+                rejectNestedSkills(file, nested, ext)
+            }
+        }
+
         private fun toSkill(
             file: FileDescriptorProto,
             msg: DescriptorProto,
@@ -149,6 +202,13 @@ class ContractIndex private constructor(
                 ?: error("$OPT_SKILL_MAX_MINOR 확장이 계약에 없다")
 
             val name = opts.getField(nameField) as String
+
+            // 미선언이면 proto2 기본값 0이 조용히 들어온다. 프로파일 스키마는
+            // major >= 1이므로 find가 못 찾고, 검사 4번은 "proto에 없는 스킬"
+            // 이라며 프로파일을 지목한다 — 진짜 버그는 proto에 있는데.
+            check(opts.hasField(majorField)) {
+                "$name 에 skill_type_major가 없다 (${file.name}:${msg.name})"
+            }
             val major = (opts.getField(majorField) as Number).toInt()
             val declared = opts.hasField(maxMinorField)
             val maxMinor =
@@ -193,8 +253,14 @@ class ContractIndex private constructor(
          * 그 밖의 타입은 카탈로그에 쓰지 않기로 했으므로 만나면 실패한다 —
          * 조용히 넘기면 검사 4번이 그 파라미터를 못 보게 된다.
          */
-        private fun valueTypeOf(f: FieldDescriptorProto): ValueType =
-            when (f.type) {
+        private fun valueTypeOf(f: FieldDescriptorProto): ValueType {
+            // 프로파일의 ValueType에는 카디널리티가 없다. repeated를 스칼라로
+            // 접으면 프로파일이 그것을 평범한 STRING으로 선언해도 검사 4번이
+            // 통과시키고, 불일치가 런타임까지 간다.
+            check(f.label != FieldDescriptorProto.Label.LABEL_REPEATED) {
+                "스킬 카탈로그는 repeated 파라미터를 지원하지 않는다: ${f.name}"
+            }
+            return when (f.type) {
                 FieldDescriptorProto.Type.TYPE_BOOL -> ValueType.BOOL
                 FieldDescriptorProto.Type.TYPE_INT64 -> ValueType.INTEGER
                 FieldDescriptorProto.Type.TYPE_DOUBLE -> ValueType.NUMBER
@@ -205,5 +271,6 @@ class ContractIndex private constructor(
                         "skill_catalog.proto의 매핑표를 보라.",
                 )
             }
+        }
     }
 }

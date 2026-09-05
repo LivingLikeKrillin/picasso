@@ -4,6 +4,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -94,9 +96,74 @@ class ContractIndexTest {
     }
 
     @Test
-    fun `같은 이름과 major가 둘이면 실패한다`() {
-        // 설계 §8.3이 UNIQUE(name, major)를 규정한다. firstOrNull로 조용히
-        // 하나만 보면 검사 4번의 무결성이 무너진다.
+    fun `지금 계약에는 중복도 도달 불가능한 파라미터도 없다`() {
         assertTrue(index.duplicates().isEmpty())
+        assertFalse(index.isEmpty())
+        assertTrue(index.scannedFiles > 0)
+        index.all().forEach {
+            assertTrue(it.unreachableParameters().isEmpty(), "도달 불가능한 파라미터: $it")
+        }
+    }
+
+    // ── 계약 저작 실수. 전부 조용히 삼키던 것들이라 실제 디스크립터를
+    //    변형해 확인한다. 픽스처를 커밋하면 계약이 바뀔 때 낡는다.
+
+    @Test
+    fun `같은 이름과 major가 둘이면 duplicates가 잡고 find가 죽는다`() {
+        // §8.3의 UNIQUE(name, major). duplicates()가 emptyList()를 돌려주도록
+        // 잘못 고쳐도 초록이던 자리다.
+        val mutated = ContractIndex.from(
+            DescriptorMutation.duplicateSkill(descriptorBytes(), "PickPlaceV1"),
+        )
+        assertEquals(listOf("pick_place" to 1), mutated.duplicates())
+
+        // find가 조용히 첫 번째만 보면 minor 판정이 어느 쪽 기준인지 미정의가 된다.
+        assertFailsWith<IllegalStateException> { mutated.find("pick_place", 1) }
+    }
+
+    @Test
+    fun `repeated 파라미터를 스칼라로 접지 않는다`() {
+        // 접으면 프로파일이 그것을 평범한 STRING으로 선언해도 검사 4번이
+        // 통과시키고 카디널리티 불일치가 런타임까지 간다.
+        val bytes = DescriptorMutation.makeRepeated(descriptorBytes(), "PickPlaceV1", "object_id")
+        val e = assertFailsWith<IllegalStateException> { ContractIndex.from(bytes) }
+        assertTrue(e.message!!.contains("object_id"))
+    }
+
+    @Test
+    fun `skill_type_major 미선언을 0으로 읽지 않는다`() {
+        // proto2 기본값 0이 조용히 들어오면 프로파일 스키마의 major >= 1과
+        // 어긋나 find가 못 찾고, 검사 4번은 "proto에 없는 스킬"이라며
+        // 프로파일을 지목한다 — 진짜 버그는 proto에 있는데.
+        val bytes = DescriptorMutation.dropMajor(descriptorBytes(), "NavigateToV1")
+        val e = assertFailsWith<IllegalStateException> { ContractIndex.from(bytes) }
+        assertTrue(e.message!!.contains("skill_type_major"))
+    }
+
+    @Test
+    fun `max_minor를 넘는 since_minor는 도달 불가능하다`() {
+        // pick_place의 max_minor는 2다. 필수 파라미터에 since_minor=7을 주면
+        // 어떤 유효한 minor에서도 나타나지 않아 양방향 대조가 영영 못 본다.
+        val bytes = DescriptorMutation.setSinceMinor(descriptorBytes(), "PickPlaceV1", "object_id", 7)
+        val skill = assertNotNull(ContractIndex.from(bytes).find("pick_place", 1))
+
+        assertTrue(skill.requiredParametersAt(2).none { it.key == "object_id" })
+        assertEquals(listOf("object_id"), skill.unreachableParameters().map { it.key })
+    }
+
+    @Test
+    fun `중첩된 스킬 메시지를 조용히 무시하지 않는다`() {
+        val bytes = DescriptorMutation.nestSkill(descriptorBytes(), "NavigateToV1")
+        val e = assertFailsWith<IllegalStateException> { ContractIndex.from(bytes) }
+        assertTrue(e.message!!.contains("최상위"))
+    }
+
+    @Test
+    fun `빈 디스크립터는 빈 색인이 된다`() {
+        // 0바이트 디스크립터(buf가 중간에 죽어 빈 파일을 남긴 경우)는 예외
+        // 없이 통과한다. 검사 4번이 isEmpty()를 보고 실패시켜야 한다.
+        val empty = ContractIndex.from(ByteArray(0))
+        assertTrue(empty.isEmpty())
+        assertEquals(0, empty.scannedFiles)
     }
 }
