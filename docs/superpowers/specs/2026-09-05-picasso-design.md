@@ -112,7 +112,9 @@ picasso/
   registry/           개정판·어댑터·원장·변경 계획·카탈로그    8·9절
   mimic/              프로파일 주도 에뮬레이터 + 제어 채널      C-2
   client/             계약 소비자 — 완료 기준 증명용
-  gate/               검증 라이브러리. CI와 registry가 호출     D-1
+  gate/
+    src/              검증 라이브러리. CI와 registry가 호출     D-1
+    negative/         음성 케이스를 **데이터로** 보관 (깨진 proto 조각, 합성 diff)
   harness/            계약 스위트 실행기                        12절
   docs/adr/           결정 기록                                 D-2
 ```
@@ -138,15 +140,18 @@ harness   → mimic, client
 | 방향 | 무엇 | 없을 때 |
 |---|---|---|
 | `mimic` ⇢ `registry` | 프로파일 로드·폴링(§10.2·§10.3) | 파일 모드로 동작 |
-| `mimic` ⇢ `registry` | 핸드셰이크 결과 보고(§5.4), 능력 변경 발행 | 로컬 파일에 기록 |
+| `mimic` ⇢ `registry` | 핸드셰이크 결과 보고(§5.4) | 로컬 파일에 기록 |
+| `mimic` ⇢ 브로커 | 상태·이벤트·연결 발행 | — |
+| `registry` ⇠ 브로커 | 이벤트 **구독** — 능력 변경, **태스크 전이**(§8.3의 `task` 적재), 결함 | 해당 테이블이 비고 §9.3의 드레인 판정이 불가 |
+| `registry` ⇢ 브로커 | **사이트 카탈로그 스트림 발행**(§9.6) | 상위가 폴링으로 대체 |
 | `harness` ⇢ `registry` | 시험 요청 폴링·결과 보고(§8.4 ②) | 직접 실행 모드 |
 | `client` ⇢ `mimic` | gRPC·MQTT | — |
-| `client` ⇢ `registry` | 요구 등록(§9.2) | 원장 없이 동작(파급 계산 불가) |
+| `client` ⇢ `registry` | 요구 등록(§9.2), 소비자 측 결함 보고(§6.2) | 원장 없이 동작(파급 계산 불가) |
 
 **순환을 피하는 두 규칙.**
 
 1. **`registry`는 `mimic`도 `harness`도 모른다.** 시험은 `harness`가 수행하고, `registry`는 시험 요청을 `revision_test_request` 행으로 **적재만** 한다. `harness`가 폴링해 집어간 뒤 결과를 API로 보고한다.
-2. **`registry`는 아무에게도 밀지 않는다.** 갱신 반영은 `mimic`이 당기고(§10.3), 능력 변경 관측은 `registry`가 MQTT를 구독해 받는다. 두 방향 모두 `registry → *` 간선을 만들지 않는다.
+2. **`registry`는 어느 모듈에도 직접 밀지 않는다.** 갱신 반영은 `mimic`이 당기고(§10.3), 관측은 브로커 구독으로 받는다. **브로커에 발행하는 것은 이 규칙의 예외가 아니다** — 발행은 특정 모듈을 지목하지 않으므로 간선이 생기지 않는다. 카탈로그 스트림이 그 경우다.
 
 ### 3.3 각 모듈의 책임
 
@@ -219,7 +224,7 @@ OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조를 언어 �
 | `Resume` | `SUSPENDED` | `RUNNING` | `ResumeTask` |
 | `Halt` | `RUNNING`, `SUSPENDED` | `HALTED` | 취소 확정, 또는 `can_continue_current_task=false`인 결함 |
 | `Complete` | `RUNNING` | `READY` | 정상 완료 |
-| `Reset` | `HALTED` | `READY` | **엔진 내부 전이.** 태스크가 종착에 들거나 `RETRIABLE`이 된 직후 자동 수행 |
+| `Reset` | `HALTED` | `READY` | **엔진 내부 전이.** 셋 중 하나 직후 자동 수행 — 태스크가 종착에 듦, `RETRIABLE`이 됨, **갱신으로 스킬을 다시 시작함**(§4.4) |
 
 표에 없는 조합은 전부 불법이며 `INVALID_TRANSITION`으로 거절한다. 이 표가 §12.1의 "상태머신 망라성" 단위 시험의 대상이며, Kotlin sealed + `when` 망라성이 검사하는 대상이다.
 
@@ -245,7 +250,7 @@ OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조를 언어 �
 |---|---|
 | `Negotiate` (다섯) | `MAJOR_MISMATCH`, `SKILL_ABSENT`, `REQUIRED_OPTIONAL_MISSING`, `LIMIT_EXCEEDED`, `IDENTITY_MISMATCH` |
 | 태스크 RPC (다섯) | `CAPABILITY_WITHDRAWN`, `CANCEL_UNSUPPORTED`, `PAUSE_UNSUPPORTED`, `OUTDATED_REVISION`, `INVALID_TRANSITION` |
-| 스트림 (하나) | `SEQUENCE_EVICTED` |
+| `ReplayEvents` (하나) | `SEQUENCE_EVICTED` |
 
 **`CAPABILITY_WITHDRAWN`은 핸드셰이크 이후 능력이 사라진 스킬로 `StartTask`가 왔을 때 반환**하며, 응답에 현재 `capability_epoch`를 실어 클라이언트가 능력을 다시 가져오게 한다.
 
@@ -261,8 +266,13 @@ PauseTask(TaskHandle)                  -> Ack           pause_allowed=false면 P
 ResumeTask(TaskHandle)                 -> Ack
 CancelTask(CancelRequest)              -> CancelAck     cancel_allowed=false면 CANCEL_UNSUPPORTED
 GetSnapshot(robot_id)                  -> Snapshot      현재 상태 + 그 시점의 sequence
+ReplayEvents(robot_id, from_sequence)  -> stream Event  재생 버퍼에서 이어받기
 GetCapabilities(robot_id)              -> Capability    유효 능력의 투영 (§7.3)
 ```
+
+파일 귀속은 §4.1이 정본이다 — 이 블록은 호출자 관점의 목록이며 `GetSnapshot`·`ReplayEvents`는 `event.proto`, `GetCapabilities`는 `skill.proto`에 있다.
+
+`ReplayEvents`가 §4.8의 재생 버퍼를 요청하는 유일한 표면이다. 요청한 `from_sequence`가 버퍼를 벗어났으면 `SEQUENCE_EVICTED`로 답하며, 소비자는 `GetSnapshot`부터 다시 세운다.
 
 | 상태 | 종착 | 뜻 |
 |---|---|---|
@@ -279,7 +289,7 @@ GetCapabilities(robot_id)              -> Capability    유효 능력의 투영 
 
 **`RETRIABLE`의 탈출구는 `RetryTask`다.** 같은 `(task_id, revision)`으로 스킬을 다시 `Start`하며 `update_index`는 이어진다. `RETRIABLE`이 아닌 상태에서 부르면 `INVALID_TRANSITION`이다. 재시도 횟수 상한은 계약이 정하지 않는다 — 그건 정책이고 미션 계층 몫이다.
 
-**진행률은 `0.0..1.0`의 실수**이며 `mimic`에서는 프로파일이 선언한 소요시간 대비 경과 비율로 파생한다. **단조 비감소는 `(task_id, revision)` 쌍 안에서만 성립하는 불변식**이고, `revision`이 오르면 0에서 다시 센다. `RetryTask`는 `revision`을 바꾸지 않으므로 진행률이 0으로 돌아가되 `TaskUpdate`에 `attempt` 번호를 실어 소비자가 구분한다.
+**진행률은 `0.0..1.0`의 실수**이며 `mimic`에서는 프로파일이 선언한 소요시간 대비 경과 비율로 파생한다. **단조 비감소는 `(task_id, revision, attempt)` 세 값이 같은 구간 안에서만 성립하는 불변식**이다. `revision`이 오르거나(갱신) `attempt`가 오르면(재시도) 진행률은 0에서 다시 세며, `TaskUpdate`가 셋을 모두 싣고 있으므로 소비자는 재시작을 위반과 구분한다.
 
 **멱등성 키는 `(task_id, revision)` 단조쌍이다.** VDA5050의 `(orderId, orderUpdateId)`를 그대로 가져온다.
 
@@ -290,7 +300,18 @@ GetCapabilities(robot_id)              -> Capability    유효 능력의 투영 
 | 현재보다 낮음 | `OUTDATED_REVISION` 거절 |
 | 현재보다 높음 | 갱신 — 아래 |
 
-**갱신 규칙.** 갱신은 **비종착 상태에서만 합법**이며 종착 태스크에 오면 `INVALID_TRANSITION`이다. 파라미터를 교체하되 태스크를 재시작하지 않는다 — `RUNNING`이면 진행 중인 스킬을 `Halt`한 뒤 새 파라미터로 `Start`하고, 태스크 상태는 `RUNNING`을 유지하며 진행률은 새 `revision`에서 0부터 다시 센다. **갱신은 §8.4의 개정판 pinning을 바꾸지 않는다.**
+**갱신 규칙.** 갱신은 파라미터를 교체하되 태스크를 재시작하지 않는다. 태스크 상태별로 이렇게 처리한다.
+
+| 갱신을 받은 상태 | 처리 |
+|---|---|
+| `ACCEPTED` | 파라미터만 교체. 스킬 전이 없음 |
+| `RUNNING` | 스킬을 `Halt` → `Reset` → 새 파라미터로 `Start`. 태스크는 `RUNNING` 유지 |
+| `PAUSED` | 파라미터만 교체하고 `PAUSED` 유지. `ResumeTask` 때 새 파라미터로 `Start` |
+| `RETRIABLE` | 파라미터만 교체하고 `RETRIABLE` 유지. `RetryTask` 때 새 파라미터로 `Start` |
+| `CANCELLING` | `INVALID_TRANSITION`. 정리 중에 파라미터를 바꾸는 것은 의미가 없다 |
+| 종착 셋 | `INVALID_TRANSITION` |
+
+진행률은 새 `revision`에서 0부터 다시 세고 `attempt`는 0으로 되돌아간다. **갱신은 §8.4의 개정판 pinning을 바꾸지 않는다.**
 
 ### 4.5 두 상태머신의 관계
 
@@ -335,6 +356,17 @@ Fault {
 상태는 현재값, 이벤트는 발생한 사실이며 **둘 다 발행한다.**
 
 이벤트가 되는 전이는 넷 — **스킬 상태 전이, 태스크 상태 전이, 결함 발생·해소, 능력 변경**(`CapabilityChanged`).
+
+모든 이벤트는 공통 헤더(§5.5) + `kind` + 종류별 본문을 갖는다.
+
+| `kind` | 본문 |
+|---|---|
+| `SKILL_TRANSITION` | `{skill_type_id, from, to, task_id?}` |
+| `TASK_TRANSITION` | `{task_id, skill_type_id, from, to, revision, attempt}` |
+| `FAULT_RAISED` / `FAULT_CLEARED` | `Fault`(§4.6) |
+| `CAPABILITY_CHANGED` | 아래 |
+
+`TASK_TRANSITION`이 `skill_type_id`를 싣는 것이 중요하다 — **`registry`가 이 이벤트를 구독해 `task` 테이블을 적재하며**(§3.2·§8.3), §9.3의 드레인 판정이 스킬 단위로 서려면 이 필드가 있어야 한다.
 
 `CapabilityChanged`는 `{robot_id, capability_epoch, added[], removed[], cause}`를 담는다. `cause`는 §8.3 `capability_epoch_log.cause`와 같은 값 집합이다. **전체 능력을 싣지 않는 것이 의도**다 — 소비자는 delta로 캐시를 갱신하거나 `GetCapabilities`로 전량을 다시 가져온다.
 
@@ -391,8 +423,15 @@ retain으로 발행하며 `CONNECTION_BROKEN`은 브로커 Last Will이다. `HIB
 
 ```
 Negotiate(CapabilityRequirement) -> NegotiationResult
-  CapabilityRequirement { client_id, robot_id, requirements[], optional_fields_used[] }
+  CapabilityRequirement {
+    client_id, robot_id,
+    requirements[],           예: "pick_place@^1.2"
+    optional_fields_used[],   점표기 경로
+    limits_needed { max_string_length, max_array_length }
+  }
 ```
+
+`limits_needed`가 `LIMIT_EXCEEDED`의 판정 입력이다 — 클라이언트가 "나는 이만큼의 문자열·배열을 보낸다"를 미리 말하고, 로봇이 선언한 프로토콜 한계보다 크면 **핸드셰이크에서** 걸린다. 이것이 없으면 한계 초과가 런타임 발행 시점(§10.4 ③)에야 드러난다.
 
 **`client_id`와 `robot_id`의 권위는 헤더(§5.5)에 있으며** 페이로드의 같은 필드는 페이로드만 보고도 해석되도록 복사한 것이다. 어긋나면 `IDENTITY_MISMATCH`로 거절한다.
 
@@ -404,10 +443,15 @@ Negotiate(CapabilityRequirement) -> NegotiationResult
 
 ### 5.5 경로와 헤더
 
+토픽은 두 형태다.
+
 ```
-topic: picasso/{major}/{site}/{robot_id}/{stream}
-       {stream} ∈ state | event | connection
+기체 스트림  picasso/{major}/{site}/robot/{robot_id}/{stream}
+             {stream} ∈ state | event | connection
+사이트 스트림 picasso/{major}/{site}/site/catalog        (§9.6)
 ```
+
+사이트 스트림은 `registry`가 발행하며 기체가 없다. 헤더에서 `robot_id`·`profile_ref`·`capability_epoch`가 빠지고, `session_id`·`sequence`는 **`registry` 자신의 세션**으로 발급한다(재기동하면 새 세션이 되고 상위는 `GET /catalog`로 다시 세운다). retain으로 발행해 신규 구독자가 즉시 현재 카탈로그를 받는다.
 
 메이저 버전을 경로에 두는 것은 VDA5050에서 가져왔다. 구독자가 이해하지 못하는 메이저의 페이로드를 애초에 받지 않는다.
 
@@ -429,7 +473,7 @@ topic: picasso/{major}/{site}/{robot_id}/{stream}
 
 두 필드는 따로 설명이 필요하다.
 
-- **`contract_revision`** — `buf` 모듈 다이제스트와 **`contracts/`의 semver 태그를 함께** 싣는다. semver가 있으면 major 불일치는 차단, 그 외 불일치는 경보로 갈린다. 경보는 수신 측이 결함 이벤트(`CONTRACT_REVISION_MISMATCH`, 두 불리언 모두 `true`)로 발행한다. 남는 한계는 §15의 4번이다.
+- **`contract_revision`** — `buf` 모듈 다이제스트와 **`contracts/`의 semver 태그를 함께** 싣는다. semver가 있으면 major 불일치는 차단, 그 외 불일치는 경보로 갈린다. **경보를 남기는 방식은 발신자와 수신자가 다르다** — 로봇 측(`mimic`·어댑터)은 자기 `event` 스트림에 결함 이벤트(`CONTRACT_REVISION_MISMATCH`, 두 불리언 모두 `true`)로 발행하고, **소비자 측은 발행할 스트림이 없으므로 `registry`의 수집 엔드포인트로 보고한다**(§6.2). 남는 한계는 §15의 4번이다.
 - **`capability_epoch`** — 유효 능력 집합이 바뀔 때마다 증가한다. 캐시한 소비자가 매 메시지에서 O(1)로 유효성을 판정한다. 능력의 ETag다.
 
 **능력 차이는 경로에 넣지 않는다.** 넣으면 능력이 바뀔 때 토픽이 바뀌고 구독자가 조용히 끊긴다. **경로는 프로토콜 호환성, 헤더는 세대, 페이로드는 능력.**
@@ -453,10 +497,12 @@ topic: picasso/{major}/{site}/{robot_id}/{stream}
 | CI | §11.2의 아홉 가지 | PR 차단 |
 | 등록 | **프로파일 문서** — JSON Schema, proto 교차검증, **그리고 능력 어휘 파괴 검사(§11.2의 6번)** | `VALIDATED` 진입 거부 |
 | 핸드셰이크 | **요구 집합**을 선언 능력과 대조 | 연결 거부 + 사유 |
-| 메시지마다 | 토픽(또는 채널 수립 시)의 `major` 일치, `schema_id` 기지 여부, `sequence` 단조·세션 일치, `capability_epoch` 캐시 일치 | 드롭 + 결함 이벤트 |
+| 메시지마다 | 토픽(또는 채널 수립 시)의 `major` 일치, `schema_id` 기지 여부, `sequence` 단조·세션 일치, `capability_epoch` 캐시 일치 | 드롭 + 결함 기록(아래) |
 | 송신 직전 | **프로파일 파생 제약** — 파라미터 값 범위·허용 값·최대 길이, 발행 간격 | 발행 차단 |
 
 **송신 직전 검사가 구조 검증이 아니라는 점이 중요하다.** 구조는 proto 생성 코드가 빌드 시점에 보장한다.
+
+**결함 기록의 경로가 발신자와 소비자에서 다르다.** 로봇 측은 자기 `event` 스트림에 결함 이벤트를 발행하면 되지만, 소비자(`client`·상위 시스템)에게는 기체도 세션도 없어 발행할 스트림이 없다. 소비자는 `POST /diag/consumer-faults { consumer_id, robot_id, error_type, detail }`로 `registry`에 보고하고, `registry`가 없으면 로컬 로그에 남긴다. **보고 실패가 소비자의 동작을 막지 않는다.**
 
 **수신·송신 플래그는 독립이며 이름도 각각 붙인다** — `validate.inbound`, `validate.outbound`. 기본값은 비프로덕션 `1.0`, 프로덕션 `0.01`. openTCS는 플래그가 하나여서 끄면 송신 검증까지 꺼진다.
 
@@ -558,8 +604,14 @@ VDA5050 `factsheet.schema`의 구조를 따른다. **투영에 들어가는 것�
 ```sql
 -- 계약 축 — proto에서 배포 시 동기화되는 읽기 전용 투영.
 skill_type(skill_type_id PK, name, major, max_minor,
-           contract_revision, synced_at, deprecated_after NULL,
+           introduced_in_semver,      -- 이 스킬을 담은 최초 계약 semver. 바인딩 검사 입력(§9.1)
+           contract_revision, synced_at,
+           removed_from_contract BOOL DEFAULT false,
            UNIQUE(name, major))
+
+-- 계약 축의 폐기 예고. skill_type이 읽기 전용이므로 별도 테이블에 둔다.
+skill_type_deprecation(skill_type_id PK FK, deprecated_after,
+                       announced_by, announced_at, note)
 
 skill_type_param(skill_type_id FK, key, value_type, optional, since_minor,
                  PK(skill_type_id, key))
@@ -611,7 +663,9 @@ robot_binding(robot_id FK, adapter_version_id FK, profile_revision_id FK,
 -- 시험
 revision_test_request(request_id PK, profile_revision_id FK,
                       requested_by, requested_at,
-                      claimed_by NULL, claimed_at NULL)
+                      claimed_by NULL, claimed_at NULL, claim_expires_at NULL)
+  -- 클레임은 기본 15분 뒤 만료된다. 만료된 요청은 다른 harness가 다시 집어간다.
+  -- 그러지 않으면 harness가 죽었을 때 요청이 영구히 잡힌다.
 
 revision_test_run(run_id PK, profile_revision_id FK, request_id FK NULL,
                   suite,     -- CONTRACT|NEGATIVE|DETERMINISM
@@ -623,28 +677,43 @@ capability_epoch_log(robot_id, epoch, cause, profile_ref JSONB,
                      detail JSONB, occurred_at)
   -- cause: BINDING_CHANGED | RUNTIME_DEGRADED | OPERATOR_BLOCKED | RESTORED
 
-runtime_capability_override(robot_id, skill_type_id, state, cause, reason, occurred_at)
+runtime_capability_override(robot_id, skill_type_id,
+                            state,   -- REMOVED | RESTORED
+                            cause,   -- RUNTIME_DEGRADED | OPERATOR_BLOCKED
+                            reason, occurred_at)
+  -- 두 cause 모두 여기에 쌓인다. 유효 능력 계산(결정 3)은 기체·스킬별 최신 행만 본다.
 
 handshake_rejection(rejection_id PK, robot_id, client_id,
                     requirement JSONB, reason_code, detail JSONB, at)
 
 -- 의존 원장 (§9.2)
-consumer(consumer_id PK, kind, site, display_name, contact)
+consumer(consumer_id PK, kind, site, display_name, registered BOOL, first_seen)
   -- kind: CLIENT | UPSTREAM_SYSTEM
+  -- consumer_id는 헤더의 client_id와 같은 값이다. 별도 매핑을 두지 않는다.
+  -- 미등록 소비자는 첫 OBSERVED 관측 때 자동 생성한다:
+  --   kind=CLIENT, site=토픽의 site, display_name=client_id, registered=false.
+  -- POST /requirements가 오면 registered=true가 되고 kind·display_name이 갱신된다.
 
-consumer_requirement(consumer_id FK, skill_type_name, version_range,
-                     source,          -- DECLARED(등록) | OBSERVED(협상 성공)
+consumer_requirement(consumer_id FK, skill_type_name, source, version_range,
                      first_seen, last_seen, active,
-                     PK(consumer_id, skill_type_name))
+                     PK(consumer_id, skill_type_name, source))
+  -- source: DECLARED(등록) | OBSERVED(협상 성공)
+  -- PK에 source가 들어가야 같은 소비자·같은 스킬에 두 행이 공존한다(§8.3 결정 6).
+  -- §9.3의 조회 1은 source를 구분하지 않고 active인 행이 하나라도 있으면 "사용 중"으로 본다.
 
 -- 변경 계획 (§9.5)
-change_plan(plan_id PK, intent, target JSONB, site,
+change_plan(plan_id PK, intent, target JSONB, target_key, site,
             status,     -- DRAFT|ANNOUNCED|MIGRATING|DRAINING|APPLIED|ABANDONED
             created_by, created_at, applied_at NULL)
+  -- target_key = intent와 target을 정규화한 문자열. 경합 방지용:
+  CREATE UNIQUE INDEX ON change_plan(target_key, site)
+    WHERE status NOT IN ('APPLIED','ABANDONED');
+  -- 같은 대상을 겨냥한 비종착 계획은 하나뿐이다. 둘째 생성은 거부되고 기존 계획을 가리킨다.
 
 change_plan_step(plan_id FK, seq, kind, precondition JSONB,
                  satisfied BOOL, satisfied_at NULL,
                  PK(plan_id, seq))
+  -- satisfied는 화면용 캐시다. 실행 시점에는 언제나 precondition을 다시 평가한다(§9.5).
 
 task(task_id PK, robot_id FK, profile_revision_id FK,
      skill_type_id FK, revision INT, attempt INT,
@@ -657,7 +726,7 @@ audit_log(actor, action, target_type, target_id, plan_id NULL,
 
 설계 결정 여섯.
 
-1. **개정판은 UPDATE하지 않는다.** `status` 전이는 다음뿐이다.
+1. **개정판은 `VALIDATED`에 든 뒤로 불변이다.** `DRAFT` 동안에는 편집·재제출이 자유롭고, `VALIDATED` 이후에는 고치는 대신 새 `revision`을 만든다. `status` 전이는 다음뿐이다.
 
    ```
    DRAFT ──검증 통과──> VALIDATED ──시험 PASS──> TESTED ──활성화──> ACTIVE
@@ -670,7 +739,7 @@ audit_log(actor, action, target_type, target_id, plan_id NULL,
 
 2. **원본(`document`)과 평탄화 테이블을 둘 다 둔다.** 원본이 진실이고 평탄화는 질의용이다. **평탄화는 트리거가 아니라 등록 시점에 애플리케이션이 계산한다.**
 3. **런타임 축소는 프로파일을 건드리지 않는다.** `runtime_capability_override`에 얹는다. **유효 능력 = 프로파일 − 오버라이드**이며 이 결과가 `Capability` 투영이 된다.
-4. **`skill_type`·`skill_type_param`은 배포 시 동기화되는 읽기 전용이다.** 동기화는 `registry` 기동 시 `contracts/`의 기술자 집합을 읽어 upsert하는 잡이 수행하며, 계약에서 사라진 스킬은 삭제하지 않고 `deprecated_after`를 채운다(참조 무결성 보존).
+4. **`skill_type`·`skill_type_param`은 배포 시 동기화되는 읽기 전용이다.** 동기화는 `registry` 기동 시 `contracts/`의 기술자 집합을 읽어 upsert하는 잡이 수행하며, 계약에서 사라진 스킬은 삭제하지 않고 `removed_from_contract=true`로 표시한다(참조 무결성 보존). **폐기 예고는 사람이 정하는 값이므로 이 테이블이 아니라 `skill_type_deprecation`에 쓴다** — 그래야 읽기 전용 원칙이 유지된다.
 5. **바인딩이 어댑터와 프로파일 둘 다를 참조한다.** "어댑터만 바뀜"과 "기종이 바뀜"이 이 컬럼 분리로 구분된다.
 6. **원장의 `source`가 둘이다.** `DECLARED`는 소비자가 등록한 것, `OBSERVED`는 협상 성공에서 관측한 것. 등록하지 않은 소비자도 관측으로 잡히므로 원장이 비어 있을 수 없다.
 
@@ -691,7 +760,7 @@ audit_log(actor, action, target_type, target_id, plan_id NULL,
 
 **③은 바인딩만 전환한다.** `capability_epoch` 증가는 ④에서 발신자가 수행한다(§8.2). `registry`에 epoch 증가 로직을 넣으면 이중 채번이 된다.
 
-**③의 승인 조건은 셋** — `status`가 `TESTED` 또는 `SUPERSEDED`, 최신 `revision_test_run.result = PASS`(`SUPERSEDED` 재활성화는 과거 기록으로 충족), `activated_by` 기록.
+**③의 승인 조건은 셋** — `status`가 `TESTED` 또는 `SUPERSEDED`, **세 스위트(`CONTRACT`·`NEGATIVE`·`DETERMINISM`) 각각의 최신 `revision_test_run.result`가 모두 `PASS`**(`SUPERSEDED` 재활성화는 과거 기록으로 충족), `activated_by` 기록.
 
 **진행 중인 태스크는 시작 시점 개정판으로 끝까지 간다(pinning).** `task.profile_revision_id`가 최초 접수 시점 값을 유지한다. **새 태스크는 ④에서 집어 든 새 개정판으로 접수된다.**
 
@@ -701,7 +770,9 @@ audit_log(actor, action, target_type, target_id, plan_id NULL,
 
 **조작 단위가 테이블 행이 아니라 의도여야 한다.** API 한 번 = 트랜잭션 한 번 = 감사 로그 한 줄.
 
-조작 열둘: 기종 등록 / 기체 등록 / **어댑터 등록** / **어댑터 버전 등록** / 개정판 올리기(DRAFT 생성·편집·재제출) / 시험 요청 적재 / 바인딩(카나리 포함) / 롤백 / 개정판 폐기 / 능력 차단·해제 / **변경 계획 생성** / **변경 계획 단계 실행**.
+조작 열넷: 기종 등록 / 기체 등록 / **어댑터 등록** / **어댑터 버전 등록** / 개정판 올리기(DRAFT 생성·편집·재제출) / 시험 요청 적재 / 바인딩(카나리 포함) / 롤백 / 개정판 폐기 / 능력 차단·해제 / **계약 축 폐기 예고 설정**(`skill_type_deprecation`) / **소비자 요구 등록**(`POST /requirements`) / **변경 계획 생성** / **변경 계획 단계 실행**.
+
+전부 감사 로그 대상이다. 요구 등록은 소비자가 자기 것을 쓰는 조작이라 승인 경계 밖이지만 기록은 남긴다.
 
 승인 경계 — **DRAFT 편집은 자유, ACTIVATE는 §8.4 ③의 세 조건, 변경 계획 단계는 §9.5의 전제 조건.**
 
@@ -729,7 +800,18 @@ audit_log(actor, action, target_type, target_id, plan_id NULL,
 | **어댑터** | 그 기종을 계약에 붙이는 구현체 | 배포. 벤더 버전 | 이전 버전 재배포 |
 | **바인딩** | 이 기체 = 이 어댑터 + 이 프로파일 | 런타임 | 이전 바인딩으로 재전환 (이력 보존) |
 
-"어댑터만 올렸다", "프로파일만 바꿨다", "계약이 올라 전부 다시 빌드했다"가 전부 다른 사건이고 파급도 다르다. 조합 폭발은 **바인딩 시점에 한 번 합법성을 검사**하는 것으로 막는다 — `adapter_version.contract_semver`가 `profile_revision`이 요구하는 스킬 타입들의 계약 semver를 만족하는지. 불만족이면 바인딩이 거부된다.
+"어댑터만 올렸다", "프로파일만 바꿨다", "계약이 올라 전부 다시 빌드했다"가 전부 다른 사건이고 파급도 다르다. 조합 폭발은 **바인딩 시점에 한 번 합법성을 검사**하는 것으로 막는다.
+
+```
+required = max( skill_type.introduced_in_semver
+                for 프로파일 개정판이 선언한 모든 스킬 타입 )
+만족    = adapter_version.contract_semver.major == required.major
+       && adapter_version.contract_semver >= required
+```
+
+즉 **어댑터가 그 프로파일이 쓰는 스킬을 전부 아는 계약으로 빌드됐는가**를 본다. major가 다르면 호환이 아니고, 같은 major 안에서 어댑터가 더 옛 계약으로 빌드됐다면 새 스킬을 모른다. 불만족이면 바인딩이 거부된다.
+
+`introduced_in_semver`가 스킬 타입마다 다르기 때문에 이 검사가 의미를 갖는다 — 계약이 올라도 옛 스킬만 쓰는 프로파일은 옛 어댑터로 계속 돈다.
 
 **되돌릴 수 없는 축이 하나뿐이도록 설계를 몰아둔 것**이 이 구조의 요점이며, 그래서 계약을 보수적으로 다루고 게이트 2번이 존재한다.
 
@@ -764,7 +846,14 @@ POST /requirements  { consumer_id, kind, site, requires: ["pick_place@^1.2", ...
 
 하나라도 아니면 축소 조작이 **거부**된다. 운영자가 판단하지 않는다.
 
-**폐기 예고**는 축소의 선행 단계다. `skill_type.deprecated_after` 또는 `profile_skill.deprecated_after`를 채우면 그 값이 `Capability` 투영과 카탈로그에 실려 상위에 보인다. 예고는 **정보이지 게이트가 아니다** — 게이트는 위의 두 조회다.
+**폐기 예고**는 축소의 선행 단계이며 축마다 기입 경로가 다르다.
+
+| 축 | 어디에 쓰는가 | 누가 |
+|---|---|---|
+| 계약 | `skill_type_deprecation` (§8.3) | 운영자 조작(§8.5) |
+| 프로파일 | 새 개정판의 `profile_skill.deprecated_after` | 개정판 제출 |
+
+두 값 중 이른 쪽이 `Capability` 투영과 카탈로그에 실려 상위에 보인다. 예고는 **정보이지 게이트가 아니다** — 게이트는 위의 두 조회다.
 
 ### 9.4 변경 시나리오 여섯
 
@@ -781,6 +870,8 @@ POST /requirements  { consumer_id, kind, site, requires: ["pick_place@^1.2", ...
 
 계약 축의 변경(뒤 넷)은 배포이므로 `registry`가 막을 수 없다. 대신 **CI가 막는다** — 게이트 6번이 축소를 감지하면 PR에 원장 조회 결과를 요구한다. `registry`가 없는 환경에서는 이 검사를 건너뛰되 그 사실을 CI 출력에 남긴다.
 
+**다만 6번의 입력은 언제나 프로파일 문서이므로(§11.1) proto만 바뀐 PR은 6번에 잡히지 않는다.** 그 경우는 게이트 2번(`buf breaking`)이 구조 파괴를 막고, 실제 능력 축소는 그 계약을 쓰는 프로파일 개정판이 올라올 때 6번에 잡힌다. **두 검사의 역할 분담이 이것이다** — 2번은 계약 축의 구조, 6번은 프로파일 축의 어휘와 파급.
+
 ### 9.5 변경 계획을 1급 객체로
 
 운영자가 의도를 선언하면 시스템이 절차를 만든다. **이것이 "SQL이 아니라 운영에 적합한 체계"의 실체다.**
@@ -795,11 +886,39 @@ POST /change-plans { intent: REMOVE_CAPABILITY, target: {skill: "pick_place", ma
    현재 차단 사유    소비자 2, 진행 중 3
 ```
 
-`intent` 값 넷 — `REMOVE_CAPABILITY`, `MIGRATE_MAJOR`, `RETIRE_ADAPTER_VERSION`, `RETIRE_PROFILE_REVISION`.
+**단계의 종류(`kind`)는 넷이다.**
 
-각 단계는 `change_plan_step.precondition`을 갖고 **충족되기 전까지 실행이 거부된다.** 충족 여부는 조회로 계산되어 `satisfied`에 갱신된다. 운영자는 진행 상황을 보고, 시스템은 조건을 지킨다. 감사 로그는 `plan_id`로 묶인다.
+| `kind` | 하는 일 | 가역성 |
+|---|---|---|
+| `ANNOUNCE` | 폐기 예고를 기입한다(§9.3의 표) | 가역 — 예고를 지우면 된다 |
+| `OBSERVE_MIGRATION` | 아무것도 하지 않고 조건 충족만 기다린다 | 무해 |
+| `DRAIN` | 아무것도 하지 않고 진행 중 태스크가 빠지기를 기다린다 | 무해 |
+| `APPLY` | 실제 제거를 수행한다 | §9.1의 축별 되돌리는 법 |
 
-계획은 `ABANDONED`로 버릴 수 있다. 버려도 이미 실행된 단계는 되돌아가지 않으므로, 각 단계는 **그 자체로 가역이거나 무해해야 한다** — 예고와 관측은 무해하고, 제거는 §9.1의 되돌리는 법을 갖는다.
+**`precondition`은 검사 목록이다.** 구조는 `{ checks: [ {type, params} ] }`이고 `type`은 다섯이다.
+
+| `type` | 참이 되는 조건 |
+|---|---|
+| `NO_ACTIVE_CONSUMERS` | `consumer_requirement`에 대상 스킬을 요구하는 `active` 행이 0 |
+| `NO_INFLIGHT_TASKS` | `task`에 대상 `skill_type_id`의 비종착 행이 0 |
+| `DEPRECATION_PUBLISHED` | 대상의 `deprecated_after`가 채워져 있고 카탈로그에 반영됨 |
+| `NO_ACTIVE_BINDINGS` | 대상 어댑터 버전·개정판을 쓰는 `robot_binding`이 0 |
+| `SUCCESSOR_ACTIVE` | 대체할 개정판·버전이 이미 `ACTIVE`이고 바인딩되어 있음 |
+
+**`intent`별 단계와 `APPLY`가 조작하는 축.**
+
+| `intent` | 단계 | `APPLY`가 하는 일 | 축 |
+|---|---|---|---|
+| `REMOVE_CAPABILITY` | `ANNOUNCE` → `OBSERVE_MIGRATION`(`NO_ACTIVE_CONSUMERS`) → `DRAIN`(`NO_INFLIGHT_TASKS`) → `APPLY` | 그 스킬을 뺀 **새 프로파일 개정판을 활성화**한다. 계약 축은 건드리지 않는다(계약은 배포이며 §9.4가 다룬다) | 프로파일 |
+| `MIGRATE_MAJOR` | `ANNOUNCE` → `OBSERVE_MIGRATION`(`SUCCESSOR_ACTIVE` + `NO_ACTIVE_CONSUMERS` on 옛 major) → `DRAIN` → `APPLY` | 옛 major를 뺀 개정판을 활성화 | 프로파일 |
+| `RETIRE_ADAPTER_VERSION` | `OBSERVE_MIGRATION`(`SUCCESSOR_ACTIVE`) → `DRAIN` → `APPLY` | 그 `adapter_version`을 쓰는 바인딩이 없음을 확인하고 폐기 표시 | 바인딩 |
+| `RETIRE_PROFILE_REVISION` | `OBSERVE_MIGRATION`(`NO_ACTIVE_BINDINGS`) → `APPLY` | 개정판을 `REVOKED`로 전이 | 프로파일 |
+
+**전제 조건은 실행 시점에 다시 평가한다.** `change_plan_step.satisfied`는 화면을 위한 캐시일 뿐이며 권위가 아니다. `satisfied=true`가 된 뒤 새 소비자가 협상에 성공하거나 새 태스크가 시작되면, 실행을 눌렀을 때 재평가에서 걸려 **거부된다.** 이것이 없으면 "충족을 확인한 순간"과 "실행한 순간" 사이의 창이 사고가 된다.
+
+**같은 대상을 겨냥한 비종착 계획은 하나뿐이다.** `change_plan(target_key, site)`의 부분 유일 인덱스(§8.3)가 강제하며, 둘째 생성 시도는 거부하고 기존 계획을 가리킨다.
+
+계획은 `ABANDONED`로 버릴 수 있다. 버려도 이미 실행된 단계는 되돌아가지 않으므로 **각 단계는 그 자체로 가역이거나 무해해야 한다** — 위 표의 가역성 열이 그것을 보장한다. 감사 로그는 `plan_id`로 묶인다.
 
 ### 9.6 업스트림 표면
 
@@ -809,7 +928,7 @@ POST /change-plans { intent: REMOVE_CAPABILITY, target: {skill: "pick_place", ma
 |---|---|
 | `GET /catalog?site=` | **"지금 이 사이트가 할 수 있는 일".** 능력 단위 — 스킬 타입, 사용 가능한 최소·최대 버전, **가용 기체 수**, `deprecated_after`, 필수 선택 필드 |
 | `POST /requirements` | 소비자가 자기 의존을 등록. 원장의 입력(§9.2) |
-| `picasso/{major}/{site}/catalog` | 사이트 단위 능력 변경 스트림. 폐기 예고도 여기로 |
+| `picasso/{major}/{site}/site/catalog` | 사이트 단위 능력 변경 스트림(§5.5의 사이트 스트림). retain. 폐기 예고도 여기로 |
 
 **카탈로그가 기체가 아니라 능력 단위인 것이 중요하다.** 상위는 "3번 로봇"이 아니라 "이 공장에서 `pick_place`가 되는가"를 알아야 하고, 기체 한 대가 빠졌을 때 카탈로그가 흔들리면 안 된다. 가용 기체 수는 0이 될 때만 능력이 카탈로그에서 사라진다.
 
@@ -900,7 +1019,7 @@ mimic/
 |---|---|
 | `registry` 불통 (기동 시) | 기동 실패. 능력을 모르는 채 표면을 열지 않는다 |
 | `registry` 불통 (폴링 중) | 마지막으로 성공한 유효 능력을 유지하고 경고를 남긴다. 복구되면 다음 폴링에서 반영 |
-| MQTT 브로커 단절 | **세션을 유지한 채** 기체당 최대 `N`개까지 버퍼링하고 재연결 시 순서대로 재생한다. 버퍼가 넘치면 그때 새 `session_id`를 발급해 소비자가 스냅샷부터 다시 세우게 한다 |
+| MQTT 브로커 단절 | **세션을 유지한 채** 기체당 최대 `N`개(§4.8의 재생 버퍼와 **같은 버퍼·같은 `N`**)까지 쌓고 재연결 시 순서대로 재생한다. 넘치면 그때 새 `session_id`를 발급해 소비자가 스냅샷부터 다시 세우게 한다 |
 | `WatchTask` 소비자가 느림 | gRPC 흐름 제어에 맡기되 발신 대기가 임계를 넘으면 그 스트림만 끊는다. 태스크 실행은 영향받지 않는다 |
 
 세 번째가 중요하다 — 단절만으로 세션을 바꾸면 버퍼링이 무의미해지고, 넘칠 때만 바꾸면 버퍼가 실제로 값을 한다.
@@ -947,7 +1066,9 @@ mimic/
 
 **8번은 diff 판정까지만 하고 스위트를 실행하지 않는다.** 계약 스위트는 `harness`가 소유하므로(§12.1) `gate`가 부르면 §3.2의 그래프가 깨진다. **CI가 `gate`와 `harness`를 순서대로 부른다.** `quadruped-c`는 전용 커밋 하나로 추가하며 그 커밋의 변경 파일은 프로파일 한 장뿐이어야 한다.
 
-**9번**은 1~8번 각각에 최소 하나씩 대응한다.
+**9번은 케이스를 데이터로 보관하고 격리 실행한다.** 깨진 proto 조각이나 "소스 변경이 섞인 커밋" 같은 것을 저장소 본체에 두면 진짜 CI가 깨진다. 그래서 `gate/negative/`에 **케이스마다 디렉터리 하나**를 두고 그 안에 변형된 파일과 합성 diff(`base.patch`, `head.patch`)를 담는다. 실행할 때 임시 작업 디렉터리에 정상 트리를 복사하고 케이스를 덮어쓴 뒤 1~8번을 돌려 **실패를 기대**한다. 통과하면 그 케이스가 실패다. 본체는 오염되지 않는다.
+
+케이스는 1~8번 각각에 최소 하나씩 대응한다.
 
 | 겨냥 | 음성 케이스 |
 |---|---|
@@ -979,16 +1100,16 @@ mimic/
 | 1 | **A-1** 능력 집합이 다른 두 로봇을 같은 클라이언트 코드로 | 두 프로파일의 `mimic`에 동일 코드 경로로 태스크 완주 | 요구 집합이 설정 파일(§5.4) + 게이트 7번 |
 | 2 | **A-2** 중간 구독자의 상태 재구성 | 진행 중 신규 구독 → 스냅샷 + `event`로 재구성한 상태가 내부 상태와 일치 | `GetSnapshot`(§4.4), `DumpInternalState`(§10.5), 재생 버퍼(§4.8) |
 | 3 | **A-2** 결손·중복·순서 역전에서 복원 | 셋을 각각 주입해 결손은 감지, 중복은 무시, 역전은 재정렬해 같은 최종 상태 | `InjectTransportFault`(§10.5), `sequence`·`event_id`, **재정렬 창**(§3.5) |
-| 4 | **A-2** 멱등 재수신과 revision 규칙 | 같은 revision 재전송은 같은 핸들, 낮으면 `OUTDATED_REVISION`, 높으면 갱신. 버퍼 밖 요청은 `SEQUENCE_EVICTED` | §4.4의 4케이스 표, §4.8의 버퍼, `SetSingleStep`/`Step`으로 재전송 시점 특정 |
+| 4 | **A-2** 멱등 재수신과 revision 규칙 | 같은 revision 재전송은 같은 핸들, 낮으면 `OUTDATED_REVISION`, 높으면 갱신. 버퍼 밖 `ReplayEvents`는 `SEQUENCE_EVICTED` | §4.4의 4케이스 표와 갱신 상태별 표, `ReplayEvents`(§4.4), §4.8의 버퍼, `SetSingleStep`/`Step`으로 재전송 시점 특정 |
 | 5 | **A-2** 침묵의 세 원인을 구분 | `OFFLINE`·`HIBERNATING`·`CONNECTION_BROKEN`을 강제하면 소비자가 셋을 다르게 판정 | `SetConnection`(§10.5), 연결 스트림(§4.7), 최대 발행 간격(§7.2) |
-| 6 | **A-4** 30초+ 태스크의 진행률·중도취소·부분결과 | 가상 시계로 압축. 같은 revision 안에서 진행률 단조 비감소, `CANCELLING` → 종착 순서 | `SetClockMode(VIRTUAL)` + `AdvanceClock`(§10.3), 진행률 정의(§4.4) |
+| 6 | **A-4** 30초+ 태스크의 진행률·중도취소·부분결과 | 가상 시계로 압축. **같은 `(revision, attempt)` 구간 안에서** 진행률 단조 비감소, `CANCELLING` → 종착 순서 | `SetClockMode(VIRTUAL)` + `AdvanceClock`(§10.3), 진행률 정의(§4.4) |
 | 7 | **A-4** 취소·일시정지 불가 스킬 | `CANCEL_UNSUPPORTED` / `PAUSE_UNSUPPORTED` 반환 | 프로파일 §7.4의 차이 + `PauseTask`·`CancelTask` |
 | 8 | **A-4** 재시도 | `RETRIABLE`에서 `RetryTask`로 재실행, `attempt` 증가, 그 외 상태에서는 `INVALID_TRANSITION` | `RetryTask`(§4.4), 프로파일의 `retriable`(§7.2), §4.5 전파 규칙 1 |
 | 9 | **C-1** 두 기종이 같은 스키마로, 차이가 전부 데이터 | 두 프로파일이 동일 JSON Schema 통과, §7.4의 일곱 차이가 코드 변경 없이 표현 | 게이트 3번·7번 |
 | 10 | **C-1** 투영 일치 | `GetCapabilities` 응답 == §7.2의 투영 표대로 프로파일에서 파생한 값 | §7.2의 투영 표가 파생 함수의 명세. **능력을 하드코딩하면 여기서 걸린다** |
 | 11 | **C-2** 세 번째 기종을 프로파일 한 장으로 | `quadruped-c` 전용 커밋에서 전체 스위트 통과 | **게이트 8번이 소스 변경 0을 CI로 강제** |
 | 12 | **D-1** 깨는 PR이 사람 없이 차단 | 게이트 9번의 음성 스위트 | 9번의 케이스가 1~8번에 하나씩 대응(§11.2) |
-| 13 | 능력 호환성 | 핸드셰이크가 §4.3의 `Negotiate` 거절 다섯을 각각 사유와 함께 반환 | `Negotiate`(§5.4). 픽스처는 §7.4의 프로파일 차이 넷과 `profile/fixtures/`의 틀린 요구 집합 |
+| 13 | 능력 호환성 | 핸드셰이크가 §4.3의 `Negotiate` 거절 다섯을 각각 사유와 함께 반환 | `Negotiate`(§5.4). 픽스처는 셋 — 프로파일 차이(`SKILL_ABSENT`, `LIMIT_EXCEEDED`+`limits_needed`, `REQUIRED_OPTIONAL_MISSING`), `profile/fixtures/`의 틀린 요구 집합(`MAJOR_MISMATCH`), `client --identity-override`로 헤더와 페이로드를 어긋나게 함(`IDENTITY_MISMATCH`) |
 | 14 | 런타임 축소 | `RemoveCapability` → epoch 증가 → 캐시 무효화 → **해당 스킬만 `CAPABILITY_WITHDRAWN`, 이동은 계속됨** | 제어 채널 → `CapabilityChanged`(§8.2·§4.7), 로봇 수준 결함 |
 | 15 | 런타임 갱신 | 개정판 활성화 시 진행 중 태스크는 완주, 새 태스크는 새 개정판. 롤백도 같은 경로 | `mimic` 폴링(§10.3), pinning(§8.4), `SUPERSEDED` 재활성화(§8.3 결정 1) |
 | 16 | **운영** 어댑터 최초 추가 | §9.7의 여섯 단계를 통과해 새 기종이 카탈로그에 오른다. `conformance_status=UNTESTED`가 진단 1번에 표시된다 | `adapter`·`adapter_version`(§8.3), 카탈로그(§9.6) |
@@ -1009,8 +1130,8 @@ mimic/
 |---|---|---|
 | **1** | `contracts/`, `profile/schema/`, `profile/fixtures/`의 픽스처 한 장, `gate/`(검사 1~6과 9의 해당 케이스), CI 배선 | D-1의 대부분. 계약과 프로파일이 어긋나면 PR이 막힌다 |
 | **2** | `mimic`(파일 모드), `client`, `harness`(직접 실행 모드), 기종 프로파일 셋, 게이트 7~8과 9의 나머지 | **완료 기준 1~12.** `registry` 없이 핵심 주장이 CI 실패 조건이 된다. D-1 완결 |
-| **3a** | `registry` 코어 — DB, 개정판·어댑터 수명주기, 바인딩, 시험 요청·보고, `skill_type` 동기화 잡, MQTT 구독기, 핸드셰이크 결과 수집, 진단 1~4. `mimic` 레지스트리 모드와 폴링 | 완료 기준 13~15, 16·17 |
-| **3b** | 의존 원장, 변경 계획, 카탈로그와 사이트 스트림, 진단 5~6, 게이트 6번의 축소 판정 | 완료 기준 18~20 |
+| **3a** | `registry` 코어 — DB, 개정판·어댑터 수명주기, 바인딩과 합법성 검사, 시험 요청·보고, `skill_type` 동기화 잡, MQTT 구독기(`task` 적재 포함), 핸드셰이크·소비자 결함 수집, **`GET /catalog` 읽기 표면**, 진단 1~4. `mimic` 레지스트리 모드와 폴링 | 완료 기준 13~17, 20 |
+| **3b** | 의존 원장, 변경 계획, **사이트 카탈로그 스트림**, 진단 5~6, 게이트 6번의 축소 판정 | 완료 기준 18~19 |
 
 2단계가 `registry` 없이 성립하는 것이 이 분할의 핵심이다(§3.2의 규칙, §10.2의 파일 모드). **가장 값이 큰 주장이 가장 적은 인프라로 증명된다.**
 
@@ -1020,7 +1141,7 @@ mimic/
 
 | # | 결정 | 한계 |
 |---|---|---|
-| 1 | 계약은 proto, 프로파일은 JSON Schema — 이유와 대가 | → §15.2 |
+| 1 | 계약은 proto, 프로파일은 JSON Schema — 대가는 게이트 하나가 늘고 두 세계가 어긋날 수 있다는 것(§7.3·§11.2의 4번으로 갚는다) | — |
 | 2 | 실패 3분류를 계약에서 빼고 두 불리언으로 대체 | — |
 | 3 | 능력 동일성을 major로 결정하는 규칙과 그 집행 한계 | → §15.1 |
 | 4 | 경로·헤더·페이로드의 역할 분리와 `contract_revision`의 semver 병기 | → §15.4 |
@@ -1046,7 +1167,8 @@ mimic/
 | 24 | 인증·인가를 범위 밖으로 두고 신뢰 네트워크를 전제한 것 | → §15.3 |
 | 25 | 실물 없이 계약을 먼저 굳히는 순서를 택한 것 — C-3를 뒤로 미룬 대가 | → §15.7 |
 | 26 | 사이트 축을 스키마·경로·카탈로그에만 남기고 격리·브리지를 비목표로 둔 것 | → §15.9 |
-| 27 | openTCS·VDA5050에서 가져온 것과 반례로 쓴 것의 출처 | — |
+| 27 | **물리적 도달 가능성·충돌을 프로파일 선언 밖에 두고 `mimic`이 흉내내지 않기로 한 것** — 표현력의 경계를 어디에 그었는가 | → §15.2 |
+| 28 | openTCS·VDA5050에서 가져온 것과 반례로 쓴 것의 출처 | — |
 
 ## 15. 알려진 한계
 
