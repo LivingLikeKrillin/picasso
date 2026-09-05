@@ -101,4 +101,84 @@ class ProfileDocumentTest {
         val r = ProfileDocument.parse("broken.json", "{ this is not json")
         assertTrue(r.isFailure)
     }
+
+    @Test
+    fun `중복 멤버 이름을 거절한다`() {
+        // Jackson 기본 설정은 조용히 마지막 값으로 접는다. 스키마 검증기도
+        // 이미 파싱된 트리를 보므로 못 잡는다 — 두 검증기 어느 쪽도 못 잡는
+        // 우회로다. 아래 문서는 min_value 10을 버리고 1을 남겨
+        // 검사 3번의 min ≤ max 규칙을 통과해 버린다.
+        val json = """
+            {"vendor":"v","model":"m",
+             "skills":[{"skill_type":"s","major":1,"minor":0,
+               "pause_support":"YES","cancel_support":"YES",
+               "parameters":[{"key":"k","value_type":"NUMBER","optional":true,
+                              "min_value":10,"min_value":1,"max_value":5}]}]}
+        """.trimIndent()
+        assertTrue(ProfileDocument.parse("dup.json", json).isFailure)
+    }
+
+    @Test
+    fun `객체가 아닌 루트를 거절한다`() {
+        // 빈 파일·배열·스칼라가 전부 readTree를 통과한다. 막지 않으면
+        // 0바이트 프로파일이 "스킬 0개인 정상 문서"가 되어 검사 4·6번이
+        // 대조할 게 없다며 PASS를 낸다.
+        listOf("", "   ", "[]", "123", "\"hi\"", "null").forEach { json ->
+            assertTrue(
+                ProfileDocument.parse("x.json", json).isFailure,
+                "객체가 아닌 루트를 받아들였다: '$json'",
+            )
+        }
+    }
+
+    @Test
+    fun `명시적 null을 값으로 접지 않는다`() {
+        // unit: null이 "null" 문자열이 되면 검사 6번의 단위 변경 판정이
+        // 거짓 양성을 낸다.
+        val json = """
+            {"vendor":"v","model":"m",
+             "skills":[{"skill_type":"s","major":1,"minor":0,
+               "pause_support":"YES","cancel_support":"YES",
+               "parameters":[{"key":"k","value_type":"NUMBER","optional":true,
+                              "unit":null,"min_value":null,"max_length":null}]}]}
+        """.trimIndent()
+        val p = ProfileDocument.parse("n.json", json).getOrThrow()
+            .skills.single().parameters.single()
+        assertNull(p.unit)
+        assertNull(p.minValue)
+        assertNull(p.maxLength)
+    }
+
+    @Test
+    fun `중복 선언을 접지 않고 List로 보존한다`() {
+        // 검사 3번의 규칙 둘((skill_type,major) 중복, 스킬 내 key 중복)이
+        // 이 보존에 전적으로 기댄다. Map으로 접는 리팩터링이 들어오면
+        // 두 규칙이 그 순간 침묵하므로 여기서 못을 박는다.
+        val json = """
+            {"vendor":"v","model":"m",
+             "skills":[
+               {"skill_type":"s","major":1,"minor":0,
+                "pause_support":"YES","cancel_support":"YES",
+                "parameters":[{"key":"a","value_type":"BOOL","optional":true},
+                              {"key":"a","value_type":"STRING","optional":true}]},
+               {"skill_type":"s","major":1,"minor":2,
+                "pause_support":"YES","cancel_support":"YES","parameters":[]}]}
+        """.trimIndent()
+        val d = ProfileDocument.parse("d.json", json).getOrThrow()
+        assertEquals(2, d.skills.size, "같은 (skill_type, major)가 접혔다")
+        assertEquals(listOf("a", "a"), d.skills.first().parameters.map { it.key })
+    }
+
+    @Test
+    fun `투영은 비투영 필드를 뺀다`() {
+        // §5.2의 버전 규칙은 투영 필드에만 걸린다. 통째로 diff하면
+        // durations의 소요시간 조정에 major 증가를 요구하게 된다.
+        val projection = fixture().projection()
+        ProfileDocument.NON_PROJECTION.forEach {
+            assertTrue(projection.get(it) == null, "비투영 필드가 남았다: $it")
+        }
+        assertTrue(projection.get("skills") != null, "투영 필드가 사라졌다: skills")
+        // 원본은 그대로여야 한다 — 검사 3번이 원문을 쓴다.
+        assertEquals(4, fixture().failureModes.size)
+    }
 }

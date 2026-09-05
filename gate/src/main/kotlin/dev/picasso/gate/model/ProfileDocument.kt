@@ -1,7 +1,9 @@
 package dev.picasso.gate.model
 
+import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.node.ObjectNode
 
 /**
  * 프로파일 문서의 읽기 전용 뷰. 검사가 읽는 것을 전부 노출한다.
@@ -44,17 +46,17 @@ class ProfileDocument private constructor(
                 minor = s.path("minor").asInt(),
                 pauseSupport = s.path("pause_support").asText(),
                 cancelSupport = s.path("cancel_support").asText(),
-                deprecatedAfter = s.get("deprecated_after")?.asText(),
+                deprecatedAfter = s.field("deprecated_after")?.asText(),
                 parameters = s.path("parameters").map { p ->
                     ParameterEntry(
                         key = p.path("key").asText(),
                         valueType = p.path("value_type").asText(),
                         optional = p.path("optional").asBoolean(),
-                        minValue = p.get("min_value")?.asDouble(),
-                        maxValue = p.get("max_value")?.asDouble(),
-                        unit = p.get("unit")?.asText(),
+                        minValue = p.field("min_value")?.asDouble(),
+                        maxValue = p.field("max_value")?.asDouble(),
+                        unit = p.field("unit")?.asText(),
                         allowedValues = p.path("allowed_values").map { it.asText() },
-                        maxLength = p.get("max_length")?.asInt(),
+                        maxLength = p.field("max_length")?.asInt(),
                     )
                 },
             )
@@ -74,17 +76,28 @@ class ProfileDocument private constructor(
         root.path("failure_modes").map { f ->
             FailureModeEntry(
                 errorType = f.path("error_type").asText(),
-                skillType = f.get("skill_type")?.asText(),
+                skillType = f.field("skill_type")?.asText(),
                 resolution = f.path("resolution").asText(),
             )
         }
     }
 
     /**
-     * 검사 6번이 문서를 통째로 diff할 때 쓴다(설계 §11.1 — 6번은 언제나
-     * 평탄화 테이블이 아니라 document를 diff한다).
+     * 문서 전체. 원문 보존이 필요할 때 쓴다.
+     *
+     * **검사 6번은 이것이 아니라 [projection]을 쓴다** — §5.2의 버전 규칙은
+     * 투영 필드에만 걸리므로, 통째 diff하면 소요시간 조정 같은 비투영 변경에
+     * major/minor 증가를 요구하게 된다.
      */
     fun tree(): JsonNode = root.deepCopy()
+
+    /**
+     * 어휘 diff 대상만 남긴 트리. 검사 6번이 쓴다(설계 §11.1).
+     * 비투영 필드는 §7.2가 정한다 — 능력이 아니라 문서의 메타이거나
+     * 에뮬레이터의 거동 설정이라 버전 규칙의 대상이 아니다.
+     */
+    fun projection(): JsonNode =
+        (root.deepCopy() as ObjectNode).remove(NON_PROJECTION)
 
     /** 소견의 location에 쓴다. */
     fun locationOf(pointer: String): String = "$path#$pointer"
@@ -126,13 +139,37 @@ class ProfileDocument private constructor(
     )
 
     companion object {
+        /**
+         * §7.2 — 투영에 들어가지 않는 최상위 필드. [projection]이 뺀다.
+         * `schema_version`은 문서의 메타이고, 나머지 셋은 에뮬레이터의
+         * 거동 설정이라 §5.2의 버전 규칙 대상이 아니다.
+         */
+        val NON_PROJECTION: Set<String> =
+            setOf("schema_version", "durations", "failure_modes", "replay_buffer_size")
+
         private val mapper = ObjectMapper()
+            // 기본 설정은 중복 멤버 이름을 조용히 마지막 값으로 접는다.
+            // 스키마 검증기는 이미 파싱된 트리를 보므로 역시 못 잡는다.
+            // 그러면 {"min_value":10,"min_value":1,"max_value":5} 로
+            // 검사 3번의 min ≤ max 규칙을 통째로 우회할 수 있다(실측).
+            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
 
         /**
          * 던지지 않는다. 깨진 문서는 검사 3번이 소견으로 보고해야지
          * 게이트를 죽여서는 안 된다.
          */
-        fun parse(path: String, json: String): Result<ProfileDocument> =
-            runCatching { ProfileDocument(path, json, mapper.readTree(json)) }
+        fun parse(path: String, json: String): Result<ProfileDocument> = runCatching {
+            val root = mapper.readTree(json)
+            // 빈 파일·배열·스칼라가 전부 readTree를 통과한다. 막지 않으면
+            // 0바이트 프로파일이 malformed가 아니라 "스킬 0개인 정상 문서"가
+            // 되어 검사 4·6번이 대조할 게 없다며 PASS를 낸다(실측).
+            require(root != null && root.isObject) {
+                "프로파일 루트가 JSON 객체가 아니다: ${root?.nodeType ?: "빈 문서"}"
+            }
+            ProfileDocument(path, json, root)
+        }
+
+        /** 명시적 JSON null을 값으로 접지 않는다. `unit: null`이 "null" 문자열이 되는 것을 막는다. */
+        private fun JsonNode.field(name: String): JsonNode? = get(name)?.takeIf { !it.isNull }
     }
 }
