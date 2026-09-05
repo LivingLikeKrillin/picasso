@@ -167,12 +167,16 @@ picasso/
 **빌드 의존:**
 
 ```
-gate      → contracts
+gate      → contracts   ※ 아래 단서
 registry  → gate, contracts
 mimic     → contracts
 client    → contracts
 harness   → mimic, client
 ```
+
+**`gate`는 `contracts`에 빌드 의존을 걸지 않는다(1단계 실측 반영).** `buf.gen.yaml`이 Java를 생성하지 않으므로 의존해 봐야 클래스패스에 얹힐 것이 없고, `gate`가 필요한 것은 생성 코드가 아니라 `buf build`가 만든 `FileDescriptorSet` **바이트**다. 그것은 런타임 입력(`Resource.CONTRACT_DESCRIPTOR`)으로 받는다. 이 선택의 대가는 **`buf build`가 `./gradlew build`보다 먼저 돌아야 한다**는 것이고, 새 클론에서 그 순서를 어기면 `ContractIndexTest`가 만드는 법을 찍고 실패한다. Gradle 태스크 의존이 아니라 순서에 기대는 것이므로 CI의 스텝 순서가 그 계약이다.
+
+여기서 검사 5번이 이 불일치를 잡지 못한다는 점을 적어 둔다 — 5번은 `contracts`의 의존만 센다.
 
 **런타임 접근 (HTTP·MQTT. 빌드 의존이 아니며 상대가 없어도 모듈이 빌드·동작한다):**
 
