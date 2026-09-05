@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# buf를 Docker로 실행한다. 로컬 설치를 요구하지 않으며 CI와 같은 버전을 쓴다.
+# Git Bash의 MSYS 경로 변환을 끄고 호스트 경로를 cygpath로 넘기지 않으면
+# Docker가 'the working directory is invalid'로 거부한다.
+set -euo pipefail
+
+BUF_VERSION="${BUF_VERSION:-1.47.2}"
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# 호출자의 현재 위치를 저장소 루트 기준 상대 경로로 바꾼다.
+REL="$(realpath --relative-to="$REPO_ROOT" "$PWD" 2>/dev/null || echo ".")"
+
+HOST_ROOT="$REPO_ROOT"
+if command -v cygpath >/dev/null 2>&1; then
+  HOST_ROOT="$(cygpath -m "$REPO_ROOT")"
+fi
+
+export MSYS_NO_PATHCONV=1
+export MSYS2_ARG_CONV_EXCL='*'
+
+exec docker run --rm \
+  -v "${HOST_ROOT}:/workspace" \
+  -w "/workspace/${REL}" \
+  "bufbuild/buf:${BUF_VERSION}" "$@"
