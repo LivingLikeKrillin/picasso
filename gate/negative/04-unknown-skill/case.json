@@ -1,0 +1,6 @@
+{
+  "targets": "4",
+  "needs": [],
+  "expect": "teleport",
+  "reason": "계약 카탈로그에 없는 스킬 타입 선언"
+}

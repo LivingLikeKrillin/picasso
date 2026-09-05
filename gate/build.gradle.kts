@@ -46,11 +46,25 @@ tasks.withType<Test>().configureEach {
     // ./gradlew build를 돌려도 게이트 시험이 UP-TO-DATE로 넘어가 초록이 난다.
     // 실측으로 확인된 구멍이다 — 픽스처를 CRLF로 바꿔 다섯 시험이 깨지는
     // 상태에서도 BUILD SUCCESSFUL이 났다.
+    // 음성 하네스가 복사하는 트리 중 검사가 보는 것을 전부 선언한다.
+    // 실측으로 확인된 구멍이다 — case.json의 targets를 999로 바꿔도
+    // UP-TO-DATE로 초록이었다.
     inputs.files(
         rootProject.file("profile/fixtures"),
         rootProject.file("profile/schema"),
+        rootProject.file("gate/negative"),
+        rootProject.file("contracts/proto"),
+        rootProject.file("contracts/build.gradle.kts"),
+        rootProject.file("build.gradle.kts"),
+        rootProject.file("tools/buf"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // 하네스가 읽는다. 값이 바뀌면 Test.systemProperties가 태스크 입력이라
+    // 다시 돈다.
+    listOf("picasso.negative.strict", "picasso.buf").forEach { key ->
+        providers.systemProperty(key).orNull?.let { systemProperty(key, it) }
+    }
 
     systemProperty("picasso.descriptor", descriptor.absolutePath)
 }

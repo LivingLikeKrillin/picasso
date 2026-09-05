@@ -1,0 +1,8 @@
+{
+  "targets": "1",
+  "needs": [
+    "BUF"
+  ],
+  "expect": "PascalCase",
+  "reason": "메시지 이름이 명명 규칙을 어긴다 — buf.yaml의 lint.use STANDARD"
+}

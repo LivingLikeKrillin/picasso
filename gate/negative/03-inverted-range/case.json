@@ -1,0 +1,6 @@
+{
+  "targets": "3",
+  "needs": [],
+  "expect": "범위가 뒤집혔다",
+  "reason": "JSON Schema 2020-12에는 필드 간 수치 비교가 없다"
+}

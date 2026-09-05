@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package picasso.v1;
+
+option java_multiple_files = true;
+option java_package = "dev.picasso.contracts.v1";
+
+import "google/protobuf/descriptor.proto";
+
+// 이 파라미터가 몇 번째 minor부터 존재하는가. 설계 §5.2.
+// 주석이 아니라 옵션으로 두는 이유는 디스크립터에 남아야 게이트가 읽기 때문이다.
+extend google.protobuf.FieldOptions {
+  uint32 since_minor = 50001;
+
+  // 이 파라미터가 선택인가. 설계 §8.3의 skill_type_param.optional로 동기화된다.
+  // since_minor > 0으로 유도할 수 없다 — 처음부터 선택인 파라미터가 있다.
+  bool is_optional = 50005;
+}
+
+// 이 메시지가 어느 스킬 타입의 major 몇인가.
+extend google.protobuf.MessageOptions {
+  string skill_type_name = 50002;
+  uint32 skill_type_major = 50003;
+
+  // 이 major가 아는 최신 minor. 설계 §8.3의 skill_type.max_minor로 동기화된다.
+  // max(since_minor)로 유도하지 않는다 — 파라미터를 더하지 않는 minor 증가
+  // (예: 성공 판정 문구만 다듬은 1.3)를 표현할 수 없기 때문이다.
+  uint32 skill_type_max_minor = 50004;
+}
+
+// ---------------------------------------------------------------------------
+// 스킬 타입 카탈로그.
+//
+// 규칙 셋 (설계 §5.2):
+//   - 스킬 타입 하나의 major 하나가 메시지 하나다. major가 오르면 새 메시지다.
+//   - 파라미터 키는 불변이다. 의미나 단위가 바뀌면 새 키를 만들고 옛 키를 폐기한다.
+//   - 선택 파라미터를 더하는 것은 minor 증가다. since_minor로 표시한다.
+//
+// 1단계는 어휘를 늘리는 일이 아니다(설계 §1.3의 A-5는 비목표). 아래 둘은
+// 게이트와 픽스처가 판정 대상으로 삼을 최소한이며, 그 이상은 2단계 이후에 는다.
+//
+// proto 타입 → 설계 §4.3의 ValueType 매핑. ContractIndex가 이 표대로 옮긴다.
+//   bool   → VALUE_TYPE_BOOL
+//   int64  → VALUE_TYPE_INTEGER
+//   double → VALUE_TYPE_NUMBER
+//   string → VALUE_TYPE_STRING
+//   enum   → VALUE_TYPE_ENUM   (허용 값은 프로파일이 정한다. 계약은 열거 자체를
+//                               카탈로그에 두지 않는다 — 값 집합이 기종마다 다르다)
+// 그 밖의 타입은 카탈로그에 쓰지 않는다. 게이트 검사 4번이 미지 타입을 만나면 실패한다.
+// ---------------------------------------------------------------------------
+
+// 대상을 집어 지정한 곳에 놓는다.
+// 성공 판정: 대상이 목표 위치에 놓이고 그리퍼가 떨어졌을 때.
+message PickPlaceV1 {
+  option (skill_type_name) = "pick_place";
+  option (skill_type_major) = 1;
+  option (skill_type_max_minor) = 2;
+
+  // 집을 대상의 식별자.
+  string object_id = 1 [(since_minor) = 0, (is_optional) = false];
+
+  // 놓을 위치의 시맨틱 ID.
+  string destination = 2 [(since_minor) = 0, (is_optional) = false];
+
+  // 처음부터 선택이었던 파라미터. since_minor > 0으로 optional을 유도할 수 없다는
+  // 것을 이 필드가 보여 준다.
+  bool verify_grasp = 3 [(since_minor) = 0, (is_optional) = true];
+
+  // 파지력. 뉴턴. minor 2에서 추가된 선택 파라미터다.
+  double grip_force = 4 [(since_minor) = 2, (is_optional) = true];
+
+  // 재시도 횟수 상한을 로봇에게 힌트로 준다. 정책이 아니라 힌트다.
+  int64 grasp_attempts = 5 [(since_minor) = 2, (is_optional) = true];
+}
+
+// 지정한 시맨틱 위치로 이동한다.
+// 성공 판정: 접근점에 도착하고 정지했을 때. 자세 정밀도는 이 스킬의 책임이 아니다.
+message navigate_to_v1 {
+  option (skill_type_name) = "navigate_to";
+  option (skill_type_major) = 1;
+  option (skill_type_max_minor) = 0;
+
+  // 목적지의 시맨틱 위치 ID. 좌표가 아니다 — 설계노트 §4.3.
+  string location = 1 [(since_minor) = 0, (is_optional) = false];
+}

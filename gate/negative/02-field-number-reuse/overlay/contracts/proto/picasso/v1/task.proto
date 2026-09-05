@@ -1,0 +1,197 @@
+syntax = "proto3";
+
+package picasso.v1;
+
+option java_multiple_files = true;
+option java_package = "dev.picasso.contracts.v1";
+
+import "picasso/v1/common.proto";
+import "picasso/v1/fault.proto";
+
+// 설계 §4.4. RETRIABLE을 종착으로 두지 않는 것이 요점이다 —
+// 재시도 가능한 실패는 에러 코드가 아니라 상태다(VDA5050 actionStatus).
+//
+// 종착은 SUCCEEDED / FAILED / CANCELLED / CANCELLED_RECOVERY_FAILED 넷이고
+// **종착은 래치된다**. 실물 중에는 이를 지키지 않는 것이 있으므로
+// (Agility Digit 매뉴얼: "This status does not latch once reached")
+// 그런 로봇에서는 어댑터가 래치 책임을 지고, 위반을 관측하면
+// TERMINAL_STATE_VIOLATED 결함을 발행한다.
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  TASK_STATE_ACCEPTED = 1;
+  TASK_STATE_RUNNING = 2;
+  TASK_STATE_PAUSED = 3;
+
+  // 취소 요청을 받고 하던 일을 안전하게 되돌리는 중.
+  // 휴머노이드는 들고 있던 것을 내려놔야 하므로 즉시 중단이 물리적으로 불가능하다.
+  TASK_STATE_CANCELLING = 4;
+
+  // 실패했으나 로봇 혼자 재시도하면 될 수 있음. RetryTask를 기다린다.
+  TASK_STATE_RETRIABLE = 5;
+
+  // 실패했고 사람이 무언가 해야 재시도가 의미 있음. 역시 RetryTask를 기다린다.
+  // 자동 재시도를 걸면 같은 실패를 반복하며 자원만 태우므로 5와 나눈다.
+  TASK_STATE_NEEDS_INTERVENTION = 6;
+
+  TASK_STATE_SUCCEEDED = 7;
+  TASK_STATE_FAILED = 8;
+
+  // 취소하고 복구까지 마쳤다.
+  TASK_STATE_CANCELLED = 9;
+
+  // 취소했으나 복구에 실패했다 — 로봇이 물건을 든 채 멈춰 있는 상황이다.
+  // 9와 전혀 다른 운영 상황이라 나눈다. Agility Arc도 워크플로 상태에
+  // CANCELED_WITH_RECOVERY / _RUNNING_RECOVERY / _FAILED_RECOVERY 세 변종을 둔다.
+  TASK_STATE_CANCELLED_RECOVERY_FAILED = 10;
+}
+
+// 파라미터 하나의 값. ENUM형도 문자열로 싣는다 —
+// 허용 값 검사는 프로파일이 하지 계약이 하지 않는다.
+message ParameterValue {
+  string key = 1;
+
+  oneof value {
+    bool bool_value = 2;
+    int64 integer_value = 3;
+    double number_value = 4;
+    string string_value = 5;
+  }
+}
+
+// 멱등성 키는 (task_id, revision) 단조쌍이다.
+// VDA5050의 (orderId, orderUpdateId)를 그대로 가져왔다.
+message TaskHandle {
+  int64 task_id = 1;
+  uint32 revision = 2;
+  string robot_id = 3;
+}
+
+message StartTaskRequest {
+  MessageHeader header = 1;
+
+  string task_id = 2;
+  uint32 revision = 3;
+  string robot_id = 4;
+
+  string skill_type = 5;
+  repeated ParameterValue parameters = 6;
+}
+
+message StartTaskResponse {
+  MessageHeader header = 1;
+
+  // 접수 응답이지 종착이 아니다. 종착은 WatchTask 스트림으로 온다.
+  oneof result {
+    TaskHandle handle = 2;
+    Rejection rejection = 3;
+  }
+}
+
+message WatchTaskRequest {
+  MessageHeader header = 1;
+  TaskHandle handle = 2;
+
+  // 재접속 시 이어받을 지점. 태스크 단위 카운터이며
+  // MQTT의 sequence와 다른 축이다(설계 §3.5).
+  uint64 from_update_index = 3;
+}
+
+message WatchTaskResponse {
+  MessageHeader header = 1;
+
+  TaskState state = 2;
+  uint32 revision = 3;
+
+  // RetryTask가 revision을 바꾸지 않으므로 attempt가 재시작을 구분한다.
+  uint32 attempt = 4;
+
+  // 0.0..1.0. 단조 비감소는 (task_id, revision, attempt)가 같은 구간
+  // 안에서만 성립하는 불변식이다.
+  double progress = 5;
+
+  string partial_result = 6;
+
+  // 종착이 실패인 경우에만 채워진다.
+  Fault fault = 7;
+}
+
+message RetryTaskRequest {
+  MessageHeader header = 1;
+  TaskHandle handle = 2;
+}
+
+// 아래 넷은 응답 형태가 같다 — oneof로 "받아들여진 뒤의 상태" 또는 "거절 사유".
+// 표면마다 bool/state/oneof를 섞으면 소비자가 RPC마다 다른 분기를 쓰게 된다.
+
+message RetryTaskResponse {
+  MessageHeader header = 1;
+
+  oneof result {
+    // 받아들여지면 RUNNING. attempt가 오른다.
+    TaskState state = 2;
+
+    // RETRIABLE / NEEDS_INTERVENTION이 아닌 상태에서 부르면 INVALID_TRANSITION.
+    Rejection rejection = 3;
+  }
+}
+
+message PauseTaskRequest {
+  MessageHeader header = 1;
+  TaskHandle handle = 2;
+}
+
+message PauseTaskResponse {
+  MessageHeader header = 1;
+
+  oneof result {
+    // 받아들여지면 PAUSED.
+    TaskState state = 2;
+
+    // pause_support=NO인 스킬이면 PAUSE_UNSUPPORTED.
+    // UNKNOWN이면 시도가 허용되되 로봇이 거절할 수 있다.
+    Rejection rejection = 3;
+  }
+}
+
+message ResumeTaskRequest {
+  MessageHeader header = 1;
+  TaskHandle handle = 2;
+}
+
+message ResumeTaskResponse {
+  MessageHeader header = 1;
+
+  oneof result {
+    // 받아들여지면 RUNNING.
+    TaskState state = 2;
+    Rejection rejection = 3;
+  }
+}
+
+message CancelTaskRequest {
+  MessageHeader header = 1;
+  TaskHandle handle = 2;
+}
+
+message CancelTaskResponse {
+  MessageHeader header = 1;
+
+  oneof result {
+    // 취소는 즉시가 아니고 복구를 동반한다. 여기서 CANCELLING을 돌려주고
+    // 종착(CANCELLED 또는 CANCELLED_RECOVERY_FAILED)은 WatchTask 스트림으로 온다.
+    // openTCS TransportOrder.State의 WITHDRAWN과 같은 구조다.
+    TaskState state = 2;
+
+    // cancel_support=NO인 스킬이면 CANCEL_UNSUPPORTED.
+    Rejection rejection = 3;
+  }
+}
+
+service TaskService {
+  rpc StartTask(StartTaskRequest) returns (StartTaskResponse);
+  rpc WatchTask(WatchTaskRequest) returns (stream WatchTaskResponse);
+  rpc RetryTask(RetryTaskRequest) returns (RetryTaskResponse);
+  rpc PauseTask(PauseTaskRequest) returns (PauseTaskResponse);
+  rpc ResumeTask(ResumeTaskRequest) returns (ResumeTaskResponse);
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
+}

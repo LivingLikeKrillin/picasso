@@ -1,0 +1,6 @@
+{
+  "targets": "5",
+  "needs": [],
+  "expect": "프로젝트 의존",
+  "reason": "contracts가 프로젝트 내 의존을 갖는다 — 설계 §3.2 위반"
+}

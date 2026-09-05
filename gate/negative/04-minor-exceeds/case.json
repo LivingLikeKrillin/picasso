@@ -1,0 +1,6 @@
+{
+  "targets": "4",
+  "needs": [],
+  "expect": "최신",
+  "reason": "계약이 아는 최신 minor를 초과 선언"
+}
