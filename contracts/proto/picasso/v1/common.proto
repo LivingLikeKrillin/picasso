@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+package picasso.v1;
+
+option java_multiple_files = true;
+option java_package = "dev.picasso.contracts.v1";
+
+// 결함·이벤트가 가리키는 대상. 설계 §4.3의 Reference.
+message Reference {
+  enum Key {
+    KEY_UNSPECIFIED = 0;
+    KEY_TASK_ID = 1;
+    KEY_SKILL_ID = 2;
+    KEY_ROBOT_ID = 3;
+    KEY_PARAMETER_KEY = 4;
+  }
+
+  Key key = 1;
+  string value = 2;
+}
+
+// 결함이 언제까지 유효한가. 설계 §4.3의 Lifetime.
+// 이것이 없으면 소비자가 "이 결함이 아직 유효한가"를 추측하게 된다.
+message Lifetime {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_UNTIL_CLEARED = 1;
+    KIND_UNTIL_NEW_TASK = 2;
+    KIND_UNTIL_TIMESTAMP = 3;
+  }
+
+  Kind kind = 1;
+
+  // RFC3339. kind가 KIND_UNTIL_TIMESTAMP일 때만 의미가 있다.
+  string until = 2;
+}
+
+// 어느 프로파일 개정판이 이 메시지를 만들었는가. 설계 §5.5.
+// 카나리 중 두 개정판이 동시에 도는 것을 관측하는 유일한 수단이다.
+message ProfileRef {
+  string profile_id = 1;
+  int32 revision = 2;
+}
+
+// 설계 §4.3. 3값인 이유는 §7.2 — "지원하지 않음"과 "벤더 문서에 근거가 없어
+// 모름"을 구분하지 못하면 프로파일 작성자가 거짓말을 하게 된다.
+// Agility Digit은 취소 프리미티브 자체가 없어 정확히 이 구분이 필요하다.
+// NO면 시도가 핸드셰이크에서 걸리고, UNKNOWN이면 시도는 허용되되
+// 로봇이 CANCEL_UNSUPPORTED / PAUSE_UNSUPPORTED로 거절할 수 있다.
+enum Support {
+  SUPPORT_UNSPECIFIED = 0;
+  SUPPORT_YES = 1;
+  SUPPORT_NO = 2;
+  SUPPORT_UNKNOWN = 3;
+}
+
+// 설계 §4.3·§4.5. 실패가 어떻게 풀리는가 — 전파 규칙 1의 입력이다.
+// SELF_RETRIABLE과 NEEDS_INTERVENTION을 나누는 이유는 자동 재시도의 가부가
+// 갈리기 때문이다. 후자를 자동으로 다시 걸면 같은 실패를 반복하며 자원만 태운다.
+enum Resolution {
+  RESOLUTION_UNSPECIFIED = 0;
+  RESOLUTION_SELF_RETRIABLE = 1;
+  RESOLUTION_NEEDS_INTERVENTION = 2;
+  RESOLUTION_TERMINAL = 3;
+}
+
+// 설계 §4.3. 표면마다 쓰는 부분집합이 다르지만 열거는 하나로 둔다 —
+// 나누면 같은 뜻의 값이 두 enum에 생기고 소비자가 둘 다 처리해야 한다.
+//   Negotiate     : MAJOR_MISMATCH · SKILL_ABSENT · REQUIRED_OPTIONAL_MISSING
+//                   · LIMIT_EXCEEDED · IDENTITY_MISMATCH
+//   태스크 RPC     : CAPABILITY_WITHDRAWN · CANCEL_UNSUPPORTED · PAUSE_UNSUPPORTED
+//                   · OUTDATED_REVISION · INVALID_TRANSITION
+//   ReplayEvents  : SEQUENCE_EVICTED
+enum RejectionCode {
+  REJECTION_CODE_UNSPECIFIED = 0;
+  REJECTION_CODE_MAJOR_MISMATCH = 1;
+  REJECTION_CODE_SKILL_ABSENT = 2;
+  REJECTION_CODE_REQUIRED_OPTIONAL_MISSING = 3;
+  REJECTION_CODE_LIMIT_EXCEEDED = 4;
+  REJECTION_CODE_IDENTITY_MISMATCH = 5;
+  REJECTION_CODE_CAPABILITY_WITHDRAWN = 6;
+  REJECTION_CODE_CANCEL_UNSUPPORTED = 7;
+  REJECTION_CODE_PAUSE_UNSUPPORTED = 8;
+  REJECTION_CODE_OUTDATED_REVISION = 9;
+  REJECTION_CODE_INVALID_TRANSITION = 10;
+  REJECTION_CODE_SEQUENCE_EVICTED = 11;
+}
+
+// 거절에는 언제나 이유가 붙는다. openTCS의 ExplainedBoolean(value, reason)을
+// 일반화한 것 — 거절만 하고 이유를 안 주면 운영에서 원인을 못 찾는다.
+message Rejection {
+  RejectionCode code = 1;
+  string detail = 2;
+  repeated Reference references = 3;
+
+  // 능력이 사라져 거절한 경우 소비자가 캐시를 다시 세우도록 현재 세대를 실어 준다.
+  uint64 capability_epoch = 4;
+}
+
+// 설계 §5.5. MQTT 발행, gRPC 요청, gRPC 응답 세 방향 모두에 실린다.
+// 방향마다 채우는 필드가 다르다 — 설계 §5.5의 표가 정본이며,
+// 비어 있는 필드는 "그 방향에서는 쓰지 않는다"를 뜻한다.
+message MessageHeader {
+  // 예: "picasso.v1.WatchTaskResponse"
+  string schema_id = 1;
+
+  // 설계 §5.5 — 다이제스트만으로는 차단 판정을 못 하므로 semver를 병기한다.
+  string contract_digest = 2;
+  string contract_semver = 3;
+
+  string robot_id = 4;
+
+  // 능력의 ETag. 소비자가 매 메시지에서 O(1)로 캐시 유효성을 판정한다.
+  uint64 capability_epoch = 5;
+
+  // 기체 단위. 발신자가 온라인이 될 때마다 새로 발급한다(ULID).
+  string session_id = 6;
+
+  // 기체 단위, 세션 안에서 단조 증가. MQTT state/event 전용.
+  uint64 sequence = 7;
+
+  // 태스크 단위, 0부터 단조 증가. WatchTask 스트림 전용.
+  // sequence와 나누지 않으면 gRPC에만 나가는 진행률이 소비한 번호를
+  // MQTT 소비자가 결손으로 오탐한다(설계 §3.5).
+  uint64 update_index = 8;
+
+  ProfileRef profile_ref = 9;
+
+  // 소비자 측 멱등 처리 키(ULID).
+  string event_id = 10;
+
+  // RFC3339
+  string occurred_at = 11;
+  string state_as_of = 12;
+
+  // gRPC 요청 전용. 권위는 이 헤더에 있고 페이로드의 같은 필드는 복사본이다.
+  string client_id = 13;
+}
