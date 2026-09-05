@@ -240,10 +240,18 @@ harness   → mimic, client
 
 | 파일 | 담는 것 | 범위 항목 |
 |---|---|---|
-| `skill.proto` | 스킬 상태머신, `Capability`, `GetCapabilities`, `Negotiate` | A-1 |
-| `task.proto` | 장기 실행 태스크 RPC와 상태 | A-4 |
-| `event.proto` | 상태와 이벤트, `GetSnapshot`, `CapabilityChanged`, 연결 상태, 공통 헤더 | A-2 |
+| `common.proto` | **공통 헤더**, `Reference`, `Lifetime`, `ProfileRef`, `Support`, `Resolution`, `RejectionCode`, `Rejection`. **의존이 없다** | — |
 | `fault.proto` | 결함 모델 | A-2 |
+| `skill.proto` | 스킬 상태머신, `Capability`, `GetCapabilities`, `Negotiate` | A-1 |
+| `skill_catalog.proto` | **계약이 소유하는 스킬 타입 어휘.** `since_minor`·`is_optional`·`skill_type_max_minor`를 proto 커스텀 옵션으로 싣는다 | A-1 |
+| `task.proto` | 장기 실행 태스크 RPC와 상태 | A-4 |
+| `event.proto` | 이벤트, `StateMessage`, `GetSnapshot`, `ReplayEvents`, `CapabilityChanged`, 연결 상태. 위 넷을 참조하므로 마지막 | A-2 |
+
+**공통 헤더가 `common.proto`에 있는 이유**는 import 순환이다. 헤더를 `event.proto`에 두면 `skill.proto`가 헤더를 쓰려고 `event.proto`를 import하고, `event.proto`는 이벤트 본문에 `SkillState`·`TaskState`를 담으려고 그 둘을 import하게 되어 protoc이 거부하는 순환이 생긴다.
+
+**`skill_catalog.proto`가 따로 있는 이유**는 §5.2가 "계약은 스킬 타입마다 major별 정의를 갖고 파라미터마다 몇 번째 minor부터 존재하는가를 기록한다"고 요구하고 §8.3의 결정 4가 `skill_type`·`skill_type_param`을 "proto에서 동기화되는 읽기 전용 투영"으로 규정하기 때문이다. 어휘를 proto에 두면 **`buf breaking`이 파라미터 삭제·타입 변경을 공짜로 막아준다** — §11.2의 6번은 그 위에서 "선언된 버전 증가가 변화 분류와 맞는가"만 보면 된다. `skill.proto`와 나누는 것은 변경 이유가 다르기 때문이다(기계는 안정적이고 어휘는 자란다).
+
+**`max_minor`와 `optional`은 유도하지 않고 선언한다.** `max(since_minor)`로 최신 minor를 유도하면 파라미터를 더하지 않는 minor 증가를 표현하지 못하고, `since_minor > 0`으로 선택 여부를 유도하면 처음부터 선택인 파라미터를 잡지 못한다. 둘 다 전용 옵션을 둔다.
 
 ### 4.2 스킬 상태머신
 
@@ -433,12 +441,14 @@ Fault {
 
 | `kind` | 본문 |
 |---|---|
-| `SKILL_TRANSITION` | `{skill_type_id, from, to, task_id?}` |
-| `TASK_TRANSITION` | `{task_id, skill_type_id, from, to, revision, attempt}` |
+| `SKILL_TRANSITION` | `{skill_type, from, to, task_id?}` |
+| `TASK_TRANSITION` | `{task_id, skill_type, from, to, revision, attempt}` |
 | `FAULT_RAISED` / `FAULT_CLEARED` | `Fault`(§4.6) |
 | `CAPABILITY_CHANGED` | 아래 |
 
-`TASK_TRANSITION`이 `skill_type_id`를 싣는 것이 중요하다 — **`registry`가 이 이벤트를 구독해 `task` 테이블을 적재하며**(§3.2·§8.3), §9.3의 드레인 판정이 스킬 단위로 서려면 이 필드가 있어야 한다.
+`TASK_TRANSITION`이 `skill_type`을 싣는 것이 중요하다 — **`registry`가 이 이벤트를 구독해 `task` 테이블을 적재하며**(§3.2·§8.3), §9.3의 드레인 판정이 스킬 단위로 서려면 이 필드가 있어야 한다. 계약이 싣는 것은 **스킬 타입 이름**이고 `skill_type_id`는 §8.3 레지스트리의 대리키다 — 이름이 겹치지 않게 계약 쪽은 `skill_type`으로 통일한다.
+
+proto에서는 `kind` 필드 대신 `oneof body`의 판별자가 그 역할을 하고, `FAULT_RAISED`/`FAULT_CLEARED` 두 값은 `FaultEvent.cleared` 불리언으로 합쳐진다.
 
 `CapabilityChanged`는 `{robot_id, capability_epoch, added[], removed[], cause}`를 담는다. `cause`는 §8.3 `capability_epoch_log.cause`와 같은 값 집합이다. **전체 능력을 싣지 않는 것이 의도**다 — 소비자는 delta로 캐시를 갱신하거나 `GetCapabilities`로 전량을 다시 가져온다.
 
@@ -544,14 +554,20 @@ Negotiate(CapabilityRequirement) -> NegotiationResult
 | 필드 | 발행 | gRPC 요청 | gRPC 응답 |
 |---|---|---|---|
 | `schema_id` | ● | ● | ● |
-| `contract_revision` | ● | ● | ● |
+| `contract_digest` | ● | ● | ● |
+| `contract_semver` | ● | ● | ● |
 | `robot_id` | ● | ● (기체 지정) | ● |
 | `capability_epoch` | ● | — | ● |
-| `session_id` / `sequence` | ● | — | — |
+| `sequence` | ● | — | — |
+| `session_id` | ● | — | ● |
 | `update_index` | — | — | ● (`WatchTask` 스트림) |
 | `profile_ref {id, revision}` | ● | — | ● |
 | `event_id` / `occurred_at` / `state_as_of` | ● | — | ● |
 | `client_id` | — | ● | — |
+
+**`contract_revision`은 구현에서 두 필드로 나뉜다** — 다이제스트만으로는 차단 판정을 못 하므로 `contract_digest`와 `contract_semver`를 함께 싣는다.
+
+**`session_id`가 gRPC 응답에도 실리는 이유**는 §4.8의 세션 판정 때문이다. `SEQUENCE_EVICTED` 후 `GetSnapshot`으로 다시 세운 소비자가 그 `sequence`가 어느 세션의 것인지 알아야 하는데, 응답에 세션이 없으면 판정이 불가능해진다.
 
 소비처: `event_id`는 소비자 측 멱등 처리, `state_as_of`는 신선도 판정(§7.2가 선언한 최대 발행 간격과 대조), `schema_id`는 §6.2의 메시지마다 판정, **`profile_ref`는 `registry`가 이벤트를 적재할 때 개정판 귀속에 쓴다** — 카나리 중 두 개정판이 동시에 도는 것을 관측하는 유일한 수단이며 §12.2의 카나리 시험이 이 필드로 판정한다.
 
@@ -824,7 +840,9 @@ audit_log(actor, action, target_type, target_id, plan_id NULL,
 
 2. **원본(`document`)과 평탄화 테이블을 둘 다 둔다.** 원본이 진실이고 평탄화는 질의용이다. **평탄화는 트리거가 아니라 등록 시점에 애플리케이션이 계산한다.**
 3. **런타임 축소는 프로파일을 건드리지 않는다.** `runtime_capability_override`에 얹는다. **유효 능력 = 프로파일 − 오버라이드**이며 이 결과가 `Capability` 투영이 된다.
-4. **`skill_type`·`skill_type_param`은 배포 시 동기화되는 읽기 전용이다.** 동기화는 `registry` 기동 시 `contracts/`의 기술자 집합을 읽어 upsert하는 잡이 수행하며, 계약에서 사라진 스킬은 삭제하지 않고 `removed_from_contract=true`로 표시한다(참조 무결성 보존). **폐기 예고는 사람이 정하는 값이므로 이 테이블이 아니라 `skill_type_deprecation`에 쓴다** — 그래야 읽기 전용 원칙이 유지된다.
+4. **`skill_type`·`skill_type_param`은 배포 시 동기화되는 읽기 전용이다.** **동기화 원본은 `contracts/proto/picasso/v1/skill_catalog.proto`이고**, `registry` 기동 시 그 디스크립터를 읽어 upsert하는 잡이 수행한다. `max_minor`와 `optional`은 유도가 아니라 **선언된 커스텀 옵션**(`skill_type_max_minor`, `is_optional`)에서 온다(§4.1). 계약에서 사라진 스킬은 삭제하지 않고 `removed_from_contract=true`로 표시한다(참조 무결성 보존). **폐기 예고는 사람이 정하는 값이므로 이 테이블이 아니라 `skill_type_deprecation`에 쓴다** — 그래야 읽기 전용 원칙이 유지된다.
+
+   ⚠️ **구현 주의**: `.binpb`를 `FileDescriptorSet.parseFrom()`으로 그냥 파싱하면 커스텀 옵션이 unknown field로 떨어져 값이 보이지 않는다. 디스크립터 집합에서 확장 정의를 뽑아 동적 `ExtensionRegistry`를 만들고 `options` 바이트를 다시 파싱해야 한다.
 5. **바인딩이 어댑터와 프로파일 둘 다를 참조한다.** "어댑터만 바뀜"과 "기종이 바뀜"이 이 컬럼 분리로 구분된다.
 6. **원장의 `source`가 둘이다.** `DECLARED`는 소비자가 등록한 것, `OBSERVED`는 협상 성공에서 관측한 것. 등록하지 않은 소비자도 관측으로 잡히므로 원장이 비어 있을 수 없다.
 

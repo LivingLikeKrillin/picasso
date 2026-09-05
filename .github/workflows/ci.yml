@@ -23,5 +23,16 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: buf lint
+        run: cd contracts && ../tools/buf lint
+
+      - name: buf breaking (self-check)
+        run: cd contracts && ../tools/buf breaking --against .
+
+      - name: buf build (descriptor)
+        run: |
+          mkdir -p contracts/build
+          cd contracts && ../tools/buf build -o build/descriptor.binpb
+
       - name: Build
         run: ./gradlew build

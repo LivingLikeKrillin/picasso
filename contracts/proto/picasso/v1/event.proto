@@ -1,0 +1,163 @@
+syntax = "proto3";
+
+package picasso.v1;
+
+option java_multiple_files = true;
+option java_package = "dev.picasso.contracts.v1";
+
+import "picasso/v1/common.proto";
+import "picasso/v1/fault.proto";
+import "picasso/v1/skill.proto";
+import "picasso/v1/task.proto";
+
+// 설계 §4.7. HIBERNATING이 있어야 "침묵하지만 정상"을 표현할 수 있다 —
+// 침묵의 상한만 두면 절전 중인 로봇이 고장으로 오판된다.
+enum ConnectionState {
+  CONNECTION_STATE_UNSPECIFIED = 0;
+  CONNECTION_STATE_ONLINE = 1;
+  CONNECTION_STATE_OFFLINE = 2;
+  CONNECTION_STATE_HIBERNATING = 3;
+
+  // 설계의 어휘는 CONNECTION_BROKEN이다. ENUM_VALUE_PREFIX가 접두사를
+  // 요구하므로 이름이 겹쳐 보이지만, 어휘를 줄이는 대신 접두사를 감수한다.
+  CONNECTION_STATE_CONNECTION_BROKEN = 4;
+}
+
+// 설계 §8.3의 capability_epoch_log.cause와 같은 값 집합이다.
+enum CapabilityChangeCause {
+  CAPABILITY_CHANGE_CAUSE_UNSPECIFIED = 0;
+  CAPABILITY_CHANGE_CAUSE_BINDING_CHANGED = 1;
+  CAPABILITY_CHANGE_CAUSE_RUNTIME_DEGRADED = 2;
+  CAPABILITY_CHANGE_CAUSE_OPERATOR_BLOCKED = 3;
+  CAPABILITY_CHANGE_CAUSE_RESTORED = 4;
+}
+
+message SkillTransition {
+  string skill_type = 1;
+  SkillState from = 2;
+  SkillState to = 3;
+
+  // 어느 태스크가 유발했는가. 비어 있을 수 있다.
+  string task_id = 4;
+}
+
+// skill_type을 싣는 것이 중요하다 — registry가 이 이벤트를 구독해
+// task 테이블을 적재하며(설계 §3.2·§8.3), 드레인 판정이 스킬 단위로
+// 서려면 이 필드가 있어야 한다.
+message TaskTransition {
+  string task_id = 1;
+  string skill_type = 2;
+  TaskState from = 3;
+  TaskState to = 4;
+  uint32 revision = 5;
+  uint32 attempt = 6;
+}
+
+// 설계 §4.7의 kind 어휘 FAULT_RAISED / FAULT_CLEARED를 한 메시지로 합쳤다.
+// oneof body의 판별자가 kind 역할을 하고, 발생/해소는 이 불리언이 가른다.
+message FaultEvent {
+  Fault fault = 1;
+
+  // false면 발생, true면 해소.
+  bool cleared = 2;
+}
+
+// 전체 능력을 싣지 않는 것이 의도다 — 소비자는 delta로 캐시를 갱신하거나
+// GetCapabilities로 전량을 다시 가져온다. 어느 쪽이든 판정 기준은 epoch다.
+message CapabilityChanged {
+  string robot_id = 1;
+  uint64 capability_epoch = 2;
+  repeated string added = 3;
+  repeated string removed = 4;
+  CapabilityChangeCause cause = 5;
+}
+
+// MQTT event 스트림에 나가는 것. 설계 §4.7의 네 전이가 전부 여기로 온다.
+message Event {
+  MessageHeader header = 1;
+
+  oneof body {
+    SkillTransition skill_transition = 2;
+    TaskTransition task_transition = 3;
+    FaultEvent fault_event = 4;
+    CapabilityChanged capability_changed = 5;
+  }
+}
+
+// MQTT connection 스트림. retain으로 발행하며 CONNECTION_BROKEN은 브로커 Last Will이다.
+message ConnectionMessage {
+  MessageHeader header = 1;
+  ConnectionState state = 2;
+}
+
+message TaskSnapshot {
+  string task_id = 1;
+  string skill_type = 2;
+  TaskState state = 3;
+  uint32 revision = 4;
+  uint32 attempt = 5;
+}
+
+message SkillSnapshot {
+  string skill_type = 1;
+  SkillState state = 2;
+}
+
+// MQTT state 스트림. 설계 §3.5의 {stream} 셋 중 하나이며 §4.7이
+// "상태와 이벤트 둘 다 발행한다"고 요구하는 그 상태 쪽이다.
+// 이벤트는 발생한 사실이고 이것은 현재값이다 — 신규 구독자가 전이를
+// 관찰하지 못하는 문제를 이 둘이 함께 푼다.
+//
+// GetSnapshotResponse와 내용이 겹치지만 별도 메시지로 둔다:
+// 스냅샷은 요청에 대한 응답이라 sequence가 페이로드에 있고,
+// 이것은 발행이라 sequence가 헤더에 있다. schema_id도 달라야 한다(§6.2).
+message StateMessage {
+  MessageHeader header = 1;
+
+  repeated SkillSnapshot skills = 2;
+  repeated TaskSnapshot tasks = 3;
+  repeated Fault faults = 4;
+}
+
+message GetSnapshotRequest {
+  MessageHeader header = 1;
+  string robot_id = 2;
+}
+
+message GetSnapshotResponse {
+  MessageHeader header = 1;
+
+  // 이 스냅샷이 대응하는 sequence. 소비자는 이 번호 다음부터
+  // event를 이어 붙여 현재를 재구성한다.
+  uint64 sequence = 2;
+
+  repeated SkillSnapshot skills = 3;
+  repeated TaskSnapshot tasks = 4;
+  repeated Fault faults = 5;
+  ConnectionState connection_state = 6;
+}
+
+message ReplayEventsRequest {
+  MessageHeader header = 1;
+  string robot_id = 2;
+
+  // 재생 버퍼를 요청하는 유일한 표면이다.
+  uint64 from_sequence = 3;
+}
+
+message ReplayEventsResponse {
+  MessageHeader header = 1;
+
+  oneof result {
+    Event event = 2;
+
+    // 요청한 sequence가 버퍼를 벗어나면 SEQUENCE_EVICTED.
+    // 소비자는 GetSnapshot부터 다시 세운다.
+    Rejection rejection = 3;
+  }
+}
+
+service EventService {
+  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
+  rpc ReplayEvents(ReplayEventsRequest) returns (stream ReplayEventsResponse);
+}
