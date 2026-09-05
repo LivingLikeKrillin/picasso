@@ -1,0 +1,19 @@
+[versions]
+kotlin = "2.0.21"
+protobuf = "4.28.3"
+jsonSchema = "1.5.2"
+jackson = "2.18.1"
+junit = "5.11.3"
+junitPlatform = "1.11.3"
+clikt = "5.0.1"
+
+[libraries]
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
+jsonschema-validator = { module = "com.networknt:json-schema-validator", version.ref = "jsonSchema" }
+jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
+clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junitPlatform" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
