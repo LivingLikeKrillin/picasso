@@ -60,7 +60,9 @@
 
 ### 1.4 완료 기준
 
-§12.2에 **20행**으로 정리한다. 백로그 11행(A-1 1, A-2 4, A-4 3, C-1 2, C-2 1), D-1 1행, 능력 호환성 1행, 레지스트리·런타임 갱신 2행, 운영 변경 5행이다.
+§12.2에 **24행**으로 정리한다. 백로그 15행(A-1 1, A-2 4, A-4 7, C-1 2, C-2 1), D-1 1행, 능력 호환성 1행, 레지스트리·런타임 갱신 2행, 운영 변경 5행이다.
+
+A-4가 일곱으로 늘어난 것은 실물 조사(§2.3)의 결과다 — 취소가 복구를 동반하고, 실패가 사람 개입 대기일 수 있고, 종착이 래치되지 않는 로봇이 있고, 제어권을 빼앗길 수 있다는 사실이 전부 태스크 생명주기에 걸린다.
 
 ## 2. 배경과 근거
 
@@ -97,6 +99,43 @@
 - openTCS의 스키마 검증 플래그는 이름이 `VALIDATE_INCOMING_MESSAGES`인데 끄면 송신 검증까지 함께 꺼진다 — §6.2에서 플래그를 분리하는 이유다.
 
 **openTCS loopback은 프로파일이 아니다.** 노브가 여섯 개뿐이고 거동은 코드다. 기종 추가 = 코드 추가. C-1/C-2 차별점의 근거다.
+
+### 2.3 실물 로봇 조사 (2026-09-05)
+
+계약이 실물을 담을 수 있는지 확인하려고 SDK가 공개된 것과 문서가 회수 가능한 것 셋을 직접 조사했다. **이 절이 §4의 여러 결정의 근거이며, 다시 조사하지 말고 여기서 인용한다.**
+
+**Boston Dynamics Spot** — 4족보행. gRPC + protobuf. **우리 설계의 정본 사례다.** `DirectoryService.ListServiceEntries`로 런타임 서비스 발견, `RobotIdService.GetRobotId`로 신원(`serial_number`·`species`·`software_release`), `GetRobotHardwareConfiguration`이 `can_power_command_request_*`·`has_audio_visual_system` 같은 **능력 불리언**을 반환한다. 결함은 `SystemFault{severity, dtc, attributes}` + `BehaviorFault{Cause ∈ FALL|HARDWARE|LEASE_TIMEOUT, Status ∈ CLEARABLE|UNCLEARABLE}`로 **복구 가능성을 로봇이 스스로 판정**한다. 소유권은 `Lease{resource, epoch, sequence[]}` 벡터 클럭.
+⚠️ **라이선스 `20191101-BDSDK-SL` §2(c)가 "BD 하드웨어 전용"이고 §2(b)가 재라이선스를 금한다. Spot proto·생성 스텁을 벤더 중립 공통 계층에 넣으면 위반이다** — 개념만 차용하고 코드는 Spot 어댑터 안에 격리한다.
+
+**Unitree G1** — 휴머노이드. **양산 휴머노이드 중 SDK가 공개된 사실상 유일한 것**이며 BSD-3-Clause라 제약이 없다. CycloneDDS 기반이고 `unitree_ros2`는 브리지가 아니라 같은 DDS wire에 rmw로 직접 참여한다. **그러나 능력 표현이 빈약하다** — 고수준 API가 전부 `int fsm_id` 매직 넘버 위의 얇은 래퍼이고(`Damp()=SetFsmId(1)`, `Start()=SetFsmId(500)`), **로봇 신원 질의가 아예 없으며**, 결함 목록을 보고하지 않아 클라이언트가 `terminations.hpp`로 과열·자세이상을 **스스로 판정**한다. 조인트 한계는 SDK가 아니라 URDF `<limit lower upper effort velocity>`에만 있다. 인증이 없어 네트워크 도달이 곧 전권이다.
+
+**Agility Digit / Arc** — 휴머노이드. 로봇측은 WebSocket JSON API(`ws://<ip>:8080`, 서브프로토콜 `json-v1-agility`), 봉투는 `["type", {...}, refnum]`. **우리 계약과 충돌하는 사실 넷:**
+- `change-action-command` 권한을 **전 시스템에서 한 클라이언트만** 보유하고, 빼앗기면 로봇이 즉시 `action-idle`로 리셋된다 → §4.9
+- **취소·일시정지 프리미티브가 없다.** 중단은 다른 액션으로 덮어쓰기이고 `remove-action`은 컨테이너에 성공한 것처럼 보인다 → §7.2의 `Support` 3값
+- 매뉴얼이 명시한다 — *"This status does not latch once reached"*. `success`에서 `running`으로 되돌아갈 수 있다 → §4.4의 래치 불변식과 `TERMINAL_STATE_VIOLATED`
+- 실패 사유가 사람이 읽는 자유 문자열 `info`뿐이다 → `error_type` 어휘를 어댑터가 합성해야 한다
+
+**Arc(클라우드)는 우리와 독립적으로 같은 결론에 도달해 있었다.** 도메인이 `organization → facility → workcell → device` + `workflow`/`skill`/`intervention`이고, **능력 선언이 `(deviceModelIds, oasVersion) → 블록 집합` 조회이며 워크플로가 그 버전에 핀 고정된다** — §8.4의 개정판 pinning과 같은 구조다. UI가 "No model guarantee"라고 경고하는 것은 §15.1의 한계를 그들도 안고 있다는 뜻이다. 그리고 워크플로 상태에 `CANCELED_WITH_RECOVERY` / `CANCELED_RUNNING_RECOVERY` / `CANCELED_FAILED_RECOVERY` 세 변종과 `INTERVENTION` 1급 개념이 있다 → §4.4의 `NEEDS_INTERVENTION`·`CANCELLED_RECOVERY_FAILED`의 근거.
+
+**프로파일 필드가 실물에서 채워지는가 — 대조 결과.**
+
+| §7.2 항목 | Spot | Unitree G1 | Digit |
+|---|---|---|---|
+| 기종 좌표 | ✅ `RobotId` | ❌ 신원 질의 없음 | △ `robot-info` 4필드 |
+| 지원 스킬·버전 | ✅ `ListServiceEntries` | △ 팔만 `GetActionList` | ✅ 액션 어휘 고정 |
+| 취소·일시정지 가능 여부 | △ 선언 없음 | ❌ | ❌ 개념 자체가 없음 |
+| 파라미터 값 범위·단위 | △ `Skeleton` | ✅ URDF `<limit>` | △ 문서상 5 kg |
+| 프로토콜 한계 | ❌ | ❌ | ❌ |
+| 실패 모드 | ✅✅ | ❌ 클라이언트가 판정 | ❌ 자유 문자열 |
+| 상태 발행 간격 | △ `liveness_timeout_secs` | ❌ | ✅ `query-group{period}` |
+
+**어느 실물도 프로파일을 전부 채우지 못하며 그것이 정상이다.** 프로파일은 로봇이 선언하는 것이 아니라 **우리가 벤더 문서에서 파생시키는 것**이기 때문이다(§15.1). 다만 이 대조가 스키마 결함 하나를 드러냈다 — **"지원하지 않음"과 "근거가 없어 모름"을 구분하지 못하면 Digit 프로파일 작성자가 거짓말을 하게 된다.** `Support` 3값이 여기서 나왔다.
+
+**표준 지형 — 2026년에 두 가지가 바뀌었다.**
+- **ISO 21423**(산업용 모바일 로봇 통신·상호운용, MQTT+JSON, MassRobotics와 VDA5050을 통합)이 **stage 60.00, 2026-07-21**로 발행 임박이다. `IMR Identity and Capability Report`에 `capabilities` 객체가 있다. **유료라 본문 미확인** — 우리 발행 경로가 이것과 정렬될지 그 위에 앉을지는 열린 결정이다.
+- **IDTA 02020 Capability Description**(AAS 능력 서브모델)이 **2026-04-15 발행**됐고, 그 §1.8.4가 *"A generic skill Submodel has yet to be developed"*라고 적고 있다. **능력은 표준화됐고 스킬은 비어 있다.**
+
+그리고 가장 말해주는 증거 — **NVIDIA `isaac_mission_control`이 VDA5050의 AGV class 열거를 규격 밖으로 포크해 `MANIPULATOR`와 `HUMANOID`를 추가했다.** VDA5050 3.0의 `mobileRobotKinematics`는 여전히 전부 바퀴이고 `mobileRobotClass`는 전부 운반이며, 저장소 이슈·PR 전수 검색에서 `humanoid`는 0건이다. **표준이 형태를 표현하지 못한다는 것을 업계가 코드로 인정한 것이다.**
 
 ## 3. 아키텍처
 
@@ -220,7 +259,7 @@ OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조를 언어 �
 | 전이 | 출발 | 도착 | 유발 |
 |---|---|---|---|
 | `Start` | `READY` | `RUNNING` | `StartTask` / `RetryTask` (파라미터를 함께 싣는다) |
-| `Suspend` | `RUNNING` | `SUSPENDED` | `PauseTask`. `pause_allowed=true`인 스킬만 |
+| `Suspend` | `RUNNING` | `SUSPENDED` | `PauseTask`. `pause_support ≠ NO`인 스킬만 |
 | `Resume` | `SUSPENDED` | `RUNNING` | `ResumeTask` |
 | `Halt` | `RUNNING`, `SUSPENDED` | `HALTED` | 취소 확정, 또는 `can_continue_current_task=false`인 결함 |
 | `Complete` | `RUNNING` | `READY` | 정상 완료 |
@@ -242,6 +281,8 @@ OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조를 언어 �
 | `ValueType` | `BOOL`, `INTEGER`, `NUMBER`, `STRING`, `ENUM` |
 | `Reference` | `{key, value}`. `key` ∈ `task_id`, `skill_id`, `robot_id`, `parameter_key` |
 | `Lifetime` | `UNTIL_CLEARED`, `UNTIL_NEW_TASK`, `UNTIL(timestamp)` |
+| `Support` | `YES`, `NO`, `UNKNOWN` — 3값인 이유는 §7.2 |
+| `Resolution` | `SELF_RETRIABLE`, `NEEDS_INTERVENTION`, `TERMINAL` — 실패 모드가 어떻게 풀리는가 |
 | `RejectionCode` | 아래 |
 
 `RejectionCode`는 쓰이는 표면에 따라 나뉜다.
@@ -254,7 +295,20 @@ OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조를 언어 �
 
 **`CAPABILITY_WITHDRAWN`은 핸드셰이크 이후 능력이 사라진 스킬로 `StartTask`가 왔을 때 반환**하며, 응답에 현재 `capability_epoch`를 실어 클라이언트가 능력을 다시 가져오게 한다.
 
-**`error_type` 명명 규칙.** `SCREAMING_SNAKE_CASE`이고 코어 값은 계약이 소유하며 벤더 값은 `X_<VENDOR>_` 접두사를 쓴다. 코어 최소 집합 여섯 — `LOCALIZATION_LOST`, `PAYLOAD_LOST`, `SKILL_EXECUTION_FAILED`, `PARAMETER_OUT_OF_RANGE`, `CONTRACT_REVISION_MISMATCH`, `INTERNAL_ERROR`. 프로파일은 이 중 하나이거나 `X_` 접두사 값만 실패 모드에 쓸 수 있고 §11.2의 3번이 검사한다.
+**`error_type` 명명 규칙.** `SCREAMING_SNAKE_CASE`이고 코어 값은 계약이 소유하며 벤더 값은 `X_<VENDOR>_` 접두사를 쓴다. 코어 최소 집합 **여덟**:
+
+| `error_type` | 뜻 |
+|---|---|
+| `LOCALIZATION_LOST` | 자기 위치를 잃음 |
+| `PAYLOAD_LOST` | 들고 있던 것을 놓침 |
+| `SKILL_EXECUTION_FAILED` | 스킬이 실패 |
+| `PARAMETER_OUT_OF_RANGE` | 프로파일이 선언한 제약 위반 |
+| `CONTRACT_REVISION_MISMATCH` | §5.5의 경보 |
+| `INTERNAL_ERROR` | 그 밖 |
+| **`TERMINAL_STATE_VIOLATED`** | **종착 뒤에 로봇이 다시 움직였다** — §4.4의 래치 불변식이 깨진 것 |
+| **`CONTROL_AUTHORITY_LOST`** | **제어 권한을 다른 클라이언트에게 빼앗겼다** — §4.9 |
+
+프로파일은 이 중 하나이거나 `X_` 접두사 값만 실패 모드에 쓸 수 있고 §11.2의 3번이 검사한다. **뒤의 둘은 프로파일이 선언하는 실패 모드가 아니라 어댑터가 런타임에 발행하는 것**이므로 프로파일에 쓰면 안 된다 — 이것도 3번이 막는다.
 
 ### 4.4 장기 실행 태스크
 
@@ -262,9 +316,9 @@ OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조를 언어 �
 StartTask(TaskRequest)                 -> TaskHandle    접수 응답. 종착이 아니다
 WatchTask(TaskHandle, from_update_index) -> stream TaskUpdate
 RetryTask(TaskHandle)                  -> Ack           RETRIABLE에서만 합법
-PauseTask(TaskHandle)                  -> Ack           pause_allowed=false면 PAUSE_UNSUPPORTED
+PauseTask(TaskHandle)                  -> Ack           pause_support=NO면 PAUSE_UNSUPPORTED
 ResumeTask(TaskHandle)                 -> Ack
-CancelTask(CancelRequest)              -> CancelAck     cancel_allowed=false면 CANCEL_UNSUPPORTED
+CancelTask(CancelRequest)              -> CancelAck     cancel_support=NO면 CANCEL_UNSUPPORTED
 GetSnapshot(robot_id)                  -> Snapshot      현재 상태 + 그 시점의 sequence
 ReplayEvents(robot_id, from_sequence)  -> stream Event  재생 버퍼에서 이어받기
 GetCapabilities(robot_id)              -> Capability    유효 능력의 투영 (§7.3)
@@ -280,14 +334,24 @@ GetCapabilities(robot_id)              -> Capability    유효 능력의 투영 
 | `RUNNING` | 아니오 | 실행 중 |
 | `PAUSED` | 아니오 | `PauseTask`로 일시정지 |
 | `CANCELLING` | 아니오 | 취소 요청을 받았고 로봇이 정리 중 |
-| `RETRIABLE` | 아니오 | 실패했으나 `RetryTask`로 재시도 가능 |
+| `RETRIABLE` | 아니오 | 실패했으나 **로봇 혼자** 재시도하면 될 수 있음 |
+| `NEEDS_INTERVENTION` | 아니오 | 실패했고 **사람이 무언가 해야** 재시도가 의미 있음 |
 | `SUCCEEDED` | 예 | — |
 | `FAILED` | 예 | 재시도해도 같은 결과 |
-| `CANCELLED` | 예 | 취소로 종료 |
+| `CANCELLED` | 예 | 취소로 종료하고 **복구까지 마쳤다** |
+| `CANCELLED_RECOVERY_FAILED` | 예 | 취소로 종료했으나 **복구에 실패했다** |
 
-**취소는 즉시가 아니다.** `CancelTask`는 종착이 아니라 `CANCELLING`을 반환하고 종착(`CANCELLED`, 또는 정리 중 완료됐다면 `SUCCEEDED`)은 스트림으로 온다. openTCS `TransportOrder.State`의 `WITHDRAWN`과 같은 구조다.
+**취소는 즉시가 아니고, 복구를 동반한다.** `CancelTask`는 종착이 아니라 `CANCELLING`을 반환한다. 그 구간에 로봇은 **하던 일을 안전하게 되돌린다** — 휴머노이드는 들고 있던 것을 내려놓아야 하므로 즉시 중단이 물리적으로 불가능하다. 복구까지 마치면 `CANCELLED`, 복구가 실패하면 `CANCELLED_RECOVERY_FAILED`다. **둘을 나누는 이유는 후자가 "로봇이 물건을 든 채 멈춰 있다"는 전혀 다른 운영 상황이기 때문이다.** 후자는 거의 언제나 로봇 수준 결함을 동반하며, 그 결함이 `can_accept_new_task=false`를 든다.
 
-**`RETRIABLE`의 탈출구는 `RetryTask`다.** 같은 `(task_id, revision)`으로 스킬을 다시 `Start`하며 `update_index`는 이어진다. `RETRIABLE`이 아닌 상태에서 부르면 `INVALID_TRANSITION`이다. 재시도 횟수 상한은 계약이 정하지 않는다 — 그건 정책이고 미션 계층 몫이다.
+Agility Arc가 같은 결론에 도달해 있다 — 워크플로 상태에 `CANCELED_WITH_RECOVERY` / `CANCELED_RUNNING_RECOVERY` / `CANCELED_FAILED_RECOVERY` 세 변종이 있다. 우리는 진행 중(`CANCELLING`)과 결과(둘)로 갈라 같은 것을 두 축으로 표현한다.
+
+**`RETRIABLE`과 `NEEDS_INTERVENTION`의 탈출구는 둘 다 `RetryTask`다.** 같은 `(task_id, revision)`으로 스킬을 다시 `Start`하며 `attempt`가 오른다. 그 밖의 상태에서 부르면 `INVALID_TRANSITION`이다. 재시도 횟수 상한은 계약이 정하지 않는다 — 그건 정책이고 미션 계층 몫이다.
+
+**둘을 나누는 이유**는 운영자에게 답해야 할 질문이 다르기 때문이다. `RETRIABLE`은 미션 계층이 자동으로 다시 걸어도 되지만, `NEEDS_INTERVENTION`은 자동 재시도가 **같은 실패를 반복하며 자원만 태운다.** 어느 쪽인지는 프로파일의 실패 모드가 선언한 `Resolution`이 정한다(§4.5).
+
+**종착은 래치된다 — 이것이 계약의 불변식이다.** 종착에 든 태스크는 어떤 이유로도 비종착으로 돌아가지 않는다. 실물 중에는 이를 지키지 않는 것이 있다(Digit의 `action-status`는 매뉴얼이 *"does not latch once reached"*라고 명시하며 `success`에서 `running`으로 되돌아갈 수 있다). **그런 로봇에서는 어댑터가 래치 책임을 진다** — 처음 종착에 도달한 순간을 확정하고, 이후 로봇이 무엇을 보고하든 계약상으로는 끝난 것이다.
+
+그리고 **흡수했으면 흡수가 실패했다는 사실을 숨기지 않는다.** 어댑터가 종착 확정 후에도 로봇이 그 태스크를 계속 수행 중임을 관측하면 `TERMINAL_STATE_VIOLATED` 결함을 발행한다(두 불리언 모두 `false`). 계약의 단순함은 지키되, **계약이 실물과 어긋나 있다는 사실은 관측 가능하게** 만든다. 비래치를 계약에 올리는 대안은 종착 개념 위에 선 것들(pinning·갱신 규칙·`RETRIABLE` 구분)을 전부 무너뜨리고, 래치하는 로봇에 비용을 전가한다.
 
 **진행률은 `0.0..1.0`의 실수**이며 `mimic`에서는 프로파일이 선언한 소요시간 대비 경과 비율로 파생한다. **단조 비감소는 `(task_id, revision, attempt)` 세 값이 같은 구간 안에서만 성립하는 불변식**이다. `revision`이 오르거나(갱신) `attempt`가 오르면(재시도) 진행률은 0에서 다시 세며, `TaskUpdate`가 셋을 모두 싣고 있으므로 소비자는 재시작을 위반과 구분한다.
 
@@ -322,15 +386,23 @@ GetCapabilities(robot_id)              -> Capability    유효 능력의 투영 
 | `ACCEPTED` | 없음 |
 | `RUNNING` | `RUNNING` |
 | `PAUSED` | `SUSPENDED` |
-| `CANCELLING` | `RUNNING` 또는 `SUSPENDED` (정리 중) |
-| `RETRIABLE` | `HALTED` → 즉시 `Reset` → `READY` (`RetryTask`를 기다린다) |
-| `FAILED`, `CANCELLED` | `HALTED` → 즉시 `Reset` → `READY` |
+| `CANCELLING` | `RUNNING` 또는 `SUSPENDED` (복구 수행 중) |
+| `RETRIABLE`, `NEEDS_INTERVENTION` | `HALTED` → 즉시 `Reset` → `READY` (`RetryTask`를 기다린다) |
+| `FAILED`, `CANCELLED`, `CANCELLED_RECOVERY_FAILED` | `HALTED` → 즉시 `Reset` → `READY` |
 | `SUCCEEDED` | `READY` (`Complete` 후) |
 
-**전파 규칙 둘.**
+**전파 규칙 셋.**
 
-1. **스킬 `Halt` → 태스크 판정.** 유발한 결함의 `retriable`(프로파일 선언, §7.2)이 참이면 `RETRIABLE`, 거짓이면 `FAILED`.
+1. **스킬 `Halt` → 태스크 판정은 결함의 `Resolution`이 정한다**(프로파일 선언, §7.2).
+
+   | `Resolution` | 태스크 상태 |
+   |---|---|
+   | `SELF_RETRIABLE` | `RETRIABLE` |
+   | `NEEDS_INTERVENTION` | `NEEDS_INTERVENTION` |
+   | `TERMINAL` | `FAILED` |
+
 2. **여러 단계로 이루어진 태스크에서 한 단계의 `Halt`는 태스크 전체를 종착시킨다.** 보상 동작이나 부분 재개는 미션 계층 몫이며 비목표다.
+3. **`CANCELLING` 중의 `Halt`는 복구 실패다** → `CANCELLED_RECOVERY_FAILED`. `Resolution`을 보지 않는다 — 취소는 이미 결정된 것이고 남은 질문은 "되돌리는 데 성공했는가"뿐이다.
 
 ### 4.6 결함 모델
 
@@ -390,6 +462,18 @@ retain으로 발행하며 `CONNECTION_BROKEN`은 브로커 Last Will이다. `HIB
 - 발신자는 세션 안에서 **기체마다 마지막 N개 이벤트를 재생 버퍼에 보관**한다. `N`은 프로파일이 선언한다.
 - 요청한 `sequence`가 버퍼를 벗어났으면 `SEQUENCE_EVICTED`로 답하고 소비자는 스냅샷부터 다시 세운다.
 - **버퍼는 프로세스 메모리에 있으며 재기동하면 사라진다.** 지속 저장은 B-1의 몫이다.
+
+### 4.9 제어 권한 상실
+
+**실물 로봇은 예외 없이 배타적 제어 소유권 모델을 갖는다.** Digit은 `change-action-command` 권한을 전 시스템에서 한 클라이언트만 보유하며 **빼앗기면 로봇이 즉시 `action-idle`로 리셋**된다. Spot은 `Lease{resource, epoch, sequence[]}`로 벡터 클럭까지 형식화했다. Unitree는 lease id는 있으나 인증이 없어 네트워크 도달이 곧 전권이다.
+
+**권한의 획득과 협상은 계약 밖이다.** 우선순위를 누가 갖는지는 판단이고 그 주인은 미션 계층이며 비목표다. 게다가 세 로봇의 모델이 전부 달라(Digit=정수 우선순위, Spot=벡터 클럭, Unitree=무인증) 공통분모를 잡으면 아무것도 못 하고 최대공약수를 잡으면 한 벤더 전용 계약이 된다.
+
+**그러나 권한의 상실은 사실이고 태스크 결과를 좌우하므로 계약 안이다.** 어댑터가 제어 권한을 잃으면 `CONTROL_AUTHORITY_LOST` 결함을 발행한다(두 불리언 모두 `false`). 진행 중이던 태스크는 이 결함을 유발자로 하여 §4.5 전파 규칙 1을 탄다.
+
+이것이 없으면 제어권을 빼앗겨 죽은 태스크가 `FAILED`로 떨어져 **로봇 고장과 구분되지 않는다.** 운영자가 "왜 실패했나"에 답할 수 없게 된다. §4.6에서 실패 3분류를 빼고 두 불리언만 남긴 것과 같은 결정이다 — **판단은 밖으로, 사실은 안으로.**
+
+`Capability`는 `exclusive_control_required`를 싣는다. 참이면 소비자는 **자신이 유일한 명령자임을 전제해야 하고**, 다른 클라이언트가 붙을 수 있는 환경에서는 이 결함을 정상 경로로 다뤄야 한다.
 
 ## 5. 능력 호환성
 
@@ -530,7 +614,8 @@ VDA5050 `factsheet.schema`의 구조를 따른다. **투영에 들어가는 것�
 |---|---|
 | 기종 좌표 | `vendor`, `model`, `revision` |
 | 지원 스킬 | 스킬 타입과 `major.minor` |
-| 스킬별 플래그 | `pause_allowed`, `cancel_allowed` (**둘 다 필수 필드**) |
+| 스킬별 플래그 | `pause_support`, `cancel_support` — **`Support` 3값**(`YES`/`NO`/`UNKNOWN`), 둘 다 필수 필드 |
+| 제어 소유권 | `exclusive_control_required` — 이 로봇이 배타 제어 모델인가(§4.9) |
 | 파라미터 선언 | 키, `ValueType`, 선택 여부, 제약 — 수치형은 값 범위와 단위, `ENUM`형은 **허용 값 목록**, 문자열은 최대 길이 |
 | 필수 선택 필드 | `{parameter: 점표기 경로, support: SUPPORTED\|REQUIRED}` |
 | 상태 발행 간격 | 최소·최대. 최대의 기본값은 30초(VDA5050 §6.6). 소비자의 신선도 판정 입력 |
@@ -543,7 +628,7 @@ VDA5050 `factsheet.schema`의 구조를 따른다. **투영에 들어가는 것�
 |---|---|
 | `schema_version` | 문서의 메타이지 능력이 아니다 |
 | 소요시간 상수·지터 | 진행률 파생에만 쓴다. 소비자는 진행률을 받지 소요시간을 받지 않는다 |
-| 실패 모드와 `rate`, `retriable` | 발생률은 시뮬레이션 값이다. 실제 결함은 `Fault`로 나간다 |
+| 실패 모드와 `rate`, `resolution` | 발생률은 시뮬레이션 값이다. 실제 결함은 `Fault`로 나가고, `resolution`은 §4.5 전파 규칙 1의 입력이라 어댑터 내부에서만 쓰인다 |
 | 재생 버퍼 크기 `N` | 발신자 내부 자원 |
 
 **`Capability` 메시지는 위 표의 투영 항목을 그대로 담는다.** §12.2의 투영 일치 시험은 "프로파일 문서에서 이 표대로 파생한 값 == `GetCapabilities` 응답"을 정확 비교한다. 이 표가 파생 함수의 명세다.
@@ -563,8 +648,8 @@ VDA5050 `factsheet.schema`의 구조를 따른다. **투영에 들어가는 것�
 | 공통 스킬 (같은 `major.minor`) | 같은 코드로 양쪽 제어 |
 | 한쪽에만 있는 스킬 | `SKILL_ABSENT` |
 | 같은 스킬의 minor 차이 | 선택 파라미터를 몰라도 동작 |
-| `cancel_allowed` 차이 | `CANCEL_UNSUPPORTED` |
-| `pause_allowed` 차이 | `PAUSE_UNSUPPORTED` |
+| `cancel_support` 차이 (`YES` vs `NO`) | `CANCEL_UNSUPPORTED` |
+| `pause_support` 차이 (`YES` vs `UNKNOWN`) | `UNKNOWN`이면 시도가 허용되고 로봇이 거절할 수 있다 |
 | 프로토콜 한계 차이 | `LIMIT_EXCEEDED` |
 | `REQUIRED` 선택 필드 (한쪽만) | `REQUIRED_OPTIONAL_MISSING` |
 
@@ -629,7 +714,7 @@ profile_revision(profile_revision_id PK, profile_id FK, revision INT,
   -- 레지스트리는 채번하지 않고 profile_id 안에서 단조 증가만 강제한다.
 
 profile_skill(profile_revision_id FK, skill_type_id FK,
-              minor, pause_allowed, cancel_allowed, deprecated_after NULL,
+              minor, pause_support, cancel_support, deprecated_after NULL,
               PK(profile_revision_id, skill_type_id))
 
 profile_skill_param(profile_revision_id, skill_type_id, key,
@@ -1005,11 +1090,13 @@ mimic/
 | `InjectTransportFault(kind)` | `DISCONNECT`, `DELAY`, `EVENT_LOSS`, `DUPLICATE`, `REORDER` |
 | `SetConnection(robot_id, ConnectionState)` | §4.3의 값을 그대로 쓴다 |
 | `RemoveCapability(robot_id, skill)` / `RestoreCapability(...)` | 로봇 유래 능력 축소를 흉내낸다(§8.2) |
+| `ForceTerminalViolation(task_id)` | 종착 확정 후 로봇이 그 태스크를 계속 수행 중인 상황을 만든다(§4.4의 래치 위반) |
+| `ForceControlAuthorityLoss(robot_id)` | 제어 권한을 빼앗긴 상황을 만든다(§4.9) |
 | `DumpInternalState(robot_id)` | **시험 오라클.** 엔진 내부 상태를 그대로 반환한다 |
 
 `DumpInternalState`가 §12.2의 A-2 오라클이다. 없으면 "재구성한 상태가 내부 상태와 일치"를 확인할 방법이 `GetSnapshot`뿐인데 그것은 계약 표면의 투영이라 투영을 투영과 비교하는 순환이 된다.
 
-**프로파일에 선언되지 않은 `error_type`을 `ForceFault`에 주면 거절한다** — §4.5 전파 규칙 1의 입력인 `retriable`이 프로파일에서만 오므로, 허용하면 태스크 종착 판정이 미정의가 된다.
+**프로파일에 선언되지 않은 `error_type`을 `ForceFault`에 주면 거절한다** — §4.5 전파 규칙 1의 입력인 `resolution`이 프로파일에서만 오므로, 허용하면 태스크 종착 판정이 미정의가 된다. 단 `TERMINAL_STATE_VIOLATED`와 `CONTROL_AUTHORITY_LOST`는 프로파일이 선언하지 않는 어댑터 발행 결함이므로 전용 RPC로 주입한다(아래).
 
 **별도 포트인 것이 설계의 일부다.** 표준 계약과 같은 표면에 두면 프로덕션 소비자가 손댈 수 있고 목이 계약을 오염시킨다. `contracts/`에 들어가지 않으며 별도 proto로 `mimic/` 안에 둔다.
 
@@ -1104,7 +1191,10 @@ mimic/
 | 5 | **A-2** 침묵의 세 원인을 구분 | `OFFLINE`·`HIBERNATING`·`CONNECTION_BROKEN`을 강제하면 소비자가 셋을 다르게 판정 | `SetConnection`(§10.5), 연결 스트림(§4.7), 최대 발행 간격(§7.2) |
 | 6 | **A-4** 30초+ 태스크의 진행률·중도취소·부분결과 | 가상 시계로 압축. **같은 `(revision, attempt)` 구간 안에서** 진행률 단조 비감소, `CANCELLING` → 종착 순서 | `SetClockMode(VIRTUAL)` + `AdvanceClock`(§10.3), 진행률 정의(§4.4) |
 | 7 | **A-4** 취소·일시정지 불가 스킬 | `CANCEL_UNSUPPORTED` / `PAUSE_UNSUPPORTED` 반환 | 프로파일 §7.4의 차이 + `PauseTask`·`CancelTask` |
-| 8 | **A-4** 재시도 | `RETRIABLE`에서 `RetryTask`로 재실행, `attempt` 증가, 그 외 상태에서는 `INVALID_TRANSITION` | `RetryTask`(§4.4), 프로파일의 `retriable`(§7.2), §4.5 전파 규칙 1 |
+| 8 | **A-4** 재시도와 개입 | 프로파일의 `resolution` 셋이 각각 `RETRIABLE` / `NEEDS_INTERVENTION` / `FAILED`를 만들고, 앞의 둘만 `RetryTask`를 받아 `attempt`가 오른다. 나머지 상태에서는 `INVALID_TRANSITION` | `RetryTask`(§4.4), 프로파일의 `resolution`(§7.2), §4.5 전파 규칙 1 |
+| 8b | **A-4** 취소와 복구 | 복구 성공은 `CANCELLED`, 실패는 `CANCELLED_RECOVERY_FAILED`. 후자는 로봇 수준 결함을 동반한다 | `CancelTask`(§4.4), §4.5 전파 규칙 3, `ForceFault`(§10.5) |
+| 8c | **A-4** 래치 위반 관측 | 종착 확정 후 로봇이 계속 수행 중이면 `TERMINAL_STATE_VIOLATED` 결함이 발행되고, **태스크 상태는 종착에 머문다** | `ForceTerminalViolation`(§10.5), §4.4의 래치 불변식 |
+| 8d | **A-4** 제어권 상실 구분 | 제어권을 잃으면 `CONTROL_AUTHORITY_LOST`로 종착하며, 로봇 고장에 의한 `FAILED`와 결함의 `error_type`으로 구분된다 | `ForceControlAuthorityLoss`(§10.5), §4.9 |
 | 9 | **C-1** 두 기종이 같은 스키마로, 차이가 전부 데이터 | 두 프로파일이 동일 JSON Schema 통과, §7.4의 일곱 차이가 코드 변경 없이 표현 | 게이트 3번·7번 |
 | 10 | **C-1** 투영 일치 | `GetCapabilities` 응답 == §7.2의 투영 표대로 프로파일에서 파생한 값 | §7.2의 투영 표가 파생 함수의 명세. **능력을 하드코딩하면 여기서 걸린다** |
 | 11 | **C-2** 세 번째 기종을 프로파일 한 장으로 | `quadruped-c` 전용 커밋에서 전체 스위트 통과 | **게이트 8번이 소스 변경 0을 CI로 강제** |
