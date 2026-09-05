@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # 게이트 2·6번이 기본 브랜치와 diff하므로 전체 이력이 필요하다
+          fetch-depth: 0   # 게이트 2·6번이 베이스와 diff하므로 전체 이력이 필요하다
 
       - uses: actions/setup-java@v4
         with:
@@ -23,19 +23,70 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: buf lint
-        run: cd contracts && ../tools/buf lint
-
-      # --against . 은 자기 자신과 비교하므로 실패할 수 없다.
-      # 회귀 방어가 아니라 buf.yaml의 breaking: 절이 파싱되는지 보는 것이다.
-      # 진짜 회귀 방어는 게이트 검사 2번이 기본 브랜치를 기준선으로 삼을 때 생긴다.
-      - name: buf breaking (config self-check)
-        run: cd contracts && ../tools/buf breaking --against .
-
+      # 게이트가 --require 에 CONTRACT_DESCRIPTOR 를 넣으므로 먼저 만들어야 한다.
+      # gate는 contracts에 빌드 의존을 걸지 않으므로(설계 §3.2의 단서) 이
+      # 순서를 강제하는 것은 Gradle이 아니라 이 스텝 순서다.
       - name: buf build (descriptor)
         run: |
           mkdir -p contracts/build
           cd contracts && ../tools/buf build -o build/descriptor.binpb
 
-      - name: Build
-        run: ./gradlew build
+      - name: 기준선 준비
+        id: baseline
+        run: |
+          set -o pipefail
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$BASE" ]; then
+            echo "push 빌드라 기준선이 없다 — 파괴 검사 2·6번은 건너뛴다"
+            exit 0
+          fi
+
+          # 베이스에 contracts/ 가 없으면(계약 최초 도입 PR) 넘기지 않는다.
+          # 넘기면 buf가 "had no .proto files"로 거짓 실패를 낸다(실측).
+          if git cat-file -e "$BASE:contracts/buf.yaml" 2>/dev/null; then
+            echo "contract=../.git#ref=$BASE,subdir=contracts" >> "$GITHUB_OUTPUT"
+          fi
+
+          # **기준선 쪽에서 열거한다.** head 파일 목록을 돌면 삭제된 프로파일이
+          # 맵에 안 들어와 검사 6번의 삭제 판정이 영영 발화하지 않는다.
+          #
+          # git ls-tree는 pathspec 글로브를 기본으로 먹지 않는다(실측 —
+          # `-- 'profile/fixtures/*.json'` 이 빈 목록을 냈고, 빈 기준선으로
+          # 검사 6이 모든 프로파일을 신규로 보고 PASS를 냈다). 디렉터리로 주고
+          # grep으로 거른다.
+          #
+          # 파이프라인 안에서 열거하면 git 실패가 while의 종료코드 0에 묻히므로
+          # 목록을 먼저 파일로 뽑는다.
+          git ls-tree -r --name-only "$BASE" profile/fixtures/ \
+            | grep '\.json$' > /tmp/baseline-list || true
+          mkdir -p /tmp/baseline-profiles
+          while read -r f; do
+            git show "$BASE:$f" > "/tmp/baseline-profiles/$(basename "$f")"
+          done < /tmp/baseline-list
+
+          # 빈 기준선과 "기준선 못 얻음"을 CI가 구분해 줘야 검사 6이 뜻대로 돈다.
+          if [ -s /tmp/baseline-list ]; then
+            echo "profiles=/tmp/baseline-profiles" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 게이트
+        run: |
+          ./gradlew :gate:installDist -q
+          ARGS="--repo . --buf $PWD/tools/buf"
+          ARGS="$ARGS --require REPO,PROFILE_DOCUMENT,PROFILE_SCHEMA,CONTRACT_DESCRIPTOR,BUF"
+          if [ -n "${{ steps.baseline.outputs.contract }}" ]; then
+            ARGS="$ARGS --contract-baseline '${{ steps.baseline.outputs.contract }}'"
+          fi
+          if [ -n "${{ steps.baseline.outputs.profiles }}" ]; then
+            ARGS="$ARGS --baseline-dir '${{ steps.baseline.outputs.profiles }}'"
+          fi
+          eval "./gate/build/install/gate/bin/gate $ARGS"
+
+      # 음성 하네스를 별도 스텝으로 두면 뒤이은 build가 시스템 프로퍼티 없이
+      # 다시 돌아 마지막 실행 상태가 비-strict가 된다(Test.systemProperties가
+      # 태스크 입력이라 UP-TO-DATE가 안 걸린다). 한 번만 돌린다.
+      - name: Build (음성 하네스 포함)
+        run: >
+          ./gradlew build
+          -Dpicasso.negative.strict=true
+          -Dpicasso.buf="$PWD/tools/buf"
