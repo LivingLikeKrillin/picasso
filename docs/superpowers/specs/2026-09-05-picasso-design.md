@@ -362,6 +362,8 @@ GetCapabilities(robot_id)              -> Capability    유효 능력의 투영 
 
 Agility Arc가 같은 결론에 도달해 있다 — 워크플로 상태에 `CANCELED_WITH_RECOVERY` / `CANCELED_RUNNING_RECOVERY` / `CANCELED_FAILED_RECOVERY` 세 변종이 있다. 우리는 진행 중(`CANCELLING`)과 결과(둘)로 갈라 같은 것을 두 축으로 표현한다.
 
+**`CancelTask`는 비종착 여섯 전부에서 합법이다.** `RETRIABLE`·`NEEDS_INTERVENTION`에서도 받아야 하는데, 안 그러면 **재시도를 포기한 태스크가 영원히 비종착으로 남아** §9.3의 드레인 판정이 영영 0이 되지 않는다 — 축소가 영구히 막힌다. 그 두 상태에서는 스킬이 이미 `READY`라 되돌릴 것이 없으므로 복구가 즉시 끝나지만, **관측되는 순서는 그래도 `CANCELLING` → 종착이다.** 한 경로로 통일하는 편이 소비자에게 거짓말하지 않는다. `CANCELLING`에서 다시 받으면 멱등이다(응답을 못 받아 재전송한 경우).
+
 **`RETRIABLE`과 `NEEDS_INTERVENTION`의 탈출구는 둘 다 `RetryTask`다.** 같은 `(task_id, revision)`으로 스킬을 다시 `Start`하며 `attempt`가 오른다. 그 밖의 상태에서 부르면 `INVALID_TRANSITION`이다. 재시도 횟수 상한은 계약이 정하지 않는다 — 그건 정책이고 미션 계층 몫이다.
 
 **둘을 나누는 이유**는 운영자에게 답해야 할 질문이 다르기 때문이다. `RETRIABLE`은 미션 계층이 자동으로 다시 걸어도 되지만, `NEEDS_INTERVENTION`은 자동 재시도가 **같은 실패를 반복하며 자원만 태운다.** 어느 쪽인지는 프로파일의 실패 모드가 선언한 `Resolution`이 정한다(§4.5).
@@ -389,6 +391,7 @@ Agility Arc가 같은 결론에 도달해 있다 — 워크플로 상태에 `CAN
 | `RUNNING` | 스킬을 `Halt` → `Reset` → 새 파라미터로 `Start`. 태스크는 `RUNNING` 유지 |
 | `PAUSED` | 파라미터만 교체하고 `PAUSED` 유지. `ResumeTask` 때 새 파라미터로 `Start` |
 | `RETRIABLE` | 파라미터만 교체하고 `RETRIABLE` 유지. `RetryTask` 때 새 파라미터로 `Start` |
+| `NEEDS_INTERVENTION` | 같다. **개입한 사람이 파라미터를 고쳐 넣는 경로가 이것이다** — 막으면 이 상태의 존재 이유와 어긋난다 |
 | `CANCELLING` | `INVALID_TRANSITION`. 정리 중에 파라미터를 바꾸는 것은 의미가 없다 |
 | 종착 셋 | `INVALID_TRANSITION` |
 
