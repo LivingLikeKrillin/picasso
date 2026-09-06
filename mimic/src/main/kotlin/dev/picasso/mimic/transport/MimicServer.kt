@@ -17,6 +17,7 @@ class MimicServer(private val registry: RobotRegistry, builder: ServerBuilder<*>
     private val server: Server = builder
         .addService(SkillServiceImpl(registry))
         .addService(taskService)
+        .addService(EventServiceImpl(registry))
         .build()
 
     /**

@@ -27,28 +27,8 @@ class EventStreamTest {
     private fun instance(
         robotId: String = "r1",
         document: ProfileDocument = TaskMachineFixtures.document(),
-    ): Pair<RobotInstance, EventStream> {
-        lateinit var stream: EventStream
-        val robot = RobotInstance(robotId, document, clock, listener = object : dev.picasso.mimic.engine.EngineListener {
-            override fun onSkillTransition(
-                taskId: String,
-                skillType: String,
-                from: dev.picasso.mimic.engine.SkillState,
-                to: dev.picasso.mimic.engine.SkillState,
-            ) = stream.onSkillTransition(taskId, skillType, from, to)
-
-            override fun onTaskTransition(
-                taskId: String,
-                skillType: String,
-                from: dev.picasso.mimic.engine.TaskState?,
-                to: dev.picasso.mimic.engine.TaskState,
-                revision: Int,
-                attempt: Int,
-            ) = stream.onTaskTransition(taskId, skillType, from, to, revision, attempt)
-        })
-        stream = EventStream(robot, publisher, site = "line-a")
-        return robot to stream
-    }
+        sink: Publisher = publisher,
+    ): RobotInstance = RobotInstance(robotId, document, clock, publisher = sink, site = "line-a")
 
     private fun location(value: String = "dock-3") =
         ParameterValue.newBuilder().setKey("location").setStringValue(value).build()
@@ -64,7 +44,7 @@ class EventStreamTest {
 
     @Test
     fun `sequence가 0부터 단조 증가한다`() {
-        val (robot, _) = instance()
+        val robot = instance()
         runTask(robot)
 
         val sequences = publisher.publications.map { it.sequence }
@@ -75,8 +55,8 @@ class EventStreamTest {
     @Test
     fun `기체마다 독립이다`() {
         // 전역 카운터를 쓰면 소비자가 자기 기체의 번호에서 구멍을 본다.
-        val (a, _) = instance("r1")
-        val (b, _) = instance("r2")
+        val a = instance("r1")
+        val b = instance("r2")
         runTask(a, "ta")
         runTask(b, "tb")
 
@@ -96,7 +76,7 @@ class EventStreamTest {
     fun `WatchTask의 진행률은 sequence를 안 먹는다`() {
         // §3.5의 두 축. 같은 카운터를 쓰면 gRPC에만 나가는 진행률이 소비한
         // 번호를 MQTT 소비자가 결손으로 오탐한다.
-        val (robot, _) = instance()
+        val robot = instance()
         robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
         robot.tasks.tick()
         val afterStart = publisher.publications.size
@@ -111,7 +91,7 @@ class EventStreamTest {
 
     @Test
     fun `발행 헤더가 §5-5의 발행 열을 따른다`() {
-        val (robot, _) = instance()
+        val robot = instance()
         runTask(robot)
 
         // **0번은 따로 본다.** sequence가 0부터라 proto3 암묵 존재로는
@@ -135,7 +115,7 @@ class EventStreamTest {
 
     @Test
     fun `event_id가 발행마다 새것이다`() {
-        val (robot, _) = instance()
+        val robot = instance()
         runTask(robot)
         val ids = publisher.publications.map { (it.message as Event).header.eventId }
         assertEquals(ids.size, ids.toSet().size, "event_id가 겹쳤다 — 소비자의 멱등 키다")
@@ -143,7 +123,7 @@ class EventStreamTest {
 
     @Test
     fun `계약 신원과 세션이 헤더에 실린다`() {
-        val (robot, _) = instance()
+        val robot = instance()
         runTask(robot)
         val header = (publisher.publications.first().message as Event).header
         assertEquals(ContractIdentity.semver, header.contractSemver)
@@ -155,7 +135,7 @@ class EventStreamTest {
 
     @Test
     fun `토픽이 §5-5의 형식이다`() {
-        val (robot, _) = instance()
+        val robot = instance()
         runTask(robot)
         assertEquals(
             "picasso/${ContractIdentity.major}/line-a/robot/r1/event",
@@ -165,7 +145,8 @@ class EventStreamTest {
 
     @Test
     fun `state와 event가 다른 스트림이다`() {
-        val (robot, stream) = instance()
+        val robot = instance()
+        val stream = robot.events
         runTask(robot)
         stream.publishState()
 
@@ -215,7 +196,8 @@ class EventStreamTest {
             "small",
             TaskMachineFixtures.fixtureRaw.replace("\"replay_buffer_size\": 256", "\"replay_buffer_size\": 3"),
         ).getOrThrow()
-        val (robot, stream) = instance("r9", small)
+        val robot = instance("r9", small)
+        val stream = robot.events
         runTask(robot)
 
         assertTrue(
@@ -242,7 +224,8 @@ class EventStreamTest {
             "small",
             TaskMachineFixtures.fixtureRaw.replace("\"replay_buffer_size\": 256", "\"replay_buffer_size\": 2"),
         ).getOrThrow()
-        val (robot, stream) = instance("r9", small)
+        val robot = instance("r9", small)
+        val stream = robot.events
         runTask(robot)
 
         val all = publisher.publications.map { (it.message as Event).header.sequence }
@@ -254,22 +237,12 @@ class EventStreamTest {
         // §10.6 — 단절 중 쌓았다가 재연결 시 재생한다. 발행 뒤에 넣으면
         // 장애 주입이 버퍼까지 비운다.
         val blocked = Publisher { error("발행 불통") }
-        lateinit var stream: EventStream
-        val robot = RobotInstance("r1", TaskMachineFixtures.document(), clock,
-            listener = object : dev.picasso.mimic.engine.EngineListener {
-                override fun onTaskTransition(
-                    taskId: String, skillType: String,
-                    from: dev.picasso.mimic.engine.TaskState?,
-                    to: dev.picasso.mimic.engine.TaskState,
-                    revision: Int, attempt: Int,
-                ) = stream.onTaskTransition(taskId, skillType, from, to, revision, attempt)
-            })
-        stream = EventStream(robot, blocked)
+        val robot = instance("r1", sink = blocked)
 
         assertFailsWith<IllegalStateException> {
             robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
         }
-        assertEquals(1, stream.buffered.size, "발행이 막히자 버퍼도 비었다")
+        assertEquals(1, robot.events.buffered.size, "발행이 막히자 버퍼도 비었다")
     }
 
     // ── 스냅샷의 키 (§4.5의 실제 모습)
@@ -278,7 +251,8 @@ class EventStreamTest {
     fun `스킬 스냅샷이 task_id로 갈린다`() {
         // 같은 스킬 타입의 태스크가 둘 돌면 skill_type만으로는 키가 되지
         // 않는다 — 소비자의 맵에서 어느 쪽이 이겼는지 미정의가 된다.
-        val (robot, stream) = instance()
+        val robot = instance()
+        val stream = robot.events
         robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
         robot.tasks.start("t2", 1, "navigate_to", listOf(location("dock-9")))
         robot.tasks.tick()

@@ -2,9 +2,10 @@ package dev.picasso.mimic
 
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.mimic.engine.Clock
-import dev.picasso.mimic.engine.EngineListener
 import dev.picasso.mimic.engine.Seeded
 import dev.picasso.mimic.engine.TaskHost
+import dev.picasso.mimic.transport.EventStream
+import dev.picasso.mimic.transport.Publisher
 import dev.picasso.mimic.profile.CapabilityProjection
 import dev.picasso.profile.ProfileDocument
 import java.util.concurrent.atomic.AtomicLong
@@ -26,8 +27,10 @@ class RobotInstance(
     val document: ProfileDocument,
     val clock: Clock,
     seed: Long = 0,
-    /** 엔진의 전이를 받는 곳. 전송이 여기에 `sequence`와 헤더를 붙인다(§4.7). */
-    listener: EngineListener = EngineListener.NONE,
+    /** 발행이 나갈 곳. 붙이지 않으면 아무 데도 안 나간다(§15.30). */
+    publisher: Publisher = Publisher.NONE,
+    /** §5.5의 토픽 두 번째 레벨. */
+    site: String = "default",
 ) {
     /**
      * §4.8 — 기체 단위이며 발신자가 온라인이 될 때마다 새로 발급한다.
@@ -71,8 +74,17 @@ class RobotInstance(
     /** 능력이 바뀌었다. 세대를 올린다(§5.5의 ETag). */
     fun bumpCapabilityEpoch(): Long = ++capabilityEpoch
 
+    /**
+     * 엔진의 전이에 발행 축을 입힌다(§4.7·§4.8).
+     *
+     * **기체가 소유한다.** 밖에서 만들어 넣으면 리스너와 스트림이 서로를
+     * 필요로 해 `lateinit` 춤이 필요해지고, 그 춤은 시험에만 있고 운영에는
+     * 없는 조립 순서를 만든다.
+     */
+    val events: EventStream = EventStream(this, publisher, site)
+
     /** 이 기체가 호스팅하는 태스크들(§4.4). */
-    val tasks: TaskHost = TaskHost(capability, document, clock, listener)
+    val tasks: TaskHost = TaskHost(capability, document, clock, events)
 
     private companion object {
         val STARTUP_COUNTER = AtomicLong()
