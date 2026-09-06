@@ -35,6 +35,9 @@ tasks.withType<Test>().configureEach {
     inputs.files(
         rootProject.file("profile/fixtures"),
         rootProject.file("profile/schema"),
+        // 재생 버퍼 크기가 기종마다 다른 것을 보는 시험이 읽는다. 없으면
+        // 프로파일을 고쳐도 :mimic:test가 UP-TO-DATE로 넘어가 낡은 채 초록이다.
+        rootProject.file("profile/profiles"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

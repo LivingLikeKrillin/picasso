@@ -61,10 +61,15 @@ class RobotInstance(
      * **0이 아니라 1에서 시작한다.** proto3의 uint64는 암묵 존재라 0이 곧
      * "싣지 않았다"이고, 0에서 시작하면 첫 세대가 헤더에서 사라진다.
      *
-     * 이 청크에서는 상수다 — 런타임 축소·갱신(완료 기준 14·15)이 세대를
-     * 올리는 유일한 경로이고 그것은 제어 채널 청크가 만든다.
+     * **`var`인 것이 의도다.** 런타임 축소(완료 기준 14)가 이것을 올리고,
+     * 발행 헤더와 응답 헤더가 이미 매 메시지에서 읽는다. 6b에서 `val`을
+     * 바꾸려면 그 두 경로를 함께 건드려야 하므로 지금 열어 둔다.
      */
-    val capabilityEpoch: Long = 1
+    var capabilityEpoch: Long = 1
+        private set
+
+    /** 능력이 바뀌었다. 세대를 올린다(§5.5의 ETag). */
+    fun bumpCapabilityEpoch(): Long = ++capabilityEpoch
 
     /** 이 기체가 호스팅하는 태스크들(§4.4). */
     val tasks: TaskHost = TaskHost(capability, document, clock, listener)
