@@ -72,6 +72,21 @@ class ProfileDocument private constructor(
         }
     }
 
+    /**
+     * 소요시간과 지터. **투영에 들어가지 않는다**(§7.2) — 진행률 파생에만
+     * 쓰고 소비자는 진행률을 받지 소요시간을 받지 않는다. 그래도 `mimic`이
+     * 읽어야 하므로 모델에는 있다.
+     */
+    val durations: List<DurationEntry> by lazy {
+        root.path("durations").map { d ->
+            DurationEntry(
+                skillType = d.path("skill_type").asText(),
+                seconds = d.path("seconds").asDouble(),
+                jitterRatio = d.field("jitter_ratio")?.asDouble() ?: 0.0,
+            )
+        }
+    }
+
     val failureModes: List<FailureModeEntry> by lazy {
         root.path("failure_modes").map { f ->
             FailureModeEntry(
@@ -130,6 +145,13 @@ class ProfileDocument private constructor(
         val parameterPath: String,
         /** SUPPORTED → REQUIRED는 축소다 */
         val support: String,
+    )
+
+    data class DurationEntry(
+        val skillType: String,
+        val seconds: Double,
+        /** 0이면 지터 없음. */
+        val jitterRatio: Double,
     )
 
     data class FailureModeEntry(
