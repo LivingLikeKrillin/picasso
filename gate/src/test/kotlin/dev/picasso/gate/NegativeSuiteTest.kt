@@ -30,6 +30,9 @@ import kotlin.test.fail
  * 그래서 케이스가 합성 diff를 들고 다닐 필요가 없다.
  */
 class NegativeSuiteTest {
+    // **완료 기준 12** — 깨는 PR이 사람 없이 차단된다. 여기 케이스가
+    // 게이트 검사 1~8에 하나씩 대응한다(§11.2의 9번).
+
 
     private val repoRoot: Path = Path.of("..").toAbsolutePath().normalize()
     private val caseRoot: Path = repoRoot.resolve("gate/negative")

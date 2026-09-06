@@ -6,7 +6,12 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** §4.4의 두 표 — 수신한 `revision` 4케이스와 갱신을 받은 상태 10케이스. */
+/**
+ * **완료 기준 4**(멱등 재수신과 revision 규칙)의 엔진 쪽.
+ *
+ * §4.4의 두 표 — 수신한 `revision` 4케이스와 갱신을 받은 상태 10케이스.
+ * 표면 쪽은 `TaskRpcTest`가, 버퍼 밖 재생은 `EventServiceTest`가 본다.
+ */
 class TaskRevisionTest {
 
     @Test
