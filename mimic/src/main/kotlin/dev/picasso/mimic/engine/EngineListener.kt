@@ -38,6 +38,13 @@ interface EngineListener {
         attempt: Int,
     ) = Unit
 
+    /**
+     * §4.7의 이벤트 넷 중 셋째. **전이와 같은 리스너를 탄다** — 다른 길로
+     * 내보내면 `sequence`가 다른 축이 되고 §4.8이 "기체 단위 단조 증가"라고
+     * 한 것이 깨진다.
+     */
+    fun onFault(fault: dev.picasso.contracts.v1.Fault, cleared: Boolean) = Unit
+
     companion object {
         /** 아무것도 안 한다. 엔진 시험이 리스너를 몰라도 돌아야 한다. */
         val NONE: EngineListener = object : EngineListener {}

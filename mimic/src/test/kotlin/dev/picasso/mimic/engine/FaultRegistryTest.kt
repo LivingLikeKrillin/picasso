@@ -60,12 +60,13 @@ class FaultRegistryTest {
         ).forEach { kind ->
             val local = FaultRegistry(VirtualClock(Instant.parse("2026-09-06T00:00:00Z")))
             local.raise(fault("LOCALIZATION_LOST", kind))
+            local.expire()
             assertEquals(1, local.active().size, "$kind 가 시간으로 사라졌다")
         }
     }
 
     @Test
-    fun `시각 수명이 지나면 조회에서 사라진다`() {
+    fun `시각 수명은 거둘 때 사라진다`() {
         registry.raise(
             fault(
                 "LOCALIZATION_LOST",
@@ -76,10 +77,39 @@ class FaultRegistryTest {
         assertEquals(1, registry.active().size)
 
         clock.advance(Duration.ofSeconds(29))
-        assertEquals(1, registry.active().size, "아직 유효한데 사라졌다")
+        assertEquals(emptyList(), registry.expire(), "아직 유효한데 거뒀다")
+        assertEquals(1, registry.active().size)
 
         clock.advance(Duration.ofSeconds(2))
-        assertEquals(emptyList(), registry.active(), "수명이 지났는데 남았다")
+        assertEquals(listOf("LOCALIZATION_LOST"), registry.expire().map { it.errorType })
+        assertEquals(emptyList(), registry.active(), "거뒀는데 남았다")
+    }
+
+    @Test
+    fun `조회는 아무것도 지우지 않는다`() {
+        // **지우면 소멸 시점이 누가 언제 보느냐에 달린다.** 발행·스냅샷·raise가
+        // 각각 부르므로 관측이 늘면 소멸이 앞당겨지고 §12.1이 깨진다.
+        // 게다가 해소 이벤트가 안 나가 소비자는 지워진 결함을 영원히 든다.
+        registry.raise(
+            fault(
+                "LOCALIZATION_LOST",
+                Lifetime.Kind.KIND_UNTIL_TIMESTAMP,
+                until = "2026-09-06T00:00:30Z",
+            ),
+        )
+        clock.advance(Duration.ofSeconds(31))
+
+        repeat(5) { assertEquals(1, registry.active().size, "조회가 지웠다") }
+        assertEquals(1, registry.expire().size)
+        assertEquals(emptyList(), registry.active())
+    }
+
+    @Test
+    fun `거둘 것이 없으면 아무것도 안 돌려준다`() {
+        // 매번 무언가 돌려주면 호출자가 유령 해소를 발행한다.
+        registry.raise(fault("LOCALIZATION_LOST"))
+        repeat(3) { assertEquals(emptyList(), registry.expire()) }
+        assertEquals(1, registry.active().size)
     }
 
     @Test
@@ -88,6 +118,7 @@ class FaultRegistryTest {
         registry.raise(fault("LOCALIZATION_LOST", Lifetime.Kind.KIND_UNTIL_CLEARED))
 
         clock.advance(Duration.ofDays(1))
+        registry.expire()
         assertEquals(2, registry.active().size, "시간으로 사라졌다")
 
         val gone = registry.onNewTask()

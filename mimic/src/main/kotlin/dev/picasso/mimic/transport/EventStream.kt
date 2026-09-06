@@ -89,8 +89,7 @@ class EventStream(
         ).build()
     }
 
-    /** 결함은 6b가 부른다. 자리를 지금 만들어 둔다(§4.7의 넷 중 셋째). */
-    fun fault(fault: Fault, cleared: Boolean) = emit { header ->
+    override fun onFault(fault: Fault, cleared: Boolean) = emit { header ->
         Event.newBuilder().setHeader(header)
             .setFaultEvent(FaultEvent.newBuilder().setFault(fault).setCleared(cleared))
             .build()

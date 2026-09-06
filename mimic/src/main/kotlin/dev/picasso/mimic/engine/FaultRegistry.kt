@@ -36,15 +36,29 @@ class FaultRegistry(private val clock: Clock) {
     )
 
     /**
-     * 활성 결함. 수명이 지난 것은 여기서 사라진다.
+     * 활성 결함. **읽기만 한다.**
      *
-     * **조회 시점에 거른다.** 배경 청소를 두면 가상 시계와 충돌해 §12.1의
-     * 결정성이 깨진다.
+     * 조회하면서 지우면 소멸 시점이 **누가 언제 보느냐**에 달린다 — 발행,
+     * `GetSnapshot`, `raise`가 각각 부르므로 관측이 늘면 소멸이 앞당겨지고,
+     * §12.1의 "시드 + 가상 시계 고정 = 동일 이벤트 시퀀스"가 깨진다.
+     * 게다가 해소 이벤트가 안 나가 이벤트를 접는 소비자는 지워진 결함을
+     * 영원히 든다(완료 기준 2의 비교가 거기서 어긋난다).
+     *
+     * 거두는 것은 [expire] 하나이며 `tick()`이 부른다.
      */
-    fun active(): List<Fault> {
+    fun active(): List<Fault> = raised.values.toList()
+
+    /**
+     * 수명이 지난 것을 거둔다. **`tick()`만 부른다** — 소멸 시점이 시계에만
+     * 달리도록.
+     *
+     * @return 거둬진 것들. 호출자가 각각 해소 이벤트를 낸다.
+     */
+    fun expire(): List<Fault> {
         val now = clock.now()
+        val gone = raised.values.filter { expired(it, now) }
         raised.entries.removeIf { expired(it.value, now) }
-        return raised.values.toList()
+        return gone
     }
 
     /**
@@ -54,7 +68,6 @@ class FaultRegistry(private val clock: Clock) {
      * 해소 이벤트 하나로 지워지지 않는 유령이 남는다.
      */
     fun raise(fault: Fault): Fault? {
-        active()
         val key = keyOf(fault)
         if (key in raised) return null
         raised[key] = fault

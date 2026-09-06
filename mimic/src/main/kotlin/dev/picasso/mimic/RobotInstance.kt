@@ -91,7 +91,7 @@ class RobotInstance(
     val faults: FaultRegistry = FaultRegistry(clock)
 
     /** 이 기체가 호스팅하는 태스크들(§4.4). */
-    val tasks: TaskHost = TaskHost(capability, document, clock, events)
+    val tasks: TaskHost = TaskHost(capability, document, clock, events, faults)
 
     private companion object {
         val STARTUP_COUNTER = AtomicLong()

@@ -93,6 +93,11 @@ class ProfileDocument private constructor(
                 errorType = f.path("error_type").asText(),
                 skillType = f.field("skill_type")?.asText(),
                 resolution = f.path("resolution").asText(),
+                rate = f.path("rate").asDouble(),
+                canContinueCurrentTask = f.path("can_continue_current_task").asBoolean(),
+                canAcceptNewTask = f.path("can_accept_new_task").asBoolean(),
+                errorHint = f.field("error_hint")?.asText().orEmpty(),
+                activeUntil = f.field("active_until")?.asText(),
             )
         }
     }
@@ -154,10 +159,28 @@ class ProfileDocument private constructor(
         val jitterRatio: Double,
     )
 
+    /**
+     * 선언된 실패 모드(§7.2·§10.4 ①).
+     *
+     * **§4.6의 `Fault`가 요구하는 것을 전부 든다.** 앞서 셋만 담았더니
+     * 발생률도 두 불리언도 없어 프로파일에서 결함을 만들 수 없었다 —
+     * 모델이 문서를 반만 읽으면 그 반은 없는 것과 같다.
+     */
     data class FailureModeEntry(
         val errorType: String,
         val skillType: String?,
         val resolution: String,
+        /** 0.0..1.0. 시드 기반 추첨의 입력이며 시뮬레이션 값이다(§7.2). */
+        val rate: Double,
+        val canContinueCurrentTask: Boolean,
+        val canAcceptNewTask: Boolean,
+        val errorHint: String,
+        /**
+         * `UNTIL_CLEARED` 또는 `UNTIL_NEW_TASK`. **없으면 `UNTIL_CLEARED`다** —
+         * 스키마가 선택으로 두었고, 미정으로 내보내면 소비자가 "이 결함이
+         * 아직 유효한가"를 추측하게 된다(§4.3이 없애려는 그 추측이다).
+         */
+        val activeUntil: String?,
     )
 
     companion object {

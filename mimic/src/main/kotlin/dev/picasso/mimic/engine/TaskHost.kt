@@ -40,6 +40,8 @@ class TaskHost(
     private val clock: Clock,
     /** 엔진이 전이를 보고할 곳(§4.7). 발행은 전송이 붙인다. */
     private val listener: EngineListener = EngineListener.NONE,
+    /** 이 기체의 결함들(§4.6). 수명을 거두는 것은 [tick] 하나다. */
+    private val faults: FaultRegistry = FaultRegistry(clock),
 ) {
     private val tasks = LinkedHashMap<String, TaskRuntime>()
 
@@ -94,6 +96,10 @@ class TaskHost(
         // 상태 열 개를 도는 시험이 그 행을 만들지 못했다).
         //
         // `StartTask`는 접수 응답이지 "돌고 있다"가 아니다(§4.4).
+        // §4.3의 UNTIL_NEW_TASK — 새 태스크가 접수되면 그 수명의 결함이
+        // 사라진다. 부르는 곳이 없으면 그 수명이 영원이 된다.
+        faults.onNewTask().forEach { listener.onFault(it, cleared = true) }
+
         record(task)
         // **접수도 전이다.** 안 알리면 접수만 되고 아직 tick을 안 받은
         // 태스크가 재구성에서 통째로 사라진다 — §4.4가 `ACCEPTED`를 도달
@@ -179,6 +185,11 @@ class TaskHost(
      * 실패 모드와 시드 추첨은 제어 채널 청크가 만든다.
      */
     fun tick() {
+        // **수명을 여기서만 거둔다.** 조회하면서 지우면 소멸 시점이 관측자에
+        // 달리고 §12.1이 깨진다. 거둔 것마다 해소를 알린다 — 안 알리면
+        // 이벤트를 접는 소비자가 지워진 결함을 영원히 든다.
+        faults.expire().forEach { listener.onFault(it, cleared = true) }
+
         tasks.values.forEach { task ->
             when (task.machine.state) {
                 // 접수한 태스크를 로봇이 집어 든다.
