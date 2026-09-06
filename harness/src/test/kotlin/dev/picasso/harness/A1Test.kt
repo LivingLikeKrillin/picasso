@@ -110,25 +110,14 @@ class A1Test {
         // 공허함 1번 — 실제로 종착까지 갔고 전이가 관측됐는가.
         listOf("humanoid-a", "quadruped-b").forEach { model ->
             harnessFor(model).use { harness ->
-                val outcome = ContractSuite.runCommonTask(
-                    harness, harness.client(), ROBOT, requirements, parameters,
-                )
-                assertTrue(outcome.accepted, "$model 에서 거절됐다: ${outcome.rejection}")
-
-                val follower = outcome.follower!!
-                assertNull(follower.error, "$model: ${follower.error}")
-                assertEquals(
-                    listOf(
-                        TaskState.TASK_STATE_ACCEPTED,
-                        TaskState.TASK_STATE_RUNNING,
-                        TaskState.TASK_STATE_SUCCEEDED,
+                // 단언은 AllModelsTest와 **같은 것**을 쓴다. 따로 쓰면
+                // 한쪽이 약해지고, 약해지는 쪽은 언제나 나중에 쓴 것이다.
+                assertCompleted(
+                    model,
+                    ContractSuite.runCommonTask(
+                        harness, harness.client(), ROBOT, requirements, parameters,
                     ),
-                    follower.updates.map { it.state },
-                    "$model 에서 완주하지 않았다",
                 )
-                assertEquals(0.0, follower.updates.first().progress, "$model: 시작 전인데 진행률이 있다")
-                assertEquals(1.0, follower.updates.last().progress, "$model: 완주인데 진행률이 1이 아니다")
-                assertTrue(follower.completed, "$model: 종착인데 스트림을 안 닫았다")
             }
         }
     }
