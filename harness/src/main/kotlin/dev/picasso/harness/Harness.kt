@@ -42,10 +42,15 @@ class Harness(
     /** 오간 요청을 순서대로 기록한다. 완료 기준 1의 증거다. */
     val recorder = RequestRecorder()
 
+    /** 발행을 받는 구독자 노릇. 브로커는 §15.30의 이유로 붙이지 않는다. */
+    val publisher = dev.picasso.mimic.transport.RecordingPublisher()
+
     private val source = FileProfileSource(schema)
 
     val registry = RobotRegistry(
-        robots.map { (id, path) -> RobotInstance(id, source.load(path), clock, seed) },
+        robots.map { (id, path) ->
+            RobotInstance(id, source.load(path), clock, seed, publisher, site = "line-a")
+        },
     )
 
     private val name: String = InProcessServerBuilder.generateName()
@@ -58,6 +63,24 @@ class Harness(
     private val channel: ManagedChannel =
         InProcessChannelBuilder.forName(name).directExecutor().build()
 
+    /**
+     * §10.5의 제어 채널. **운영에서는 별도 포트·루프백이고 여기서는
+     * in-process다** — 직접 실행 모드에서는 프로세스가 하나뿐이다.
+     */
+    private val control = dev.picasso.mimic.control.ControlServer(
+        registry, server, InProcessServerBuilder.forName("$name-control").directExecutor(),
+    ).start()
+
+    private val controlChannel: ManagedChannel =
+        InProcessChannelBuilder.forName("$name-control").directExecutor().build()
+
+    val oracle: dev.picasso.mimic.control.v1.ControlServiceGrpc.ControlServiceBlockingStub =
+        dev.picasso.mimic.control.v1.ControlServiceGrpc.newBlockingStub(controlChannel)
+
+    /** 계약 표면의 이벤트를 읽는다. */
+    val events: dev.picasso.contracts.v1.EventServiceGrpc.EventServiceBlockingStub =
+        dev.picasso.contracts.v1.EventServiceGrpc.newBlockingStub(channel)
+
     fun client(clientId: String = "line-controller", identityOverride: String? = null) =
         PicassoClient(channel, clientId, identityOverride)
 
@@ -66,6 +89,8 @@ class Harness(
 
     override fun close() {
         channel.shutdownNow()
+        controlChannel.shutdownNow()
+        control.shutdown()
         server.shutdown()
     }
 }
