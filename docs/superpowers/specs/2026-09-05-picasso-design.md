@@ -172,11 +172,13 @@ profile-model → (없음)
 gate          → profile-model   ※ 아래 단서
 registry      → gate, contracts
 mimic         → profile-model, contracts
-client        → contracts
-harness       → mimic, client
+client        → contracts, profile-model   ※ 아래 단서
+harness       → mimic, client, contracts
 ```
 
 **`profile-model`은 2단계에서 신설했다(ADR 29).** 프로파일 문서를 읽는 코드가 `gate`와 `mimic` 양쪽에 필요한데, `mimic`이 `gate`에 의존하면 buf 실행기와 검사 아홉을 끌고 오고, 두 벌로 쓰면 이 프로젝트가 막으려는 바로 그 드리프트를 우리가 낸다. `ProfileDocument.NON_PROJECTION`이 §7.2의 비투영 집합이므로 게이트 6번과 `mimic`의 투영이 **같은 상수를 쓰는 것이 옳다**는 부수 이득도 있다.
+
+**`client → profile-model`은 2단계 Chunk 3a에서 더했다.** §5.4가 요구 집합을 "코드가 아니라 설정"이라 못박았고 그 파일을 읽는 코드가 `client`(만드는 쪽)와 `mimic`(판정하는 쪽) 양쪽에 필요한데, `client → mimic`은 이 표가 금지한다. ADR 29가 `profile-model`을 만든 것과 같은 이유다. **대가는 `ProfileDocument`(기종 저작 형식)가 `client`의 클래스패스에 들어온다는 것이고**, 얇은 소비자가 그것을 읽기 시작하면 §11.2의 7번이 막으려는 바로 그것이 된다 — `ClientBoundaryTest`가 그 선을 지킨다.
 
 **`gate`는 `contracts`에 빌드 의존을 걸지 않는다(1단계 실측 반영).** `buf.gen.yaml`이 Java를 생성하지 않으므로 의존해 봐야 클래스패스에 얹힐 것이 없고, `gate`가 필요한 것은 생성 코드가 아니라 `buf build`가 만든 `FileDescriptorSet` **바이트**다. 그것은 런타임 입력(`Resource.CONTRACT_DESCRIPTOR`)으로 받는다. 이 선택의 대가는 **`buf build`가 `./gradlew build`보다 먼저 돌아야 한다**는 것이고, 새 클론에서 그 순서를 어기면 `ContractIndexTest`가 만드는 법을 찍고 실패한다. Gradle 태스크 의존이 아니라 순서에 기대는 것이므로 CI의 스텝 순서가 그 계약이다.
 

@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "client_id": "line-controller",
+  "requirements": ["navigate_to@^1.0"],
+  "optional_fields_used": ["task.parameters.verify_grasp"],
+  "limits_needed": { "max_string_length": 64, "max_array_length": 8 }
+}

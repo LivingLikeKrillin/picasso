@@ -1,0 +1,28 @@
+import org.gradle.api.tasks.PathSensitivity
+
+// 지정한 프로파일로 mimic을 띄우고 client로 계약 스위트를 돌린다(§3.3).
+// **계약 스위트의 주인이며** CI와 §8.4 ②가 같은 스위트를 실행한다(§12.1).
+dependencies {
+    implementation(project(":mimic"))
+    api(project(":client"))
+
+    // client가 api로 노출하지만 명시한다 — 여기서 계약 타입을 직접 쓴다.
+    api(project(":contracts"))
+    implementation(project(":profile-model"))
+
+    // 하네스가 직접 세운다 — 시험 전용이 아니라 main의 기능이다(§10.2의
+    // 직접 실행 모드). 별도 프로세스 모드는 제어 채널과 함께 온다.
+    implementation(libs.grpc.inprocess)
+
+    testImplementation(kotlin("test"))
+}
+
+tasks.withType<Test>().configureEach {
+    // 프로파일을 고쳐도 시험이 안 돌면 조용히 낡는다(1단계 실측).
+    inputs.files(
+        rootProject.file("profile/profiles"),
+        rootProject.file("profile/requirements"),
+        rootProject.file("profile/schema"),
+    ).withPropertyName("profileInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
