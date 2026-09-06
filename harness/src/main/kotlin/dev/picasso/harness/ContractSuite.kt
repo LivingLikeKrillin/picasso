@@ -79,6 +79,27 @@ object ContractSuite {
         return CommonTaskOutcome(null, follower)
     }
 
+    /**
+     * 스킬 하나를 걸고 종착까지 민다. 협상은 하지 않는다 — 능력 차이를
+     * 보는 시나리오가 쓴다.
+     */
+    fun runTask(
+        harness: Harness,
+        client: PicassoClient,
+        robotId: String,
+        skillType: String,
+        parameters: List<ParameterValue>,
+        taskId: String,
+    ): CommonTaskOutcome {
+        val started = client.start(robotId, taskId, 1, skillType, parameters)
+        if (started.hasRejection()) {
+            return CommonTaskOutcome("${started.rejection.code}: ${started.rejection.detail}", null)
+        }
+        val follower = client.follow(robotId, started.handle)
+        repeat(TICKS) { harness.advance(STEP) }
+        return CommonTaskOutcome(null, follower)
+    }
+
     /** 넉넉히 민다. 소요시간을 시나리오가 알면 그것이 기종 지식이 된다. */
     private val STEP: Duration = Duration.ofSeconds(60)
     private const val TICKS = 3
