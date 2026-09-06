@@ -6,6 +6,8 @@ import dev.picasso.mimic.control.v1.ClockMode
 import dev.picasso.mimic.control.v1.ControlServiceGrpc
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
 import dev.picasso.mimic.control.v1.DumpInternalStateResponse
+import dev.picasso.mimic.control.v1.ForceControlAuthorityLossRequest
+import dev.picasso.mimic.control.v1.ForceControlAuthorityLossResponse
 import dev.picasso.mimic.control.v1.ForceFaultRequest
 import dev.picasso.mimic.control.v1.ForceFaultResponse
 import dev.picasso.mimic.control.v1.ForceTerminalViolationRequest
@@ -22,6 +24,7 @@ import dev.picasso.mimic.control.v1.StepResponse
 import dev.picasso.mimic.control.v1.SetClockModeResponse
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.Reference
+import dev.picasso.mimic.engine.AuthorityOutcome
 import dev.picasso.mimic.engine.ForceOutcome
 import dev.picasso.mimic.engine.RealClock
 import dev.picasso.mimic.engine.ViolationOutcome
@@ -222,6 +225,32 @@ class ControlServer(
                 observer,
                 SetSingleStepResponse.newBuilder().setEnabled(request.enabled).build(),
             )
+        }
+
+        /**
+         * §4.9의 제어 권한 상실. **`ForceFault`와 같은 이유로 정착시키지 않고
+         * 밀기만 한다** — 여기서는 태스크 전이가 실제로 생기므로 밀 것이 있다.
+         */
+        override fun forceControlAuthorityLoss(
+            request: ForceControlAuthorityLossRequest,
+            observer: StreamObserver<ForceControlAuthorityLossResponse>,
+        ) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            when (val outcome = hosted.instance.tasks.forceControlAuthorityLoss()) {
+                is AuthorityOutcome.Lost -> reply(
+                    observer,
+                    ForceControlAuthorityLossResponse.newBuilder()
+                        .setRaised(outcome.raised)
+                        .addAllTerminatedTaskIds(outcome.terminated)
+                        .build(),
+                ).also { mimic.push(hosted) }
+
+                is AuthorityOutcome.Rejected -> observer.onError(
+                    Status.FAILED_PRECONDITION
+                        .withDescription(outcome.detail)
+                        .asRuntimeException(),
+                )
+            }
         }
 
         /**

@@ -33,6 +33,14 @@ class TaskRuntime(
     }
 }
 
+/** §10.5의 `ForceControlAuthorityLoss` 결과. */
+sealed interface AuthorityOutcome {
+    /** @param terminated 이 상실로 종착한 태스크들. 비어도 결함은 선다. */
+    data class Lost(val raised: Boolean, val terminated: List<String>) : AuthorityOutcome
+
+    data class Rejected(val detail: String) : AuthorityOutcome
+}
+
 /** §10.5의 `ForceTerminalViolation` 결과. */
 sealed interface ViolationOutcome {
     /** @param raised 실제로 새로 선 결함이면 참. */
@@ -387,6 +395,52 @@ class TaskHost(
     }
 
     /**
+     * §10.5의 `ForceControlAuthorityLoss`. §4.9의 제어 권한 상실.
+     *
+     * **`exclusive_control_required`가 거짓이면 거절한다.** 프로파일이
+     * "이 로봇은 배타 제어 모델이 아니다"라고 선언했으면 빼앗길 권한이 없다.
+     * 허용하면 프로파일이 부정한 상황을 에뮬레이터가 만들어, 거동이
+     * 프로파일에서 온다는 §10.1이 깨진다.
+     *
+     * **진행 중이던 태스크는 §4.5 전파 규칙 1을 탄다.** `Resolution.TERMINAL`
+     * 이므로 `FAILED`로 종착한다 — 다만 `CANCELLING`이던 것은 전파 규칙 3이
+     * 이겨 `CANCELLED_RECOVERY_FAILED`가 된다(취소는 이미 결정된 것이고 남은
+     * 질문은 되돌리는 데 성공했는가뿐이다).
+     *
+     * **`CONTROL_AUTHORITY_LOST`는 열한 번째 `TaskState`가 아니다.**
+     * `error_type`이며, 8d의 "로봇 고장과 구분된다"는 상태가 아니라 **결함이**
+     * 하는 일이다. 상태를 늘리면 §4.4의 종착 넷 위에 선 것들(pinning·갱신
+     * 규칙·드레인 판정)이 전부 흔들린다.
+     *
+     * **진행 중 태스크가 없어도 결함은 선다.** 권한을 잃은 것은 기체이지
+     * 태스크가 아니다 — 태스크에만 붙이면 유휴 상태에서 빼앗긴 것을 소비자가
+     * 영영 모른다.
+     */
+    fun forceControlAuthorityLoss(): AuthorityOutcome {
+        if (!document.exclusiveControlRequired) {
+            return AuthorityOutcome.Rejected(
+                "배타 제어 모델이 아니라 빼앗길 권한이 없다 " +
+                    "(exclusive_control_required=false)",
+            )
+        }
+
+        val fault = controlAuthorityLost()
+        val raised = faults.raise(fault)?.also { listener.onFault(it, cleared = false) } != null
+
+        // **결함을 먼저 알린 뒤에 태스크를 보낸다** — 원인이 결과보다 먼저
+        // 나가야 소비자가 원인 없는 실패를 보지 않는다.
+        val terminated = tasks.values
+            .filter { it.machine.state in FAULTABLE }
+            .onEach {
+                halt(it, Resolution.TERMINAL)
+                record(it)
+            }
+            .map { it.taskId }
+
+        return AuthorityOutcome.Lost(raised, terminated)
+    }
+
+    /**
      * §10.5의 `ForceTerminalViolation`. §4.4의 래치 위반을 관측한다.
      *
      * **태스크를 건드리지 않는다.** 종착은 래치되며 그것이 계약의
@@ -441,6 +495,24 @@ class TaskHost(
      * 안 되는 것은 인출 수가 **관측**에 달리는 것이다.
      */
     private companion object {
+
+        /**
+         * §4.9의 제어 권한 상실 결함.
+         *
+         * **로봇 수준이다** — `references`가 비어 있다. 권한은 기체의
+         * 속성이지 스킬이나 태스크의 것이 아니다. 어느 태스크가 죽었는지는
+         * 그 태스크들의 전이가 말한다.
+         */
+        fun controlAuthorityLost(): Fault = Fault.newBuilder()
+            .setErrorType("CONTROL_AUTHORITY_LOST")
+            .setCanContinueCurrentTask(false)
+            .setCanAcceptNewTask(false)
+            .setErrorHint(
+                "다른 클라이언트가 제어 권한을 가져갔다. 미션 계층에서 권한을 되찾은 뒤 " +
+                    "결함을 해소하십시오.",
+            )
+            .setActiveUntil(Lifetime.newBuilder().setKind(Lifetime.Kind.KIND_UNTIL_CLEARED))
+            .build()
 
         /**
          * §4.4의 래치 위반 결함.

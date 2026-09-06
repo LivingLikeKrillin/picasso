@@ -181,12 +181,32 @@ message ForceTerminalViolationResponse {
   bool raised = 2;
 }
 
-// §10.5의 열셋 중 여덟이 지금 있다. 나머지 다섯은 6b Task 7과 6c가 더하며
-// **이름을 지금 못박는다** — 이 파일은 buf breaking 밖이라 나중에 바꿔도
-// 아무도 안 잡는다.
+// §4.9의 제어 권한 상실.
 //
-//   InjectTransportFault · SetConnection · RemoveCapability
-//   RestoreCapability · ForceControlAuthorityLoss
+// **권한의 획득과 협상은 계약 밖이다** — 우선순위를 누가 갖는지는 판단이고
+// 그 주인은 미션 계층이다. 그러나 **상실은 사실이고 태스크 결과를 좌우하므로
+// 계약 안이다.**
+//
+// exclusive_control_required 가 거짓인 기종은 거절한다. 프로파일이 "이 로봇은
+// 배타 제어 모델이 아니다"라고 선언했으면 빼앗길 권한이 없고, 허용하면
+// 프로파일이 부정한 상황을 에뮬레이터가 만들어 §10.1이 깨진다.
+message ForceControlAuthorityLossRequest {
+  string robot_id = 1;
+}
+
+message ForceControlAuthorityLossResponse {
+  // 실제로 새로 선 결함이면 참.
+  bool raised = 1;
+
+  // 이 상실로 종착한 태스크들. 진행 중이던 것이 없으면 빈다 —
+  // **그래도 결함은 선다.**
+  repeated string terminated_task_ids = 2;
+}
+
+// §10.5의 열셋 중 아홉이 지금 있다. 나머지 넷은 6c가 더하며 **이름을 지금
+// 못박는다** — 이 파일은 buf breaking 밖이라 나중에 바꿔도 아무도 안 잡는다.
+//
+//   InjectTransportFault · SetConnection · RemoveCapability · RestoreCapability
 service ControlService {
   rpc SetClockMode(SetClockModeRequest) returns (SetClockModeResponse);
   rpc AdvanceClock(AdvanceClockRequest) returns (AdvanceClockResponse);
@@ -208,4 +228,8 @@ service ControlService {
   // §4.4의 래치 위반. 프로파일이 선언할 수 없는 결함이라 전용 RPC다.
   rpc ForceTerminalViolation(ForceTerminalViolationRequest)
       returns (ForceTerminalViolationResponse);
+
+  // §4.9의 제어 권한 상실. 역시 프로파일이 선언할 수 없다.
+  rpc ForceControlAuthorityLoss(ForceControlAuthorityLossRequest)
+      returns (ForceControlAuthorityLossResponse);
 }
