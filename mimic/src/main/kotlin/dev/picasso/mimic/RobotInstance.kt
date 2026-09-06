@@ -2,6 +2,7 @@ package dev.picasso.mimic
 
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.mimic.engine.Clock
+import dev.picasso.mimic.engine.EngineListener
 import dev.picasso.mimic.engine.Seeded
 import dev.picasso.mimic.engine.TaskHost
 import dev.picasso.mimic.profile.CapabilityProjection
@@ -25,6 +26,8 @@ class RobotInstance(
     val document: ProfileDocument,
     val clock: Clock,
     seed: Long = 0,
+    /** 엔진의 전이를 받는 곳. 전송이 여기에 `sequence`와 헤더를 붙인다(§4.7). */
+    listener: EngineListener = EngineListener.NONE,
 ) {
     /**
      * §4.8 — 기체 단위이며 발신자가 온라인이 될 때마다 새로 발급한다.
@@ -64,7 +67,7 @@ class RobotInstance(
     val capabilityEpoch: Long = 1
 
     /** 이 기체가 호스팅하는 태스크들(§4.4). */
-    val tasks: TaskHost = TaskHost(capability, document, clock)
+    val tasks: TaskHost = TaskHost(capability, document, clock, listener)
 
     private companion object {
         val STARTUP_COUNTER = AtomicLong()

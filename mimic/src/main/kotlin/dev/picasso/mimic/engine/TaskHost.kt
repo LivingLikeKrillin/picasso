@@ -38,6 +38,8 @@ class TaskHost(
     private val capability: Capability,
     private val document: ProfileDocument,
     private val clock: Clock,
+    /** 엔진이 전이를 보고할 곳(§4.7). 발행은 전송이 붙인다. */
+    private val listener: EngineListener = EngineListener.NONE,
 ) {
     private val tasks = LinkedHashMap<String, TaskRuntime>()
 
@@ -77,6 +79,8 @@ class TaskHost(
                 durationSeconds = durationOf(skillType),
                 initialRevision = revision,
                 initialParameters = parameters,
+                taskId = taskId,
+                listener = listener,
             ),
         )
         tasks[taskId] = task

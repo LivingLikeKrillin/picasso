@@ -67,6 +67,9 @@ class TaskMachine(
     initial: TaskState = TaskState.ACCEPTED,
     initialRevision: Int = 1,
     initialParameters: List<ParameterValue> = emptyList(),
+    /** 이벤트에 실린다(§4.7). 시험용 기체는 비워 둔다. */
+    private val taskId: String = "",
+    private val listener: EngineListener = EngineListener.NONE,
 ) {
     var state: TaskState = initial
         private set
@@ -139,8 +142,8 @@ class TaskMachine(
 
         when (command) {
             TaskCommand.START -> startSkill()
-            TaskCommand.RESUME -> skillMachine?.apply(SkillCommand.RESUME)
-            TaskCommand.PAUSE -> skillMachine?.apply(SkillCommand.SUSPEND)
+            TaskCommand.RESUME -> applySkill(SkillCommand.RESUME)
+            TaskCommand.PAUSE -> applySkill(SkillCommand.SUSPEND)
             TaskCommand.RETRY -> {
                 attempt += 1
                 startSkill()
@@ -179,8 +182,8 @@ class TaskMachine(
 
         if (transitionTo(next, "onSkillHalted($resolution)") is TaskTransition.Moved) {
             // §4.5 — HALTED → 즉시 Reset → READY.
-            skillMachine?.apply(SkillCommand.HALT)
-            skillMachine?.apply(SkillCommand.RESET)
+            applySkill(SkillCommand.HALT)
+            applySkill(SkillCommand.RESET)
         }
     }
 
@@ -188,15 +191,15 @@ class TaskMachine(
     fun onRecoveryComplete() {
         if (state != TaskState.CANCELLING) return
         if (transitionTo(TaskState.CANCELLED, "onRecoveryComplete") is TaskTransition.Moved) {
-            skillMachine?.apply(SkillCommand.HALT)
-            skillMachine?.apply(SkillCommand.RESET)
+            applySkill(SkillCommand.HALT)
+            applySkill(SkillCommand.RESET)
         }
     }
 
     /** 정상 완료 → `SUCCEEDED`. */
     fun onSkillComplete() {
         if (transitionTo(TaskState.SUCCEEDED, "onSkillComplete") is TaskTransition.Moved) {
-            skillMachine?.apply(SkillCommand.COMPLETE)
+            applySkill(SkillCommand.COMPLETE)
         }
     }
 
@@ -226,9 +229,9 @@ class TaskMachine(
 
         return if (state == TaskState.RUNNING) {
             // §4.4 — 스킬을 Halt → Reset → 새 파라미터로 Start. 태스크는 RUNNING 유지.
-            skillMachine?.apply(SkillCommand.HALT)
-            skillMachine?.apply(SkillCommand.RESET)
-            skillMachine?.apply(SkillCommand.START, parameters)
+            applySkill(SkillCommand.HALT)
+            applySkill(SkillCommand.RESET)
+            applySkill(SkillCommand.START, parameters)
             UpdateOutcome.RestartedSkill(state)
         } else {
             UpdateOutcome.ParametersOnly(state)
@@ -250,12 +253,27 @@ class TaskMachine(
         }
         val from = state
         state = next
+        listener.onTaskTransition(taskId, skill.skillType, from, next, revision, attempt)
         return TaskTransition.Moved(from, next)
     }
 
+    /**
+     * **스킬에 대한 모든 명령이 여기를 지난다.** 여덟 군데서 직접 부르면
+     * 리스너 배선이 그중 하나를 빠뜨렸을 때 그 전이만 조용히 사라진다 —
+     * 상태 쓰기를 [transitionTo] 하나로 모은 것과 같은 이유다.
+     */
+    private fun applySkill(command: SkillCommand, parameters: List<ParameterValue> = emptyList()) {
+        val machine = skillMachine ?: return
+        val result = machine.apply(command, parameters)
+        // 거절은 보고하지 않는다 — 안 일어난 일이다.
+        if (result is SkillTransition.Moved) {
+            listener.onSkillTransition(taskId, skill.skillType, result.from, result.to)
+        }
+    }
+
     private fun startSkill() {
-        val machine = skillMachine ?: SkillMachine().also { skillMachine = it }
-        machine.apply(SkillCommand.START, parameters)
+        skillMachine ?: SkillMachine().also { skillMachine = it }
+        applySkill(SkillCommand.START, parameters)
         progress.restart()
     }
 
