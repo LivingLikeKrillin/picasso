@@ -5,79 +5,38 @@ import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.WatchTaskResponse
+import dev.picasso.contracts.wire.ContractIdentity
+import dev.picasso.contracts.wire.HeaderColumns
 import dev.picasso.mimic.RobotInstance
 import dev.picasso.mimic.engine.Clock
 import dev.picasso.mimic.engine.TaskMachineFixtures
 import dev.picasso.mimic.engine.VirtualClock
-import java.io.ByteArrayInputStream
 import java.time.Duration
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-
-class ContractIdentityTest {
-
-    @Test
-    fun `계약 신원을 클래스패스에서 읽는다`() {
-        assertEquals("0.1.0", ContractIdentity.semver)
-        assertTrue(
-            ContractIdentity.digest.matches(Regex("[0-9a-f]{64}")),
-            "다이제스트가 SHA-256 16진수가 아니다: ${ContractIdentity.digest}",
-        )
-    }
-
-    @Test
-    fun `리소스가 없으면 기동하지 않는다`() {
-        // 조용히 빈 문자열을 싣는 구현은 "계약이 무엇인지 모른다"를
-        // "계약이 없다"로 보이게 한다. §6.2의 메시지마다 판정이 죽는다.
-        assertFailsWith<IllegalStateException> { ContractIdentity.from(null) }
-    }
-
-    @Test
-    fun `키가 비어도 기동하지 않는다`() {
-        // 파일은 있는데 굽는 태스크가 반쯤 돈 경우다. 파일 존재만 보는
-        // 구현은 이것을 통과시킨다.
-        listOf("", "semver=0.1.0\n", "digest=abc\n", "semver=\ndigest=\n").forEach { text ->
-            assertFailsWith<IllegalStateException>("'$text' 를 받아들였다") {
-                ContractIdentity.from(ByteArrayInputStream(text.toByteArray()))
-            }
-        }
-    }
-}
 
 /** §5.5의 gRPC 응답 열이 이 시험의 명세다. */
 class ResponseHeadersTest {
 
-    /** 응답에 **실어야 하는** 것. */
-    private val required = listOf(
-        "schema_id", "contract_digest", "contract_semver", "robot_id",
-        "capability_epoch", "session_id", "profile_ref",
-        "event_id", "occurred_at", "state_as_of",
-    )
+    /**
+     * 표는 [HeaderColumns]가 갖는다 — 계약의 규칙이므로 `contracts`에 있고,
+     * 열이 실제로 서로 다른지는 거기서 본다. 여기서는 **구현이 그 열을
+     * 따르는지**만 본다.
+     */
+    private val required = HeaderColumns.RESPONSE
 
     /** 응답에 **실으면 안 되는** 것. `sequence`는 MQTT, `client_id`는 요청 전용. */
-    private val forbidden = listOf("sequence", "client_id")
-
-    /** `WatchTask` 스트림에서만 실린다. */
-    private val watchOnly = listOf("update_index")
+    private val forbidden = HeaderColumns.ALL - HeaderColumns.WATCH_RESPONSE
 
     @Test
     fun `표가 비어 있지 않고 자기모순이 아니다`() {
         assertEquals(10, required.size)
-        assertEquals(2, forbidden.size)
+        assertEquals(setOf("sequence", "client_id"), forbidden)
         // 겹치면 아래 시험이 스스로 모순인 채로 통과한다.
-        assertTrue(required.intersect(forbidden.toSet()).isEmpty())
-
-        // MessageHeader의 필드를 하나도 빠짐없이 분류했는가. 필드가 늘면
-        // 여기서 걸린다 — 게터를 직접 부르는 시험은 새 필드를 못 본다.
-        assertEquals(
-            MessageHeader.getDescriptor().fields.map { it.name }.toSet(),
-            (required + forbidden + watchOnly).toSet(),
-            "MessageHeader에 분류되지 않은 필드가 있다 — §5.5의 표를 갱신하라",
-        )
+        assertTrue(required.intersect(forbidden).isEmpty())
     }
 
     @Test
@@ -222,11 +181,6 @@ class ResponseHeadersTest {
      * 필드를 **이름으로** 조회한다. 게터를 직접 부르면 필드가 늘 때 시험이
      * 컴파일은 되고 새 필드를 조용히 안 보게 된다.
      */
-    private fun isSet(header: MessageHeader, field: String): Boolean {
-        val fd = requireNotNull(MessageHeader.getDescriptor().findFieldByName(field)) {
-            "MessageHeader에 '$field' 필드가 없다"
-        }
-        // proto3의 암묵 존재 스칼라는 hasField가 던진다. 메시지 필드만 존재를 갖는다.
-        return if (fd.hasPresence()) header.hasField(fd) else header.getField(fd) != fd.defaultValue
-    }
+    private fun isSet(header: MessageHeader, field: String): Boolean =
+        HeaderColumns.isSet(header, field)
 }

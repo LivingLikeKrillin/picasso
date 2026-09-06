@@ -1,6 +1,7 @@
 package dev.picasso.mimic.transport
 
 import com.google.protobuf.Descriptors
+import dev.picasso.contracts.wire.ContractIdentity
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.ProfileRef
 import dev.picasso.mimic.RobotInstance
