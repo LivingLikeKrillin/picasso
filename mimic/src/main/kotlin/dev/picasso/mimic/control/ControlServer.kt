@@ -8,6 +8,8 @@ import dev.picasso.mimic.control.v1.DumpInternalStateRequest
 import dev.picasso.mimic.control.v1.DumpInternalStateResponse
 import dev.picasso.mimic.control.v1.ForceFaultRequest
 import dev.picasso.mimic.control.v1.ForceFaultResponse
+import dev.picasso.mimic.control.v1.ForceTerminalViolationRequest
+import dev.picasso.mimic.control.v1.ForceTerminalViolationResponse
 import dev.picasso.mimic.control.v1.InternalFault
 import dev.picasso.mimic.control.v1.InternalTask
 import dev.picasso.mimic.control.v1.SetClockModeRequest
@@ -22,6 +24,7 @@ import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.Reference
 import dev.picasso.mimic.engine.ForceOutcome
 import dev.picasso.mimic.engine.RealClock
+import dev.picasso.mimic.engine.ViolationOutcome
 import dev.picasso.mimic.engine.VirtualClock
 import dev.picasso.mimic.transport.MimicServer
 import dev.picasso.mimic.transport.RobotRegistry
@@ -221,6 +224,47 @@ class ControlServer(
             )
         }
 
+        /**
+         * §4.4의 래치 위반. **태스크를 건드리지 않는다** — 종착은 래치되며
+         * 그것이 계약의 불변식이다. 판단은 엔진에 있고 여기서는 gRPC 상태로만
+         * 옮긴다.
+         *
+         * **`ForceFault`와 달리 밀지 않는다.** 위반은 전이가 아니라
+         * 관측이므로 태스크 로그에 아무것도 안 적히고, 따라서 열린
+         * `WatchTask`에 밀 것이 없다. 결함은 `EngineListener` →
+         * `EventStream`을 타고 발행 축으로 이미 나갔다(§4.7의 두 축).
+         *
+         * 실측: 여기 `push`를 두고 그것을 지우는 결함을 주입했는데 아무
+         * 시험도 안 빨개졌다 — 밀 것이 없으니 당연하다. 죽은 줄이었다.
+         */
+        override fun forceTerminalViolation(
+            request: ForceTerminalViolationRequest,
+            observer: StreamObserver<ForceTerminalViolationResponse>,
+        ) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            when (val outcome = hosted.instance.tasks.forceTerminalViolation(request.taskId)) {
+                is ViolationOutcome.Seen -> reply(
+                    observer,
+                    ForceTerminalViolationResponse.newBuilder()
+                        .setTaskState(outcome.state.name)
+                        .setRaised(outcome.raised)
+                        .build(),
+                )
+
+                is ViolationOutcome.NotFound -> observer.onError(
+                    Status.NOT_FOUND
+                        .withDescription("호스팅하지 않는 태스크다: ${outcome.taskId}")
+                        .asRuntimeException(),
+                )
+
+                is ViolationOutcome.Rejected -> observer.onError(
+                    Status.FAILED_PRECONDITION
+                        .withDescription(outcome.detail)
+                        .asRuntimeException(),
+                )
+            }
+        }
+
         /** **[MimicServer.step]으로 내려온다** — [advanceClock]과 같은 이유다. */
         override fun step(request: StepRequest, observer: StreamObserver<StepResponse>) {
             val hosted = hosted(request.robotId, observer) ?: return
@@ -268,6 +312,7 @@ class ControlServer(
                                 .setProgress(task.machine.progress())
                                 .setSkillState(task.machine.skillMachine?.state?.name ?: "")
                                 .setLogSize(task.log.size.toLong())
+                                .setTerminalViolationSeen(task.terminalViolationSeen)
                                 .build()
                         },
                     )

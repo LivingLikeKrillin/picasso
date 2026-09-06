@@ -61,6 +61,11 @@ message InternalTask {
   string skill_state = 7;
 
   uint64 log_size = 8;
+
+  // §4.4의 래치 위반을 관측했는가. **이것이 없으면 완료 기준 8c의 오라클이
+  // 없다** — 결함 목록만으로는 "그 태스크에 대해" 관측했다는 사실을 태스크
+  // 쪽에서 확인할 수 없다.
+  bool terminal_violation_seen = 9;
 }
 
 // 기체가 지금 안고 있는 결함 하나(설계 §4.6).
@@ -156,12 +161,32 @@ message StepResponse {
   uint32 moved = 1;
 }
 
-// §10.5의 열셋 중 일곱이 지금 있다. 나머지 여섯은 6b Task 6·7과 6c가
-// 더하며 **이름을 지금 못박는다** — 이 파일은 buf breaking 밖이라 나중에
-// 바꿔도 아무도 안 잡는다.
+// §4.4의 래치 위반. **종착 확정 후에도 로봇이 그 태스크를 계속 수행 중임을
+// 어댑터가 관측한** 상황을 만든다.
+//
+// 실물 중에 종착을 래치하지 않는 것이 있다(Digit의 action-status 는 매뉴얼이
+// "does not latch once reached"라고 명시한다). 그런 로봇에서는 어댑터가 래치
+// 책임을 지되, **흡수했다는 사실을 숨기지 않는다** — 계약의 단순함은 지키고
+// 계약이 실물과 어긋나 있다는 사실은 관측 가능하게 만든다.
+message ForceTerminalViolationRequest {
+  string robot_id = 1;
+  string task_id = 2;
+}
+
+message ForceTerminalViolationResponse {
+  // 위반을 관측한 뒤의 태스크 상태. **종착에 머물러야 한다.**
+  string task_state = 1;
+
+  // 실제로 새로 선 결함이면 참. 같은 태스크에 두 번 관측하면 거짓이다.
+  bool raised = 2;
+}
+
+// §10.5의 열셋 중 여덟이 지금 있다. 나머지 다섯은 6b Task 7과 6c가 더하며
+// **이름을 지금 못박는다** — 이 파일은 buf breaking 밖이라 나중에 바꿔도
+// 아무도 안 잡는다.
 //
 //   InjectTransportFault · SetConnection · RemoveCapability
-//   RestoreCapability · ForceTerminalViolation · ForceControlAuthorityLoss
+//   RestoreCapability · ForceControlAuthorityLoss
 service ControlService {
   rpc SetClockMode(SetClockModeRequest) returns (SetClockModeResponse);
   rpc AdvanceClock(AdvanceClockRequest) returns (AdvanceClockResponse);
@@ -179,4 +204,8 @@ service ControlService {
   // 걸음을 사람이 센다. 켜면 RPC 진입이 tick을 돌리지 않고 Step만 돌린다.
   rpc SetSingleStep(SetSingleStepRequest) returns (SetSingleStepResponse);
   rpc Step(StepRequest) returns (StepResponse);
+
+  // §4.4의 래치 위반. 프로파일이 선언할 수 없는 결함이라 전용 RPC다.
+  rpc ForceTerminalViolation(ForceTerminalViolationRequest)
+      returns (ForceTerminalViolationResponse);
 }

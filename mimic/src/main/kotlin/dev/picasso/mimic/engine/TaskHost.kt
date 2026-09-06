@@ -4,6 +4,7 @@ import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.Lifetime
 import dev.picasso.contracts.v1.ParameterValue
+import dev.picasso.contracts.v1.Reference
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.SkillDeclaration
 import dev.picasso.profile.ProfileDocument
@@ -15,6 +16,31 @@ class TaskRuntime(
     val machine: TaskMachine,
 ) {
     val log = TaskLog()
+
+    /**
+     * §4.4의 래치 위반을 관측했는가.
+     *
+     * **상태가 아니라 관측이다.** `TaskMachine`에 두면 그것이 열한 번째
+     * 상태처럼 보이고, 종착 넷 위에 선 것들(pinning·갱신 규칙·드레인 판정)이
+     * 그 값을 보기 시작한다. 태스크는 여전히 종착이며, 달라진 것은
+     * **우리가 무엇을 보았는가**뿐이다.
+     */
+    var terminalViolationSeen: Boolean = false
+        private set
+
+    internal fun markTerminalViolation() {
+        terminalViolationSeen = true
+    }
+}
+
+/** §10.5의 `ForceTerminalViolation` 결과. */
+sealed interface ViolationOutcome {
+    /** @param raised 실제로 새로 선 결함이면 참. */
+    data class Seen(val state: TaskState, val raised: Boolean) : ViolationOutcome
+
+    data class NotFound(val taskId: String) : ViolationOutcome
+
+    data class Rejected(val detail: String) : ViolationOutcome
 }
 
 /** §10.5의 `ForceFault` 결과. */
@@ -360,6 +386,37 @@ class TaskHost(
         faults.raise(recoveryFailed())?.let { listener.onFault(it, cleared = false) }
     }
 
+    /**
+     * §10.5의 `ForceTerminalViolation`. §4.4의 래치 위반을 관측한다.
+     *
+     * **태스크를 건드리지 않는다.** 종착은 래치되며 그것이 계약의
+     * 불변식이다 — 여기서 상태를 되돌리면 pinning·갱신 규칙·`RETRIABLE`
+     * 구분이 전부 무너진다. 하는 일은 둘뿐이다: 결함을 발행하고, 관측했다는
+     * 사실을 태스크에 적는다.
+     *
+     * **흡수했으면 흡수가 실패했다는 사실을 숨기지 않는다**(§4.4). 계약의
+     * 단순함은 지키되, 계약이 실물과 어긋나 있다는 사실은 관측 가능하게
+     * 만든다.
+     */
+    fun forceTerminalViolation(taskId: String): ViolationOutcome {
+        val task = tasks[taskId] ?: return ViolationOutcome.NotFound(taskId)
+
+        // **종착이 아니면 위반이 아니다.** 비종착에서 받으면 "래치가 깨졌다"가
+        // 아무 뜻도 안 갖는다 — 아직 래치되지 않았기 때문이다.
+        if (!task.machine.state.isTerminal) {
+            return ViolationOutcome.Rejected(
+                "종착이 아니라 래치 위반이 성립하지 않는다: ${task.machine.state}",
+            )
+        }
+
+        val before = task.machine.state
+        task.markTerminalViolation()
+        val raised = faults.raise(terminalViolated(task.taskId))
+            ?.also { listener.onFault(it, cleared = false) } != null
+
+        return ViolationOutcome.Seen(before, raised)
+    }
+
     /** 현재 상태를 로그에 한 줄 적는다. */
     fun record(task: TaskRuntime): TaskUpdate = task.log.record(
         state = task.machine.state,
@@ -384,6 +441,29 @@ class TaskHost(
      * 안 되는 것은 인출 수가 **관측**에 달리는 것이다.
      */
     private companion object {
+
+        /**
+         * §4.4의 래치 위반 결함.
+         *
+         * **`skill_id`를 안 단다.** 스킬은 멀쩡하다 — 깨진 것은 "종착하면
+         * 끝"이라는 계약의 가정이다. `skill_id`가 실리면 소비자가 "그 스킬만
+         * 못 쓴다"로 읽는데(§4.6이 표현하라고 만든 바로 그 구분), 사실은
+         * 로봇이 계약과 어긋나게 움직이고 있는 것이므로 로봇 수준이다.
+         * **`task_id`는 단다** — 어느 태스크에 대한 관측인지는 알아야 한다.
+         */
+        fun terminalViolated(taskId: String): Fault = Fault.newBuilder()
+            .setErrorType("TERMINAL_STATE_VIOLATED")
+            .setCanContinueCurrentTask(false)
+            .setCanAcceptNewTask(false)
+            .setErrorHint(
+                "종착한 태스크를 로봇이 계속 수행 중이다. 계약과 실물이 어긋나 있으니 " +
+                    "현장에서 로봇을 정지시키고 어댑터의 래치 처리를 확인하십시오.",
+            )
+            .addReferences(
+                Reference.newBuilder().setKey(Reference.Key.KEY_TASK_ID).setValue(taskId),
+            )
+            .setActiveUntil(Lifetime.newBuilder().setKind(Lifetime.Kind.KIND_UNTIL_CLEARED))
+            .build()
 
         /**
          * 복구 실패가 동반하는 **로봇 수준** 결함(§4.4).
