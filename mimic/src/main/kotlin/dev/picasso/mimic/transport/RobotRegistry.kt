@@ -36,6 +36,9 @@ class RobotRegistry(instances: List<RobotInstance>) {
 
     val hosted: Collection<Hosted> get() = byId.values
 
+    /** 헤더 없이 기체를 찾는다. 제어 채널이 쓴다(§10.5는 헤더를 안 싣는다). */
+    fun byId(robotId: String): Hosted? = byId[robotId]
+
     /**
      * 기체들이 보는 서로 다른 시계. **같은 시계를 공유하면 하나다** —
      * 참조 동일성으로 거른다. 두 번 전진시키면 소요시간 판정이 어긋난다.

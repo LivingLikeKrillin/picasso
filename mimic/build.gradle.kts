@@ -1,5 +1,12 @@
+import com.google.protobuf.gradle.id
+
 plugins {
     application
+    // **제어 채널의 proto가 여기 있다**(§10.5 — contracts/ 에 두지 않는다).
+    // 이 배선이 없으면 proto를 넣어도 **아무 코드도 생성되지 않고 빌드는
+    // 초록이다**(실측). 그 다음에 오는 것은 "왜 클래스가 없지"이고,
+    // 그 사이의 상태가 이 저장소가 반복해 물린 조용한 통과의 모양이다.
+    alias(libs.plugins.protobuf)
 }
 
 application {
@@ -21,8 +28,13 @@ dependencies {
     // 산출물이 된다(§10.2).
     runtimeOnly(libs.slf4j.nop)
 
-    // 실제 포트를 여는 것은 CLI뿐이다. 시험은 in-process로 돈다.
-    runtimeOnly(libs.grpc.netty.shaded)
+    // **implementation이다.** 제어 채널이 루프백에만 바인딩하려면 주소를
+    // 지정해야 하고, 그것은 NettyServerBuilder뿐이라 컴파일 시점에 필요하다.
+    implementation(libs.grpc.netty.shaded)
+
+    // grpc-java 생성 코드가 @javax.annotation.Generated를 단다. JDK 11부터
+    // javax.annotation이 JDK에 없어 이것 없이는 생성 코드가 컴파일되지 않는다.
+    compileOnly(libs.tomcat.annotations)
 
     testImplementation(kotlin("test"))
 
@@ -40,4 +52,26 @@ tasks.withType<Test>().configureEach {
         rootProject.file("profile/profiles"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
+protobuf {
+    protoc { artifact = "com.google.protobuf:protoc:${rootProject.libs.versions.protobuf.get()}" }
+    plugins {
+        id("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:${rootProject.libs.versions.grpc.get()}"
+        }
+    }
+    generateProtoTasks {
+        all().configureEach {
+            plugins { id("grpc") }
+
+            // contracts와 같은 이유로 main만이다 — all()은 test에도 걸린다.
+            if (sourceSet.name != "main") return@configureEach
+
+            // **디스크립터를 만들지 않는다.** 제어 채널은 계약이 아니므로
+            // contract_digest에 들어가면 안 된다(§10.5). 그 값은 모든 헤더에
+            // 실리므로 섞이면 소비자가 계약이 바뀐 줄 안다.
+            generateDescriptorSet = false
+        }
+    }
 }

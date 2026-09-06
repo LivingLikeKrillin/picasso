@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package picasso.control.v1;
+
+option java_multiple_files = true;
+option java_package = "dev.picasso.mimic.control.v1";
+
+// ---------------------------------------------------------------------------
+// 설계 §10.5의 제어 채널.
+//
+// **contracts/ 에 들어가지 않는다.** 표준 계약과 같은 표면에 두면 프로덕션
+// 소비자가 손댈 수 있고 목이 계약을 오염시킨다. 별도 포트에 두며 루프백에만
+// 바인딩한다(§6.3).
+//
+// 그 대가로 이 파일은 buf lint·breaking 밖이다 — contracts/buf.yaml 의
+// 모듈이 proto/ 하나이기 때문이다. 필드 번호를 재사용해도 아무도 안 잡는다.
+// §15에 적었다. 그래서 **번호를 지금 다 예약한다.**
+// ---------------------------------------------------------------------------
+
+enum ClockMode {
+  CLOCK_MODE_UNSPECIFIED = 0;
+  CLOCK_MODE_REAL = 1;
+  CLOCK_MODE_VIRTUAL = 2;
+}
+
+message SetClockModeRequest {
+  ClockMode mode = 1;
+}
+
+message SetClockModeResponse {
+  ClockMode mode = 1;
+}
+
+message AdvanceClockRequest {
+  int64 duration_millis = 1;
+}
+
+message AdvanceClockResponse {
+  // RFC3339. 전진 뒤의 시각.
+  string now = 1;
+}
+
+message DumpInternalStateRequest {
+  string robot_id = 1;
+}
+
+// 엔진 내부의 태스크 하나.
+//
+// **상태를 문자열로 싣는다.** 계약의 enum을 쓰면 이 덤프가 계약 표면의
+// 투영이 되고, 그러면 §12.2의 A-2 오라클이 투영을 투영과 비교하는 순환이
+// 된다. 오라클은 엔진의 어휘로 말해야 한다.
+message InternalTask {
+  string task_id = 1;
+  string skill_type = 2;
+  string task_state = 3;
+  uint32 revision = 4;
+  uint32 attempt = 5;
+  double progress = 6;
+
+  // 스킬 인스턴스가 없으면 빈 문자열(태스크가 아직 ACCEPTED다).
+  string skill_state = 7;
+
+  uint64 log_size = 8;
+}
+
+message DumpInternalStateResponse {
+  string robot_id = 1;
+  string session_id = 2;
+
+  // 다음에 붙을 sequence. 스냅샷이 싣는 것과 같은 값이어야 한다.
+  uint64 next_sequence = 3;
+
+  uint64 capability_epoch = 4;
+  repeated InternalTask tasks = 5;
+  uint64 buffered_events = 6;
+}
+
+// §10.5의 열셋 중 셋이 지금 있다. 나머지 열은 6b가 더하며 **이름을 지금
+// 못박는다** — 이 파일은 buf breaking 밖이라 나중에 바꿔도 아무도 안 잡는다.
+//
+//   SetSeed · ForceFault · SetSingleStep · Step · InjectTransportFault
+//   SetConnection · RemoveCapability · RestoreCapability
+//   ForceTerminalViolation · ForceControlAuthorityLoss
+service ControlService {
+  rpc SetClockMode(SetClockModeRequest) returns (SetClockModeResponse);
+  rpc AdvanceClock(AdvanceClockRequest) returns (AdvanceClockResponse);
+
+  // §12.2의 A-2 오라클. 없으면 "재구성한 상태가 내부 상태와 일치"를 확인할
+  // 방법이 GetSnapshot뿐인데 그것은 계약 표면의 투영이라 순환이 된다.
+  rpc DumpInternalState(DumpInternalStateRequest) returns (DumpInternalStateResponse);
+}
