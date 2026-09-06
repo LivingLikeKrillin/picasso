@@ -3,6 +3,7 @@ package dev.picasso.mimic.control
 import dev.picasso.mimic.control.v1.AdvanceClockRequest
 import dev.picasso.mimic.control.v1.AdvanceClockResponse
 import dev.picasso.mimic.control.v1.ClockMode
+import dev.picasso.mimic.control.v1.CapabilityChangeResponse
 import dev.picasso.mimic.control.v1.ControlServiceGrpc
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
 import dev.picasso.mimic.control.v1.DumpInternalStateResponse
@@ -14,6 +15,8 @@ import dev.picasso.mimic.control.v1.ForceTerminalViolationRequest
 import dev.picasso.mimic.control.v1.ForceTerminalViolationResponse
 import dev.picasso.mimic.control.v1.InternalFault
 import dev.picasso.mimic.control.v1.InternalTask
+import dev.picasso.mimic.control.v1.RemoveCapabilityRequest
+import dev.picasso.mimic.control.v1.RestoreCapabilityRequest
 import dev.picasso.mimic.control.v1.SetClockModeRequest
 import dev.picasso.mimic.control.v1.SetConnectionRequest
 import dev.picasso.mimic.control.v1.SetConnectionResponse
@@ -228,6 +231,60 @@ class ControlServer(
                 observer,
                 SetSingleStepResponse.newBuilder().setEnabled(request.enabled).build(),
             )
+        }
+
+        /**
+         * §8.2의 런타임 축소.
+         *
+         * **선언한 적 없는 스킬은 거절한다** — 그것은 축소가 아니라 오타이고,
+         * 허용하면 소비자가 "있었는데 사라졌다"로 읽는다.
+         *
+         * **`ForceFault`와 같은 이유로 정착시키지 않고 밀기만 한다** —
+         * `CapabilityChanged`는 이벤트라 발행 축을 타지만, 진행 중이던
+         * 태스크의 전이가 함께 나갈 일은 없다(축소는 태스크를 안 죽인다).
+         */
+        override fun removeCapability(
+            request: RemoveCapabilityRequest,
+            observer: StreamObserver<CapabilityChangeResponse>,
+        ) = changeCapability(request.robotId, request.skillType, observer) { instance, skill ->
+            instance.withdraw(skill)
+        }
+
+        override fun restoreCapability(
+            request: RestoreCapabilityRequest,
+            observer: StreamObserver<CapabilityChangeResponse>,
+        ) = changeCapability(request.robotId, request.skillType, observer) { instance, skill ->
+            instance.restore(skill)
+        }
+
+        private fun changeCapability(
+            robotId: String,
+            skillType: String,
+            observer: StreamObserver<CapabilityChangeResponse>,
+            change: (dev.picasso.mimic.RobotInstance, String) -> Boolean,
+        ) {
+            val hosted = hosted(robotId, observer) ?: return
+            val changed = try {
+                change(hosted.instance, skillType)
+            } catch (e: IllegalArgumentException) {
+                observer.onError(
+                    Status.INVALID_ARGUMENT
+                        .withDescription(e.message.orEmpty())
+                        .asRuntimeException(),
+                )
+                return
+            }
+            reply(
+                observer,
+                CapabilityChangeResponse.newBuilder()
+                    .setCapabilityEpoch(hosted.instance.capabilityEpoch)
+                    .setChanged(changed)
+                    .addAllAvailableSkills(
+                        hosted.instance.capability.skillsList.map { it.skillType },
+                    )
+                    .build(),
+            )
+            if (changed) mimic.push(hosted)
         }
 
         /**

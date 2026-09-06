@@ -1,5 +1,7 @@
 package dev.picasso.mimic.transport
 
+import dev.picasso.contracts.v1.CapabilityChanged
+import dev.picasso.contracts.v1.CapabilityChangeCause
 import dev.picasso.contracts.v1.ConnectionMessage
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
@@ -122,6 +124,30 @@ class EventStream(
         publisher.publish(
             Publication(topic(Topics.Stream.event), event, sequence),
         )
+    }
+
+    /**
+     * §4.7의 네 번째 이벤트. **전체 능력을 싣지 않는다**(§8.2) — 소비자는
+     * delta로 캐시를 갱신하거나 `GetCapabilities`로 전량을 다시 가져오고,
+     * 어느 쪽이든 판정 기준은 `capability_epoch`다.
+     *
+     * `cause`는 **런타임 축소**로 고정한다. 바인딩 변경은 개정판 축이라
+     * 제어 채널이 만들 수 있는 일이 아니다(§8.2의 네 축).
+     */
+    fun capabilityChanged(
+        added: List<String> = emptyList(),
+        removed: List<String> = emptyList(),
+    ) = emit { header ->
+        Event.newBuilder().setHeader(header)
+            .setCapabilityChanged(
+                CapabilityChanged.newBuilder()
+                    .setRobotId(instance.robotId)
+                    .setCapabilityEpoch(instance.capabilityEpoch)
+                    .addAllAdded(added)
+                    .addAllRemoved(removed)
+                    .setCause(CapabilityChangeCause.CAPABILITY_CHANGE_CAUSE_RUNTIME_DEGRADED),
+            )
+            .build()
     }
 
     // ── 연결 (§4.7 — 침묵의 세 원인을 구분한다)

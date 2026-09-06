@@ -96,6 +96,11 @@ class TaskHost(
      * 기체의 스트림과 다른 스트림을 갖게 되고 컴파일은 통과한다.
      */
     private val random: Seeded,
+    /**
+     * §8.2의 런타임 축소로 지금 못 쓰는 스킬들. **매번 읽는다** — 스냅샷을
+     * 잡으면 축소가 엔진에 안 닿는다.
+     */
+    private val withdrawn: () -> Set<String> = { emptySet() },
 ) {
     private val draw = FailureDraw(document)
 
@@ -117,6 +122,16 @@ class TaskHost(
     ): StartOutcome {
         val existing = tasks[taskId]
         if (existing != null) return update(existing, revision, skillType, parameters)
+
+        // **있었는데 사라진 것이 먼저다.** 순서가 바뀌면 축소된 스킬이
+        // `SKILL_ABSENT`로 나가고, 계약이 둘을 나눈 뜻이 죽는다 — 소비자는
+        // 캐시를 다시 세우면 될 일에 요구 집합을 고치러 간다.
+        if (skillType in withdrawn()) {
+            return StartOutcome.Rejected(
+                RejectionCode.REJECTION_CODE_CAPABILITY_WITHDRAWN,
+                "런타임에 축소된 스킬이다: $skillType (GetCapabilities로 다시 세워라)",
+            )
+        }
 
         val skill = skillOf(skillType) ?: return StartOutcome.Rejected(
             // 애초에 선언한 적 없는 스킬이다. 있었다가 사라진 것(CAPABILITY_WITHDRAWN)과

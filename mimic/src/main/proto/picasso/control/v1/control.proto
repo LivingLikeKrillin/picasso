@@ -194,6 +194,32 @@ message ForceControlAuthorityLossRequest {
   string robot_id = 1;
 }
 
+// §8.2의 **로봇 유래 능력 축소**를 흉내낸다.
+//
+// 선언한 적 없는 스킬은 거절한다 — 그것은 축소가 아니라 오타이고, 허용하면
+// 소비자가 "있었는데 사라졌다"로 읽는다.
+message RemoveCapabilityRequest {
+  string robot_id = 1;
+  string skill_type = 2;
+}
+
+message RestoreCapabilityRequest {
+  string robot_id = 1;
+  string skill_type = 2;
+}
+
+message CapabilityChangeResponse {
+  // 바뀐 뒤의 세대. **되돌려도 또 오른다**(§5.5의 ETag는 되돌아가지 않는다).
+  uint64 capability_epoch = 1;
+
+  // 실제로 바뀌었으면 참. 이미 그 상태면 거짓이며 세대가 안 오른다 —
+  // 유령 세대는 소비자의 캐시를 헛되이 무효화한다.
+  bool changed = 2;
+
+  // 지금 쓸 수 있는 스킬들.
+  repeated string available_skills = 3;
+}
+
 // §4.7의 연결 상태를 강제한다. **§4.3의 값을 그대로 쓴다** — 제어 채널이
 // 자기 어휘를 만들면 시험과 소비자가 다른 말을 하게 된다.
 message SetConnectionRequest {
@@ -221,10 +247,9 @@ message ForceControlAuthorityLossResponse {
   repeated string terminated_task_ids = 2;
 }
 
-// §10.5의 열셋 중 열이 지금 있다. 나머지 셋은 6c가 더하며 **이름을 지금
-// 못박는다** — 이 파일은 buf breaking 밖이라 나중에 바꿔도 아무도 안 잡는다.
+// §10.5의 열셋 중 열둘이 지금 있다. 남은 하나는 6c-3이 더한다.
 //
-//   InjectTransportFault · RemoveCapability · RestoreCapability
+//   InjectTransportFault
 service ControlService {
   rpc SetClockMode(SetClockModeRequest) returns (SetClockModeResponse);
   rpc AdvanceClock(AdvanceClockRequest) returns (AdvanceClockResponse);
@@ -253,4 +278,8 @@ service ControlService {
 
   // §4.7의 연결 상태. 침묵의 세 원인을 강제한다.
   rpc SetConnection(SetConnectionRequest) returns (SetConnectionResponse);
+
+  // §8.2의 런타임 축소와 복원.
+  rpc RemoveCapability(RemoveCapabilityRequest) returns (CapabilityChangeResponse);
+  rpc RestoreCapability(RestoreCapabilityRequest) returns (CapabilityChangeResponse);
 }

@@ -69,8 +69,70 @@ class RobotInstance(
      */
     fun reseed(seed: Long) = random.reseed(seed)
 
-    /** §7.2의 투영. 능력을 하드코딩할 자리가 없다(§12.2의 10번). */
-    val capability: Capability = CapabilityProjection.of(document)
+    /**
+     * §7.2의 투영. 능력을 하드코딩할 자리가 없다(§12.2의 10번).
+     *
+     * **프로파일이 선언한 전부다** — 런타임 축소는 여기를 안 건드린다.
+     * 선언한 적 없는 스킬(`SKILL_ABSENT`)과 있었는데 사라진 스킬
+     * (`CAPABILITY_WITHDRAWN`)을 가르려면 둘을 다 알아야 하기 때문이다.
+     */
+    val declaredCapability: Capability = CapabilityProjection.of(document)
+
+    /**
+     * §8.2의 런타임 축소로 지금 못 쓰는 스킬들.
+     *
+     * **되돌릴 수 있다** — 로봇 유래 축소는 일시적일 수 있고(센서 하나가
+     * 죽었다가 살아난다) 그때 개정판을 새로 내는 것은 §8.2가 말하는 축이
+     * 아니다.
+     */
+    private val withdrawn = linkedSetOf<String>()
+
+    val withdrawnSkills: Set<String> get() = withdrawn.toSet()
+
+    /**
+     * 지금 쓸 수 있는 능력. `GetCapabilities`와 헤더의 `capability_epoch`가
+     * 함께 말하는 그것이다.
+     */
+    val capability: Capability
+        get() = if (withdrawn.isEmpty()) {
+            declaredCapability
+        } else {
+            declaredCapability.toBuilder()
+                .clearSkills()
+                .addAllSkills(declaredCapability.skillsList.filterNot { it.skillType in withdrawn })
+                .build()
+        }
+
+    /**
+     * §8.2의 런타임 축소. **네 가지가 한꺼번에 움직인다** — 유효 능력에서
+     * 빠지고, `capability_epoch`가 오르고, `CapabilityChanged`가 나가고,
+     * 그 스킬의 `StartTask`가 `CAPABILITY_WITHDRAWN`으로 거절된다.
+     *
+     * **진행 중이던 태스크는 죽이지 않는다.** 축소는 "새로 못 받는다"이지
+     * "하던 것을 무를 수 있다"가 아니다 — 로봇이 물건을 든 채 있을 수 있고,
+     * 임의로 종착시키면 §4.4의 취소 의미론(복구를 동반한다)을 우회한다.
+     * 소비자가 원하면 `CancelTask`를 보내면 된다.
+     *
+     * @return 실제로 바뀌었으면 참. 이미 축소된 것을 또 축소하면 거짓이며
+     *   세대가 안 오른다 — 유령 세대는 소비자의 캐시를 헛되이 무효화한다.
+     */
+    fun withdraw(skillType: String): Boolean {
+        require(declaredCapability.skillsList.any { it.skillType == skillType }) {
+            "선언한 적 없는 스킬은 축소할 수 없다: $skillType"
+        }
+        if (!withdrawn.add(skillType)) return false
+        bumpCapabilityEpoch()
+        events.capabilityChanged(removed = listOf(skillType))
+        return true
+    }
+
+    /** 축소를 되돌린다. **세대는 또 오른다** — 되돌아가지 않는다(§5.5의 ETag). */
+    fun restore(skillType: String): Boolean {
+        if (!withdrawn.remove(skillType)) return false
+        bumpCapabilityEpoch()
+        events.capabilityChanged(added = listOf(skillType))
+        return true
+    }
 
     /**
      * 능력의 ETag(§5.5). 유효 능력 집합이 바뀔 때마다 증가하며 소비자가 매
@@ -114,7 +176,19 @@ class RobotInstance(
     var singleStep: Boolean = false
 
     /** 이 기체가 호스팅하는 태스크들(§4.4). */
-    val tasks: TaskHost = TaskHost(capability, document, clock, events, faults, random)
+    /**
+     * 이 기체가 호스팅하는 태스크들(§4.4).
+     *
+     * **선언된 능력 전부와 축소 목록을 따로 준다.** 유효 능력만 주면
+     * `SKILL_ABSENT`("선언한 적 없다")와 `CAPABILITY_WITHDRAWN`("있었는데
+     * 사라졌다")을 가를 수 없는데, 계약이 둘을 나눈 이유가 **소비자의
+     * 대응이 다르기 때문**이다 — 앞엣것은 요구 집합이 틀린 것이고 뒤엣것은
+     * 캐시를 다시 세우면 된다.
+     */
+    val tasks: TaskHost = TaskHost(
+        declaredCapability, document, clock, events, faults, random,
+        withdrawn = { withdrawn },
+    )
 
     private companion object {
         val STARTUP_COUNTER = AtomicLong()
