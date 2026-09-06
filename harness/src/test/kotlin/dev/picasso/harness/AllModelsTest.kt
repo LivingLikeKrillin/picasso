@@ -1,6 +1,9 @@
 package dev.picasso.harness
 
 import dev.picasso.contracts.v1.ParameterValue
+import dev.picasso.mimic.engine.FailureDraw
+import dev.picasso.mimic.engine.Seeded
+import dev.picasso.profile.ProfileDocument
 import dev.picasso.profile.RequirementSet
 import java.nio.file.Files
 import java.nio.file.Path
@@ -24,7 +27,7 @@ import kotlin.test.assertTrue
  *
  * ## `profile/profiles/`에 들어오려면 만족해야 하는 것
  *
- * 훑기의 대가다. **다섯이며 하나가 아니다** — "`navigate_to`만 선언하면
+ * 훑기의 대가다. **여섯이며 하나가 아니다** — "`navigate_to`만 선언하면
  * 된다"로 읽고 필수 파라미터를 하나 더하면 여기서 빨갛게 난다.
  *
  * 1. `navigate_to@^1.0`을 선언한다(공통 요구 집합).
@@ -36,6 +39,9 @@ import kotlin.test.assertTrue
  *    그것만 보내고 `ParameterCheck`는 누락을 거절한다.
  * 5. `location.max_length`가 보내는 값보다 크고, `navigate_to`의 소요시간이
  *    하네스의 전진 폭 안에 든다.
+ * 6. **하네스의 시드(0)에서 `navigate_to`에 걸리는 선언된 실패 모드가 없다.**
+ *    시나리오가 완주를 단언하므로 하나라도 걸리면 빨갛게 나는데, 그 빨강은
+ *    "협상이 틀렸나"처럼 읽힌다. 아래 시험이 원인을 이름으로 말한다.
  *
  * 이 우리가 좁아 보이면 그것이 맞다 — A-1의 주장이 그만큼 좁다.
  */
@@ -106,8 +112,42 @@ class AllModelsTest {
         }
     }
 
+    @Test
+    fun `하네스 시드에서 공통 태스크가 실패 모드를 안 밟는다`() {
+        // **위 두 시험이 우연히 초록인 것을 우연으로 두지 않는다.**
+        //
+        // 실측: `java.util.Random(0)`의 첫 추첨이 0.7309라 지금 실린 기종의
+        // `navigate_to` 실패율(최대 0.03)로는 걸릴 수가 없다. 그 사실에
+        // 기대는 것 자체는 괜찮다 — §12.1이 시드 고정을 불변식으로 걸었다.
+        // 괜찮지 않은 것은 **그 사실이 어디에도 안 적혀 있는 것**이다.
+        // 누가 `rate: 0.9`짜리 navigate_to 모드를 선언하면 완주 시험이
+        // 빨개지는데, 그 빨강만으로는 협상이 틀렸는지 실패를 뽑았는지 모른다.
+        //
+        // 하네스는 시나리오당 추첨 지점이 하나다(완주 판정). 그래서 새
+        // `Seeded(0)`의 첫 추첨이 곧 그 시나리오가 밟는 추첨이다.
+        models().forEach { path ->
+            val document = ProfileDocument
+                .parse(path.name, Files.readString(path).replace("\r\n", "\n"))
+                .getOrThrow()
+            val draw = FailureDraw(document)
+            val hit = draw.drawFor(SKILL, Seeded(HARNESS_SEED))
+            assertEquals(
+                null, hit?.errorType,
+                "${path.name} 이 시드 $HARNESS_SEED 에서 $SKILL 실패를 뽑는다 " +
+                    "(적용되는 모드: ${draw.applicable(SKILL).map { "${it.errorType}@${it.rate}" }}). " +
+                    "공통 시나리오는 완주를 단언하므로 이 기종은 그대로는 못 들어온다.",
+            )
+        }
+    }
+
     private companion object {
         const val ROBOT = "r1"
+
+        /** 공통 시나리오가 쓰는 스킬. 요구 집합의 `navigate_to@^1.0`과 같다. */
+        const val SKILL = "navigate_to"
+
+        /** [Harness]의 기본 시드. 바뀌면 위 시험이 다른 것을 말하게 된다. */
+        const val HARNESS_SEED = 0L
 
         /**
          * 훑기가 조용히 빈 목록을 내는 것을 막는 **바닥**이지 census가 아니다.

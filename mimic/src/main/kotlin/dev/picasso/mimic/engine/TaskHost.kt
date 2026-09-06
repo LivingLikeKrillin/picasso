@@ -42,7 +42,11 @@ class TaskHost(
     private val listener: EngineListener = EngineListener.NONE,
     /** 이 기체의 결함들(§4.6). 수명을 거두는 것은 [tick] 하나다. */
     private val faults: FaultRegistry = FaultRegistry(clock),
+    /** §10.4 ①의 추첨. 기체마다 하나이며 인출 순서가 §12.1의 불변식이다. */
+    private val random: Seeded = Seeded(0),
 ) {
+    private val draw = FailureDraw(document)
+
     private val tasks = LinkedHashMap<String, TaskRuntime>()
 
     fun find(taskId: String): TaskRuntime? = tasks[taskId]
@@ -198,8 +202,23 @@ class TaskHost(
                     record(task)
                 }
 
+                // **추첨 지점은 여기 하나다.** 다른 데 두면 뽑는 횟수가
+                // 관측 횟수에 달리고(모든 RPC가 tick을 부른다) 소비자가
+                // 보는 것이 결과를 바꾼다 — §12.1이 깨지는 자리다.
                 TaskState.RUNNING -> if (task.machine.progress() >= 1.0) {
-                    task.machine.onSkillComplete()
+                    val failure = draw.drawFor(task.skillType, random)
+                    if (failure == null) {
+                        task.machine.onSkillComplete()
+                    } else {
+                        // **결함을 먼저 올리고 알린 뒤에 태스크를 보낸다.**
+                        // 원인이 결과보다 먼저 나가야 이벤트를 접는 소비자가
+                        // 원인 없는 실패를 보지 않는다.
+                        faults.raise(FailureDraw.faultOf(failure, task.skillType, task.taskId))
+                            ?.let { listener.onFault(it, cleared = false) }
+                        task.machine.onSkillHalted(
+                            FailureDraw.resolutionOf(failure.resolution),
+                        )
+                    }
                     record(task)
                 }
 
