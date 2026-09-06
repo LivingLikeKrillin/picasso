@@ -122,6 +122,7 @@ class EventStream(
             .setHeader(header(StateMessage.getDescriptor().fullName, sequence))
             .addAllSkills(skillSnapshots())
             .addAllTasks(taskSnapshots())
+            .addAllFaults(instance.faults.active())
             .build()
         publisher.publish(Publication(topic(Topics.Stream.state), message, sequence))
     }

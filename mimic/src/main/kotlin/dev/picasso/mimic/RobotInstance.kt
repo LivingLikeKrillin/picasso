@@ -2,6 +2,7 @@ package dev.picasso.mimic
 
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.mimic.engine.Clock
+import dev.picasso.mimic.engine.FaultRegistry
 import dev.picasso.mimic.engine.Seeded
 import dev.picasso.mimic.engine.TaskHost
 import dev.picasso.mimic.transport.EventStream
@@ -82,6 +83,12 @@ class RobotInstance(
      * 없는 조립 순서를 만든다.
      */
     val events: EventStream = EventStream(this, publisher, site)
+
+    /**
+     * 이 기체가 지금 안고 있는 결함들(§4.6). **기체 단위다** — 스킬 수준인지
+     * 로봇 수준인지는 `references`가 말한다.
+     */
+    val faults: FaultRegistry = FaultRegistry(clock)
 
     /** 이 기체가 호스팅하는 태스크들(§4.4). */
     val tasks: TaskHost = TaskHost(capability, document, clock, events)

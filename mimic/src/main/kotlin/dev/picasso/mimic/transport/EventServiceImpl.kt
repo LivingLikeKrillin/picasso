@@ -31,6 +31,8 @@ class EventServiceImpl(
             .setSequence(events.nextSequence)
             .addAllSkills(events.skillSnapshots())
             .addAllTasks(events.taskSnapshots())
+            // §4.6 — 활성 결함만. 수명이 지난 것은 조회 시점에 사라진다.
+            .addAllFaults(hosted.instance.faults.active())
             .build()
     }
 
