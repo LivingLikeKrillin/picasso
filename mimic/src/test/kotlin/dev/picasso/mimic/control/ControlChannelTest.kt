@@ -1,7 +1,10 @@
 package dev.picasso.mimic.control
 
 import dev.picasso.contracts.v1.StartTaskRequest
+import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskServiceGrpc
+import dev.picasso.contracts.v1.WatchTaskRequest
+import dev.picasso.contracts.v1.WatchTaskResponse
 import dev.picasso.mimic.RobotInstance
 import dev.picasso.mimic.control.v1.ControlServiceGrpc
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
@@ -22,6 +25,7 @@ import io.grpc.Status
 import io.grpc.StatusRuntimeException
 import io.grpc.inprocess.InProcessChannelBuilder
 import io.grpc.inprocess.InProcessServerBuilder
+import io.grpc.stub.StreamObserver
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
@@ -70,6 +74,34 @@ class ControlChannelTest {
         InProcessChannelBuilder.forName("$name-mimic").directExecutor().build()
 
     private val taskStub = TaskServiceGrpc.newBlockingStub(contract)
+
+    private val taskAsync = TaskServiceGrpc.newStub(contract)
+
+    /**
+     * 열려 있는 `WatchTask` 스트림. **밀어내기를 보는 축은 이것뿐이다.**
+     *
+     * 실측으로 발행자(`RecordingPublisher`)를 세는 시험은 밀어내기를 통째로
+     * 지워도 초록이었다 — 결함과 전이는 `EngineListener` → `EventStream`을
+     * 타고 **밀어내기와 무관하게** MQTT 축으로 나가기 때문이다. `push`가
+     * 먹이는 것은 열린 스트림이고, 그것을 안 보면 §4.7이 두 축이라고 한 것을
+     * 하나로 착각한 시험이 된다.
+     */
+    private fun watch(taskId: String = "t1"): MutableList<WatchTaskResponse> {
+        val received = mutableListOf<WatchTaskResponse>()
+        taskAsync.watchTask(
+            WatchTaskRequest.newBuilder()
+                .setHeader(GrpcFixture.requestHeader("r1"))
+                .setHandle(TaskHandle.newBuilder().setRobotId("r1").setTaskId(taskId))
+                .setFromUpdateIndex(0)
+                .build(),
+            object : StreamObserver<WatchTaskResponse> {
+                override fun onNext(value: WatchTaskResponse) { received += value }
+                override fun onError(t: Throwable) = throw t
+                override fun onCompleted() = Unit
+            },
+        )
+        return received
+    }
 
     @AfterTest
     fun close() {
@@ -271,15 +303,29 @@ class ControlChannelTest {
     }
 
     @Test
-    fun `ForceFault가 전이를 열린 축으로 민다`() {
+    fun `ForceFault가 전이를 열린 스트림으로 민다`() {
         // 정착시키지 않는 것과 **아무것도 안 미는 것**은 다르다. 안 밀면
-        // 소비자가 그 자리를 결손으로 읽는다.
+        // 열린 `WatchTask`가 그 전이를 통째로 놓치고 소비자는 그 자리를
+        // 결손으로 읽는다.
+        //
+        // **발행자를 세면 안 된다** — 결함과 전이는 `EventStream`을 타고
+        // 밀어내기와 무관하게 MQTT 축으로 나간다(실측: 밀어내기를 지워도
+        // 발행자 수를 보는 시험이 초록이었다).
         startNavigate()
         tasks.tick()
-        val before = publisher.publications.size
+        val seen = watch()
+        val before = seen.size
+        assertTrue(before >= 1, "스트림이 밀린 것을 안 줬다")
 
         force("LOCALIZATION_LOST")
-        assertTrue(publisher.publications.size > before, "결함도 전이도 안 나갔다")
+
+        val added = seen.drop(before)
+        assertTrue(added.isNotEmpty(), "전이가 열린 스트림에 안 갔다")
+        assertEquals(
+            dev.picasso.contracts.v1.TaskState.TASK_STATE_NEEDS_INTERVENTION,
+            added.last().state,
+            "종착이 안 갔다: ${added.map { it.state }}",
+        )
     }
 
     @Test
@@ -430,11 +476,29 @@ class ControlChannelTest {
     fun `단일 걸음 중에도 밀어내기는 멈추지 않는다`() {
         // 멈추면 열린 스트림이 이미 생긴 전이를 못 받고, 결함이 실패가 아니라
         // **정지**로 나타난다.
+        //
+        // **`Step`으로는 이것을 못 본다**(실측). `Step`은 스스로 밀어내므로
+        // 정착 경로가 밀어내기까지 막아도 초록이었다. 봐야 하는 것은
+        // **계약 RPC 진입의 정착**이 단일 걸음 중에도 미는가다.
         singleStep(true)
         startNavigate()
-        val before = publisher.publications.size
-        step()
-        assertTrue(publisher.publications.size > before, "걸음의 결과가 안 나갔다")
+        val seen = watch()
+        val before = seen.size
+
+        // 엔진에서 직접 전이를 만든다 — 밀어내기 없이.
+        tasks.tick()
+        assertEquals(before, seen.size, "전제가 무너졌다 — 이미 밀렸다")
+        assertEquals("RUNNING", dump().tasksList.single { it.taskId == "t1" }.taskState)
+
+        // 계약 RPC 진입이 정착을 부른다. 틱은 안 돌아도 **밀기는 해야 한다**.
+        startOverContract("t2")
+
+        val added = seen.drop(before)
+        assertTrue(added.isNotEmpty(), "단일 걸음이 밀어내기까지 막았다")
+        assertEquals(
+            dev.picasso.contracts.v1.TaskState.TASK_STATE_RUNNING,
+            added.last().state,
+        )
     }
 
     // ── 라우팅

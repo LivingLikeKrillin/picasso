@@ -23,6 +23,10 @@ tasks.withType<Test>().configureEach {
         rootProject.file("profile/profiles"),
         rootProject.file("profile/requirements"),
         rootProject.file("profile/schema"),
+        // 완료 기준 8이 `TERMINAL` resolution 을 보는데 실기종 셋 중 어느
+        // 것도 그것을 선언하지 않아 픽스처로 돈다. 없으면 픽스처를 고쳐도
+        // :harness:test 가 UP-TO-DATE 로 넘어가 낡은 채 초록이다.
+        rootProject.file("profile/fixtures"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

@@ -109,6 +109,10 @@ object TaskMachineFixtures {
      * 표면이 아니라 **소비량**을 보는 것이 요점이다 — 같은 결과를 내면서
      * 인출 수만 다른 구현(조기 종료 제거, 해당 없는 모드까지 추첨, 지터를
      * 관측마다 다시 뽑기)은 결과를 보는 시험으로는 영영 안 잡힌다.
+     *
+     * **[used]에서 한 번 뽑는다.** 같은 난수에 두 번 부르면 두 번째가 1을 더
+     * 세고, 호출자는 그것을 프로덕션의 결함으로 읽는다. 시나리오마다 새
+     * 난수를 쓰라.
      */
     fun drawsBetween(fresh: Seeded, used: Seeded, limit: Int = 32): Int {
         val target = used.fraction()

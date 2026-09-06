@@ -273,6 +273,19 @@ class ControlServerTest {
     }
 
     @Test
+    fun `빈 skill_id를 다른 값으로 메우지 않는다`() {
+        // **위 시험만으로는 부족했다**(실측). 거기서는 로봇 수준 결함에
+        // `task_id`도 없어서, `skill_id`가 비면 `task_id`로 메우는 구현이
+        // 똑같이 빈 문자열을 내고 통과했다. **한쪽만 채운 결함**을 세워야
+        // 그 대체가 드러난다.
+        registry.byId("r1")!!.instance.faults.raise(fault("LOCALIZATION_LOST", taskId = "t1"))
+
+        val flat = dump().faultsList.single()
+        assertEquals("t1", flat.taskId, "전제가 무너졌다 — task_id를 안 실었다")
+        assertEquals("", flat.skillId, "빈 skill_id를 task_id로 메웠다")
+    }
+
+    @Test
     fun `덤프의 결함 순서가 발생 순서다`() {
         // 소비자가 이벤트로 본 순서와 오라클의 순서가 다르면 재구성한 목록과
         // 대조할 수 없다 — 완료 기준 2의 비교가 거기서 어긋난다.

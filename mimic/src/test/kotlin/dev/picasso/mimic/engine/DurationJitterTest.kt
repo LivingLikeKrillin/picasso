@@ -146,6 +146,28 @@ class DurationJitterTest {
     }
 
     @Test
+    fun `멱등 재전송이 추첨 스트림도 안 건드린다`() {
+        // **소요시간만 보면 부족했다**(실측). 재전송 때 `durationOf`를 다시
+        // 불러도 기체는 이미 자기 소요시간을 들고 있어 진행률이 안 바뀐다 —
+        // 바뀌는 것은 **난수 스트림**이고, 그러면 뒤따르는 실패 추첨이 통째로
+        // 밀려 §12.1의 골든이 흔들린다. 인출 수를 세는 것만이 그것을 본다.
+        // **`drawsBetween`은 `used`에서 한 번 뽑는다.** 같은 난수에 두 번
+        // 부르면 두 번째가 1을 더 세고, 그것을 프로덕션의 결함으로 읽게 된다
+        // (실측: 이 시험을 그렇게 썼다가 깨끗한 트리에서 빨갛게 났다).
+        // 시나리오마다 새 난수를 쓴다.
+        fun drawsAfter(resends: Int): Int {
+            val random = Seeded(3)
+            val tasks = host(random = random)
+            tasks.start("t1", 1, "pick_place", pickPlace)
+            repeat(resends) { tasks.start("t1", 1, "pick_place", pickPlace) }
+            return TaskMachineFixtures.drawsBetween(Seeded(3), random)
+        }
+
+        assertEquals(1, drawsAfter(0), "태스크 생성에 한 번이 아니다")
+        assertEquals(drawsAfter(0), drawsAfter(3), "멱등 재전송이 난수를 더 뽑았다")
+    }
+
+    @Test
     fun `같은 시드가 같은 소요시간을 낸다`() {
         // §12.1. 다른 시드로 달라지는 것은 위 `흔들린다`가 이미 본다.
         assertEquals(durations(30, seed = 9), durations(30, seed = 9))

@@ -411,7 +411,9 @@ class WatchTaskTest {
     @Test
     fun `모르는 task_id는 NOT_FOUND다`() {
         val error = assertFailsWith<StatusRuntimeException> {
-            fixture.tasks.watchTask(
+            // **기한을 건다.** 블로킹 반복자는 스트림이 안 닫히면 영원히
+            // 기다리고, 그러면 결함이 실패가 아니라 **정지**로 나타난다.
+            fixture.tasks.withDeadlineAfter(10, TimeUnit.SECONDS).watchTask(
                 WatchTaskRequest.newBuilder()
                     .setHeader(GrpcFixture.requestHeader("r1"))
                     .setHandle(handle().toBuilder().setTaskId("nope")).build(),
@@ -445,7 +447,11 @@ class WatchTaskTest {
         fixture.registry.require(GrpcFixture.requestHeader("r1")).instance.tasks.tick()
         clock.advance(Duration.ofSeconds(20))
 
-        val second = fixture.tasks.watchTask(
+        // **기한이 없으면 여기서 CI가 멈춘다.** 실측: 추첨을 망가뜨려
+        // `navigate_to`가 `NEEDS_INTERVENTION`으로 끝나게 하면 — 그것은
+        // 종착이 아니므로 — 스트림이 안 닫히고 이 반복자가 영원히 기다렸다.
+        // 결함이 빨간 시험이 아니라 300초 정지로 나타났다.
+        val second = fixture.tasks.withDeadlineAfter(10, TimeUnit.SECONDS).watchTask(
             WatchTaskRequest.newBuilder()
                 .setHeader(GrpcFixture.requestHeader("r1"))
                 .setHandle(handle().toBuilder().setTaskId("t2")).build(),
