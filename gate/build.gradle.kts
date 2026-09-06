@@ -58,6 +58,16 @@ tasks.withType<Test>().configureEach {
         rootProject.file("contracts/build.gradle.kts"),
         rootProject.file("build.gradle.kts"),
         rootProject.file("tools/buf"),
+        // **검사 7이 읽는 것들.** 이것이 없으면 기종 문자열을 출하 소스에
+        // 넣어도 :gate:test가 UP-TO-DATE로 넘어가 BUILD SUCCESSFUL이 난다 —
+        // 그것을 잡는 것이 유일한 일인 검사가 빌드 시스템에 의해 건너뛰어진다
+        // (실측: 확인했다). 이 저장소가 같은 방식으로 두 번 물렸다.
+        rootProject.file("profile/profiles"),
+        rootProject.file("client/src/main"),
+        rootProject.file("mimic/src/main"),
+        rootProject.file("harness/src/main"),
+        // NegativeSuiteTest가 ci.yml과 디렉터리 목록을 대조한다.
+        rootProject.file(".github/workflows/ci.yml"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 

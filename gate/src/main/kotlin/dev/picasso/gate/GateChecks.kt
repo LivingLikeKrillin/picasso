@@ -6,12 +6,13 @@ import dev.picasso.gate.checks.Check03ProfileSchema
 import dev.picasso.gate.checks.Check04CrossRef
 import dev.picasso.gate.checks.Check05ContractDeps
 import dev.picasso.gate.checks.Check06Vocabulary
+import dev.picasso.gate.checks.Check07ModelBranching
 
 /**
  * 검사 목록의 단일 출처.
  *
  * CLI 안에 두면 `registry`가 같은 목록을 못 쓴다 — §11.1의 "구현은 하나이고
- * 호출 지점이 둘"이 깨진다. 7·8번은 2단계다.
+ * 호출 지점이 둘"이 깨진다. 8번은 아직 없다(Chunk 5).
  */
 object GateChecks {
 
@@ -22,6 +23,7 @@ object GateChecks {
         Check04CrossRef(),
         Check05ContractDeps(),
         Check06Vocabulary(),
+        Check07ModelBranching(),
     )
 
     /**

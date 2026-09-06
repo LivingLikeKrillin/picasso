@@ -1,0 +1,6 @@
+{
+  "targets": "7",
+  "needs": [],
+  "expect": "humanoid-a",
+  "reason": "출하 소스가 기종 좌표로 분기 — A-1의 '같은 클라이언트 코드'가 깨진다"
+}

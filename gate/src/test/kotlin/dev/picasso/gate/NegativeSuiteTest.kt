@@ -101,7 +101,10 @@ class NegativeSuiteTest {
     fun `케이스가 검사 1부터 6까지 전부를 겨냥한다`() {
         // 겨냥하지 않는 검사가 있으면 그 검사는 아무도 시험하지 않는 것이다.
         val covered = cases().map { it.targets }.toSet()
-        val wanted = setOf("1", "2", "3", "4", "5", "6")
+        // **검사 목록에서 파생한다.** 리터럴로 두면 검사를 더하면서 음성
+        // 케이스를 안 만들어도 이 시험이 초록으로 남는다 — "무엇의 전수인가"를
+        // 틀리는 바로 그 방식이다.
+        val wanted = GateChecks.all().map { it.id }.toSet()
         assertTrue(covered.containsAll(wanted), "겨냥되지 않은 검사가 있다: ${wanted - covered}")
     }
 
@@ -119,15 +122,23 @@ class NegativeSuiteTest {
                     files++
                     val rel = f.relativeTo(overlay).toString()
                     val original = repoRoot.resolve(rel)
-                    assertTrue(
-                        Files.exists(original),
-                        "${case.dir.fileName}: 원본에 없는 파일을 덮는다: $rel",
-                    )
-                    assertTrue(
-                        !Files.readAllBytes(f).contentEquals(Files.readAllBytes(original)),
-                        "${case.dir.fileName}: overlay가 원본과 같다 " +
-                            "— 이 케이스는 아무것도 시험하지 않는다: $rel",
-                    )
+                    if (Files.exists(original)) {
+                        assertTrue(
+                            !Files.readAllBytes(f).contentEquals(Files.readAllBytes(original)),
+                            "${case.dir.fileName}: overlay가 원본과 같다 " +
+                                "— 이 케이스는 아무것도 시험하지 않는다: $rel",
+                        )
+                    } else {
+                        // **파일을 새로 더하는 것도 정당한 위반이다** — 검사
+                        // 7번의 기종 분기가 그렇다. 원본을 통째로 베껴 한 줄
+                        // 고치는 것보다 낡을 여지가 적다. 치환이 빗나가는
+                        // 실패 방식이 애초에 없으므로 위 단언의 대상이 아니고,
+                        // 비어 있지만 않으면 된다.
+                        assertTrue(
+                            Files.size(f) > 0,
+                            "${case.dir.fileName}: 새로 더한 파일이 비었다: $rel",
+                        )
+                    }
                 }
             }
             assertTrue(files > 0, "${case.dir.fileName}: overlay가 비었다")
