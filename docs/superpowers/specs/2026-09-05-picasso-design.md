@@ -148,6 +148,7 @@ picasso/
     schema/           능력 프로파일 JSON Schema                C-1
     profiles/         기종 프로파일 문서들 (*.json)
     fixtures/         게이트·시험 전용 픽스처 (프로파일·요구 집합)
+  profile-model/      프로파일 문서의 읽기 전용 모델 — gate·mimic 공유 (ADR 29)
   registry/           개정판·어댑터·원장·변경 계획·카탈로그    8·9절
   mimic/              프로파일 주도 에뮬레이터 + 제어 채널      C-2
   client/             계약 소비자 — 완료 기준 증명용
@@ -167,12 +168,15 @@ picasso/
 **빌드 의존:**
 
 ```
-gate      → contracts   ※ 아래 단서
-registry  → gate, contracts
-mimic     → contracts
-client    → contracts
-harness   → mimic, client
+profile-model → (없음)
+gate          → profile-model   ※ 아래 단서
+registry      → gate, contracts
+mimic         → profile-model, contracts
+client        → contracts
+harness       → mimic, client
 ```
+
+**`profile-model`은 2단계에서 신설했다(ADR 29).** 프로파일 문서를 읽는 코드가 `gate`와 `mimic` 양쪽에 필요한데, `mimic`이 `gate`에 의존하면 buf 실행기와 검사 아홉을 끌고 오고, 두 벌로 쓰면 이 프로젝트가 막으려는 바로 그 드리프트를 우리가 낸다. `ProfileDocument.NON_PROJECTION`이 §7.2의 비투영 집합이므로 게이트 6번과 `mimic`의 투영이 **같은 상수를 쓰는 것이 옳다**는 부수 이득도 있다.
 
 **`gate`는 `contracts`에 빌드 의존을 걸지 않는다(1단계 실측 반영).** `buf.gen.yaml`이 Java를 생성하지 않으므로 의존해 봐야 클래스패스에 얹힐 것이 없고, `gate`가 필요한 것은 생성 코드가 아니라 `buf build`가 만든 `FileDescriptorSet` **바이트**다. 그것은 런타임 입력(`Resource.CONTRACT_DESCRIPTOR`)으로 받는다. 이 선택의 대가는 **`buf build`가 `./gradlew build`보다 먼저 돌아야 한다**는 것이고, 새 클론에서 그 순서를 어기면 `ContractIndexTest`가 만드는 법을 찍고 실패한다. Gradle 태스크 의존이 아니라 순서에 기대는 것이므로 CI의 스텝 순서가 그 계약이다.
 
@@ -1319,3 +1323,5 @@ mimic/
 16. **`buf.yaml`의 `breaking:` 절이 파싱되는지는 PR 빌드에서만 확인된다.** push 빌드에는 기준선이 없어 검사 2번이 건너뛴다. 자기 자신과 비교하는 `--against .` 스텝을 지운 대가다.
 17. **CI와 CLI 기본값이 `profile/fixtures/`를 본다.** 2단계에서 `profile/profiles/`가 생기면 **둘 다 고쳐야 하며**, 안 고치면 진짜 프로파일이 게이트를 지나지 않는다. 기준선 파일도 `basename`으로 평탄화하므로 디렉터리가 여럿이 되면 동명 파일이 조용히 덮인다.
 18. **검사 6의 `optional_fields` 매칭이 접미사 일치다.** 같은 파라미터 key를 가진 다른 스킬에도 소견이 붙는다. 1단계 프로파일에는 스킬이 둘뿐이라 드러나지 않는다.
+19. **`mimic`이 게이트가 거절할 프로파일로 기동할 수 있다.** `ProfileSource`는 JSON Schema만 보고 게이트 검사 3번의 구조 규칙 넷(발행 간격 뒤집힘, `(skill_type, major)` 중복, 스킬 내 `key` 중복, 어댑터 전용 `error_type`)은 보지 않는다. §10.2가 요구하는 것이 스키마 검증뿐이라 사양 위반은 아니지만, `--profile <path>`가 임의 경로를 받으므로 실제로 가능한 비대칭이다.
+20. **proto 코드 생성과 디스크립터를 서로 다른 도구가 만든다**(ADR 30). Gradle protobuf 플러그인의 protoc와 `buf` 내장본이 버전이 달라 생성 코드와 디스크립터가 미세하게 다를 수 있다. 쓰는 것이 메시지 구성이라 실질 영향은 없다. 그리고 protobuf-gradle-plugin 0.9.4는 **Gradle 10에서 깨진다** — legacy `Usage` 속성과 다중 문자열 의존 표기가 플러그인 내부에서 나오므로 우리가 못 고친다. Gradle 10 이전에 플러그인 버전을 올려야 한다.
