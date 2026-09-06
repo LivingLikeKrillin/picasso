@@ -30,14 +30,6 @@ dependencies {
     testImplementation(libs.grpc.inprocess)
 }
 
-// grpc-protobuf가 protobuf-java 3.25.x를 끌고 온다. protoc 4.28.3이 생성한
-// 코드는 런타임 4.28 이상을 요구하므로(RuntimeVersion.validateProtobufGencodeVersion),
-// 낮은 쪽이 이기면 컴파일이 아니라 **런타임에** 터진다. 기본 해소 규칙이
-// 높은 쪽을 고르지만 그것은 추측이다. 못박는다.
-configurations.configureEach {
-    resolutionStrategy.force("com.google.protobuf:protobuf-java:${libs.versions.protobuf.get()}")
-}
-
 sourceSets {
     main {
         proto { srcDir("proto") }

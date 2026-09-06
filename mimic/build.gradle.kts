@@ -11,6 +11,10 @@ dependencies {
     runtimeOnly(libs.slf4j.nop)
 
     testImplementation(kotlin("test"))
+
+    // 시험이 in-process 전송으로 표면을 실제로 지난다. 포트를 열지 않으므로
+    // CI에서 흔들리지 않으면서 직렬화·스텁·StreamObserver를 전부 지난다.
+    testImplementation(libs.grpc.inprocess)
 }
 
 tasks.withType<Test>().configureEach {

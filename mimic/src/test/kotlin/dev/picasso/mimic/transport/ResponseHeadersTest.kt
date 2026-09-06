@@ -154,10 +154,12 @@ class ResponseHeadersTest {
         assertEquals("2026-09-06T00:00:00Z", first.stateAsOf)
 
         clock.advance(Duration.ofSeconds(90))
-        assertEquals(
-            "2026-09-06T00:01:30Z",
-            h.forResponse(GetCapabilitiesResponse.getDescriptor()).occurredAt,
-        )
+        val later = h.forResponse(GetCapabilitiesResponse.getDescriptor())
+        assertEquals("2026-09-06T00:01:30Z", later.occurredAt)
+        // state_as_of는 소비자의 신선도 판정 입력이다(§5.5). 처음 것만 보면
+        // 기동 시각을 한 번 찍어 두는 구현이 통과하고, 소비자는 모든 응답을
+        // 낡은 것으로 판정한다.
+        assertEquals("2026-09-06T00:01:30Z", later.stateAsOf)
     }
 
     @Test
@@ -170,11 +172,29 @@ class ResponseHeadersTest {
     }
 
     @Test
-    fun `robot_id와 session_id가 기체에서 온다`() {
-        val instance = instance(robotId = "r7")
-        val header = ResponseHeaders(instance).forResponse(GetCapabilitiesResponse.getDescriptor())
-        assertEquals("r7", header.robotId)
-        assertEquals(instance.sessionId, header.sessionId)
+    fun `robot_id와 session_id가 지정된 기체의 것이다`() {
+        // **기체 둘로 본다.** isSet은 "기본값이 아니다"일 뿐이라, 하나만 보면
+        // robot_id·session_id를 상수로 박거나 기체 하나를 공유하는 구현이
+        // 통과한다 — Capability에 대해서는 막아 놓고 헤더에는 열어 둔 자리다.
+        val a = instance(robotId = "r1")
+        val b = instance(robotId = "r2")
+        val ha = ResponseHeaders(a).forResponse(GetCapabilitiesResponse.getDescriptor())
+        val hb = ResponseHeaders(b).forResponse(GetCapabilitiesResponse.getDescriptor())
+
+        assertEquals("r1", ha.robotId)
+        assertEquals("r2", hb.robotId)
+        assertEquals(a.sessionId, ha.sessionId)
+        assertEquals(b.sessionId, hb.sessionId)
+        assertTrue(ha.sessionId != hb.sessionId, "두 기체가 같은 세션을 쓴다: ${ha.sessionId}")
+    }
+
+    @Test
+    fun `contract_digest와 contract_semver가 계약 신원에서 온다`() {
+        // 값을 안 보면 Task 2와 Task 3이 서로 이어졌는지가 시험되지 않는다.
+        // 상수 두 개를 박은 구현이 isSet을 통과한다.
+        val header = headers().forResponse(GetCapabilitiesResponse.getDescriptor())
+        assertEquals(ContractIdentity.digest, header.contractDigest)
+        assertEquals(ContractIdentity.semver, header.contractSemver)
     }
 
     @Test
