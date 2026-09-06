@@ -28,7 +28,7 @@ class GrpcFixture(
 
     private val name: String = InProcessServerBuilder.generateName()
 
-    private val server = MimicServer(
+    val server = MimicServer(
         registry,
         InProcessServerBuilder.forName(name).directExecutor(),
     ).start()
@@ -42,6 +42,9 @@ class GrpcFixture(
 
     /** 비동기 스텁 — 열려 있는 WatchTask 스트림을 보는 시험이 쓴다. */
     val tasksAsync: TaskServiceGrpc.TaskServiceStub = TaskServiceGrpc.newStub(channel)
+
+    /** 시계를 흘리고 그것이 만든 전이를 열린 스트림까지 민다. */
+    fun advance(duration: java.time.Duration) = server.advance(duration)
 
     fun capabilitiesOf(robotId: String) = skills.getCapabilities(
         GetCapabilitiesRequest.newBuilder().setHeader(requestHeader(robotId)).build(),

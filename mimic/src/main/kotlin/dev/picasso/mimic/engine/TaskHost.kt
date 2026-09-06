@@ -43,6 +43,9 @@ class TaskHost(
 
     fun find(taskId: String): TaskRuntime? = tasks[taskId]
 
+    /** 호스팅 중인 태스크 전부. 전송이 열린 스트림에 밀 때 쓴다. */
+    val all: Collection<TaskRuntime> get() = tasks.values
+
     fun skillOf(skillType: String): SkillDeclaration? =
         capability.skillsList.firstOrNull { it.skillType == skillType }
 

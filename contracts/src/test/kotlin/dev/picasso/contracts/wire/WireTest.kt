@@ -12,7 +12,7 @@ class ContractIdentityTest {
 
     @Test
     fun `계약 신원을 클래스패스에서 읽는다`() {
-        assertEquals("0.1.0", ContractIdentity.semver)
+        assertEquals("0.2.0", ContractIdentity.semver)
         assertTrue(
             ContractIdentity.digest.matches(Regex("[0-9a-f]{64}")),
             "다이제스트가 SHA-256 16진수가 아니다: ${ContractIdentity.digest}",
@@ -151,11 +151,18 @@ class RequestHeadersTest {
     fun `minor와 patch 차이는 차단하지 않는다`() {
         // §5.5 — "그 외 불일치는 경보로 갈린다". 차단하면 minor 증가가
         // 호환이라는 §5.2의 규칙이 런타임에서 뒤집힌다.
-        listOf("0.2.0", "0.1.1", "0.0.9").forEach { theirs ->
-            val result = RequestHeaders.compatibility(with(semver = theirs))
-            assertTrue(result is ContractCompatibility.Divergent, "$theirs -> $result")
-            assertFalse(result.blocking, "$theirs 를 차단했다")
-        }
+        // **우리 자신의 버전을 리터럴로 쓰지 않는다.** 0.1.0 → 0.2.0으로
+        // 올렸을 때 목록의 "0.2.0"이 Same이 되어 이 시험이 깨졌다 —
+        // 계약을 고칠 때마다 시험을 고치게 되면 아무도 값을 안 보게 된다.
+        val ours = ContractIdentity.semver
+        listOf("0.9.0", "0.0.1", "0.5.7")
+            .filterNot { it == ours }
+            .also { assertEquals(3, it.size, "목록이 우리 버전과 겹친다: $ours") }
+            .forEach { theirs ->
+                val result = RequestHeaders.compatibility(with(semver = theirs))
+                assertTrue(result is ContractCompatibility.Divergent, "$theirs -> $result")
+                assertFalse(result.blocking, "$theirs 를 차단했다")
+            }
     }
 
     @Test
@@ -194,8 +201,8 @@ class RequestHeadersTest {
             ContractCompatibility.Same to false,
             ContractCompatibility.Unstated to false,
             ContractCompatibility.Unparseable("x") to true,
-            ContractCompatibility.MajorMismatch("1.0.0", "0.1.0") to true,
-            ContractCompatibility.Divergent("0.2.0", "0.1.0") to false,
+            ContractCompatibility.MajorMismatch("1.0.0", ContractIdentity.semver) to true,
+            ContractCompatibility.Divergent("0.9.0", ContractIdentity.semver) to false,
         )
         assertEquals(5, blocking.size)
         blocking.forEach { (result, expected) -> assertEquals(expected, result.blocking, "$result") }

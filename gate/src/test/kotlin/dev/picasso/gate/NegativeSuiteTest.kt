@@ -161,6 +161,18 @@ class NegativeSuiteTest {
     }
 
     @Test
+    fun `CI가 게이트와 같은 프로파일 디렉터리를 넘긴다`() {
+        // 목록이 세 곳에 있다 — CLI 기본값, 이 하네스, CI의 워크플로.
+        // 앞의 둘은 ProfileDirectories를 쓰지만 YAML은 Kotlin을 못 읽는다.
+        // 그래서 여기서 대조한다. 하나만 고치면 나머지가 조용히 다른 것을
+        // 검사하게 되고, 그것이 §15.17이 적어 둔 실패 방식이다.
+        val ci = Files.readString(repoRoot.resolve(".github/workflows/ci.yml"))
+        ProfileDirectories.ALL.forEach {
+            assertTrue(it in ci, "CI가 $it 를 넘기지 않는다 — 그 디렉터리는 검사 밖이다")
+        }
+    }
+
+    @Test
     fun `모든 음성 케이스가 겨냥한 검사를 기대한 이유로 실패시킨다`() {
         val skipped = mutableListOf<String>()
         val leaked = mutableListOf<String>()
@@ -241,10 +253,14 @@ class NegativeSuiteTest {
 
     private fun collect(work: Path, ledger: Pair<Int, Int>?) =
         InputCollector(work).collect(
-            profileDirs = listOf(work.resolve("profile/fixtures")),
+            // **CLI와 같은 목록을 쓴다.** 여기만 픽스처로 두면 원본 트리
+            // 시험이 실제 기종 프로파일을 아예 안 보고, 스키마를 어긴
+            // humanoid-a가 음성 하네스를 통과한 채 CI의 게이트 스텝에서야
+            // 걸린다 — 하네스가 막겠다고 선언한 조용한 통과다.
+            profileDirs = ProfileDirectories.ALL.map(work::resolve),
             schemaFile = work.resolve("profile/schema/capability-profile.schema.json"),
             descriptorFile = work.resolve("contracts/build/descriptor.binpb"),
-            baselineDirs = listOfNotNull(work.resolve("$BASELINE_DIR/profile/fixtures")),
+            baselineDirs = ProfileDirectories.ALL.map { work.resolve("$BASELINE_DIR/$it") },
             contractBaseline = "../$BASELINE_DIR/contracts",
             buf = bufFor(work),
         ).copy(registry = ledger?.let(::FakeLedger))

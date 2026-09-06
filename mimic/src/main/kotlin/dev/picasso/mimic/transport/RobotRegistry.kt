@@ -34,6 +34,15 @@ class RobotRegistry(instances: List<RobotInstance>) {
 
     val robotIds: Set<String> get() = byId.keys
 
+    val hosted: Collection<Hosted> get() = byId.values
+
+    /**
+     * 기체들이 보는 서로 다른 시계. **같은 시계를 공유하면 하나다** —
+     * 참조 동일성으로 거른다. 두 번 전진시키면 소요시간 판정이 어긋난다.
+     */
+    val clocks: List<dev.picasso.mimic.engine.Clock>
+        get() = byId.values.map { it.instance.clock }.distinct()
+
     /**
      * 요청 헤더가 지정한 기체를 찾는다.
      *

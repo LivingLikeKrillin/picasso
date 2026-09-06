@@ -10,6 +10,7 @@ import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
 import dev.picasso.gate.GateChecks
+import dev.picasso.gate.ProfileDirectories
 import dev.picasso.gate.GateRunner
 import dev.picasso.gate.Resource
 import dev.picasso.gate.buf.ProcessBufRunner
@@ -28,7 +29,7 @@ class GateCommand : CliktCommand(name = "picasso-gate") {
      * 디렉터리에 두라고 하는데, 하나만 보면 나머지가 검사 밖에 놓인다.
      */
     private val profileDirs by option("--profiles", help = "프로파일 문서 디렉터리. 여러 번 줄 수 있다")
-        .path().multiple(default = listOf(Path.of("profile/fixtures"), Path.of("profile/profiles")))
+        .path().multiple(default = ProfileDirectories.ALL.map(Path::of))
 
     private val schema by option("--schema").path().default(
         Path.of("profile/schema/capability-profile.schema.json"),

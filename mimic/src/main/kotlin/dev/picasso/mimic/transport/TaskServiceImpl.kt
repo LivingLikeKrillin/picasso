@@ -49,6 +49,12 @@ class TaskServiceImpl(
     private class Watcher(
         val hosted: RobotRegistry.Hosted,
         val observer: StreamObserver<WatchTaskResponse>,
+        /**
+         * 다음에 보낼 색인. **커서를 안 두고 마지막 것만 밀면** 한 번의
+         * 정착이 갱신 둘을 만들었을 때 앞엣것이 사라져 `update_index`에
+         * 구멍이 난다 — 소비자는 그것을 결손으로 읽는다.
+         */
+        var nextIndex: Long,
     )
 
     // ── StartTask
@@ -169,14 +175,34 @@ class TaskServiceImpl(
         }
         // 아직 안 끝났으면 열어 두고 이후 전이를 밀어 준다.
         watchers.getOrPut(hosted.instance.robotId to task.taskId) { mutableListOf() }
-            .add(Watcher(hosted, observer))
+            .add(Watcher(hosted, observer, task.log.size.toLong()))
     }
 
     // ── 내부
 
-    /** 라우팅 + 계약 개정판 차단 + `tick()`. 모든 RPC가 여기를 지난다. */
+    /**
+     * 라우팅 + 계약 개정판 차단 + **정착**. 모든 RPC가 여기를 지난다.
+     *
+     * 정착은 `tick()`과 **밀어내기가 한 쌍**이다. 밀어내기를 명령 RPC에만
+     * 두면 `WatchTask`나 다른 RPC의 `tick()`이 만든 전이를 열려 있는
+     * 스트림이 통째로 놓치고, 소비자는 그 자리를 결손으로 읽는다(리뷰 실측).
+     */
     private fun enter(header: MessageHeader): RobotRegistry.Hosted =
-        registry.require(header).also { it.instance.tasks.tick() }
+        registry.require(header).also { settle(it) }
+
+    /**
+     * 한 기체를 정착시킨다 — 시간이 만든 전이를 반영하고 열린 스트림에 민다.
+     *
+     * **`MimicServer.advance`가 이것을 부른다.** Chunk 6의 `AdvanceClock`도
+     * 같은 함수로 내려와야 한다 — 제어 채널이 따로 전진 경로를 만들면
+     * 시험과 운영이 서로 다른 코드로 시간을 흘리게 된다.
+     */
+    fun settle(hosted: RobotRegistry.Hosted) {
+        hosted.instance.tasks.tick()
+        hosted.instance.tasks.all.forEach { publish(hosted, it.taskId) }
+    }
+
+    fun settleAll() = registry.hosted.forEach(::settle)
 
     /**
      * 헤더가 권위이고 페이로드는 복사본이다(§5.5).
@@ -255,15 +281,17 @@ class TaskServiceImpl(
         return hosted to result
     }
 
-    /** 열려 있는 스트림에 마지막 갱신을 민다. 종착이면 스트림을 닫는다. */
+    /** 열려 있는 스트림에 **아직 안 보낸 것 전부**를 민다. 종착이면 닫는다. */
     private fun publish(hosted: RobotRegistry.Hosted, taskId: String) {
         val key = hosted.instance.robotId to taskId
         val open = watchers[key] ?: return
         val task = hosted.instance.tasks.find(taskId) ?: return
-        val last = task.log.last ?: return
 
         open.forEach { watcher ->
-            watcher.observer.onNext(responseOf(watcher.hosted, task, last))
+            task.log.from(watcher.nextIndex).forEach {
+                watcher.observer.onNext(responseOf(watcher.hosted, task, it))
+            }
+            watcher.nextIndex = task.log.size.toLong()
         }
         if (task.machine.state.isTerminal) {
             open.forEach { it.observer.onCompleted() }

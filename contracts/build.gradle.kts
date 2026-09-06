@@ -6,9 +6,14 @@ plugins {
 }
 
 // 계약의 semver. §5.5가 헤더에 싣는 contract_semver다.
-// 1단계에서 ParameterDeclaration의 존재 방식을 바꾼 것이 유일한 파괴적
-// 변경이었고 그때 소비자가 0이었다. 0.1.0에서 시작한다.
-val contractSemver = "0.1.0"
+//
+// 0.1.0 — 1단계 종료 시점. ParameterDeclaration의 존재 방식을 바꾼 것이
+//         유일한 파괴적 변경이었고 그때 소비자가 0이었다.
+// 0.2.0 — 2단계 Chunk 3b·4의 추가분. RejectionCode에 PARAMETER_INVALID,
+//         카탈로그에 InspectV1. **둘 다 추가이므로 major는 그대로다**
+//         (buf breaking 통과를 확인했다). 추가도 세대는 세대이므로 minor를
+//         올린다 — 소비자가 "내가 아는 계약이 최신인가"를 판정할 근거다.
+val contractSemver = "0.2.0"
 
 // 이 모듈은 proto 파일과 거기서 나온 것, 그리고 **그 구조를 채우는 규칙**을
 // 담는다 — §5.5의 헤더 표와 계약 신원이다. 발신자 쪽에만 두면 client가 요청

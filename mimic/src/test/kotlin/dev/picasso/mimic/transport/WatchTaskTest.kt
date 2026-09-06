@@ -312,6 +312,66 @@ class WatchTaskTest {
     }
 
     @Test
+    fun `열려 있는 스트림이 시간이 만든 전이를 받는다`() {
+        // **밀어내기를 명령 RPC에만 두면 이것이 영영 안 온다.** 열린 스트림은
+        // 멈춘 채로 남고, 결함이 시험 실패가 아니라 **정지**로 나타난다
+        // (리뷰가 계획 단계에서 찾았고 코드에서 실측됐다).
+        start()
+        val received = mutableListOf<WatchTaskResponse>()
+        var completed = false
+        fixture.tasksAsync.watchTask(
+            WatchTaskRequest.newBuilder()
+                .setHeader(GrpcFixture.requestHeader("r1"))
+                .setHandle(handle()).setFromUpdateIndex(0).build(),
+            object : StreamObserver<WatchTaskResponse> {
+                override fun onNext(value: WatchTaskResponse) { received += value }
+                override fun onError(t: Throwable) = throw t
+                override fun onCompleted() { completed = true }
+            },
+        )
+        val backlog = received.size
+        assertFalse(completed)
+
+        // 명령을 하나도 보내지 않는다. 시간만 흐른다.
+        fixture.advance(Duration.ofSeconds(20))
+
+        assertTrue(received.size > backlog, "시간이 만든 전이가 스트림에 안 왔다")
+        assertEquals(TaskState.TASK_STATE_SUCCEEDED, received.last().state)
+        assertTrue(completed, "종착인데 스트림을 안 닫았다")
+        // 커서가 없으면 마지막 것만 밀려 색인에 구멍이 난다.
+        assertEquals(received.indices.map { it.toLong() }, received.map { it.header.updateIndex })
+    }
+
+    @Test
+    fun `아무 일도 없으면 아무것도 안 민다`() {
+        // 커서 없이 "마지막 갱신을 민다"로 구현하면 정착할 때마다 같은 것이
+        // 다시 나가고, 소비자의 멱등 처리가 없으면 진행률이 되감긴 것처럼
+        // 보인다. PAUSED는 시간이 흘러도 변하지 않으므로 그 자리다.
+        start()
+        fixture.tasks.pauseTask(
+            PauseTaskRequest.newBuilder()
+                .setHeader(GrpcFixture.requestHeader("r1")).setHandle(handle()).build(),
+        )
+        val received = mutableListOf<WatchTaskResponse>()
+        fixture.tasksAsync.watchTask(
+            WatchTaskRequest.newBuilder()
+                .setHeader(GrpcFixture.requestHeader("r1"))
+                .setHandle(handle()).setFromUpdateIndex(0).build(),
+            object : StreamObserver<WatchTaskResponse> {
+                override fun onNext(value: WatchTaskResponse) { received += value }
+                override fun onError(t: Throwable) = throw t
+                override fun onCompleted() = Unit
+            },
+        )
+        val backlog = received.size
+        assertTrue(backlog >= 1)
+
+        repeat(3) { fixture.advance(Duration.ofSeconds(20)) }
+
+        assertEquals(backlog, received.size, "아무 일도 없는데 밀었다: ${received.map { it.state }}")
+    }
+
+    @Test
     fun `되짚어 보낸 갱신은 그때의 시각을 싣는다`() {
         // 지금 시각을 실으면 30초 전 전이가 방금 일어난 것으로 보이고
         // 소비자의 신선도 판정(§5.5)이 거짓말을 한다.
