@@ -21,12 +21,12 @@ class RecordingListener : EngineListener {
     override fun onTaskTransition(
         taskId: String,
         skillType: String,
-        from: TaskState,
+        from: TaskState?,
         to: TaskState,
         revision: Int,
         attempt: Int,
     ) {
-        reports += "task($taskId,$skillType): $from->$to r$revision a$attempt"
+        reports += "task($taskId,$skillType): ${from?.name ?: "NEW"}->$to r$revision a$attempt"
     }
 }
 
@@ -61,20 +61,22 @@ class EngineListenerTest {
 
         assertEquals(
             listOf(
+                "task(t1,navigate_to): NEW->ACCEPTED r1 a0",
                 "task(t1,navigate_to): ACCEPTED->RUNNING r1 a0",
                 "skill(t1,navigate_to): READY->RUNNING",
-                "task(t1,navigate_to): RUNNING->SUCCEEDED r1 a0",
                 "skill(t1,navigate_to): RUNNING->READY",
+                "task(t1,navigate_to): RUNNING->SUCCEEDED r1 a0",
             ),
             listener.reports,
         )
     }
 
     @Test
-    fun `접수만으로는 아무것도 보고하지 않는다`() {
-        // StartTask는 접수까지다. 전이가 없는데 보고하면 소비자가 유령을 본다.
+    fun `접수도 전이로 보고한다`() {
+        // 안 알리면 접수만 되고 아직 tick을 안 받은 태스크가 재구성에서
+        // 통째로 사라진다. `from`이 없는 것이 접수의 표시다.
         host().start("t1", 1, "navigate_to", listOf(location()))
-        assertEquals(emptyList(), listener.reports)
+        assertEquals(listOf("task(t1,navigate_to): NEW->ACCEPTED r1 a0"), listener.reports)
     }
 
     @Test
@@ -136,6 +138,82 @@ class EngineListenerTest {
     }
 
     @Test
+    fun `재시도 전이가 올라간 attempt를 싣는다`() {
+        // 뒤에 올리면 그 전이 이벤트가 **올리기 전** 값을 싣고, 소비자가
+        // "재시도했는데 attempt가 그대로"인 상태를 세운다(§12.2의 8번).
+        val tasks = host()
+        tasks.start("t1", 1, "navigate_to", listOf(location()))
+        tasks.tick()
+        val machine = tasks.find("t1")!!.machine
+        machine.onSkillHalted(Resolution.SELF_RETRIABLE)
+        listener.reports.clear()
+
+        machine.apply(TaskCommand.RETRY)
+
+        val retry = listener.reports.first { it.startsWith("task") }
+        assertTrue("a1" in retry, "재시도 전이가 옛 attempt를 실었다: $retry")
+        assertEquals(1, machine.attempt)
+    }
+
+    @Test
+    fun `거절된 재시도는 attempt를 올리지 않는다`() {
+        // 전이 전에 올리므로 되돌리는 것을 잊으면 거절만 하고 값이 바뀐다.
+        val tasks = host()
+        tasks.start("t1", 1, "navigate_to", listOf(location()))
+        tasks.tick()
+        val machine = tasks.find("t1")!!.machine
+        machine.apply(TaskCommand.RETRY) // RUNNING에서는 §4.4 표에 없다
+        assertEquals(0, machine.attempt, "거절했는데 attempt가 올랐다")
+    }
+
+    @Test
+    fun `갱신도 전이로 알린다`() {
+        // §4.7에 "revision이 바뀌었다" 이벤트가 따로 없는데 갱신은 상태를
+        // 안 바꾼다. 안 알리면 이벤트를 접는 소비자가 옛 revision을 영원히 든다.
+        val tasks = host()
+        tasks.start("t1", 1, "navigate_to", listOf(location()))
+        tasks.tick()
+        listener.reports.clear()
+
+        tasks.find("t1")!!.machine.update(2, listOf(location("dock-9")))
+
+        val task = listener.reports.filter { it.startsWith("task") }
+        assertEquals(1, task.size, "${listener.reports}")
+        assertTrue("RUNNING->RUNNING r2 a0" in task.single(), task.single())
+    }
+
+    @Test
+    fun `멱등 재취소는 전이를 보고하지 않는다`() {
+        // 같은 상태로의 이동이 응답으로는 Moved지만 일어난 일이 없다.
+        // 갱신의 자기 전이와 달라야 한다 — 판별은 from==to가 아니라 경로다.
+        val tasks = host()
+        tasks.start("t1", 1, "navigate_to", listOf(location()))
+        tasks.tick()
+        val machine = tasks.find("t1")!!.machine
+        machine.apply(TaskCommand.CANCEL)
+        listener.reports.clear()
+
+        machine.apply(TaskCommand.CANCEL)
+        assertEquals(emptyList(), listener.reports)
+    }
+
+    @Test
+    fun `원인이 결과보다 먼저 나간다`() {
+        // 스킬이 HALTED가 되어서 태스크가 실패하는 것인데 태스크 전이를
+        // 먼저 알리면, 이벤트를 접는 소비자가 잠시 §4.5 표에 없는 조합을 든다.
+        val tasks = host()
+        tasks.start("t1", 1, "navigate_to", listOf(location()))
+        tasks.tick()
+        listener.reports.clear()
+
+        tasks.find("t1")!!.machine.onSkillHalted(Resolution.TERMINAL)
+
+        val first = listener.reports.first()
+        assertTrue(first.startsWith("skill"), "결과가 원인보다 먼저 나갔다: ${listener.reports}")
+        assertTrue(listener.reports.last().contains("->FAILED"))
+    }
+
+    @Test
     fun `보고한 전이가 실제 상태와 이어진다`() {
         // **되짚기를 잡는 시험이다.** 보고된 from/to를 이어 붙인 결과가
         // 실제 최종 상태와 같아야 한다 — 하나라도 빠지거나 겹치면 끊긴다.
@@ -145,13 +223,13 @@ class EngineListenerTest {
         clock.advance(Duration.ofSeconds(20))
         tasks.tick()
 
-        var state = TaskState.ACCEPTED
+        var state = "NEW"
         listener.reports.filter { it.startsWith("task") }.forEach { line ->
             val (from, to) = line.substringAfter(": ").substringBefore(" r").split("->")
-            assertEquals(state.name, from, "전이가 끊겼다: $line")
-            state = TaskState.valueOf(to)
+            assertEquals(state, from, "전이가 끊겼다: $line")
+            state = to
         }
-        assertEquals(tasks.find("t1")!!.machine.state, state)
+        assertEquals(tasks.find("t1")!!.machine.state.name, state)
     }
 
     @Test

@@ -95,6 +95,10 @@ class TaskHost(
         //
         // `StartTask`는 접수 응답이지 "돌고 있다"가 아니다(§4.4).
         record(task)
+        // **접수도 전이다.** 안 알리면 접수만 되고 아직 tick을 안 받은
+        // 태스크가 재구성에서 통째로 사라진다 — §4.4가 `ACCEPTED`를 도달
+        // 가능하게 둔 이상 가정이 아니다.
+        listener.onTaskTransition(taskId, skillType, null, TaskState.ACCEPTED, revision, 0)
 
         return StartOutcome.Accepted(task)
     }

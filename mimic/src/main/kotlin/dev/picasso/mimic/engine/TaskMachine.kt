@@ -137,17 +137,24 @@ class TaskMachine(
             return TaskTransition.Moved(TaskState.CANCELLING, TaskState.CANCELLING)
         }
 
+        // **재시도의 attempt를 전이 전에 올린다.** 뒤에 올리면 그 전이
+        // 이벤트가 **올리기 전** 값을 싣고, 소비자가 "재시도했는데 attempt가
+        // 그대로"인 상태를 세운다(§12.2의 8번이 요구하는 바로 그 값이다).
+        // 여기 오는 RETRY는 RETRIABLE·NEEDS_INTERVENTION에서만이므로
+        // transitionTo가 래치로 거절할 일이 없다.
+        if (command == TaskCommand.RETRY) attempt += 1
+
         val moved = transitionTo(next, "$command")
-        if (moved !is TaskTransition.Moved) return moved
+        if (moved !is TaskTransition.Moved) {
+            if (command == TaskCommand.RETRY) attempt -= 1
+            return moved
+        }
 
         when (command) {
             TaskCommand.START -> startSkill()
             TaskCommand.RESUME -> applySkill(SkillCommand.RESUME)
             TaskCommand.PAUSE -> applySkill(SkillCommand.SUSPEND)
-            TaskCommand.RETRY -> {
-                attempt += 1
-                startSkill()
-            }
+            TaskCommand.RETRY -> startSkill()
             // 취소는 즉시가 아니다. 스킬은 복구를 수행하는 동안 계속 돈다.
             //
             // 되돌릴 것이 있는지는 **스킬이 돌고 있는지**로 판단한다.
@@ -180,8 +187,8 @@ class TaskMachine(
             }
         }
 
-        if (transitionTo(next, "onSkillHalted($resolution)") is TaskTransition.Moved) {
-            // §4.5 — HALTED → 즉시 Reset → READY.
+        // §4.5 — HALTED → 즉시 Reset → READY. **태스크 전이보다 먼저 알린다.**
+        transitionTo(next, "onSkillHalted($resolution)") {
             applySkill(SkillCommand.HALT)
             applySkill(SkillCommand.RESET)
         }
@@ -190,7 +197,7 @@ class TaskMachine(
     /** 복구까지 마쳤다 → `CANCELLED`(§4.4). */
     fun onRecoveryComplete() {
         if (state != TaskState.CANCELLING) return
-        if (transitionTo(TaskState.CANCELLED, "onRecoveryComplete") is TaskTransition.Moved) {
+        transitionTo(TaskState.CANCELLED, "onRecoveryComplete") {
             applySkill(SkillCommand.HALT)
             applySkill(SkillCommand.RESET)
         }
@@ -198,7 +205,7 @@ class TaskMachine(
 
     /** 정상 완료 → `SUCCEEDED`. */
     fun onSkillComplete() {
-        if (transitionTo(TaskState.SUCCEEDED, "onSkillComplete") is TaskTransition.Moved) {
+        transitionTo(TaskState.SUCCEEDED, "onSkillComplete") {
             applySkill(SkillCommand.COMPLETE)
         }
     }
@@ -227,6 +234,12 @@ class TaskMachine(
         attempt = 0
         progress.restart()
 
+        // **자기 자신으로의 전이를 알린다.** §4.7에 "revision이 바뀌었다"는
+        // 이벤트가 따로 없는데 갱신은 상태를 안 바꾸므로, 안 알리면 이벤트를
+        // 접는 소비자가 옛 revision·attempt를 영원히 든다 — 완료 기준 2의
+        // 비교가 거기서 어긋난다.
+        listener.onTaskTransition(taskId, skill.skillType, state, state, revision, attempt)
+
         return if (state == TaskState.RUNNING) {
             // §4.4 — 스킬을 Halt → Reset → 새 파라미터로 Start. 태스크는 RUNNING 유지.
             applySkill(SkillCommand.HALT)
@@ -244,13 +257,27 @@ class TaskMachine(
      * **모든 상태 변경이 여기를 지난다.** 진입점이 늘어도 래치가 새지 않는
      * 유일한 방법이다.
      */
-    private fun transitionTo(next: TaskState, via: String): TaskTransition {
+    private fun transitionTo(
+        next: TaskState,
+        via: String,
+        /**
+         * 래치 검사 뒤, 태스크 전이를 알리기 **전에** 돈다.
+         *
+         * **원인이 결과보다 먼저 나가야 한다.** 스킬이 `HALTED`가 되어서
+         * 태스크가 `FAILED`가 되는 것인데 태스크 전이를 먼저 알리면, 이벤트를
+         * 접어 상태를 세우는 소비자가 잠시 `(FAILED, RUNNING)`을 든다 —
+         * §4.5의 표에 없는 조합이다. 마지막에 수렴하니 끝값만 보는 시험은
+         * 이것을 못 잡는다.
+         */
+        beforeEmit: () -> Unit = {},
+    ): TaskTransition {
         if (state.isTerminal) {
             return TaskTransition.Rejected(
                 RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
                 "$state 는 종착이다: $via",
             )
         }
+        beforeEmit()
         val from = state
         state = next
         listener.onTaskTransition(taskId, skill.skillType, from, next, revision, attempt)

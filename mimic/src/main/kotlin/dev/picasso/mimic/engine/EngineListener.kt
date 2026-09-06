@@ -23,10 +23,16 @@ interface EngineListener {
         to: SkillState,
     ) = Unit
 
+    /**
+     * @param from `null`이면 **접수**다. 태스크가 생기는 것도 소비자에게는
+     *   전이이며, 안 보내면 접수만 되고 아직 tick을 안 받은 태스크가
+     *   재구성에서 통째로 사라진다(§4.4가 `ACCEPTED`를 도달 가능하게 둔 이상
+     *   가정이 아니다). 계약에서는 `TASK_STATE_UNSPECIFIED`로 나간다.
+     */
     fun onTaskTransition(
         taskId: String,
         skillType: String,
-        from: TaskState,
+        from: TaskState?,
         to: TaskState,
         revision: Int,
         attempt: Int,
