@@ -1,6 +1,8 @@
 package dev.picasso.mimic.engine
 
 import dev.picasso.contracts.v1.Capability
+import dev.picasso.contracts.v1.Fault
+import dev.picasso.contracts.v1.Lifetime
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.SkillDeclaration
@@ -233,9 +235,7 @@ class TaskHost(
                         // 원인 없는 실패를 보지 않는다.
                         faults.raise(FailureDraw.faultOf(failure, task.skillType, task.taskId))
                             ?.let { listener.onFault(it, cleared = false) }
-                        task.machine.onSkillHalted(
-                            FailureDraw.resolutionOf(failure.resolution),
-                        )
+                        halt(task, FailureDraw.resolutionOf(failure.resolution))
                     }
                     record(task)
                 }
@@ -329,10 +329,35 @@ class TaskHost(
         val raised = faults.raise(fault)?.also { listener.onFault(it, cleared = false) } != null
 
         if (task != null) {
-            task.machine.onSkillHalted(FailureDraw.resolutionOf(mode.resolution))
+            halt(task, FailureDraw.resolutionOf(mode.resolution))
             record(task)
         }
         return ForceOutcome.Raised(raised, task?.machine?.state)
+    }
+
+    /**
+     * 스킬을 정지시키고 **기체 수준 뒤처리까지 한다**(완료 기준 8b).
+     *
+     * **이 파일에서 `onSkillHalted`를 부르는 곳은 여기 하나다.** 뒤처리를
+     * 호출자마다 두면 나중에 생기는 halt 경로가 결함 없이 복구 실패를
+     * 만들고, 그때는 "동반한다"가 경로에 따라 참이 된다.
+     *
+     * ## 복구 실패의 결함은 엔진이 낸다
+     *
+     * §4.4가 *"후자는 거의 언제나 로봇 수준 결함을 동반하며, 그 결함이
+     * `can_accept_new_task=false`를 든다"*고 했다. 그것을 밖에서 넣게 두면
+     * 완료 기준 8b의 "동반한다"를 **시험이 자기가 넣은 것으로** 확인하게
+     * 된다.
+     *
+     * **순서는 종착이 먼저, 결함이 나중이다.** `tick()`의 원인→결과와
+     * 반대로 보이지만 아니다 — 복구 실패를 일으킨 원인은 이미 나간 그
+     * 결함이고, 이것은 **복구가 실패했다는 사실의 결과**라 종착보다 먼저
+     * 낼 수가 없다.
+     */
+    private fun halt(task: TaskRuntime, resolution: Resolution) {
+        task.machine.onSkillHalted(resolution)
+        if (task.machine.state != TaskState.CANCELLED_RECOVERY_FAILED) return
+        faults.raise(recoveryFailed())?.let { listener.onFault(it, cleared = false) }
     }
 
     /** 현재 상태를 로그에 한 줄 적는다. */
@@ -359,6 +384,32 @@ class TaskHost(
      * 안 되는 것은 인출 수가 **관측**에 달리는 것이다.
      */
     private companion object {
+
+        /**
+         * 복구 실패가 동반하는 **로봇 수준** 결함(§4.4).
+         *
+         * | 필드 | 값 | 왜 |
+         * |---|---|---|
+         * | `error_type` | `INTERNAL_ERROR` | 코어 여섯 중 "그 밖"이다. 벤더 접두사를 붙이면 기종마다 달라져 소비자가 분기한다 |
+         * | 두 불리언 | `false`/`false` | "로봇이 물건을 든 채 멈춰 있다"가 §4.4가 `CANCELLED`와 이것을 나눈 이유다 |
+         * | `references` | 없음 | 되돌리기에 실패한 것은 **기체**이지 스킬이 아니다 |
+         * | `active_until` | `UNTIL_CLEARED` | `UNTIL_NEW_TASK`는 틀렸다 — 새 태스크를 받는다고 로봇이 물건을 내려놓지 않는다 |
+         *
+         * **막지는 않는다.** `can_accept_new_task=false`인데 새 태스크가 오면
+         * 엔진은 그대로 받는다 — §4.6이 "판단은 밖으로, 사실은 안으로"라
+         * 했으므로 그것은 소비자의 판단이고, 막으면 계약이 정책을 갖는다.
+         */
+        fun recoveryFailed(): Fault = Fault.newBuilder()
+            .setErrorType("INTERNAL_ERROR")
+            .setCanContinueCurrentTask(false)
+            .setCanAcceptNewTask(false)
+            .setErrorHint(
+                "취소한 태스크의 되돌리기에 실패했다. 로봇이 대상을 든 채 멈춰 있을 수 " +
+                    "있으니 현장에서 상태를 확인하고 결함을 해소하십시오.",
+            )
+            .setActiveUntil(Lifetime.newBuilder().setKind(Lifetime.Kind.KIND_UNTIL_CLEARED))
+            .build()
+
         /**
          * `ForceFault`를 받는 태스크 상태(§4.5의 대응표).
          *
