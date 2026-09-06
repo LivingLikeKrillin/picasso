@@ -27,7 +27,7 @@ class ContractIndexTest {
 
     @Test
     fun `카탈로그의 스킬 타입을 전부 찾는다`() {
-        assertEquals(setOf("pick_place", "navigate_to"), index.skillTypes().toSet())
+        assertEquals(setOf("pick_place", "navigate_to", "inspect"), index.skillTypes().toSet())
     }
 
     @Test
@@ -36,6 +36,19 @@ class ContractIndexTest {
         assertEquals(1, s.major)
         assertEquals(2, s.maxMinor)
         assertTrue(s.maxMinorDeclared)
+    }
+
+    @Test
+    fun `ENUM 파라미터를 열값 타입으로 읽는다`() {
+        // 계약은 열거의 **자리**만 만들고 값 집합은 프로파일이 정한다
+        // (skill_catalog.proto의 매핑 표). 그 자리가 ValueType.ENUM으로
+        // 읽히지 않으면 검사 4번이 프로파일의 ENUM 선언을 타입 불일치로 막는다.
+        val inspect = assertNotNull(index.find("inspect", major = 1))
+        assertEquals(3, inspect.maxMinor)
+        val mode = assertNotNull(inspect.parameters.firstOrNull { it.key == "mode" })
+        assertEquals(ValueType.ENUM, mode.valueType)
+        assertEquals(3, mode.sinceMinor)
+        assertTrue(mode.isOptional)
     }
 
     @Test

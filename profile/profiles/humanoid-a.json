@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0.0",
+  "vendor": "picasso-ref",
+  "model": "humanoid-a",
+  "revision": 1,
+
+  "skills": [
+    {
+      "skill_type": "navigate_to",
+      "major": 1,
+      "minor": 0,
+      "pause_support": "YES",
+      "cancel_support": "YES",
+      "parameters": [
+        { "key": "location", "value_type": "STRING", "optional": false, "max_length": 256 }
+      ]
+    },
+    {
+      "skill_type": "pick_place",
+      "major": 1,
+      "minor": 2,
+      "pause_support": "YES",
+      "cancel_support": "NO",
+      "parameters": [
+        { "key": "object_id", "value_type": "STRING", "optional": false, "max_length": 64 },
+        { "key": "destination", "value_type": "STRING", "optional": false, "max_length": 64 },
+        { "key": "verify_grasp", "value_type": "BOOL", "optional": true },
+        { "key": "grip_force", "value_type": "NUMBER", "optional": true, "min_value": 0, "max_value": 120, "unit": "N" }
+      ]
+    },
+    {
+      "skill_type": "inspect",
+      "major": 1,
+      "minor": 3,
+      "pause_support": "YES",
+      "cancel_support": "YES",
+      "parameters": [
+        { "key": "target", "value_type": "STRING", "optional": false, "max_length": 64 },
+        { "key": "mode", "value_type": "ENUM", "optional": true, "allowed_values": ["VISUAL", "THERMAL"] }
+      ]
+    }
+  ],
+
+  "optional_fields": [
+    { "parameter_path": "task.parameters.grip_force", "support": "SUPPORTED" },
+    { "parameter_path": "task.parameters.verify_grasp", "support": "REQUIRED" }
+  ],
+
+  "publish_interval": { "min_seconds": 1, "max_seconds": 30 },
+  "protocol_limits": { "max_string_length": 256, "max_array_length": 32 },
+  "exclusive_control_required": true,
+
+  "durations": [
+    { "skill_type": "navigate_to", "seconds": 20 },
+    { "skill_type": "pick_place", "seconds": 45, "jitter_ratio": 0.1 },
+    { "skill_type": "inspect", "seconds": 12 }
+  ],
+
+  "failure_modes": [
+    {
+      "error_type": "SKILL_EXECUTION_FAILED",
+      "skill_type": "pick_place",
+      "rate": 0.05,
+      "can_continue_current_task": false,
+      "can_accept_new_task": true,
+      "resolution": "SELF_RETRIABLE",
+      "active_until": "UNTIL_NEW_TASK"
+    },
+    {
+      "error_type": "PAYLOAD_LOST",
+      "skill_type": "pick_place",
+      "rate": 0.01,
+      "can_continue_current_task": false,
+      "can_accept_new_task": true,
+      "resolution": "NEEDS_INTERVENTION",
+      "error_hint": "떨어뜨린 대상을 회수해 원위치에 놓고 재시도하십시오.",
+      "active_until": "UNTIL_CLEARED"
+    }
+  ],
+
+  "replay_buffer_size": 256
+}

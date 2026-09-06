@@ -15,6 +15,7 @@ tasks.withType<Test>().configureEach {
     inputs.files(
         rootProject.file("profile/fixtures"),
         rootProject.file("profile/requirements"),
+        rootProject.file("profile/profiles"),
     ).withPropertyName("profileFixtures")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

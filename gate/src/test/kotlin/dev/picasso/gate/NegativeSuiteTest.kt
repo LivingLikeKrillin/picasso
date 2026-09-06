@@ -241,10 +241,10 @@ class NegativeSuiteTest {
 
     private fun collect(work: Path, ledger: Pair<Int, Int>?) =
         InputCollector(work).collect(
-            profileDir = work.resolve("profile/fixtures"),
+            profileDirs = listOf(work.resolve("profile/fixtures")),
             schemaFile = work.resolve("profile/schema/capability-profile.schema.json"),
             descriptorFile = work.resolve("contracts/build/descriptor.binpb"),
-            baselineDir = work.resolve("$BASELINE_DIR/profile/fixtures"),
+            baselineDirs = listOfNotNull(work.resolve("$BASELINE_DIR/profile/fixtures")),
             contractBaseline = "../$BASELINE_DIR/contracts",
             buf = bufFor(work),
         ).copy(registry = ledger?.let(::FakeLedger))

@@ -22,14 +22,14 @@ import kotlin.streams.asSequence
 class InputCollector(private val repoRoot: Path) {
 
     fun collect(
-        profileDir: Path,
+        profileDirs: List<Path>,
         schemaFile: Path? = null,
         descriptorFile: Path? = null,
-        baselineDir: Path? = null,
+        baselineDirs: List<Path> = emptyList(),
         contractBaseline: String? = null,
         buf: BufRunner? = null,
     ): GateInput {
-        val head = readProfiles(profileDir)
+        val head = readAll(profileDirs)
 
         return GateInput(
             profiles = head.documents,
@@ -37,7 +37,7 @@ class InputCollector(private val repoRoot: Path) {
             schemaJson = schemaFile?.takeIf { it.isRegularFile() }?.let(Files::readString),
             descriptor = descriptorFile?.takeIf { it.isRegularFile() }?.let(Files::readAllBytes),
             repoRoot = repoRoot,
-            baseline = baselineDir?.let(::readBaseline),
+            baseline = readBaseline(baselineDirs),
             contractBaseline = contractBaseline,
             buf = buf,
         )
@@ -51,9 +51,11 @@ class InputCollector(private val repoRoot: Path) {
      * 잡히고, 검사 6이 모든 프로파일을 신규로 분류해 **경고 한 줄 없이
      * 완전한 PASS**를 낸다. 그래서 여기서 시끄럽게 죽는다.
      */
-    private fun readBaseline(dir: Path): Map<ProfileKey, String>? {
-        if (!Files.isDirectory(dir)) return null
-        val parsed = readProfiles(dir)
+    private fun readBaseline(dirs: List<Path>): Map<ProfileKey, String>? {
+        // **하나라도 못 읽으면 null이다.** 일부만 읽고 빈 맵을 만들면
+        // 그쪽 프로파일이 전부 "신규"가 되어 파괴 검사가 통과한다.
+        if (dirs.isEmpty() || dirs.any { !Files.isDirectory(it) }) return null
+        val parsed = readAll(dirs)
         require(parsed.malformed.isEmpty()) {
             "기준선 문서를 읽을 수 없다: " +
                 parsed.malformed.joinToString { "${it.path} — ${it.message}" }
@@ -66,6 +68,39 @@ class InputCollector(private val repoRoot: Path) {
         val documents: List<ProfileDocument>,
         val malformed: List<MalformedProfile>,
     )
+
+    /**
+     * 디렉터리 여럿에서 모은다.
+     *
+     * §7.4가 픽스처(`profile/fixtures/`)와 실제 기종(`profile/profiles/`)을
+     * 나눠 두라고 하는데, 하나만 보면 **나머지가 검사 3·4·6 밖에 놓인다** —
+     * 완료 기준 9("두 기종이 동일 스키마 통과")가 아무 근거 없이 참이 된다.
+     *
+     * **없는 디렉터리를 조용히 넘기지 않는다.** 넘기면 CI의 오타 하나가
+     * "프로파일 0개"가 되고, 게이트는 아무것도 검사하지 않으면서 초록이 된다.
+     *
+     * **같은 `(vendor, model)`이 두 곳에 있으면 거절한다.** 문서의 동일성이
+     * 그 쌍이므로(§8.3) 조용히 하나가 이기면 다른 하나는 영영 검사되지 않는다.
+     */
+    private fun readAll(dirs: List<Path>): Parsed {
+        require(dirs.isNotEmpty()) { "프로파일 디렉터리가 하나도 지정되지 않았다" }
+        dirs.forEach {
+            require(Files.isDirectory(it)) { "프로파일 디렉터리가 없다: $it" }
+        }
+
+        val parsed = dirs.map(::readProfiles)
+        val documents = parsed.flatMap { it.documents }
+
+        documents.groupBy { ProfileKey(it.vendor, it.model) }
+            .filterValues { it.size > 1 }
+            .forEach { (key, duplicates) ->
+                throw IllegalArgumentException(
+                    "같은 기종이 두 곳에 있다: $key — ${duplicates.map { it.path }}",
+                )
+            }
+
+        return Parsed(documents, parsed.flatMap { it.malformed })
+    }
 
     private fun readProfiles(dir: Path): Parsed {
         if (!Files.isDirectory(dir)) return Parsed(emptyList(), emptyList())

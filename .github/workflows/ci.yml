@@ -57,28 +57,40 @@ jobs:
           #
           # 파이프라인 안에서 열거하면 git 실패가 while의 종료코드 0에 묻히므로
           # 목록을 먼저 파일로 뽑는다.
-          git ls-tree -r --name-only "$BASE" profile/fixtures/ \
+          #
+          # **두 디렉터리 모두에서 뽑는다.** 픽스처만 뽑으면 실제 기종
+          # 프로파일이 영원히 "신규"로 분류되어 검사 6의 축소 판정이
+          # 발화하지 않는다.
+          git ls-tree -r --name-only "$BASE" profile/fixtures/ profile/profiles/ \
             | grep '\.json$' > /tmp/baseline-list || true
-          mkdir -p /tmp/baseline-profiles
+          mkdir -p /tmp/baseline-fixtures /tmp/baseline-profiles
           while read -r f; do
-            git show "$BASE:$f" > "/tmp/baseline-profiles/$(basename "$f")"
+            case "$f" in
+              profile/fixtures/*) out=/tmp/baseline-fixtures ;;
+              *)                  out=/tmp/baseline-profiles ;;
+            esac
+            git show "$BASE:$f" > "$out/$(basename "$f")"
           done < /tmp/baseline-list
 
           # 빈 기준선과 "기준선 못 얻음"을 CI가 구분해 줘야 검사 6이 뜻대로 돈다.
           if [ -s /tmp/baseline-list ]; then
-            echo "profiles=/tmp/baseline-profiles" >> "$GITHUB_OUTPUT"
+            echo "profiles=yes" >> "$GITHUB_OUTPUT"
           fi
 
       - name: 게이트
         run: |
           ./gradlew :gate:installDist -q
+          # **두 디렉터리를 명시한다.** §7.4가 픽스처와 실제 기종을 나눠
+          # 두는데, 하나만 넘기면 나머지가 검사 3·4·6 밖에 놓이고 완료
+          # 기준 9가 아무 근거 없이 참이 된다.
           ARGS="--repo . --buf $PWD/tools/buf"
+          ARGS="$ARGS --profiles profile/fixtures --profiles profile/profiles"
           ARGS="$ARGS --require REPO,PROFILE_DOCUMENT,PROFILE_SCHEMA,CONTRACT_DESCRIPTOR,BUF"
           if [ -n "${{ steps.baseline.outputs.contract }}" ]; then
             ARGS="$ARGS --contract-baseline '${{ steps.baseline.outputs.contract }}'"
           fi
           if [ -n "${{ steps.baseline.outputs.profiles }}" ]; then
-            ARGS="$ARGS --baseline-dir '${{ steps.baseline.outputs.profiles }}'"
+            ARGS="$ARGS --baseline-dir /tmp/baseline-fixtures --baseline-dir /tmp/baseline-profiles"
           fi
           eval "./gate/build/install/gate/bin/gate $ARGS"
 

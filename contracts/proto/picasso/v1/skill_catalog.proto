@@ -83,3 +83,26 @@ message NavigateToV1 {
   // 목적지의 시맨틱 위치 ID. 좌표가 아니다 — 설계노트 §4.3.
   string location = 1 [(since_minor) = 0, (is_optional) = false];
 }
+
+// 대상을 살펴 상태를 보고한다.
+// 성공 판정: 지정한 대상의 관측을 마치고 결과를 실었을 때.
+message InspectV1 {
+  option (skill_type_name) = "inspect";
+  option (skill_type_major) = 1;
+  option (skill_type_max_minor) = 3;
+
+  // 살펴볼 대상의 시맨틱 ID.
+  string target = 1 [(since_minor) = 0, (is_optional) = false];
+
+  // minor 3에서 추가된 선택 파라미터.
+  //
+  // **열거의 값 집합은 계약이 정하지 않는다** — 기종마다 다르다(파일 상단의
+  // 매핑 표). 여기 있는 것은 타입 자리이며 허용 값은 프로파일의
+  // `allowed_values`가 선언하고 §10.4 ③이 그것을 집행한다.
+  InspectMode mode = 2 [(since_minor) = 3, (is_optional) = true];
+}
+
+// 위 주석대로, 계약은 자리만 만들고 값 집합은 프로파일이 정한다.
+enum InspectMode {
+  INSPECT_MODE_UNSPECIFIED = 0;
+}

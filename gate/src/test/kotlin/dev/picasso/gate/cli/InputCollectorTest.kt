@@ -9,6 +9,7 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
@@ -45,7 +46,7 @@ class InputCollectorTest {
         // JSON이 아닌 것은 무시한다 — README를 프로파일로 읽으면 안 된다.
         dir.resolve("README.md").writeText("# 프로파일")
 
-        val input = InputCollector(root).collect(profileDir = dir)
+        val input = InputCollector(root).collect(profileDirs = listOf(dir))
 
         assertEquals(2, input.profiles.size)
         assertTrue(input.malformed.isEmpty())
@@ -59,7 +60,7 @@ class InputCollectorTest {
         dir.resolve("good.json").writeText(profile("acme", "r1"))
         dir.resolve("bad.json").writeText("{ 이건 JSON이 아니다")
 
-        val input = InputCollector(root).collect(profileDir = dir)
+        val input = InputCollector(root).collect(profileDirs = listOf(dir))
 
         assertEquals(1, input.profiles.size)
         assertEquals(1, input.malformed.size)
@@ -67,11 +68,84 @@ class InputCollectorTest {
     }
 
     @Test
-    fun `프로파일 디렉터리가 없으면 문서 자원이 없다`() {
-        // 조용히 빈 목록을 만들면 required 판정이 그것을 잡아야 한다.
+    fun `없는 프로파일 디렉터리는 조용히 넘기지 않는다`() {
+        // 예전에는 빈 목록이 되고 --require 가 그것을 잡아 주기를 기대했다.
+        // 그러면 --require 없이 도는 로컬 실행에서 **오타 하나가 깨끗한
+        // PASS**가 된다 — 게이트가 아무것도 검사하지 않으면서 초록이다.
         val root = repo()
-        val input = InputCollector(root).collect(profileDir = root.resolve("없는디렉터리"))
-        assertTrue(Resource.PROFILE_DOCUMENT !in input.available())
+        val error = assertFailsWith<IllegalArgumentException> {
+            InputCollector(root).collect(profileDirs = listOf(root.resolve("없는디렉터리")))
+        }
+        assertTrue("없는디렉터리" in error.message!!, error.message!!)
+    }
+
+    @Test
+    fun `디렉터리 여럿에서 모은다`() {
+        // §7.4가 픽스처와 실제 기종을 다른 디렉터리에 둔다. 하나만 보면
+        // 나머지가 검사 3·4·6 밖에 놓인다.
+        val root = repo()
+        val fixtures = root.resolve("profile/fixtures").createDirectories()
+        val profiles = root.resolve("profile/profiles").createDirectories()
+        fixtures.resolve("a.json").writeText(profile("acme", "fixture"))
+        profiles.resolve("b.json").writeText(profile("acme", "humanoid"))
+        profiles.resolve("c.json").writeText(profile("acme", "quadruped"))
+
+        val both = InputCollector(root).collect(profileDirs = listOf(fixtures, profiles))
+        assertEquals(3, both.profiles.size)
+
+        // 시험이 비지 않았는지 — 한쪽만 주면 나머지가 안 잡힌다.
+        assertEquals(1, InputCollector(root).collect(profileDirs = listOf(fixtures)).profiles.size)
+        assertEquals(2, InputCollector(root).collect(profileDirs = listOf(profiles)).profiles.size)
+    }
+
+    @Test
+    fun `두 디렉터리에 같은 기종이 있으면 거절한다`() {
+        // 문서의 동일성이 (vendor, model)이므로(§8.3) 조용히 하나가 이기면
+        // 다른 하나는 영영 검사되지 않는다.
+        val root = repo()
+        val one = root.resolve("one").createDirectories()
+        val two = root.resolve("two").createDirectories()
+        one.resolve("a.json").writeText(profile("acme", "same"))
+        two.resolve("b.json").writeText(profile("acme", "same"))
+
+        val error = assertFailsWith<IllegalArgumentException> {
+            InputCollector(root).collect(profileDirs = listOf(one, two))
+        }
+        assertTrue("acme/same" in error.message!!, error.message!!)
+    }
+
+    @Test
+    fun `기준선도 여럿에서 모은다`() {
+        val root = repo()
+        val dir = root.resolve("p").createDirectories()
+        dir.resolve("a.json").writeText(profile("acme", "r1"))
+        val baseA = root.resolve("base-a").createDirectories()
+        val baseB = root.resolve("base-b").createDirectories()
+        baseA.resolve("a.json").writeText(profile("acme", "r1"))
+        baseB.resolve("b.json").writeText(profile("acme", "r2"))
+
+        val input = InputCollector(root).collect(
+            profileDirs = listOf(dir),
+            baselineDirs = listOf(baseA, baseB),
+        )
+        assertEquals(2, input.baseline!!.size)
+    }
+
+    @Test
+    fun `기준선 디렉터리 하나라도 없으면 기준선이 없는 것이다`() {
+        // 일부만 읽고 빈 맵을 만들면 그쪽 프로파일이 전부 "신규"가 되어
+        // 파괴 검사가 조용히 통과한다.
+        val root = repo()
+        val dir = root.resolve("p").createDirectories()
+        dir.resolve("a.json").writeText(profile("acme", "r1"))
+        val base = root.resolve("base").createDirectories()
+        base.resolve("a.json").writeText(profile("acme", "r1"))
+
+        val input = InputCollector(root).collect(
+            profileDirs = listOf(dir),
+            baselineDirs = listOf(base, root.resolve("없는것")),
+        )
+        assertNull(input.baseline, "기준선을 반쯤 읽고 있다")
     }
 
     @Test
@@ -83,7 +157,7 @@ class InputCollectorTest {
         val base = root.resolve("base").createDirectories()
         base.resolve("전혀-다른-이름.json").writeText(profile("acme", "r1"))
 
-        val input = InputCollector(root).collect(profileDir = head, baselineDir = base)
+        val input = InputCollector(root).collect(profileDirs = listOf(head), baselineDirs = listOf(base))
 
         assertEquals(setOf(ProfileKey("acme", "r1")), input.baseline!!.keys)
     }
@@ -95,12 +169,12 @@ class InputCollectorTest {
         val head = root.resolve("head").createDirectories()
         head.resolve("x.json").writeText(profile("acme", "r1"))
 
-        assertEquals(null, InputCollector(root).collect(profileDir = head).baseline)
+        assertEquals(null, InputCollector(root).collect(profileDirs = listOf(head)).baseline)
 
         val emptyBase = root.resolve("empty-base").createDirectories()
         assertEquals(
             emptyMap(),
-            InputCollector(root).collect(profileDir = head, baselineDir = emptyBase).baseline,
+            InputCollector(root).collect(profileDirs = listOf(head), baselineDirs = listOf(emptyBase)).baseline,
         )
     }
 
@@ -117,7 +191,7 @@ class InputCollectorTest {
         base.resolve("broken.json").writeText("{ 이건 JSON이 아니다")
 
         val e = assertFailsWith<IllegalArgumentException> {
-            InputCollector(root).collect(profileDir = head, baselineDir = base)
+            InputCollector(root).collect(profileDirs = listOf(head), baselineDirs = listOf(base))
         }
         assertTrue(e.message!!.contains("기준선"))
     }
@@ -130,7 +204,7 @@ class InputCollectorTest {
         val dir = root.resolve("p").createDirectories()
         Files.write(dir.resolve("utf16.json"), profile("acme", "r1").toByteArray(Charsets.UTF_16))
 
-        val input = InputCollector(root).collect(profileDir = dir)
+        val input = InputCollector(root).collect(profileDirs = listOf(dir))
         assertEquals(1, input.malformed.size)
     }
 
@@ -141,7 +215,7 @@ class InputCollectorTest {
         head.resolve("x.json").writeText(profile("acme", "r1"))
 
         val input = InputCollector(root).collect(
-            profileDir = head,
+            profileDirs = listOf(head),
             schemaFile = root.resolve("없음.json"),
             descriptorFile = root.resolve("없음.binpb"),
         )

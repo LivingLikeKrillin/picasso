@@ -23,8 +23,12 @@ class GateCommand : CliktCommand(name = "picasso-gate") {
     private val repo by option("--repo", help = "저장소 루트")
         .path(mustExist = true).default(Path.of("."))
 
-    private val profileDir by option("--profiles", help = "프로파일 문서 디렉터리")
-        .path().default(Path.of("profile/fixtures"))
+    /**
+     * **여러 번 줄 수 있다.** §7.4가 픽스처와 실제 기종 프로파일을 다른
+     * 디렉터리에 두라고 하는데, 하나만 보면 나머지가 검사 밖에 놓인다.
+     */
+    private val profileDirs by option("--profiles", help = "프로파일 문서 디렉터리. 여러 번 줄 수 있다")
+        .path().multiple(default = listOf(Path.of("profile/fixtures"), Path.of("profile/profiles")))
 
     private val schema by option("--schema").path().default(
         Path.of("profile/schema/capability-profile.schema.json"),
@@ -34,10 +38,10 @@ class GateCommand : CliktCommand(name = "picasso-gate") {
         Path.of("contracts/build/descriptor.binpb"),
     )
 
-    private val baselineDir by option(
+    private val baselineDirs by option(
         "--baseline-dir",
-        help = "기준선 프로파일 문서 디렉터리. 호출 지점이 git에서 꺼내 놓는다",
-    ).path()
+        help = "기준선 프로파일 문서 디렉터리. 호출 지점이 git에서 꺼내 놓는다. 여러 번 줄 수 있다",
+    ).path().multiple()
 
     private val contractBaseline by option(
         "--contract-baseline",
@@ -62,10 +66,10 @@ class GateCommand : CliktCommand(name = "picasso-gate") {
         val root = repo.toAbsolutePath().normalize()
 
         val input = InputCollector(root).collect(
-            profileDir = root.resolve(profileDir),
+            profileDirs = profileDirs.map(root::resolve),
             schemaFile = root.resolve(schema),
             descriptorFile = root.resolve(descriptor),
-            baselineDir = baselineDir?.let { root.resolve(it) },
+            baselineDirs = baselineDirs.map(root::resolve),
             contractBaseline = contractBaseline,
             buf = bufCommand.takeIf { it.isNotEmpty() }?.let { ProcessBufRunner(it) },
         )
