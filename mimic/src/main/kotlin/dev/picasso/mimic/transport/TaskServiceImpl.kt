@@ -198,11 +198,37 @@ class TaskServiceImpl(
      * 시험과 운영이 서로 다른 코드로 시간을 흘리게 된다.
      */
     fun settle(hosted: RobotRegistry.Hosted) {
-        hosted.instance.tasks.tick()
-        hosted.instance.tasks.all.forEach { publish(hosted, it.taskId) }
+        // §10.5의 단일 걸음. **밀어내기는 멈추지 않는다** — 이미 생긴 전이를
+        // 열린 스트림에 안 밀면 결함이 실패가 아니라 정지로 나타난다.
+        if (!hosted.instance.singleStep) hosted.instance.tasks.tick()
+        push(hosted)
     }
 
     fun settleAll() = registry.hosted.forEach(::settle)
+
+    /**
+     * §10.5의 `Step`. 단일 걸음 중에도 **한 칸만** 돌린다.
+     *
+     * @return 이번 걸음에서 상태가 바뀐 태스크 수. 0이면 아무 일도 없었다는
+     *   뜻이고, 그것을 못 보면 호출자가 걸음이 먹혔는지 알 수 없다.
+     */
+    fun step(hosted: RobotRegistry.Hosted): Int {
+        val before = hosted.instance.tasks.all.associate { it.taskId to it.machine.state }
+        hosted.instance.tasks.tick()
+        val moved = hosted.instance.tasks.all.count { before[it.taskId] != it.machine.state }
+        push(hosted)
+        return moved
+    }
+
+    /**
+     * 시간을 안 흘리고 **이미 생긴 전이만** 열린 스트림에 민다.
+     *
+     * `ForceFault`처럼 스스로 정착하면 안 되는 것이 쓴다 — 밀어내기까지
+     * 빼면 열린 `WatchTask`가 그 전이를 통째로 놓치고 소비자는 그 자리를
+     * 결손으로 읽는다.
+     */
+    fun push(hosted: RobotRegistry.Hosted) =
+        hosted.instance.tasks.all.forEach { publish(hosted, it.taskId) }
 
     /**
      * 헤더가 권위이고 페이로드는 복사본이다(§5.5).

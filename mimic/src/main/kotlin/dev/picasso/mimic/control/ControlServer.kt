@@ -6,12 +6,21 @@ import dev.picasso.mimic.control.v1.ClockMode
 import dev.picasso.mimic.control.v1.ControlServiceGrpc
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
 import dev.picasso.mimic.control.v1.DumpInternalStateResponse
+import dev.picasso.mimic.control.v1.ForceFaultRequest
+import dev.picasso.mimic.control.v1.ForceFaultResponse
 import dev.picasso.mimic.control.v1.InternalFault
 import dev.picasso.mimic.control.v1.InternalTask
 import dev.picasso.mimic.control.v1.SetClockModeRequest
+import dev.picasso.mimic.control.v1.SetSeedRequest
+import dev.picasso.mimic.control.v1.SetSeedResponse
+import dev.picasso.mimic.control.v1.SetSingleStepRequest
+import dev.picasso.mimic.control.v1.SetSingleStepResponse
+import dev.picasso.mimic.control.v1.StepRequest
+import dev.picasso.mimic.control.v1.StepResponse
 import dev.picasso.mimic.control.v1.SetClockModeResponse
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.Reference
+import dev.picasso.mimic.engine.ForceOutcome
 import dev.picasso.mimic.engine.RealClock
 import dev.picasso.mimic.engine.VirtualClock
 import dev.picasso.mimic.transport.MimicServer
@@ -130,6 +139,92 @@ class ControlServer(
                     .build(),
             )
             observer.onCompleted()
+        }
+
+        /**
+         * 헤더 없이 기체를 찾는다(§10.5는 헤더를 안 싣는다).
+         *
+         * **못 찾으면 NOT_FOUND로 끝낸다.** 조용히 아무것도 안 하면 호출자가
+         * 주입이 먹힌 줄 알고 다음 단언으로 넘어간다.
+         */
+        private fun <T> hosted(
+            robotId: String,
+            observer: StreamObserver<T>,
+        ): RobotRegistry.Hosted? = registry.byId(robotId) ?: null.also {
+            observer.onError(
+                Status.NOT_FOUND
+                    .withDescription("호스팅하지 않는 기체다: $robotId")
+                    .asRuntimeException(),
+            )
+        }
+
+        private fun <T> reply(observer: StreamObserver<T>, value: T) {
+            observer.onNext(value)
+            observer.onCompleted()
+        }
+
+        /** §12.1 — 시드가 결정성을 만든다는 주장을 시험이 흔들어 보는 문. */
+        override fun setSeed(request: SetSeedRequest, observer: StreamObserver<SetSeedResponse>) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            hosted.instance.reseed(request.seed)
+            reply(observer, SetSeedResponse.newBuilder().setSeed(request.seed).build())
+        }
+
+        /**
+         * §10.4 ②의 명령 주입. 추첨을 기다리지 않고 결함을 지금 세운다.
+         *
+         * **정착시키지 않는다.** 여기서 tick이 돌면 `CANCELLING`이던 태스크가
+         * 같은 호출 안에서 `CANCELLED`로 넘어가 완료 기준 8b가 보려는 복구
+         * 실패의 창이 닫힌다. 판단은 엔진에 있고 여기서는 gRPC 상태로만 옮긴다.
+         */
+        override fun forceFault(
+            request: ForceFaultRequest,
+            observer: StreamObserver<ForceFaultResponse>,
+        ) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            when (val outcome = hosted.instance.tasks.forceFault(request.errorType, request.taskId)) {
+                is ForceOutcome.Raised -> reply(
+                    observer,
+                    ForceFaultResponse.newBuilder()
+                        .setRaised(outcome.raised)
+                        .setTaskState(outcome.taskState?.name.orEmpty())
+                        .build(),
+                ).also {
+                    // **정착이 아니라 밀어내기다.** 열린 스트림이 이 전이를
+                    // 놓치면 소비자는 그 자리를 결손으로 읽는다.
+                    mimic.push(hosted)
+                }
+
+                is ForceOutcome.NotFound -> observer.onError(
+                    Status.NOT_FOUND
+                        .withDescription("호스팅하지 않는 태스크다: ${outcome.taskId}")
+                        .asRuntimeException(),
+                )
+
+                is ForceOutcome.Rejected -> observer.onError(
+                    Status.FAILED_PRECONDITION
+                        .withDescription(outcome.detail)
+                        .asRuntimeException(),
+                )
+            }
+        }
+
+        override fun setSingleStep(
+            request: SetSingleStepRequest,
+            observer: StreamObserver<SetSingleStepResponse>,
+        ) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            hosted.instance.singleStep = request.enabled
+            reply(
+                observer,
+                SetSingleStepResponse.newBuilder().setEnabled(request.enabled).build(),
+            )
+        }
+
+        /** **[MimicServer.step]으로 내려온다** — [advanceClock]과 같은 이유다. */
+        override fun step(request: StepRequest, observer: StreamObserver<StepResponse>) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            reply(observer, StepResponse.newBuilder().setMoved(mimic.step(hosted)).build())
         }
 
         /**

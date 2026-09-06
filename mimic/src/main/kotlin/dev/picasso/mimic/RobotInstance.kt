@@ -104,6 +104,15 @@ class RobotInstance(
      */
     val faults: FaultRegistry = FaultRegistry(clock)
 
+    /**
+     * §10.5의 `SetSingleStep`. 켜면 **RPC 진입이 `tick()`을 돌리지 않는다** —
+     * 걸음을 사람이 센다.
+     *
+     * 밀어내기까지 멈추지는 않는다. 열린 스트림에 이미 생긴 전이를 안 밀면
+     * 결함이 실패가 아니라 **정지**로 나타난다.
+     */
+    var singleStep: Boolean = false
+
     /** 이 기체가 호스팅하는 태스크들(§4.4). */
     val tasks: TaskHost = TaskHost(capability, document, clock, events, faults, random)
 

@@ -76,7 +76,7 @@ class TaskTickTest {
                     val task = tasks.find("t1")!!
                     if (from != EngineState.ACCEPTED) {
                         tasks.tick()
-                        driveTo(task, from)
+                        TaskMachineFixtures.driveTo(task, from)
                     }
                     check(task.machine.state == from) { "$from 로 몰지 못했다: ${task.machine.state}" }
 
@@ -158,23 +158,6 @@ class TaskTickTest {
         host.tick()
         assertEquals(EngineState.SUCCEEDED, host.find("t1")!!.log.last!!.state)
         assertEquals(1.0, host.find("t1")!!.log.last!!.progress)
-    }
-
-    private fun driveTo(task: dev.picasso.mimic.engine.TaskRuntime, target: EngineState) {
-        val m = task.machine
-        when (target) {
-            EngineState.ACCEPTED, EngineState.RUNNING -> Unit
-            EngineState.PAUSED -> m.apply(TaskCommand.PAUSE)
-            EngineState.CANCELLING -> m.apply(TaskCommand.CANCEL)
-            EngineState.RETRIABLE -> m.onSkillHalted(Resolution.SELF_RETRIABLE)
-            EngineState.NEEDS_INTERVENTION -> m.onSkillHalted(Resolution.NEEDS_INTERVENTION)
-            EngineState.FAILED -> m.onSkillHalted(Resolution.TERMINAL)
-            EngineState.SUCCEEDED -> m.onSkillComplete()
-            EngineState.CANCELLED -> { m.apply(TaskCommand.CANCEL); m.onRecoveryComplete() }
-            EngineState.CANCELLED_RECOVERY_FAILED -> {
-                m.apply(TaskCommand.CANCEL); m.onSkillHalted(Resolution.TERMINAL)
-            }
-        }
     }
 }
 

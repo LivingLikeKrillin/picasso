@@ -15,6 +15,16 @@ class TaskRuntime(
     val log = TaskLog()
 }
 
+/** §10.5의 `ForceFault` 결과. */
+sealed interface ForceOutcome {
+    /** @param taskState 전파가 보낸 곳. 로봇 수준이면 `null`. */
+    data class Raised(val raised: Boolean, val taskState: TaskState?) : ForceOutcome
+
+    data class NotFound(val taskId: String) : ForceOutcome
+
+    data class Rejected(val detail: String) : ForceOutcome
+}
+
 /** `StartTask`의 결과. §4.4의 두 표와 §5.3·§10.4 ③의 판정이 여기 모인다. */
 sealed interface StartOutcome {
     /** 새 태스크이거나 갱신을 받아들였다. */
@@ -262,6 +272,69 @@ class TaskHost(
         }
     }
 
+    /**
+     * §10.5의 `ForceFault`. 프로파일이 선언한 실패 모드 하나를 **지금** 세운다.
+     *
+     * **선언되지 않은 `error_type`은 거절한다.** §4.5 전파 규칙 1의 입력인
+     * `resolution`이 프로파일에서만 오므로, 허용하면 태스크 종착 판정이
+     * 미정의가 된다. 어댑터 전용 둘(`TERMINAL_STATE_VIOLATED`·
+     * `CONTROL_AUTHORITY_LOST`)은 스키마의 enum에서 빠져 있어 프로파일에
+     * 있을 수 없고, 따라서 이 문으로도 못 들어온다 — 전용 RPC가 따로 있다.
+     *
+     * **등급은 모드가 정하고, `taskId`는 어디로 전파할지를 정한다.** 스킬
+     * 수준 모드(`skill_type`이 있다)는 `taskId`가 필수이며 그 태스크의 스킬이
+     * 모드가 지목한 스킬이어야 한다 — 아니면 결함의 `skill_id`와 태스크의
+     * 스킬이 어긋난 것이 나간다. 로봇 수준 모드는 `taskId`가 선택이다.
+     *
+     * **정착시키지 않는다.** 여기서 `tick()`을 부르면 `CANCELLING`이던
+     * 태스크가 같은 호출 안에서 `CANCELLED`로 넘어가, 완료 기준 8b가 보려는
+     * 복구 실패의 창이 닫힌다.
+     */
+    fun forceFault(errorType: String, taskId: String): ForceOutcome {
+        val mode = document.failureModes.firstOrNull { it.errorType == errorType }
+            ?: return ForceOutcome.Rejected(
+                "프로파일이 선언하지 않은 error_type이다: $errorType " +
+                    "(선언된 것: ${document.failureModes.map { it.errorType }})",
+            )
+
+        val task = when {
+            taskId.isEmpty() && mode.skillType != null -> return ForceOutcome.Rejected(
+                "스킬 수준 모드는 task_id가 필요하다: $errorType (${mode.skillType})",
+            )
+            taskId.isEmpty() -> null
+            else -> tasks[taskId] ?: return ForceOutcome.NotFound(taskId)
+        }
+
+        if (task != null) {
+            if (mode.skillType != null && mode.skillType != task.skillType) {
+                return ForceOutcome.Rejected(
+                    "모드가 지목한 스킬과 태스크의 스킬이 다르다: " +
+                        "${mode.skillType} != ${task.skillType}",
+                )
+            }
+            // **종착 넷은 래치되어 있고**(§4.4), `ACCEPTED`는 스킬 인스턴스가
+            // 없어 §4.5의 대응표에 halt가 없다. `RETRIABLE`·
+            // `NEEDS_INTERVENTION`도 스킬이 `READY`라 정지시킬 것이 없다.
+            if (task.machine.state !in FAULTABLE) {
+                return ForceOutcome.Rejected(
+                    "${task.machine.state} 에서는 결함을 받지 않는다(받는 상태: $FAULTABLE)",
+                )
+            }
+        }
+
+        // **결함을 먼저 올리고 알린 뒤에 태스크를 보낸다** — tick()과 같은
+        // 순서다. 원인이 결과보다 먼저 나가야 소비자가 원인 없는 실패를
+        // 보지 않는다.
+        val fault = FailureDraw.faultOf(mode, task?.skillType.orEmpty(), taskId)
+        val raised = faults.raise(fault)?.also { listener.onFault(it, cleared = false) } != null
+
+        if (task != null) {
+            task.machine.onSkillHalted(FailureDraw.resolutionOf(mode.resolution))
+            record(task)
+        }
+        return ForceOutcome.Raised(raised, task?.machine?.state)
+    }
+
     /** 현재 상태를 로그에 한 줄 적는다. */
     fun record(task: TaskRuntime): TaskUpdate = task.log.record(
         state = task.machine.state,
@@ -285,6 +358,17 @@ class TaskHost(
      * 인출 수가 프로파일에 달리는 것은 괜찮다 — 프로파일이 입력이다.
      * 안 되는 것은 인출 수가 **관측**에 달리는 것이다.
      */
+    private companion object {
+        /**
+         * `ForceFault`를 받는 태스크 상태(§4.5의 대응표).
+         *
+         * **열 중 셋이다.** 종착 넷은 래치되어 있고, `ACCEPTED`는 스킬
+         * 인스턴스가 아직 없으며, `RETRIABLE`·`NEEDS_INTERVENTION`은 스킬이
+         * `READY`라 정지시킬 것이 없다.
+         */
+        val FAULTABLE = setOf(TaskState.RUNNING, TaskState.PAUSED, TaskState.CANCELLING)
+    }
+
     private fun durationOf(skillType: String): Double {
         val entry = document.durations.firstOrNull { it.skillType == skillType }
         // 프로파일이 소요시간을 선언하지 않은 스킬은 즉시 끝나는 것으로

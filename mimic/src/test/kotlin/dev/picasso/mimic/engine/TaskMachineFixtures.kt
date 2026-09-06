@@ -118,6 +118,30 @@ object TaskMachineFixtures {
         error("인출 수를 $limit 안에서 못 셌다")
     }
 
+    /**
+     * `RUNNING`인 태스크를 [target] 상태로 민다.
+     *
+     * **`at()`과 다르다.** 저것은 임의 상태의 기체를 **만드는** 문이고,
+     * 이것은 이미 호스팅 중인 태스크를 실제 전이로 **몬다** — 그래서 표면
+     * 시험이 상태 열 개를 도는 데 쓸 수 있다.
+     */
+    fun driveTo(task: TaskRuntime, target: TaskState) {
+        val m = task.machine
+        when (target) {
+            TaskState.ACCEPTED, TaskState.RUNNING -> Unit
+            TaskState.PAUSED -> m.apply(TaskCommand.PAUSE)
+            TaskState.CANCELLING -> m.apply(TaskCommand.CANCEL)
+            TaskState.RETRIABLE -> m.onSkillHalted(Resolution.SELF_RETRIABLE)
+            TaskState.NEEDS_INTERVENTION -> m.onSkillHalted(Resolution.NEEDS_INTERVENTION)
+            TaskState.FAILED -> m.onSkillHalted(Resolution.TERMINAL)
+            TaskState.SUCCEEDED -> m.onSkillComplete()
+            TaskState.CANCELLED -> { m.apply(TaskCommand.CANCEL); m.onRecoveryComplete() }
+            TaskState.CANCELLED_RECOVERY_FAILED -> {
+                m.apply(TaskCommand.CANCEL); m.onSkillHalted(Resolution.TERMINAL)
+            }
+        }
+    }
+
     /** 시험용 파라미터 값. 계약 타입이 하나뿐인 표현이다. */
     fun param(key: String, value: String): ParameterValue =
         ParameterValue.newBuilder().setKey(key).setStringValue(value).build()

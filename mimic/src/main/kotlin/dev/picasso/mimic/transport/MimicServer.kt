@@ -41,6 +41,22 @@ class MimicServer(private val registry: RobotRegistry, builder: ServerBuilder<*>
     /** 시계를 건드리지 않고 전이만 반영해 민다. */
     fun settle() = taskService.settleAll()
 
+    /**
+     * §10.5의 `Step`. 한 기체를 한 칸 돌린다.
+     *
+     * **제어 채널도 이 문으로 지난다** — [advance]와 같은 이유다. 따로
+     * 만들면 시험과 운영이 서로 다른 코드로 상태를 움직이게 되고, 밀어내기를
+     * 빠뜨리면 열린 스트림이 멈춘다.
+     */
+    fun step(hosted: RobotRegistry.Hosted): Int = taskService.step(hosted)
+
+    /**
+     * 시간을 안 흘리고 이미 생긴 전이만 민다. `ForceFault`가 쓴다 —
+     * 정착시키면 `CANCELLING` 창이 닫히고, 안 밀면 열린 스트림이 그 전이를
+     * 통째로 놓친다.
+     */
+    fun push(hosted: RobotRegistry.Hosted) = taskService.push(hosted)
+
     val port: Int get() = server.port
 
     fun start(): MimicServer = apply { server.start() }
