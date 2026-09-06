@@ -114,7 +114,9 @@ class TaskTickTest {
     @Test
     fun `두 태스크가 서로 다른 소요시간으로 완주한다`() {
         // 소요시간을 상수로 하드코딩한 구현을 잡는다.
-        // navigate_to 20초, pick_place 45초.
+        // navigate_to 20초(지터 없음), pick_place 45초 ±10% → 40.5..49.5초.
+        // **경계를 45초로 잡지 않는다** — 지터가 붙은 뒤로 그 값은 절반만
+        // 넘는다(§10.4 ②).
         startNavigate("nav")
         fixture.tasks.startTask(
             StartTaskRequest.newBuilder()
@@ -134,7 +136,7 @@ class TaskTickTest {
         assertEquals(EngineState.SUCCEEDED, host.find("nav")!!.machine.state)
         assertEquals(EngineState.RUNNING, host.find("pick")!!.machine.state)
 
-        clock.advance(Duration.ofSeconds(25))
+        clock.advance(Duration.ofSeconds(30))
         host.tick()
         assertEquals(EngineState.SUCCEEDED, host.find("pick")!!.machine.state)
     }

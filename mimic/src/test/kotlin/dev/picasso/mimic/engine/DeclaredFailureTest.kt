@@ -143,7 +143,7 @@ class FailureDrawTest {
 
         val drawn = Seeded(11)
         assertNull(draw.drawFor("navigate_to", drawn), "전제가 무너졌다 — 걸려 버렸다")
-        assertEquals(nav.size, drawsBetween(Seeded(11), drawn), "인출 수가 해당 모드 수와 다르다")
+        assertEquals(nav.size, TaskMachineFixtures.drawsBetween(Seeded(11), drawn), "인출 수가 해당 모드 수와 다르다")
     }
 
     @Test
@@ -161,7 +161,7 @@ class FailureDrawTest {
 
         val drawn = Seeded(0)
         assertEquals("SKILL_EXECUTION_FAILED", hot.drawFor("pick_place", drawn)?.errorType)
-        assertEquals(1, drawsBetween(Seeded(0), drawn), "걸리고도 나머지를 뽑았다")
+        assertEquals(1, TaskMachineFixtures.drawsBetween(Seeded(0), drawn), "걸리고도 나머지를 뽑았다")
     }
 
     @Test
@@ -545,15 +545,6 @@ private fun zeroRateDocument(): ProfileDocument {
     check(document.failureModes.isNotEmpty()) { "모드가 통째로 사라졌다" }
     check(document.failureModes.all { it.rate == 0.0 }) { "파싱된 rate가 0이 아니다" }
     return document
-}
-
-/** 시작 시점의 [Seeded]와 [used]를 견줘 인출 횟수를 센다. */
-private fun drawsBetween(fresh: Seeded, used: Seeded, limit: Int = 32): Int {
-    val target = used.fraction()
-    repeat(limit) { n ->
-        if (fresh.fraction() == target) return n
-    }
-    error("인출 수를 $limit 안에서 못 셌다")
 }
 
 private fun schemaText(): String = Files.readString(

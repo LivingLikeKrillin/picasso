@@ -125,6 +125,10 @@ class AllModelsTest {
         // 모드를 선언하면 완주 시험이 빨개지는데, 그 빨강만으로는 협상이
         // 틀렸는지 실패를 뽑았는지 모른다.
         //
+        // 같은 `Seeded`를 **지터도** 쓴다(§10.4 ② — 태스크 생성마다 한 번,
+        // `jitter_ratio`가 0이면 0번). 그래서 실패 추첨이 몇 번째 인출이냐가
+        // 기종마다 다르다. [EARLY]를 넉넉히 잡아 그 차이를 덮는다.
+        //
         // **`navigate_to`만 보지 않는다.** 이 파일의 시나리오는 그것 하나를
         // 완주시키지만 같은 시드 위에 선 하네스 스위트가 더 있다
         // (`ReconstructionTest`·`CapabilityDifferenceTest`가 `inspect`와

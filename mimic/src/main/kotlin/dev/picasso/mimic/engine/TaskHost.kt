@@ -206,9 +206,13 @@ class TaskHost(
                     record(task)
                 }
 
-                // **추첨 지점은 여기 하나다.** 다른 데 두면 뽑는 횟수가
+                // **실패 추첨 지점은 여기 하나다.** 다른 데 두면 뽑는 횟수가
                 // 관측 횟수에 달리고(모든 RPC가 tick을 부른다) 소비자가
                 // 보는 것이 결과를 바꾼다 — §12.1이 깨지는 자리다.
+                //
+                // 같은 `Seeded`를 쓰는 인출이 하나 더 있다 — [durationOf]의
+                // 지터다. 그쪽은 **태스크 생성 때 한 번**이므로 순서는
+                // "태스크마다 지터 한 번, 완주할 때 실패 한 번"이다.
                 TaskState.RUNNING -> if (task.machine.progress() >= 1.0) {
                     val failure = draw.drawFor(task.skillType, random)
                     if (failure == null) {
@@ -267,9 +271,25 @@ class TaskHost(
         occurredAt = clock.now(),
     )
 
-    private fun durationOf(skillType: String): Double =
-        document.durations.firstOrNull { it.skillType == skillType }?.seconds
+    /**
+     * 이 태스크가 얼마나 걸릴지. §10.4 ②의 소요시간 지터가 여기서 붙는다.
+     *
+     * **태스크 생성 때 한 번만 뽑는다** — [start]가 새 기체를 세울 때만
+     * 부르기 때문이다. 진행률을 물을 때마다 뽑으면 **관측이 소요시간을
+     * 바꾸고**(§12.1), 갱신마다 뽑으면 같은 revision을 다시 보내는 멱등
+     * 재전송이 소요시간을 바꾼다(§4.4가 그것을 같은 핸들이라고 못박았다).
+     * 재시도로 스킬이 다시 서도 다시 뽑지 않는다 — 프로파일은 **스킬당**
+     * 소요시간을 선언하지 시도당 소요시간을 선언하지 않는다.
+     *
+     * `jitter_ratio`가 0이면 [Seeded.jitter]가 난수를 건드리지 않는다.
+     * 인출 수가 프로파일에 달리는 것은 괜찮다 — 프로파일이 입력이다.
+     * 안 되는 것은 인출 수가 **관측**에 달리는 것이다.
+     */
+    private fun durationOf(skillType: String): Double {
+        val entry = document.durations.firstOrNull { it.skillType == skillType }
         // 프로파일이 소요시간을 선언하지 않은 스킬은 즉시 끝나는 것으로
         // 두지 않는다 — 그러면 진행률이 관측 불가능해진다.
             ?: error("프로파일이 소요시간을 선언하지 않았다: $skillType")
+        return random.jitter(entry.seconds, entry.jitterRatio)
+    }
 }

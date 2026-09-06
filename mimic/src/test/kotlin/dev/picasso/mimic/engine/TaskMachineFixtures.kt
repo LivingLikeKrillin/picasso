@@ -103,6 +103,21 @@ object TaskMachineFixtures {
     /** 합성 기체의 소요시간. 프로파일에서 오는 것은 [forSkill]이 본다. */
     const val SYNTHETIC_DURATION = 45.0
 
+    /**
+     * 시작 시점의 [Seeded]와 [used]를 견줘 **인출 횟수**를 센다.
+     *
+     * 표면이 아니라 **소비량**을 보는 것이 요점이다 — 같은 결과를 내면서
+     * 인출 수만 다른 구현(조기 종료 제거, 해당 없는 모드까지 추첨, 지터를
+     * 관측마다 다시 뽑기)은 결과를 보는 시험으로는 영영 안 잡힌다.
+     */
+    fun drawsBetween(fresh: Seeded, used: Seeded, limit: Int = 32): Int {
+        val target = used.fraction()
+        repeat(limit) { n ->
+            if (fresh.fraction() == target) return n
+        }
+        error("인출 수를 $limit 안에서 못 셌다")
+    }
+
     /** 시험용 파라미터 값. 계약 타입이 하나뿐인 표현이다. */
     fun param(key: String, value: String): ParameterValue =
         ParameterValue.newBuilder().setKey(key).setStringValue(value).build()
