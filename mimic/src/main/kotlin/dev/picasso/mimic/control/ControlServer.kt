@@ -6,9 +6,12 @@ import dev.picasso.mimic.control.v1.ClockMode
 import dev.picasso.mimic.control.v1.ControlServiceGrpc
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
 import dev.picasso.mimic.control.v1.DumpInternalStateResponse
+import dev.picasso.mimic.control.v1.InternalFault
 import dev.picasso.mimic.control.v1.InternalTask
 import dev.picasso.mimic.control.v1.SetClockModeRequest
 import dev.picasso.mimic.control.v1.SetClockModeResponse
+import dev.picasso.contracts.v1.Fault
+import dev.picasso.contracts.v1.Reference
 import dev.picasso.mimic.engine.RealClock
 import dev.picasso.mimic.engine.VirtualClock
 import dev.picasso.mimic.transport.MimicServer
@@ -173,9 +176,34 @@ class ControlServer(
                                 .build()
                         },
                     )
+                    // **레지스트리를 직접 읽는다.** GetSnapshot 이 쓰는
+                    // 코드를 거치면 8b·8c·8d가 투영을 투영과 비교하게 된다.
+                    .addAllFaults(instance.faults.active().map(::flatten))
                     .build(),
             )
             observer.onCompleted()
         }
+
+        /**
+         * 계약의 `Fault`를 스칼라로 편다.
+         *
+         * 결함은 태스크 상태와 달리 엔진 쪽 표현이 따로 없다 — 레지스트리가
+         * 드는 것이 계약의 타입 그 자체다. 그래도 펴서 싣는 이유는 같다:
+         * `Fault`를 `Fault`와 비교하면 투영이 필드를 빠뜨려도 양쪽이 똑같이
+         * 빠뜨린다. 여기서 하나씩 펴 두면 그 자리가 벌어진다.
+         */
+        private fun flatten(fault: Fault): InternalFault = InternalFault.newBuilder()
+            .setErrorType(fault.errorType)
+            .setCanContinueCurrentTask(fault.canContinueCurrentTask)
+            .setCanAcceptNewTask(fault.canAcceptNewTask)
+            .setLifetimeKind(fault.activeUntil.kind.name)
+            .setLifetimeUntil(fault.activeUntil.until)
+            .setSkillId(reference(fault, Reference.Key.KEY_SKILL_ID))
+            .setTaskId(reference(fault, Reference.Key.KEY_TASK_ID))
+            .setErrorHint(fault.errorHint)
+            .build()
+
+        private fun reference(fault: Fault, key: Reference.Key): String =
+            fault.referencesList.firstOrNull { it.key == key }?.value.orEmpty()
     }
 }

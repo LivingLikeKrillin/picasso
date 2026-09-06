@@ -63,6 +63,33 @@ message InternalTask {
   uint64 log_size = 8;
 }
 
+// 기체가 지금 안고 있는 결함 하나(설계 §4.6).
+//
+// **여기서는 "엔진 어휘"라는 말이 InternalTask만큼 강하지 않다.** 결함
+// 레지스트리가 드는 것이 계약의 `Fault` 그 자체이기 때문이다 — 태스크 상태와
+// 달리 엔진 쪽 표현이 따로 없다. 그래도 스칼라로 펴서 싣는 이유는 같다:
+// 시험이 `GetSnapshot`이 만든 `Fault`를 **같은 코드가 만든 `Fault`**와
+// 비교하면 그 코드가 틀려도 양쪽이 똑같이 틀린다. 여기서는 레지스트리를
+// 직접 읽고 필드를 하나씩 펴므로, 투영이 필드를 빠뜨리면 그 자리가 벌어진다.
+message InternalFault {
+  string error_type = 1;
+  bool can_continue_current_task = 2;
+  bool can_accept_new_task = 3;
+
+  // Lifetime.Kind 의 이름. 빈 문자열이 아니다 — UNSPECIFIED도 이름이 있다.
+  string lifetime_kind = 4;
+
+  // RFC3339. lifetime_kind 가 UNTIL_TIMESTAMP 일 때만 찬다.
+  string lifetime_until = 5;
+
+  // references 를 편 것. 없으면 빈 문자열이고, **그것이 로봇 수준이라는
+  // 뜻이다**(§4.6 — 등급을 별도 컬렉션으로 나누지 않는다).
+  string skill_id = 6;
+  string task_id = 7;
+
+  string error_hint = 8;
+}
+
 message DumpInternalStateResponse {
   string robot_id = 1;
   string session_id = 2;
@@ -73,14 +100,68 @@ message DumpInternalStateResponse {
   uint64 capability_epoch = 4;
   repeated InternalTask tasks = 5;
   uint64 buffered_events = 6;
+
+  // 발생 순서를 지킨다. 소비자가 이벤트로 본 순서와 달라지면 재구성한
+  // 목록과 대조할 수 없다.
+  repeated InternalFault faults = 7;
 }
 
-// §10.5의 열셋 중 셋이 지금 있다. 나머지 열은 6b가 더하며 **이름을 지금
-// 못박는다** — 이 파일은 buf breaking 밖이라 나중에 바꿔도 아무도 안 잡는다.
+message SetSeedRequest {
+  string robot_id = 1;
+  int64 seed = 2;
+}
+
+message SetSeedResponse {
+  int64 seed = 1;
+}
+
+// §10.5. 프로파일이 선언한 실패 모드 하나를 **지금** 일으킨다.
 //
-//   SetSeed · ForceFault · SetSingleStep · Step · InjectTransportFault
-//   SetConnection · RemoveCapability · RestoreCapability
-//   ForceTerminalViolation · ForceControlAuthorityLoss
+// **선언되지 않은 error_type은 거절한다** — §4.5 전파 규칙 1의 입력인
+// resolution이 프로파일에서만 오므로, 허용하면 태스크 종착 판정이 미정의가
+// 된다. 어댑터 전용 둘(TERMINAL_STATE_VIOLATED·CONTROL_AUTHORITY_LOST)도
+// 여기로 못 들어온다 — 전용 RPC가 따로 있다.
+message ForceFaultRequest {
+  string robot_id = 1;
+  string error_type = 2;
+
+  // 비우면 로봇 수준이다. 채우면 그 태스크가 §4.5 전파 규칙 1을 탄다.
+  string task_id = 3;
+}
+
+message ForceFaultResponse {
+  // 실제로 새로 선 결함이면 참. 이미 같은 결함이 있었으면 거짓이다(§4.6 —
+  // 같은 결함을 두 번 내면 소비자의 목록이 부푼다).
+  bool raised = 1;
+
+  // 결함이 태스크를 보낸 곳. 로봇 수준이면 빈 문자열이다.
+  string task_state = 2;
+}
+
+message SetSingleStepRequest {
+  string robot_id = 1;
+  bool enabled = 2;
+}
+
+message SetSingleStepResponse {
+  bool enabled = 1;
+}
+
+message StepRequest {
+  string robot_id = 1;
+}
+
+message StepResponse {
+  // 이번 걸음에서 상태가 바뀐 태스크 수.
+  uint32 moved = 1;
+}
+
+// §10.5의 열셋 중 일곱이 지금 있다. 나머지 여섯은 6b Task 6·7과 6c가
+// 더하며 **이름을 지금 못박는다** — 이 파일은 buf breaking 밖이라 나중에
+// 바꿔도 아무도 안 잡는다.
+//
+//   InjectTransportFault · SetConnection · RemoveCapability
+//   RestoreCapability · ForceTerminalViolation · ForceControlAuthorityLoss
 service ControlService {
   rpc SetClockMode(SetClockModeRequest) returns (SetClockModeResponse);
   rpc AdvanceClock(AdvanceClockRequest) returns (AdvanceClockResponse);
@@ -88,4 +169,14 @@ service ControlService {
   // §12.2의 A-2 오라클. 없으면 "재구성한 상태가 내부 상태와 일치"를 확인할
   // 방법이 GetSnapshot뿐인데 그것은 계약 표면의 투영이라 순환이 된다.
   rpc DumpInternalState(DumpInternalStateRequest) returns (DumpInternalStateResponse);
+
+  // §12.1 — 시드가 결정성을 만든다는 주장을 시험이 흔들어 보는 문이다.
+  rpc SetSeed(SetSeedRequest) returns (SetSeedResponse);
+
+  // §10.4 ②의 명령 주입. 추첨을 기다리지 않고 결함을 지금 세운다.
+  rpc ForceFault(ForceFaultRequest) returns (ForceFaultResponse);
+
+  // 걸음을 사람이 센다. 켜면 RPC 진입이 tick을 돌리지 않고 Step만 돌린다.
+  rpc SetSingleStep(SetSingleStepRequest) returns (SetSingleStepResponse);
+  rpc Step(StepRequest) returns (StepResponse);
 }

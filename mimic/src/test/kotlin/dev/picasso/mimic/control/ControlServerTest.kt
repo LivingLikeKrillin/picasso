@@ -1,12 +1,16 @@
 package dev.picasso.mimic.control
 
+import dev.picasso.contracts.v1.Fault
+import dev.picasso.contracts.v1.Lifetime
 import dev.picasso.contracts.v1.ParameterValue
+import dev.picasso.contracts.v1.Reference
 import dev.picasso.mimic.RobotInstance
 import dev.picasso.mimic.control.v1.AdvanceClockRequest
 import dev.picasso.mimic.control.v1.ClockMode
 import dev.picasso.mimic.control.v1.ControlServiceGrpc
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
 import dev.picasso.mimic.control.v1.SetClockModeRequest
+import dev.picasso.mimic.engine.FailureDraw
 import dev.picasso.mimic.engine.RealClock
 import dev.picasso.mimic.engine.TaskMachineFixtures
 import dev.picasso.mimic.engine.VirtualClock
@@ -190,6 +194,124 @@ class ControlServerTest {
             stub.dumpInternalState(DumpInternalStateRequest.newBuilder().setRobotId("r9").build())
         }
         assertEquals(Status.Code.NOT_FOUND, error.status.code)
+    }
+
+    // ── 결함 오라클 (완료 기준 8b·8c·8d가 이것 위에 선다)
+
+    private fun fault(
+        errorType: String,
+        skillId: String = "",
+        taskId: String = "",
+        hint: String = "",
+        kind: Lifetime.Kind = Lifetime.Kind.KIND_UNTIL_CLEARED,
+        until: String = "",
+    ): Fault = Fault.newBuilder()
+        .setErrorType(errorType)
+        .setCanContinueCurrentTask(false)
+        .setCanAcceptNewTask(true)
+        .setErrorHint(hint)
+        .setActiveUntil(Lifetime.newBuilder().setKind(kind).setUntil(until))
+        .also { builder ->
+            if (skillId.isNotEmpty()) {
+                builder.addReferences(
+                    Reference.newBuilder().setKey(Reference.Key.KEY_SKILL_ID).setValue(skillId),
+                )
+            }
+            if (taskId.isNotEmpty()) {
+                builder.addReferences(
+                    Reference.newBuilder().setKey(Reference.Key.KEY_TASK_ID).setValue(taskId),
+                )
+            }
+        }
+        .build()
+
+    @Test
+    fun `결함이 없으면 목록이 빈다`() {
+        // 아래 시험들의 전제다. 덤프가 언제나 무언가를 실으면 "실렸다"가
+        // 아무것도 뜻하지 않는다.
+        assertEquals(emptyList(), dump().faultsList)
+    }
+
+    @Test
+    fun `덤프가 결함을 스칼라로 편다`() {
+        // **`Fault`를 `Fault`와 비교하지 않는다.** 투영이 필드를 빠뜨리면
+        // 양쪽이 똑같이 빠뜨려 초록이다. 하나씩 펴 두면 그 자리가 벌어진다.
+        registry.byId("r1")!!.instance.faults.raise(
+            fault(
+                "PAYLOAD_LOST",
+                skillId = "pick_place",
+                taskId = "t1",
+                hint = "떨어뜨린 대상을 회수하십시오.",
+                kind = Lifetime.Kind.KIND_UNTIL_TIMESTAMP,
+                until = "2026-09-06T00:05:00Z",
+            ),
+        )
+
+        val flat = dump().faultsList.single()
+        assertEquals("PAYLOAD_LOST", flat.errorType)
+        assertEquals(false, flat.canContinueCurrentTask)
+        assertEquals(true, flat.canAcceptNewTask)
+        assertEquals("KIND_UNTIL_TIMESTAMP", flat.lifetimeKind)
+        assertEquals("2026-09-06T00:05:00Z", flat.lifetimeUntil)
+        assertEquals("pick_place", flat.skillId)
+        assertEquals("t1", flat.taskId)
+        assertEquals("떨어뜨린 대상을 회수하십시오.", flat.errorHint)
+    }
+
+    @Test
+    fun `로봇 수준은 skill_id가 빈 것으로 갈린다`() {
+        // §4.6 — 등급을 별도 컬렉션으로 나누지 않는다. `references`가 말한다.
+        val faults = registry.byId("r1")!!.instance.faults
+        faults.raise(fault("SKILL_EXECUTION_FAILED", skillId = "pick_place", taskId = "t1"))
+        faults.raise(fault("LOCALIZATION_LOST"))
+
+        val flat = dump().faultsList.associateBy { it.errorType }
+        assertEquals(2, flat.size)
+        assertEquals("pick_place", flat.getValue("SKILL_EXECUTION_FAILED").skillId)
+        assertEquals("", flat.getValue("LOCALIZATION_LOST").skillId)
+        assertEquals("", flat.getValue("LOCALIZATION_LOST").taskId)
+    }
+
+    @Test
+    fun `덤프의 결함 순서가 발생 순서다`() {
+        // 소비자가 이벤트로 본 순서와 오라클의 순서가 다르면 재구성한 목록과
+        // 대조할 수 없다 — 완료 기준 2의 비교가 거기서 어긋난다.
+        val faults = registry.byId("r1")!!.instance.faults
+        listOf("LOCALIZATION_LOST", "PAYLOAD_LOST", "INTERNAL_ERROR").forEach {
+            faults.raise(fault(it))
+        }
+        assertEquals(
+            listOf("LOCALIZATION_LOST", "PAYLOAD_LOST", "INTERNAL_ERROR"),
+            dump().faultsList.map { it.errorType },
+        )
+    }
+
+    @Test
+    fun `덤프가 계약의 Fault를 빠짐없이 편다`() {
+        // **계약이 자라면 여기가 빨개져야 한다.** 안 그러면 새 필드가 조용히
+        // 오라클 밖으로 떨어지고, 그 필드를 잃어버리는 투영은 영영 안 잡힌다.
+        assertEquals(
+            listOf(
+                "error_type",
+                "can_continue_current_task",
+                "can_accept_new_task",
+                "references",
+                "error_hint",
+                "active_until",
+            ),
+            Fault.getDescriptor().fields.map { it.name },
+            "계약의 Fault가 바뀌었다 — InternalFault와 flatten()을 함께 고쳐라",
+        )
+
+        // `references`는 키가 다섯인데 둘만 편다. 엔진이 그 둘만 붙이기
+        // 때문이며, 그 사실 자체를 못박는다.
+        assertEquals(
+            setOf(Reference.Key.KEY_SKILL_ID, Reference.Key.KEY_TASK_ID),
+            FailureDraw
+                .faultOf(TaskMachineFixtures.document().failureModes.first(), "pick_place", "t1")
+                .referencesList.map { it.key }.toSet(),
+            "엔진이 다른 키를 붙이기 시작했다 — flatten()이 그것을 잃는다",
+        )
     }
 
     // ── 바인딩 (§6.3)
