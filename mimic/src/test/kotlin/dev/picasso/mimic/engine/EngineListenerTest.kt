@@ -43,7 +43,7 @@ class EngineListenerTest {
     private val clock = VirtualClock(Instant.EPOCH)
 
     private fun host(document: ProfileDocument = TaskMachineFixtures.document()) =
-        TaskHost(CapabilityProjection.of(document), document, clock, listener)
+        TaskHost(CapabilityProjection.of(document), document, clock, listener, random = Seeded(0))
 
     private fun location(value: String = "dock-3") =
         ParameterValue.newBuilder().setKey("location").setStringValue(value).build()
@@ -236,7 +236,7 @@ class EngineListenerTest {
     fun `기본 리스너는 아무것도 안 한다`() {
         // 엔진 시험이 리스너를 몰라도 돌아야 한다.
         val document = TaskMachineFixtures.document()
-        val tasks = TaskHost(CapabilityProjection.of(document), document, clock)
+        val tasks = TaskHost(CapabilityProjection.of(document), document, clock, random = Seeded(0))
         tasks.start("t1", 1, "navigate_to", listOf(location()))
         tasks.tick()
         assertEquals(TaskState.RUNNING, tasks.find("t1")!!.machine.state)

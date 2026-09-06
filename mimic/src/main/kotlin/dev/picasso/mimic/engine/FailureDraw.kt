@@ -26,6 +26,14 @@ import dev.picasso.profile.ProfileDocument
  *
  * 이 넷 중 하나라도 바뀌면 같은 시드가 다른 것을 낸다. 골든이 통째로 흔들리는
  * 자리이므로 여기 적어 둔다.
+ *
+ * ## 아직 이 스트림을 쓰는 것이 여기뿐이다
+ *
+ * §10.3은 시드에서 **둘**이 나온다고 했다 — 실패 추첨과 **소요시간 지터**다.
+ * 지터는 아직 배선되지 않았다(`Seeded.jitter`의 프로덕션 호출자가 0이다).
+ * **배선하는 순간 같은 `Seeded`에 끼어들어 추첨 스트림이 통째로 밀린다.**
+ * 그때 이 파일의 골든과 하네스의 시드 가정이 전부 흔들리므로, 지터를 붙이는
+ * 사람은 그 둘을 같은 커밋에서 고쳐야 한다.
  */
 class FailureDraw(private val document: ProfileDocument) {
 
@@ -75,14 +83,29 @@ class FailureDraw(private val document: ProfileDocument) {
                     },
                 ),
             )
-            // 스킬 수준 결함이다 — 어느 스킬이 문제인지 소비자가 알아야
-            // "이동은 되는데 조작만 안 되는" 상태를 표현할 수 있다(§4.6).
-            .addReferences(
-                Reference.newBuilder().setKey(Reference.Key.KEY_SKILL_ID).setValue(skillType),
-            )
-            .addReferences(
-                Reference.newBuilder().setKey(Reference.Key.KEY_TASK_ID).setValue(taskId),
-            )
+            // **`skill_type`이 있는 모드만 스킬 수준이다.** 스키마가 그렇게
+            // 못박았다 — "있으면 스킬 수준 결함, 없으면 로봇 수준 결함이다".
+            //
+            // 무조건 붙이면 셋이 깨진다. ① 소비자가 §4.6이 표현하라고 만든
+            // 구분을 **거꾸로** 읽는다 — `quadruped-b`의 `LOCALIZATION_LOST`는
+            // `can_accept_new_task=false`인 로봇 수준 결함인데 그때 마침 돌던
+            // 스킬의 이름이 실려 나간다. ② `FaultRegistry`의 키가
+            // `(errorType, skillId, taskId)`라 같은 로봇 수준 결함이 스킬 수만큼
+            // 부푼다 — "같은 결함을 두 번 내지 않는다"가 무력해진다.
+            // ③ §10.5의 `ForceFault`는 `task_id`를 비우면 로봇 수준이라고
+            // 정했다. 두 경로가 같은 사실을 다르게 표현하게 된다.
+            .also { builder ->
+                if (mode.skillType != null) {
+                    builder.addReferences(
+                        Reference.newBuilder()
+                            .setKey(Reference.Key.KEY_SKILL_ID).setValue(skillType),
+                    )
+                    builder.addReferences(
+                        Reference.newBuilder()
+                            .setKey(Reference.Key.KEY_TASK_ID).setValue(taskId),
+                    )
+                }
+            }
             .build()
 
         /**

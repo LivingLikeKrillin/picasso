@@ -18,6 +18,17 @@ class Seeded(seed: Long) {
 
     fun fraction(): Double = random.nextDouble()
 
+    /**
+     * 시드를 다시 심는다(§10.5의 `SetSeed`).
+     *
+     * **새 `Seeded`로 갈지 않는 이유는** 이 객체의 참조를 `TaskHost`가 들고
+     * 있기 때문이다 — 갈면 기체는 새것을, 엔진은 옛것을 보게 되어 시드를
+     * 바꿔도 추첨이 그대로다.
+     */
+    fun reseed(seed: Long) {
+        random.setSeed(seed)
+    }
+
     /** `base`를 ±`ratio` 안에서 흔든다. `ratio`가 0이면 그대로. */
     fun jitter(base: Double, ratio: Double): Double {
         require(ratio >= 0.0) { "지터 비율이 음수다: $ratio" }

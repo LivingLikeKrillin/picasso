@@ -42,8 +42,14 @@ class TaskHost(
     private val listener: EngineListener = EngineListener.NONE,
     /** 이 기체의 결함들(§4.6). 수명을 거두는 것은 [tick] 하나다. */
     private val faults: FaultRegistry = FaultRegistry(clock),
-    /** §10.4 ①의 추첨. 기체마다 하나이며 인출 순서가 §12.1의 불변식이다. */
-    private val random: Seeded = Seeded(0),
+    /**
+     * §10.4 ①의 추첨. 기체마다 하나이며 인출 순서가 §12.1의 불변식이다.
+     *
+     * **기본값을 두지 않는다.** `Seeded`의 계약이 "기체마다 하나"인데
+     * 기본 인자는 그것을 **조용히 깨는 문**이다 — 넘기는 것을 잊은 호출자가
+     * 기체의 스트림과 다른 스트림을 갖게 되고 컴파일은 통과한다.
+     */
+    private val random: Seeded,
 ) {
     private val draw = FailureDraw(document)
 
@@ -176,17 +182,15 @@ class TaskHost(
      * 시계가 흐른 만큼 태스크를 진전시킨다. **RPC 진입에서만 부른다** —
      * 배경 스레드를 두면 가상 시계와 충돌해 §12.1의 결정성이 깨진다.
      *
-     * 하는 일은 셋이다 — **접수한 태스크를 집어 들고**(`ACCEPTED` → `RUNNING`),
-     * **소요시간을 채운 태스크를 완주시키고**(`RUNNING` → `SUCCEEDED`),
-     * **취소의 복구를 마친다**(`CANCELLING` → `CANCELLED`).
+     * 하는 일은 넷이다 — **수명이 지난 결함을 거두고**(§4.3), **접수한
+     * 태스크를 집어 들고**(`ACCEPTED` → `RUNNING`), **소요시간을 채운 태스크의
+     * 결말을 뽑고**(`RUNNING` → 성공이면 `SUCCEEDED`, 실패면 §4.5 전파 규칙
+     * 1이 보내는 곳), **취소의 복구를 마친다**(`CANCELLING` → `CANCELLED`).
      *
      * **전수 축은 상태 열이다.** 종착 여부만 보는 구현은 `CANCELLING`인
      * 태스크를 `SUCCEEDED`로 만든다 — `CANCELLING`은 종착이 아니고 스킬은
      * 복구를 수행하며 계속 돌기 때문이다(실측). §4.4의 취소 의미론과 완료
      * 기준 6의 "`CANCELLING` → 종착 순서"가 통째로 무너진다.
-     *
-     * 이 청크에는 실패 주입이 없으므로 완주는 언제나 성공이다. 프로파일의
-     * 실패 모드와 시드 추첨은 제어 채널 청크가 만든다.
      */
     fun tick() {
         // **수명을 여기서만 거둔다.** 조회하면서 지우면 소멸 시점이 관측자에
@@ -230,7 +234,14 @@ class TaskHost(
                 //
                 // 복구에 걸리는 시간은 프로파일이 선언하지 않으므로 다음
                 // tick에 끝난다. 관측 순서는 그래도 CANCELLING → 종착이다.
-                // 복구 실패는 실패 주입이 만들 일이라 이 청크에 없다(§15).
+                //
+                // **여기서는 추첨하지 않는다 — 그것이 결정이다.** 선언된 실패
+                // 모드는 **완주 판정에서만** 뽑는다. `rate`를 "이 스킬 실행당
+                // 발생 확률"로 읽은 것이고, 복구는 그 실행이 아니라 그 실행을
+                // 되돌리는 구간이다. §4.5의 대응표가 `CANCELLING` 중에도 스킬을
+                // 돌게 두므로 자명하지 않아 여기 적는다. 복구 실패
+                // (`CANCELLED_RECOVERY_FAILED`)는 §10.5의 `ForceFault`만
+                // 만든다 — 완료 기준 8b가 그 경로를 시험한다.
                 TaskState.CANCELLING -> {
                     task.machine.onRecoveryComplete()
                     record(task)

@@ -52,8 +52,22 @@ class RobotInstance(
     /**
      * 시드 기반 난수. **기체마다 하나다** — 하나를 공유하면 인출 순서가
      * 비결정적이라 §12.1이 깨진다.
+     *
+     * **`private`인 것이 요점이다.** 공개하면 전송·제어 코드가 그대로 잡을 수
+     * 있고, 그 순간 §12.1이 막으려는 바로 그 일이 일어난다 — 실측으로
+     * `EventServiceImpl.getSnapshot`에 `instance.random.fraction()` 한 줄을
+     * 넣으면 **소비자가 스냅샷을 뜰 때마다 추첨 스트림이 밀리는데** 스위트가
+     * 통째로 초록이었다. 시험이 못 잡는 문은 컴파일러가 닫는다.
+     *
+     * §10.5의 `SetSeed`는 [reseed]라는 이름 붙은 문으로만 지난다.
      */
-    val random: Seeded = Seeded(seed)
+    private val random: Seeded = Seeded(seed)
+
+    /**
+     * §10.5의 `SetSeed`. **객체를 갈지 않고 안을 다시 심는다** — 갈면
+     * [tasks]가 든 참조가 낡아 시드를 바꿔도 아무 일이 안 일어난다.
+     */
+    fun reseed(seed: Long) = random.reseed(seed)
 
     /** §7.2의 투영. 능력을 하드코딩할 자리가 없다(§12.2의 10번). */
     val capability: Capability = CapabilityProjection.of(document)
