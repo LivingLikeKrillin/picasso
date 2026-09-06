@@ -683,7 +683,7 @@ VDA5050 `factsheet.schema`의 구조를 따른다. **투영에 들어가는 것�
 
 이 일곱이 코드 변경 없이 표현되어야 한다.
 
-`profile/fixtures/`에는 게이트·시험 전용 파일을 둔다 — 1단계용 픽스처 프로파일 한 장, **틀린 요구 집합 파일**(공통 스킬을 `@^2.0`으로 요구해 `MAJOR_MISMATCH`를 유발), 게이트 음성 케이스용 변형들. 세 번째 기종 `quadruped-c`는 §12.2의 C-2 시험에서 `profile/profiles/`에 **전용 커밋 하나로** 추가한다.
+`profile/fixtures/`에는 게이트·시험 전용 **프로파일**을 둔다 — 1단계용 픽스처 프로파일 한 장, 게이트 음성 케이스용 변형들. **요구 집합은 `profile/requirements/`에 둔다** — 정상 한 장과 **틀린 것 한 장**(공통 스킬을 `@^2.0`으로 요구해 `MAJOR_MISMATCH`를 유발). 요구 집합은 기종 선언이 아니라 소비자 선언이고, 무엇보다 게이트의 `--profiles`가 `profile/fixtures/`의 모든 `*.json`을 프로파일로 읽으므로 거기 두면 검사 3번이 스키마 위반으로 터진다(실측). 세 번째 기종 `quadruped-c`는 §12.2의 C-2 시험에서 `profile/profiles/`에 **전용 커밋 하나로** 추가한다.
 
 ## 8. 레지스트리와 저장 (`registry/`)
 
@@ -1244,7 +1244,7 @@ mimic/
 | 10 | **C-1** 투영 일치 | `GetCapabilities` 응답 == §7.2의 투영 표대로 프로파일에서 파생한 값 | §7.2의 투영 표가 파생 함수의 명세. **능력을 하드코딩하면 여기서 걸린다** |
 | 11 | **C-2** 세 번째 기종을 프로파일 한 장으로 | `quadruped-c` 전용 커밋에서 전체 스위트 통과 | **게이트 8번이 소스 변경 0을 CI로 강제** |
 | 12 | **D-1** 깨는 PR이 사람 없이 차단 | 게이트 9번의 음성 스위트 | 9번의 케이스가 1~8번에 하나씩 대응(§11.2) |
-| 13 | 능력 호환성 | 핸드셰이크가 §4.3의 `Negotiate` 거절 다섯을 각각 사유와 함께 반환 | `Negotiate`(§5.4). 픽스처는 셋 — 프로파일 차이(`SKILL_ABSENT`, `LIMIT_EXCEEDED`+`limits_needed`, `REQUIRED_OPTIONAL_MISSING`), `profile/fixtures/`의 틀린 요구 집합(`MAJOR_MISMATCH`), `client --identity-override`로 헤더와 페이로드를 어긋나게 함(`IDENTITY_MISMATCH`) |
+| 13 | 능력 호환성 | 핸드셰이크가 §4.3의 `Negotiate` 거절 다섯을 각각 사유와 함께 반환 | `Negotiate`(§5.4). 픽스처는 셋 — 프로파일 차이(`SKILL_ABSENT`, `LIMIT_EXCEEDED`+`limits_needed`, `REQUIRED_OPTIONAL_MISSING`), `profile/requirements/`의 틀린 요구 집합(`MAJOR_MISMATCH`), `client --identity-override`로 헤더와 페이로드를 어긋나게 함(`IDENTITY_MISMATCH`) |
 | 14 | 런타임 축소 | `RemoveCapability` → epoch 증가 → 캐시 무효화 → **해당 스킬만 `CAPABILITY_WITHDRAWN`, 이동은 계속됨** | 제어 채널 → `CapabilityChanged`(§8.2·§4.7), 로봇 수준 결함 |
 | 15 | 런타임 갱신 | 개정판 활성화 시 진행 중 태스크는 완주, 새 태스크는 새 개정판. 롤백도 같은 경로 | `mimic` 폴링(§10.3), pinning(§8.4), `SUPERSEDED` 재활성화(§8.3 결정 1) |
 | 16 | **운영** 어댑터 최초 추가 | §9.7의 여섯 단계를 통과해 새 기종이 카탈로그에 오른다. `conformance_status=UNTESTED`가 진단 1번에 표시된다 | `adapter`·`adapter_version`(§8.3), 카탈로그(§9.6) |

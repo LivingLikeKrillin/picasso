@@ -12,7 +12,9 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     // 픽스처를 고쳐도 시험이 안 돌면 조용히 낡는다(1단계 실측).
-    inputs.files(rootProject.file("profile/fixtures"))
-        .withPropertyName("profileFixtures")
+    inputs.files(
+        rootProject.file("profile/fixtures"),
+        rootProject.file("profile/requirements"),
+    ).withPropertyName("profileFixtures")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

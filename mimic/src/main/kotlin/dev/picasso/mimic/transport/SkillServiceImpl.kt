@@ -2,6 +2,8 @@ package dev.picasso.mimic.transport
 
 import dev.picasso.contracts.v1.GetCapabilitiesRequest
 import dev.picasso.contracts.v1.GetCapabilitiesResponse
+import dev.picasso.contracts.v1.NegotiateRequest
+import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.SkillServiceGrpc
 import io.grpc.Status
 import io.grpc.stub.StreamObserver
@@ -42,6 +44,26 @@ class SkillServiceImpl(
         GetCapabilitiesResponse.newBuilder()
             .setHeader(hosted.headers.forResponse(GetCapabilitiesResponse.getDescriptor()))
             .setCapability(hosted.instance.capability)
+            .build()
+    }
+
+    override fun negotiate(
+        request: NegotiateRequest,
+        observer: StreamObserver<NegotiateResponse>,
+    ) = reply(observer) {
+        val hosted = registry.require(request.header)
+        val rejections = Negotiator.negotiate(
+            hosted.instance.capability,
+            request.header,
+            request.requirement,
+        )
+
+        NegotiateResponse.newBuilder()
+            .setHeader(hosted.headers.forResponse(NegotiateResponse.getDescriptor()))
+            // accepted와 거절 목록이 어긋나면 클라이언트가 통과했다고 믿는다.
+            // 둘을 따로 계산하지 않는다.
+            .setAccepted(rejections.isEmpty())
+            .addAllRejections(rejections)
             .build()
     }
 }
