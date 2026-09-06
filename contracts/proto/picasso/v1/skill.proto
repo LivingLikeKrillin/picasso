@@ -43,16 +43,26 @@ message ParameterDeclaration {
   ValueType value_type = 2;
   bool optional = 3;
 
-  // 수치형
-  double min_value = 4;
-  double max_value = 5;
-  string unit = 6;
+  // 수치형. **명시적 존재**를 쓴다.
+  //
+  // 암묵 존재로 두면 "하한을 선언하지 않았다"와 "하한이 0이다"가 같아지고,
+  // 투영이 없는 제약을 있다고 거짓말한다 — min_value를 선언하지 않은
+  // 파라미터가 min_value: 0으로 나가면 소비자가 음수를 거부하고,
+  // max_value가 0으로 나가면 모든 양수를 거부한다.
+  //
+  // 프로파일 스키마와 ProfileDocument는 둘을 nullable로 정확히 구분한다.
+  // 계약만 못 하면 그 정보가 투영에서 소실된다(§7.2).
+  optional double min_value = 4;
+  optional double max_value = 5;
+  optional string unit = 6;
 
   // ENUM형 — 허용 값 목록이 없으면 송신 직전 검사가 아무것도 강제하지 못한다.
+  // 이쪽은 repeated라 "비었다"가 곧 "선언하지 않았다"이므로 그대로 둔다.
   repeated string allowed_values = 7;
 
-  // 문자열형
-  uint32 max_length = 8;
+  // 문자열형. 위와 같은 이유로 명시적 존재다 — max_length: 0은
+  // "빈 문자열만 허용"이지 "제한 없음"이 아니다.
+  optional uint32 max_length = 8;
 }
 
 // 스킬 하나의 능력 선언.
