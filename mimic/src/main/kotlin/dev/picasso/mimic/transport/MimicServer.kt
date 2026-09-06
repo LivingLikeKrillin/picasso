@@ -14,6 +14,7 @@ class MimicServer(registry: RobotRegistry, builder: ServerBuilder<*>) {
 
     private val server: Server = builder
         .addService(SkillServiceImpl(registry))
+        .addService(TaskServiceImpl(registry))
         .build()
 
     val port: Int get() = server.port
@@ -22,5 +23,10 @@ class MimicServer(registry: RobotRegistry, builder: ServerBuilder<*>) {
 
     fun shutdown() {
         server.shutdownNow()
+    }
+
+    /** CLI가 프로세스를 살려 두는 방법. 없으면 기동하자마자 종료한다. */
+    fun awaitTermination() {
+        server.awaitTermination()
     }
 }

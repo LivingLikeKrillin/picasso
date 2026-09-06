@@ -40,9 +40,15 @@ class ResponseHeaders(private val instance: RobotInstance) {
      */
     private val eventCounter = AtomicLong()
 
+    /**
+     * @param stateAsOf 되짚어 보내는 갱신은 **그때의 시각**을 싣는다. 지금
+     *   시각을 실으면 30초 전 전이가 방금 일어난 것으로 보이고 소비자의
+     *   신선도 판정(§5.5)이 거짓말을 한다.
+     */
     fun forResponse(
         response: Descriptors.Descriptor,
         updateIndex: Long? = null,
+        stateAsOf: String? = null,
     ): MessageHeader {
         val now = DateTimeFormatter.ISO_INSTANT.format(instance.clock.now())
 
@@ -60,9 +66,7 @@ class ResponseHeaders(private val instance: RobotInstance) {
             )
             .setEventId("${instance.sessionId}-%08d".format(eventCounter.incrementAndGet()))
             .setOccurredAt(now)
-            // 이 청크의 응답은 전부 현재 상태를 즉시 읽어 만든다.
-            // WatchTask가 로그를 되짚어 보낼 때는 그때의 시각이 실린다.
-            .setStateAsOf(now)
+            .setStateAsOf(stateAsOf ?: now)
             .also { builder -> updateIndex?.let(builder::setUpdateIndex) }
             .build()
     }

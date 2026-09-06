@@ -1,5 +1,6 @@
 package dev.picasso.mimic.engine
 
+import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.SkillDeclaration
 import dev.picasso.contracts.v1.Support
@@ -65,6 +66,7 @@ class TaskMachine(
     durationSeconds: Double,
     initial: TaskState = TaskState.ACCEPTED,
     initialRevision: Int = 1,
+    initialParameters: List<ParameterValue> = emptyList(),
 ) {
     var state: TaskState = initial
         private set
@@ -75,7 +77,7 @@ class TaskMachine(
     var attempt: Int = 0
         private set
 
-    var parameters: Map<String, String> = emptyMap()
+    var parameters: List<ParameterValue> = initialParameters
         private set
 
     /** §4.5 — 태스크 상태마다 스킬 상태가 정해진다. `ACCEPTED`에서는 없다. */
@@ -200,11 +202,21 @@ class TaskMachine(
 
     // ── 멱등성과 갱신 (§4.4의 두 표)
 
-    fun update(revision: Int, parameters: Map<String, String>): UpdateOutcome {
+    /**
+     * [update]가 파라미터를 실제로 교체할 것인가.
+     *
+     * **갱신 전에 파라미터를 검사해야 하는 호출자가 쓴다** — 교체한 뒤에
+     * 검사하면 거절하면서도 이미 바꿔 놓은 상태가 된다. 조건을 호출자가
+     * 다시 쓰면 두 벌이 되므로 규칙은 여기 하나뿐이다.
+     */
+    fun willApply(revision: Int): Boolean =
+        revision > this.revision && !state.isTerminal && state != TaskState.CANCELLING
+
+    fun update(revision: Int, parameters: List<ParameterValue>): UpdateOutcome {
         if (revision < this.revision) return UpdateOutcome.Outdated
         // 같은 revision은 같은 핸들을 그대로 돌려준다. 파라미터도 안 덮는다.
         if (revision == this.revision) return UpdateOutcome.Idempotent(state)
-        if (state.isTerminal || state == TaskState.CANCELLING) return UpdateOutcome.Rejected
+        if (!willApply(revision)) return UpdateOutcome.Rejected
 
         this.revision = revision
         this.parameters = parameters
@@ -248,7 +260,7 @@ class TaskMachine(
     }
 
     /** 시험용 진입 — `TaskMachineFixtures`가 §4.5 대응표를 세울 때 쓴다. */
-    internal fun seed(state: TaskState, skill: SkillMachine?, parameters: Map<String, String>) {
+    internal fun seed(state: TaskState, skill: SkillMachine?, parameters: List<ParameterValue>) {
         this.state = state
         this.skillMachine = skill
         this.parameters = parameters

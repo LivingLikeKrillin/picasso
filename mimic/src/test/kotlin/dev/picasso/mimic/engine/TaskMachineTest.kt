@@ -90,7 +90,7 @@ class TaskMachineTest {
                 listOf(
                     "onRecoveryComplete" to { m: TaskMachine -> m.onRecoveryComplete() },
                     "onSkillComplete" to { m: TaskMachine -> m.onSkillComplete() },
-                    "update" to { m: TaskMachine -> m.update(99, emptyMap()); Unit },
+                    "update" to { m: TaskMachine -> m.update(99, emptyList()); Unit },
                 )
 
         assertEquals(11, entryPoints.size, "진입점 목록이 줄었다")

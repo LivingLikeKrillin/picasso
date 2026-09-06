@@ -1,5 +1,7 @@
 package dev.picasso.mimic.engine
 
+import dev.picasso.contracts.v1.ParameterValue
+
 /** §4.2. OPC UA Skill 모델을 언어 중립 계약으로 옮긴 넷. */
 enum class SkillState { READY, RUNNING, SUSPENDED, HALTED }
 
@@ -28,11 +30,16 @@ class SkillMachine(initial: SkillState = SkillState.READY) {
     var state: SkillState = initial
         private set
 
-    /** 현재 실행 중인 파라미터. 갱신이 이것을 교체한다(§4.4). */
-    var parameters: Map<String, String> = emptyMap()
+    /**
+     * 현재 실행 중인 파라미터. 갱신이 이것을 교체한다(§4.4).
+     *
+     * **계약 타입 그대로 둔다.** 문자열 맵으로 접으면 `bool`·`integer`·`number`가
+     * 구별되지 않아 §10.4 ③의 값 범위 집행이 두 번째 표현을 갖게 된다.
+     */
+    var parameters: List<ParameterValue> = emptyList()
         private set
 
-    fun apply(command: SkillCommand, parameters: Map<String, String> = emptyMap()): SkillTransition {
+    fun apply(command: SkillCommand, parameters: List<ParameterValue> = emptyList()): SkillTransition {
         val next: SkillState? = when (command) {
             SkillCommand.START -> if (state == SkillState.READY) SkillState.RUNNING else null
             SkillCommand.SUSPEND -> if (state == SkillState.RUNNING) SkillState.SUSPENDED else null

@@ -3,6 +3,7 @@ package dev.picasso.mimic.transport
 import dev.picasso.contracts.v1.GetCapabilitiesRequest
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.SkillServiceGrpc
+import dev.picasso.contracts.v1.TaskServiceGrpc
 import dev.picasso.contracts.wire.ContractIdentity
 import dev.picasso.contracts.wire.RequestHeaders
 import dev.picasso.mimic.RobotInstance
@@ -36,6 +37,11 @@ class GrpcFixture(
         InProcessChannelBuilder.forName(name).directExecutor().build()
 
     val skills: SkillServiceGrpc.SkillServiceBlockingStub = SkillServiceGrpc.newBlockingStub(channel)
+
+    val tasks: TaskServiceGrpc.TaskServiceBlockingStub = TaskServiceGrpc.newBlockingStub(channel)
+
+    /** 비동기 스텁 — 열려 있는 WatchTask 스트림을 보는 시험이 쓴다. */
+    val tasksAsync: TaskServiceGrpc.TaskServiceStub = TaskServiceGrpc.newStub(channel)
 
     fun capabilitiesOf(robotId: String) = skills.getCapabilities(
         GetCapabilitiesRequest.newBuilder().setHeader(requestHeader(robotId)).build(),

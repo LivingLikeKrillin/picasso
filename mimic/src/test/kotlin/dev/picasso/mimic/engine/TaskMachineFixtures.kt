@@ -1,5 +1,6 @@
 package dev.picasso.mimic.engine
 
+import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.SkillDeclaration
 import dev.picasso.contracts.v1.Support
 import dev.picasso.mimic.profile.CapabilityProjection
@@ -86,7 +87,7 @@ object TaskMachineFixtures {
         state: TaskState,
         clock: Clock = VirtualClock(Instant.EPOCH),
         revision: Int = 1,
-        parameters: Map<String, String> = emptyMap(),
+        parameters: List<ParameterValue> = emptyList(),
     ): TaskMachine {
         val machine = TaskMachine(
             skill = permissiveSkill(),
@@ -101,6 +102,10 @@ object TaskMachineFixtures {
 
     /** 합성 기체의 소요시간. 프로파일에서 오는 것은 [forSkill]이 본다. */
     const val SYNTHETIC_DURATION = 45.0
+
+    /** 시험용 파라미터 값. 계약 타입이 하나뿐인 표현이다. */
+    fun param(key: String, value: String): ParameterValue =
+        ParameterValue.newBuilder().setKey(key).setStringValue(value).build()
 
     private fun skillFor(state: TaskState): SkillMachine? = when (state) {
         TaskState.ACCEPTED -> null

@@ -3,6 +3,7 @@ package dev.picasso.mimic
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.mimic.engine.Clock
 import dev.picasso.mimic.engine.Seeded
+import dev.picasso.mimic.engine.TaskHost
 import dev.picasso.mimic.profile.CapabilityProjection
 import dev.picasso.profile.ProfileDocument
 import java.util.concurrent.atomic.AtomicLong
@@ -61,6 +62,9 @@ class RobotInstance(
      * 올리는 유일한 경로이고 그것은 제어 채널 청크가 만든다.
      */
     val capabilityEpoch: Long = 1
+
+    /** 이 기체가 호스팅하는 태스크들(§4.4). */
+    val tasks: TaskHost = TaskHost(capability, document, clock)
 
     private companion object {
         val STARTUP_COUNTER = AtomicLong()

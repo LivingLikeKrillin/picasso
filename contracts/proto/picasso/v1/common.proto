@@ -69,8 +69,13 @@ enum Resolution {
 //   Negotiate     : MAJOR_MISMATCH · SKILL_ABSENT · REQUIRED_OPTIONAL_MISSING
 //                   · LIMIT_EXCEEDED · IDENTITY_MISMATCH
 //   태스크 RPC     : CAPABILITY_WITHDRAWN · CANCEL_UNSUPPORTED · PAUSE_UNSUPPORTED
-//                   · OUTDATED_REVISION · INVALID_TRANSITION
+//                   · OUTDATED_REVISION · INVALID_TRANSITION · SKILL_ABSENT
+//                   · IDENTITY_MISMATCH · PARAMETER_INVALID
 //   ReplayEvents  : SEQUENCE_EVICTED
+//
+// 태스크 RPC가 SKILL_ABSENT를 쓰는 이유: CAPABILITY_WITHDRAWN은 "있었는데
+// 사라졌다"이고(완료 기준 14) 애초에 없던 것과 소비자의 대응이 다르다.
+// 전자는 캐시를 다시 세우면 되고 후자는 요구 집합이 틀린 것이다.
 enum RejectionCode {
   REJECTION_CODE_UNSPECIFIED = 0;
   REJECTION_CODE_MAJOR_MISMATCH = 1;
@@ -84,6 +89,15 @@ enum RejectionCode {
   REJECTION_CODE_OUTDATED_REVISION = 9;
   REJECTION_CODE_INVALID_TRANSITION = 10;
   REJECTION_CODE_SEQUENCE_EVICTED = 11;
+
+  // 파라미터가 프로파일의 선언을 어겼다 — 모르는 코어 키, 필수 누락,
+  // 값 범위·허용 값·최대 길이 위반(설계 §5.3·§10.4 ③).
+  //
+  // 이것이 없으면 §10.4 ③("클라이언트가 기종 A에서 통과하고 기종 B에서
+  // 거절당한다")이 소비자에게 **다른 종류의 사건**으로 보인다 — 억지로 기존
+  // 코드에 접거나 gRPC 상태로 내보내야 하는데, 그 상황이야말로 이 프로젝트가
+  // 증명하려는 바로 그 능력 차이이기 때문이다.
+  REJECTION_CODE_PARAMETER_INVALID = 12;
 }
 
 // 거절에는 언제나 이유가 붙는다. openTCS의 ExplainedBoolean(value, reason)을

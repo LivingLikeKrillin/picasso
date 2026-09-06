@@ -307,10 +307,14 @@ OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조를 언어 �
 | 표면 | 코드 |
 |---|---|
 | `Negotiate` (다섯) | `MAJOR_MISMATCH`, `SKILL_ABSENT`, `REQUIRED_OPTIONAL_MISSING`, `LIMIT_EXCEEDED`, `IDENTITY_MISMATCH` |
-| 태스크 RPC (다섯) | `CAPABILITY_WITHDRAWN`, `CANCEL_UNSUPPORTED`, `PAUSE_UNSUPPORTED`, `OUTDATED_REVISION`, `INVALID_TRANSITION` |
+| 태스크 RPC (여덟) | `CAPABILITY_WITHDRAWN`, `CANCEL_UNSUPPORTED`, `PAUSE_UNSUPPORTED`, `OUTDATED_REVISION`, `INVALID_TRANSITION`, `SKILL_ABSENT`, `IDENTITY_MISMATCH`, `PARAMETER_INVALID` |
 | `ReplayEvents` (하나) | `SEQUENCE_EVICTED` |
 
-**`CAPABILITY_WITHDRAWN`은 핸드셰이크 이후 능력이 사라진 스킬로 `StartTask`가 왔을 때 반환**하며, 응답에 현재 `capability_epoch`를 실어 클라이언트가 능력을 다시 가져오게 한다.
+**`CAPABILITY_WITHDRAWN`은 핸드셰이크 이후 능력이 사라진 스킬로 `StartTask`가 왔을 때 반환**하며, 응답에 현재 `capability_epoch`를 실어 클라이언트가 능력을 다시 가져오게 한다. **애초에 선언한 적 없는 스킬은 `SKILL_ABSENT`다** — 전자는 소비자가 캐시를 다시 세우면 되고 후자는 요구 집합이 틀린 것이라 대응이 다르다.
+
+**`PARAMETER_INVALID`는 파라미터가 프로파일의 선언을 어겼을 때다** — 모르는 코어 키(§5.3의 fail-closed), 필수 누락, 값 범위·허용 값·최대 길이 위반(§10.4 ③). 이 코드가 없으면 §10.4 ③이 말하는 "클라이언트가 기종 A에서 통과하고 기종 B에서 거절당하는 상황"이 소비자에게 **다른 종류의 사건**으로 보인다 — 억지로 기존 코드에 접거나 전송 계층 오류로 내보내야 하기 때문이다.
+
+**판정의 자리를 가르는 규칙은 하나다** — **요청을 해석하지 못했으면 gRPC 상태, 해석했는데 거절하면 응답 `oneof`의 `Rejection`.** 모르는 `robot_id`·`task_id`는 `NOT_FOUND`, 빈 `robot_id`와 해석 불가능한 요구 문자열은 `INVALID_ARGUMENT`, 로그 범위를 넘는 `from_update_index`는 `OUT_OF_RANGE`, 요청 헤더의 계약 major 불일치는 `FAILED_PRECONDITION`이다. 표면마다 자리를 달리 정하면 소비자가 RPC마다 다른 분기를 쓰게 된다. **예외는 `GetCapabilities` 하나다** — `GetCapabilitiesResponse`에 `Rejection` 자리가 없어 신원 불일치가 `INVALID_ARGUMENT`로 나간다(§15).
 
 **`error_type` 명명 규칙.** `SCREAMING_SNAKE_CASE`이고 코어 값은 계약이 소유하며 벤더 값은 `X_<VENDOR>_` 접두사를 쓴다. 코어 최소 집합 **여덟**:
 

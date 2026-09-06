@@ -79,7 +79,7 @@ class SkillMachineTest {
     fun `Start가 파라미터를 싣는다`() {
         // §4.2 — 파라미터와 실행 요청을 단일 RPC로 묶는다.
         val machine = SkillMachine()
-        machine.apply(SkillCommand.START, mapOf("grip_force" to "10"))
-        assertEquals(mapOf("grip_force" to "10"), machine.parameters)
+        machine.apply(SkillCommand.START, listOf(TaskMachineFixtures.param("grip_force", "10")))
+        assertEquals(listOf(TaskMachineFixtures.param("grip_force", "10")), machine.parameters)
     }
 }

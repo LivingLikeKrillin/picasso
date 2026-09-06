@@ -17,20 +17,20 @@ class TaskRevisionTest {
 
         assertEquals(
             UpdateOutcome.Idempotent(TaskState.RUNNING),
-            machine.update(3, mapOf("a" to "b")),
+            machine.update(3, listOf(TaskMachineFixtures.param("a", "b"))),
             "같은 revision은 멱등이어야 한다",
         )
-        assertEquals(emptyMap(), machine.parameters, "멱등 재수신이 파라미터를 덮어썼다")
+        assertEquals(emptyList(), machine.parameters, "멱등 재수신이 파라미터를 덮어썼다")
 
-        assertEquals(UpdateOutcome.Outdated, machine.update(2, mapOf("a" to "b")))
+        assertEquals(UpdateOutcome.Outdated, machine.update(2, listOf(TaskMachineFixtures.param("a", "b"))))
         assertEquals(3, machine.revision, "거절했는데 revision이 바뀌었다")
 
         assertEquals(
             UpdateOutcome.RestartedSkill(TaskState.RUNNING),
-            machine.update(4, mapOf("a" to "b")),
+            machine.update(4, listOf(TaskMachineFixtures.param("a", "b"))),
         )
         assertEquals(4, machine.revision)
-        assertEquals(mapOf("a" to "b"), machine.parameters)
+        assertEquals(listOf(TaskMachineFixtures.param("a", "b")), machine.parameters)
     }
 
     @Test
@@ -50,7 +50,7 @@ class TaskRevisionTest {
         assertEquals(6, expected.size, "표가 비면 '전부 거절'만 확인하고 통과한다")
 
         TaskState.entries.forEach { from ->
-            val outcome = TaskMachineFixtures.at(from).update(2, mapOf("a" to "b"))
+            val outcome = TaskMachineFixtures.at(from).update(2, listOf(TaskMachineFixtures.param("a", "b")))
             assertEquals(
                 expected[from] ?: UpdateOutcome.Rejected,
                 outcome,
@@ -63,14 +63,14 @@ class TaskRevisionTest {
     fun `RUNNING 갱신은 스킬을 Halt Reset Start 시킨다`() {
         // 이름만 RestartedSkill이면 아무 뜻이 없다. 실제로 다시 시작했는가.
         val machine = TaskMachineFixtures.at(TaskState.RUNNING)
-        machine.update(revision = 2, parameters = mapOf("grip_force" to "10"))
+        machine.update(revision = 2, parameters = listOf(TaskMachineFixtures.param("grip_force", "10")))
 
         assertEquals(TaskState.RUNNING, machine.state, "태스크는 RUNNING을 유지해야 한다")
         assertEquals(
             SkillState.RUNNING, machine.skillMachine!!.state,
             "새 파라미터로 다시 Start하지 않았다",
         )
-        assertEquals(mapOf("grip_force" to "10"), machine.skillMachine!!.parameters)
+        assertEquals(listOf(TaskMachineFixtures.param("grip_force", "10")), machine.skillMachine!!.parameters)
     }
 
     @Test
@@ -84,7 +84,7 @@ class TaskRevisionTest {
         clock.advance(Duration.ofSeconds(30))
         assertTrue(machine.progress() > 0.5, "전제가 무너졌다: ${machine.progress()}")
 
-        machine.update(revision = 2, parameters = emptyMap())
+        machine.update(revision = 2, parameters = emptyList())
         assertEquals(0, machine.attempt)
         assertEquals(2, machine.revision)
         assertEquals(0.0, machine.progress(), "revision이 올랐는데 진행률이 이어졌다")
