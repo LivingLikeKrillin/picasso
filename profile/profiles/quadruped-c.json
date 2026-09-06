@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0.0",
+  "vendor": "picasso-ref",
+  "model": "quadruped-c",
+  "revision": 1,
+
+  "skills": [
+    {
+      "skill_type": "navigate_to",
+      "major": 1,
+      "minor": 0,
+      "pause_support": "YES",
+      "cancel_support": "UNKNOWN",
+      "parameters": [
+        { "key": "location", "value_type": "STRING", "optional": false, "max_length": 128 }
+      ]
+    },
+    {
+      "skill_type": "inspect",
+      "major": 1,
+      "minor": 1,
+      "pause_support": "NO",
+      "cancel_support": "YES",
+      "parameters": [
+        { "key": "target", "value_type": "STRING", "optional": false, "max_length": 64 }
+      ]
+    }
+  ],
+
+  "publish_interval": { "min_seconds": 2, "max_seconds": 15 },
+  "protocol_limits": { "max_string_length": 128, "max_array_length": 16 },
+  "exclusive_control_required": false,
+
+  "durations": [
+    { "skill_type": "navigate_to", "seconds": 35, "jitter_ratio": 0.05 },
+    { "skill_type": "inspect", "seconds": 8 }
+  ],
+
+  "failure_modes": [
+    {
+      "error_type": "X_PICASSOREF_NAVIGATION_BLOCKED",
+      "skill_type": "navigate_to",
+      "rate": 0.03,
+      "can_continue_current_task": false,
+      "can_accept_new_task": true,
+      "resolution": "SELF_RETRIABLE",
+      "active_until": "UNTIL_NEW_TASK"
+    }
+  ],
+
+  "replay_buffer_size": 64
+}
