@@ -1,7 +1,11 @@
 version: v2
-plugins:
-  # 2단계에서 활성화한다. 지금은 디스크립터만 쓴다.
-  # - remote: buf.build/protocolbuffers/java
-  #   out: build/generated/java
+# 코드 생성은 buf가 하지 않는다. Gradle protobuf 플러그인이 protoc를 Maven에서
+# 받아 쓴다 — buf로 생성하면 ./gradlew build가 Docker 없이는 컴파일조차 안 되고,
+# 생성 코드는 컴파일 입력이라 없으면 Unresolved reference가 수백 줄 쏟아져
+# 사람이 원인을 못 읽는다. 디스크립터는 시험 입력이라 없으면 시험이 친절한
+# 메시지를 찍는 것과 대비된다.
+#
+# buf는 lint·breaking·디스크립터를 계속 맡는다.
+plugins: []
 managed:
   enabled: true
