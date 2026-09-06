@@ -7,6 +7,7 @@ import dev.picasso.mimic.engine.Seeded
 import dev.picasso.mimic.engine.TaskHost
 import dev.picasso.mimic.transport.EventStream
 import dev.picasso.mimic.transport.Publisher
+import dev.picasso.mimic.transport.TransportFaults
 import dev.picasso.mimic.profile.CapabilityProjection
 import dev.picasso.profile.ProfileDocument
 import java.util.concurrent.atomic.AtomicLong
@@ -158,7 +159,13 @@ class RobotInstance(
      * 필요로 해 `lateinit` 춤이 필요해지고, 그 춤은 시험에만 있고 운영에는
      * 없는 조립 순서를 만든다.
      */
-    val events: EventStream = EventStream(this, publisher, site)
+    /**
+     * §10.5의 전송 장애 층. **발행자와 이벤트 스트림 사이에 선다** —
+     * 번호가 붙은 뒤에 끼어들어야 버린 자리가 구멍으로 남는다.
+     */
+    val transport: TransportFaults = TransportFaults(publisher)
+
+    val events: EventStream = EventStream(this, transport, site)
 
     /**
      * 이 기체가 지금 안고 있는 결함들(§4.6). **기체 단위다** — 스킬 수준인지

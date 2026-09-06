@@ -194,6 +194,27 @@ message ForceControlAuthorityLossRequest {
   string robot_id = 1;
 }
 
+// §10.5의 전송 장애 다섯. **번호가 붙은 뒤에 끼어든다** — 붙기 전에
+// 버리면 나머지가 새로 매겨져 소비자가 결손을 아예 못 본다.
+//
+// 난수를 안 쓴다(§12.1) — 어느 발행이 희생될지는 세는 것으로 정한다.
+message InjectTransportFaultRequest {
+  string robot_id = 1;
+
+  // TransportFaults.Kind 의 이름: NONE·DISCONNECT·DELAY·EVENT_LOSS·
+  // DUPLICATE·REORDER. 모르는 이름은 거절한다.
+  string kind = 2;
+
+  // EVENT_LOSS 가 몇 번째마다 버리는가. 0이면 기본값(3)을 쓴다.
+  // 1이면 거절한다 — 매번 버리면 그것은 DISCONNECT 다.
+  uint32 loss_every = 3;
+}
+
+message InjectTransportFaultResponse {
+  string kind = 1;
+  uint32 loss_every = 2;
+}
+
 // §8.2의 **로봇 유래 능력 축소**를 흉내낸다.
 //
 // 선언한 적 없는 스킬은 거절한다 — 그것은 축소가 아니라 오타이고, 허용하면
@@ -247,9 +268,7 @@ message ForceControlAuthorityLossResponse {
   repeated string terminated_task_ids = 2;
 }
 
-// §10.5의 열셋 중 열둘이 지금 있다. 남은 하나는 6c-3이 더한다.
-//
-//   InjectTransportFault
+// §10.5의 열셋이 전부 있다.
 service ControlService {
   rpc SetClockMode(SetClockModeRequest) returns (SetClockModeResponse);
   rpc AdvanceClock(AdvanceClockRequest) returns (AdvanceClockResponse);
@@ -282,4 +301,8 @@ service ControlService {
   // §8.2의 런타임 축소와 복원.
   rpc RemoveCapability(RemoveCapabilityRequest) returns (CapabilityChangeResponse);
   rpc RestoreCapability(RestoreCapabilityRequest) returns (CapabilityChangeResponse);
+
+  // §10.5의 전송 장애 다섯.
+  rpc InjectTransportFault(InjectTransportFaultRequest)
+      returns (InjectTransportFaultResponse);
 }

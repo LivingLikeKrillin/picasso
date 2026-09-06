@@ -13,6 +13,8 @@ import dev.picasso.mimic.control.v1.ForceFaultRequest
 import dev.picasso.mimic.control.v1.ForceFaultResponse
 import dev.picasso.mimic.control.v1.ForceTerminalViolationRequest
 import dev.picasso.mimic.control.v1.ForceTerminalViolationResponse
+import dev.picasso.mimic.control.v1.InjectTransportFaultRequest
+import dev.picasso.mimic.control.v1.InjectTransportFaultResponse
 import dev.picasso.mimic.control.v1.InternalFault
 import dev.picasso.mimic.control.v1.InternalTask
 import dev.picasso.mimic.control.v1.RemoveCapabilityRequest
@@ -37,6 +39,7 @@ import dev.picasso.mimic.engine.ViolationOutcome
 import dev.picasso.mimic.engine.VirtualClock
 import dev.picasso.mimic.transport.MimicServer
 import dev.picasso.mimic.transport.RobotRegistry
+import dev.picasso.mimic.transport.TransportFaults
 import io.grpc.Server
 import io.grpc.ServerBuilder
 import io.grpc.Status
@@ -230,6 +233,52 @@ class ControlServer(
             reply(
                 observer,
                 SetSingleStepResponse.newBuilder().setEnabled(request.enabled).build(),
+            )
+        }
+
+        /**
+         * §10.5의 전송 장애 다섯.
+         *
+         * **모르는 이름은 거절한다.** 조용히 `NONE`으로 접으면 시험이 장애를
+         * 건 줄 알고 "복원됐다"를 단언한다 — 아무 장애도 없었으므로 당연히
+         * 참이고, 완료 기준 3이 통째로 공허해진다.
+         */
+        override fun injectTransportFault(
+            request: InjectTransportFaultRequest,
+            observer: StreamObserver<InjectTransportFaultResponse>,
+        ) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            val kind = TransportFaults.Kind.entries.firstOrNull { it.name == request.kind }
+            if (kind == null) {
+                observer.onError(
+                    Status.INVALID_ARGUMENT
+                        .withDescription(
+                            "모르는 전송 장애다: '${request.kind}' (아는 것: " +
+                                TransportFaults.Kind.entries.joinToString { it.name } + ")",
+                        )
+                        .asRuntimeException(),
+                )
+                return
+            }
+
+            val every = if (request.lossEvery == 0) hosted.instance.transport.lossEvery
+            else request.lossEvery
+            if (every < 2) {
+                observer.onError(
+                    Status.INVALID_ARGUMENT
+                        .withDescription("매번 버리면 그것은 DISCONNECT다: $every")
+                        .asRuntimeException(),
+                )
+                return
+            }
+
+            hosted.instance.transport.inject(kind, every)
+            reply(
+                observer,
+                InjectTransportFaultResponse.newBuilder()
+                    .setKind(kind.name)
+                    .setLossEvery(every)
+                    .build(),
             )
         }
 
