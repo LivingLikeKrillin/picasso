@@ -3,6 +3,7 @@ package dev.picasso.gate
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.picasso.gate.buf.ProcessBufRunner
 import dev.picasso.gate.cli.InputCollector
+import dev.picasso.gate.input.ChangedFiles
 import dev.picasso.gate.input.LedgerAnswer
 import dev.picasso.gate.input.LedgerQuery
 import java.nio.file.Files
@@ -68,6 +69,12 @@ class NegativeSuiteTest {
         val reason: String,
         /** §9.3의 두 조회 답. 없으면 원장 없음(부분 건너뜀). */
         val ledger: Pair<Int, Int>?,
+        /**
+         * 검사 8번이 볼 변경 목록. **overlay가 없는 케이스는 이것만 갖는다** —
+         * "소스가 섞인 커밋"은 파일을 덮어써서 표현할 수 있는 것이 아니다.
+         */
+        val changedFiles: List<String>,
+        val addedFiles: List<String>,
     )
 
     private fun cases(): List<Case> {
@@ -90,6 +97,8 @@ class NegativeSuiteTest {
                                 it.path("active_consumers").asInt() to
                                     it.path("inflight_tasks").asInt()
                             },
+                            changedFiles = node.path("changed_files").map { f -> f.asText() },
+                            addedFiles = node.path("added_files").map { f -> f.asText() },
                         )
                     }.getOrElse { error("케이스 ${dir.fileName}: ${it.message}") }
                 }
@@ -114,7 +123,16 @@ class NegativeSuiteTest {
         // 시험하지 않는다. Chunk 6에서 이미 밟은 실패다.
         cases().forEach { case ->
             val overlay = case.dir.resolve("overlay")
-            check(Files.isDirectory(overlay)) { "${case.dir.fileName}: overlay/ 가 없다" }
+            if (!Files.isDirectory(overlay)) {
+                // **overlay 없이 데이터만 갖는 케이스가 있다** — 검사 8의
+                // "소스가 섞인 커밋"은 파일을 덮어써서 표현할 수 있는 것이
+                // 아니다. 다만 아무것도 안 담은 케이스는 여전히 공허하다.
+                assertTrue(
+                    case.changedFiles.isNotEmpty() || case.addedFiles.isNotEmpty(),
+                    "${case.dir.fileName}: overlay도 변경 목록도 없다 — 이 케이스는 아무것도 시험하지 않는다",
+                )
+                return@forEach
+            }
 
             var files = 0
             Files.walk(overlay).use { s ->
@@ -184,6 +202,24 @@ class NegativeSuiteTest {
     }
 
     @Test
+    fun `CI가 검사 8의 입력을 만들고 그것을 요구한다`() {
+        // **검사 8이 존재하는 것과 도는 것은 다르다.** 요구 목록에 없으면
+        // diff 생성이 어느 날 조용히 깨져도 SKIP으로 넘어가고, 완료 기준
+        // 11의 기제가 아무 소리 없이 사라진다. 종료 코드는 0인 채로.
+        val ci = Files.readString(repoRoot.resolve(".github/workflows/ci.yml"))
+        listOf(
+            "--changed-files-from",
+            "--added-files-from",
+            // 이름 바꾸기가 "소스 변경 0으로 새 기종"으로 읽히는 것을 막는다.
+            "--no-renames",
+            "--diff-filter=A",
+            "CHANGED_FILES",
+        ).forEach {
+            assertTrue(it in ci, "CI에 '$it' 이 없다 — 검사 8이 돌지 않는다")
+        }
+    }
+
+    @Test
     fun `모든 음성 케이스가 겨냥한 검사를 기대한 이유로 실패시킨다`() {
         val skipped = mutableListOf<String>()
         val leaked = mutableListOf<String>()
@@ -194,8 +230,11 @@ class NegativeSuiteTest {
                 return@forEach
             }
 
-            val work = materialize(overlay = case.dir.resolve("overlay"))
-            val report = gate().run(collect(work, case.ledger))
+            // overlay 없이 변경 목록만 갖는 케이스가 있다(검사 8).
+            val work = materialize(
+                overlay = case.dir.resolve("overlay").takeIf { Files.isDirectory(it) },
+            )
+            val report = gate().run(collect(work, case.ledger, case.changedFiles, case.addedFiles))
             val target = report.results.firstOrNull { it.checkId == case.targets }
 
             if (target !is CheckResult.Failed) {
@@ -262,7 +301,12 @@ class NegativeSuiteTest {
     private fun isExcluded(rel: Path): Boolean =
         rel != DESCRIPTOR && rel.any { it.toString() in EXCLUDED }
 
-    private fun collect(work: Path, ledger: Pair<Int, Int>?) =
+    private fun collect(
+        work: Path,
+        ledger: Pair<Int, Int>?,
+        changedFiles: List<String> = emptyList(),
+        addedFiles: List<String> = emptyList(),
+    ) =
         InputCollector(work).collect(
             // **CLI와 같은 목록을 쓴다.** 여기만 픽스처로 두면 원본 트리
             // 시험이 실제 기종 프로파일을 아예 안 보고, 스키마를 어긴
@@ -274,6 +318,11 @@ class NegativeSuiteTest {
             baselineDirs = ProfileDirectories.ALL.map { work.resolve("$BASELINE_DIR/$it") },
             contractBaseline = "../$BASELINE_DIR/contracts",
             buf = bufFor(work),
+            // **null이 아니라 빈 목록이다.** null이면 검사 8이 건너뛰고,
+            // 그러면 `원본 트리는 모든 검사를 통과한다`가 허용되지 않은
+            // 건너뜀으로 실패한다. 빈 목록은 "이 변경은 아무것도 안 바꿨다"이고
+            // 검사 8은 그것을 통과로 판정한다 — 판정을 했다는 뜻이다.
+            changed = ChangedFiles(changedFiles, addedFiles),
         ).copy(registry = ledger?.let(::FakeLedger))
 
     /**

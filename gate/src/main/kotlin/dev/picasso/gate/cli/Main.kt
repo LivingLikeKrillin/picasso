@@ -14,6 +14,7 @@ import dev.picasso.gate.ProfileDirectories
 import dev.picasso.gate.GateRunner
 import dev.picasso.gate.Resource
 import dev.picasso.gate.buf.ProcessBufRunner
+import dev.picasso.gate.input.ChangedFiles
 import java.nio.file.Path
 
 class GateCommand : CliktCommand(name = "picasso-gate") {
@@ -54,12 +55,48 @@ class GateCommand : CliktCommand(name = "picasso-gate") {
         help = "buf 실행기. 절대 경로여야 한다. 여러 번 주면 인자로 이어진다",
     ).multiple()
 
+    private val changedFilesFrom by option(
+        "--changed-files-from",
+        help = "이 변경이 건드린 파일 목록 파일. 한 줄에 하나. 호출 지점이 git에서 만든다",
+    ).path()
+
+    private val addedFilesFrom by option(
+        "--added-files-from",
+        help = "그중 **추가된** 것만. git diff --diff-filter=A --no-renames 로 만든다",
+    ).path()
+
     private val required by option(
         "--require",
         help = "반드시 있어야 하는 자원. 없으면 건너뜀이 아니라 실패다",
     ).convert { spec ->
         spec.split(",").map { Resource.valueOf(it.trim().uppercase()) }.toSet()
     }.default(GateChecks.REQUIRED_IN_CI)
+
+    /**
+     * **둘 다 있거나 둘 다 없어야 한다.** 전체만 주면 추가가 빈 목록이 되어
+     * 검사 8이 언제나 통과하고, 추가만 주면 섞인 변경을 못 본다.
+     */
+    private fun changedFiles(root: java.nio.file.Path): ChangedFiles? {
+        if (changedFilesFrom == null && addedFilesFrom == null) return null
+        val all = readList(root, changedFilesFrom, "--changed-files-from")
+        val added = readList(root, addedFilesFrom, "--added-files-from")
+        return ChangedFiles(all, added)
+    }
+
+    private fun readList(
+        root: java.nio.file.Path,
+        path: java.nio.file.Path?,
+        option: String,
+    ): List<String> {
+        val file = requireNotNull(path) { "$option 이 없다 — 두 목록은 함께 주어야 한다" }
+        val resolved = root.resolve(file)
+        require(java.nio.file.Files.isRegularFile(resolved)) {
+            "$option 이 가리키는 파일이 없다: $resolved — 빈 목록과 '만들지 못했다'는 다르다"
+        }
+        return java.nio.file.Files.readAllLines(resolved)
+            .map { it.trim().replace('\\', '/') }
+            .filter { it.isNotEmpty() }
+    }
 
     override fun run() {
         // toAbsolutePath()는 정규화하지 않는다. 순서를 뒤집으면 ".."가
@@ -73,6 +110,7 @@ class GateCommand : CliktCommand(name = "picasso-gate") {
             baselineDirs = baselineDirs.map(root::resolve),
             contractBaseline = contractBaseline,
             buf = bufCommand.takeIf { it.isNotEmpty() }?.let { ProcessBufRunner(it) },
+            changed = changedFiles(root),
         )
 
         val report = GateRunner(GateChecks.all(), required).run(input)

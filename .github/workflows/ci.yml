@@ -77,6 +77,20 @@ jobs:
             echo "profiles=yes" >> "$GITHUB_OUTPUT"
           fi
 
+          # 검사 8번의 입력. **추가와 전체를 따로 뽑는다** — git diff --name-only
+          # 는 상태 문자를 주지 않아 추가와 수정을 구별할 수 없고, 검사 8은
+          # 추가일 때만 발화한다.
+          #
+          # --no-renames 가 값을 한다: 이름 바꾸기 탐지를 켜 두면
+          # `git mv humanoid-a.json humanoid-c.json` 이 경로 하나로 보고되어
+          # "소스 변경 0으로 새 기종이 들어왔다"로 읽힌다.
+          #
+          # **실패를 빈 목록으로 접지 않는다.** 빈 목록은 "이 변경은 아무것도
+          # 안 바꿨다"이고, 그것은 "diff를 못 만들었다"와 다른 주장이다.
+          git diff --name-only "$BASE...HEAD" > /tmp/changed-files
+          git diff --name-only --diff-filter=A --no-renames "$BASE...HEAD" > /tmp/added-files
+          echo "diff=yes" >> "$GITHUB_OUTPUT"
+
       - name: 게이트
         run: |
           ./gradlew :gate:installDist -q
@@ -85,13 +99,23 @@ jobs:
           # 기준 9가 아무 근거 없이 참이 된다.
           ARGS="--repo . --buf $PWD/tools/buf"
           ARGS="$ARGS --profiles profile/fixtures --profiles profile/profiles"
-          ARGS="$ARGS --require REPO,PROFILE_DOCUMENT,PROFILE_SCHEMA,CONTRACT_DESCRIPTOR,BUF"
+          # **--require 는 한 번만 준다.** 두 번 주면 clikt가 뒤엣것으로
+          # 덮어써서 앞의 요구가 통째로 사라진다.
+          REQUIRE="REPO,PROFILE_DOCUMENT,PROFILE_SCHEMA,CONTRACT_DESCRIPTOR,BUF"
           if [ -n "${{ steps.baseline.outputs.contract }}" ]; then
             ARGS="$ARGS --contract-baseline '${{ steps.baseline.outputs.contract }}'"
           fi
           if [ -n "${{ steps.baseline.outputs.profiles }}" ]; then
             ARGS="$ARGS --baseline-dir /tmp/baseline-fixtures --baseline-dir /tmp/baseline-profiles"
           fi
+          # PR 빌드에서는 검사 8번을 **요구한다.** 요구 목록에 없으면 diff
+          # 생성이 어느 날 조용히 깨져도 SKIP으로 넘어가고, 완료 기준 11의
+          # 기제가 아무 소리 없이 사라진다.
+          if [ -n "${{ steps.baseline.outputs.diff }}" ]; then
+            ARGS="$ARGS --changed-files-from /tmp/changed-files --added-files-from /tmp/added-files"
+            REQUIRE="$REQUIRE,CHANGED_FILES"
+          fi
+          ARGS="$ARGS --require $REQUIRE"
           eval "./gate/build/install/gate/bin/gate $ARGS"
 
       # 음성 하네스를 별도 스텝으로 두면 뒤이은 build가 시스템 프로퍼티 없이

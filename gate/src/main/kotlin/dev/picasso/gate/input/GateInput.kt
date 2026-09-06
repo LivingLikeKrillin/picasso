@@ -10,6 +10,29 @@ import java.nio.file.Path
 data class MalformedProfile(val path: String, val message: String)
 
 /**
+ * 이 변경이 건드린 파일들. 저장소 루트 기준의 `/` 경로다.
+ *
+ * **[added]를 따로 받는다.** `git diff --name-only`는 상태 문자를 주지 않아
+ * 추가와 수정을 구별할 수 없고, 검사 8번은 **추가일 때만** 발화한다.
+ * 호출 지점이 `--diff-filter=A --no-renames`로 따로 뽑는다.
+ *
+ * `--no-renames`가 값을 한다 — 이름 바꾸기 탐지를 켜 두면
+ * `git mv humanoid-a.json humanoid-c.json`이 경로 하나로 보고되어 **"소스
+ * 변경 0으로 새 기종이 들어왔다"**로 읽힌다. 끄면 추가 + 삭제로 갈라져
+ * 정직한 판정이 된다.
+ *
+ * **둘을 한 타입에 묶는 이유**는 하나만 주어지는 상태를 만들지 않기
+ * 위해서다. `added`만 비어 있으면 검사 8이 언제나 통과한다.
+ */
+data class ChangedFiles(val all: List<String>, val added: List<String>) {
+    init {
+        require(added.all { it in all }) {
+            "추가 목록이 전체 변경 목록에 없다: ${added.filterNot { it in all }}"
+        }
+    }
+}
+
+/**
  * 검사가 읽는 것 전부. 자원마다 있을 수도 없을 수도 있고,
  * 없으면 그 자원을 요구하는 검사가 건너뛴다(설계 §3.1).
  *
@@ -68,8 +91,8 @@ data class GateInput(
      */
     val baseline: Map<ProfileKey, String>? = null,
 
-    /** 이 PR이 바꾼 파일 목록. 검사 8번(2단계)이 쓴다. */
-    val changedFiles: List<String>? = null,
+    /** 이 PR이 바꾼 파일 목록. 검사 8번이 쓴다. */
+    val changed: ChangedFiles? = null,
 
     /** 의존 원장 조회기. 검사 6번의 축소 판정이 쓴다(설계 §9.3). */
     val registry: LedgerQuery? = null,
@@ -82,7 +105,7 @@ data class GateInput(
         if (buf != null) add(Resource.BUF)
         if (contractBaseline != null) add(Resource.CONTRACT_BASELINE)
         if (baseline != null) add(Resource.BASELINE)
-        if (changedFiles != null) add(Resource.CHANGED_FILES)
+        if (changed != null) add(Resource.CHANGED_FILES)
         if (registry != null) add(Resource.REGISTRY)
     }
 

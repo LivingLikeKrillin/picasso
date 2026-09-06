@@ -32,12 +32,11 @@ class InputCollectorTest {
     """.trimIndent()
 
     @Test
-    fun `검사 일곱이 전부 목록에 있고 id가 겹치지 않는다`() {
-        // §11.2는 아홉이다. 8번은 Chunk 5의 다음 태스크, 9번은 검사가 아니라
-        // 음성 하네스라 목록에 없다 — 그 사실이 여기 적혀 있어야 "일곱이면
-        // 다 됐다"로 읽히지 않는다.
+    fun `검사 여덟이 전부 목록에 있고 id가 겹치지 않는다`() {
+        // §11.2는 아홉이다. 9번은 검사가 아니라 음성 하네스라 목록에 없다 —
+        // 그 사실이 여기 적혀 있어야 "여덟이면 다 됐다"로 읽히지 않는다.
         val ids = GateChecks.all().map { it.id }
-        assertEquals(listOf("1", "2", "3", "4", "5", "6", "7"), ids.sorted())
+        assertEquals(listOf("1", "2", "3", "4", "5", "6", "7", "8"), ids.sorted())
     }
 
     @Test

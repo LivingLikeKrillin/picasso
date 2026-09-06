@@ -1,0 +1,11 @@
+{
+  "targets": "8",
+  "needs": [],
+  "expect": "함께 바꿨다",
+  "reason": "기종 프로파일을 더하면서 소스를 함께 바꾼 커밋 — C-2의 '소스 변경 0'이 깨진다",
+  "changed_files": [
+    "profile/profiles/humanoid-a.json",
+    "mimic/src/main/kotlin/dev/picasso/mimic/RobotInstance.kt"
+  ],
+  "added_files": ["profile/profiles/humanoid-a.json"]
+}

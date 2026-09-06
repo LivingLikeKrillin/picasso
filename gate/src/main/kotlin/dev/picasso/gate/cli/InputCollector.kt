@@ -1,6 +1,7 @@
 package dev.picasso.gate.cli
 
 import dev.picasso.gate.buf.BufRunner
+import dev.picasso.gate.input.ChangedFiles
 import dev.picasso.gate.input.GateInput
 import dev.picasso.gate.input.MalformedProfile
 import dev.picasso.profile.ProfileKey
@@ -28,6 +29,7 @@ class InputCollector(private val repoRoot: Path) {
         baselineDirs: List<Path> = emptyList(),
         contractBaseline: String? = null,
         buf: BufRunner? = null,
+        changed: ChangedFiles? = null,
     ): GateInput {
         val head = readAll(profileDirs)
 
@@ -40,6 +42,7 @@ class InputCollector(private val repoRoot: Path) {
             baseline = readBaseline(baselineDirs),
             contractBaseline = contractBaseline,
             buf = buf,
+            changed = changed,
         )
     }
 
