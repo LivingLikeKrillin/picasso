@@ -167,11 +167,24 @@ class ReconstructionTest {
             replayed.all { it.header.sequence >= at },
             "재생에 경계 이전 번호가 섞였다: ${replayed.map { it.header.sequence }}",
         )
-        // 그리고 빠지지도 않아야 한다.
+        // **연속이라고 단언하지 않는다.** `sequence`는 기체 단위 하나이고
+        // `state`·`event`·`connection` 세 스트림이 그것을 함께 쓴다
+        // (§5.5의 발행 열이 셋을 다 덮는다). 주기 상태 발행이 붙은 뒤로
+        // `ReplayEvents`가 돌려주는 번호에는 **상태 메시지가 쓴 자리가
+        // 비어 있다** — 그것은 결손이 아니다.
+        //
+        // 이 사실이 완료 기준 3의 소비자 설계를 정한다: **이벤트 스트림만
+        // 보고 구멍을 결손이라고 판정하면 안 된다.** 판정은 발행 축 전체
+        // 위에서 해야 한다.
         assertEquals(
-            (at until at + replayed.size).toList(),
+            replayed.map { it.header.sequence }.sorted(),
             replayed.map { it.header.sequence },
-            "재생에 구멍이 있다",
+            "재생이 번호 순이 아니다",
+        )
+        assertEquals(
+            replayed.map { it.header.sequence }.distinct(),
+            replayed.map { it.header.sequence },
+            "재생에 같은 번호가 두 번 있다",
         )
     }
 

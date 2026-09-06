@@ -15,6 +15,8 @@ import dev.picasso.mimic.control.v1.ForceTerminalViolationResponse
 import dev.picasso.mimic.control.v1.InternalFault
 import dev.picasso.mimic.control.v1.InternalTask
 import dev.picasso.mimic.control.v1.SetClockModeRequest
+import dev.picasso.mimic.control.v1.SetConnectionRequest
+import dev.picasso.mimic.control.v1.SetConnectionResponse
 import dev.picasso.mimic.control.v1.SetSeedRequest
 import dev.picasso.mimic.control.v1.SetSeedResponse
 import dev.picasso.mimic.control.v1.SetSingleStepRequest
@@ -22,6 +24,7 @@ import dev.picasso.mimic.control.v1.SetSingleStepResponse
 import dev.picasso.mimic.control.v1.StepRequest
 import dev.picasso.mimic.control.v1.StepResponse
 import dev.picasso.mimic.control.v1.SetClockModeResponse
+import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.Reference
 import dev.picasso.mimic.engine.AuthorityOutcome
@@ -224,6 +227,49 @@ class ControlServer(
             reply(
                 observer,
                 SetSingleStepResponse.newBuilder().setEnabled(request.enabled).build(),
+            )
+        }
+
+        /**
+         * §4.7의 연결 상태를 강제한다.
+         *
+         * **모르는 이름은 거절한다.** 조용히 `UNSPECIFIED`로 접으면 시험이
+         * 침묵을 만든 줄 알고 다음 단언으로 넘어간다. `UNSPECIFIED` 자체도
+         * 거절한다 — 그것은 "안 실었다"이지 상태가 아니다.
+         */
+        override fun setConnection(
+            request: SetConnectionRequest,
+            observer: StreamObserver<SetConnectionResponse>,
+        ) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            val state = ConnectionState.entries.firstOrNull { it.name == request.state }
+            if (state == null ||
+                state == ConnectionState.CONNECTION_STATE_UNSPECIFIED ||
+                state == ConnectionState.UNRECOGNIZED
+            ) {
+                observer.onError(
+                    Status.INVALID_ARGUMENT
+                        .withDescription(
+                            "모르는 연결 상태다: '${request.state}' (아는 것: " +
+                                ConnectionState.entries
+                                    .filterNot {
+                                        it == ConnectionState.UNRECOGNIZED ||
+                                            it == ConnectionState.CONNECTION_STATE_UNSPECIFIED
+                                    }
+                                    .joinToString { it.name } + ")",
+                        )
+                        .asRuntimeException(),
+                )
+                return
+            }
+
+            val changed = hosted.instance.events.setConnection(state)
+            reply(
+                observer,
+                SetConnectionResponse.newBuilder()
+                    .setState(state.name)
+                    .setChanged(changed)
+                    .build(),
             )
         }
 

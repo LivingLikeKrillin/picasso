@@ -73,7 +73,16 @@ class EventServiceTest {
     @Test
     fun `스냅샷의 sequence가 다음에 올 번호다`() {
         // "대응하는 번호"로 두면 0이 두 가지 뜻을 갖는다.
-        assertEquals(0L, snapshot().sequence, "아무 일도 없는데 0이 아니다")
+        //
+        // **0이 아니라 1이다.** §10.2의 기동 순서 마지막이 `ONLINE` 발행이고
+        // `sequence`는 기체 단위 하나이므로 그것이 0번을 쓴다. 발행된 것과
+        // 견줘서 이 값을 만든다 — 리터럴로 적으면 기동 발행이 하나 늘 때
+        // 조용히 틀린 값을 단언한다.
+        assertEquals(
+            fixture.publisher.publications.map { it.sequence }.max() + 1,
+            snapshot().sequence,
+            "태스크 전에도 다음 번호여야 한다",
+        )
 
         runTask()
         val published = fixture.publisher.publications.map { it.sequence }
@@ -92,7 +101,10 @@ class EventServiceTest {
         host.tasks.tick()
 
         val after = replay(mid).mapNotNull { it.takeIf { r -> r.hasEvent() }?.event }
-        val all = fixture.publisher.publications.map { (it.message as Event).header.sequence }
+        // **`event` 스트림만 고른다.** `sequence`는 기체 단위 하나이고
+        // `state`·`connection`이 같은 축을 쓰므로(§5.5의 발행 열이 셋을 다
+        // 덮는다), 전부 세면 재생에 없는 번호가 섞인다.
+        val all = fixture.publisher.events().map { it.header.sequence }
         assertEquals(all.filter { it >= mid }, after.map { it.header.sequence })
         assertTrue(after.isNotEmpty(), "스냅샷 뒤에 아무 일도 없었다 — 시험이 공허하다")
     }
@@ -113,7 +125,7 @@ class EventServiceTest {
         runTask()
         val events = replay(0).mapNotNull { it.takeIf { r -> r.hasEvent() }?.event }
         assertEquals(
-            fixture.publisher.publications.map { (it.message as Event).header.sequence },
+            fixture.publisher.events().map { it.header.sequence },
             events.map { it.header.sequence },
         )
     }
@@ -123,7 +135,7 @@ class EventServiceTest {
         // 다시 찍으면 event_id가 바뀌어 소비자의 멱등 처리가 무너지고,
         // occurred_at이 바뀌어 30초 전 사건이 방금 일어난 것으로 보인다.
         runTask()
-        val original = fixture.publisher.publications.map { it.message as Event }
+        val original = fixture.publisher.events()
         val replayed = replay(0).map { it.event }
 
         assertEquals(original.map { it.header.eventId }, replayed.map { it.header.eventId })

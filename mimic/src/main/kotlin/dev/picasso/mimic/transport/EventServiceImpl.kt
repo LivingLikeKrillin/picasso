@@ -55,8 +55,13 @@ class EventServiceImpl(
         val buffered = hosted.instance.events.buffered
         val oldest = buffered.firstOrNull()?.header?.sequence
 
-        // 버퍼가 비어 있으면 축출이 아니다 — 아직 아무 일도 없었을 뿐이다.
-        if (oldest != null && request.fromSequence < oldest) {
+        // **실제로 버린 것이 있어야 축출이다.** `sequence` 축은 기체 단위
+        // 하나이고 `state`·`connection`이 그것을 함께 쓰므로(§5.5의 발행
+        // 열), "버퍼의 첫 항목보다 앞"은 축출과 같은 말이 아니다 — 그
+        // 번호를 다른 스트림이 썼을 수 있다. 그렇게 판정하면 아무것도 안
+        // 잃은 소비자에게 스냅샷부터 다시 세우라고 시킨다.
+        val evicted = hosted.instance.events.evictedUpTo
+        if (evicted != null && request.fromSequence <= evicted) {
             observer.onNext(
                 ReplayEventsResponse.newBuilder()
                     .setHeader(hosted.headers.forResponse(ReplayEventsResponse.getDescriptor()))

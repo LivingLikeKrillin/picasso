@@ -36,6 +36,8 @@ class MimicServer(private val registry: RobotRegistry, builder: ServerBuilder<*>
     fun advance(duration: java.time.Duration) {
         registry.clocks.forEach { it.advance(duration) }
         taskService.settleAll()
+        // §7.2의 최대 발행 간격. **스케줄러가 아니라 시계가 만든다**(§12.1).
+        registry.hosted.forEach { it.instance.events.publishStateIfDue() }
     }
 
     /** 시계를 건드리지 않고 전이만 반영해 민다. */
@@ -59,7 +61,17 @@ class MimicServer(private val registry: RobotRegistry, builder: ServerBuilder<*>
 
     val port: Int get() = server.port
 
-    fun start(): MimicServer = apply { server.start() }
+    /**
+     * §10.2의 기동 순서 마지막 — **포트를 열고 `ONLINE`을 발행한다.**
+     *
+     * `RobotInstance` 생성이 아니라 여기서 하는 이유는, 포트가 안 열렸는데
+     * 온라인이라고 알리면 소비자가 붙을 수 없는 기체를 살아 있다고 읽기
+     * 때문이다.
+     */
+    fun start(): MimicServer = apply {
+        server.start()
+        registry.hosted.forEach { it.instance.events.announceOnline() }
+    }
 
     fun shutdown() {
         server.shutdownNow()

@@ -10,7 +10,20 @@ import com.google.protobuf.Message
  * 아예 못 본다.** 결손을 감지하는 능력이 그 자리에서 사라지고, 완료 기준 3이
  * 조용히 통과한다.
  */
-data class Publication(val topic: String, val message: Message, val sequence: Long)
+data class Publication(
+    val topic: String,
+    val message: Message,
+    val sequence: Long,
+    /**
+     * §4.7 — `connection` 스트림은 **retain**으로 발행한다. 안 그러면 새
+     * 구독자가 로봇이 죽어 있는지 조용한지 알 수 없다.
+     *
+     * **브로커가 없으므로 플래그로만 증명한다**(§15.30). 그것이 한계이며
+     * 여기 적어 둔다 — "retain으로 발행했다"는 우리가 그렇게 표시했다는
+     * 뜻이지 브로커가 그렇게 다뤘다는 뜻이 아니다.
+     */
+    val retained: Boolean = false,
+)
 
 /**
  * 발행 표면. §3.5는 MQTT라 하지만 **2단계는 브로커를 붙이지 않는다.**
@@ -41,6 +54,17 @@ class RecordingPublisher : Publisher {
     val publications: List<Publication> get() = received.toList()
 
     fun topic(topic: String): List<Publication> = received.filter { it.topic == topic }
+
+    /**
+     * `event` 스트림에 나간 것만.
+     *
+     * **`sequence`는 기체 단위 하나이고 세 스트림이 그것을 함께 쓴다**
+     * (§5.5의 발행 열이 `state`·`event`·`connection`을 다 덮는다). 그래서
+     * 전부 세면 재생 버퍼에 없는 번호가 섞이고, 그것을 결손으로 읽으면
+     * 완료 기준 3이 거짓으로 빨개진다.
+     */
+    fun events(): List<dev.picasso.contracts.v1.Event> =
+        received.map { it.message }.filterIsInstance<dev.picasso.contracts.v1.Event>()
 
     fun clear() = received.clear()
 

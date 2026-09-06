@@ -194,6 +194,24 @@ message ForceControlAuthorityLossRequest {
   string robot_id = 1;
 }
 
+// §4.7의 연결 상태를 강제한다. **§4.3의 값을 그대로 쓴다** — 제어 채널이
+// 자기 어휘를 만들면 시험과 소비자가 다른 말을 하게 된다.
+message SetConnectionRequest {
+  string robot_id = 1;
+
+  // picasso.v1.ConnectionState 의 이름. 제어 채널은 contracts 에 의존하지
+  // 않으므로(§10.5) 문자열로 받는다 — 모르는 이름은 거절한다.
+  string state = 2;
+}
+
+message SetConnectionResponse {
+  string state = 1;
+
+  // 실제로 바뀌었으면 참. 같은 상태를 두 번 넣으면 거짓이며 아무것도
+  // 안 나간다 — 유령 전이는 소비자가 재연결로 오해한다.
+  bool changed = 2;
+}
+
 message ForceControlAuthorityLossResponse {
   // 실제로 새로 선 결함이면 참.
   bool raised = 1;
@@ -203,10 +221,10 @@ message ForceControlAuthorityLossResponse {
   repeated string terminated_task_ids = 2;
 }
 
-// §10.5의 열셋 중 아홉이 지금 있다. 나머지 넷은 6c가 더하며 **이름을 지금
+// §10.5의 열셋 중 열이 지금 있다. 나머지 셋은 6c가 더하며 **이름을 지금
 // 못박는다** — 이 파일은 buf breaking 밖이라 나중에 바꿔도 아무도 안 잡는다.
 //
-//   InjectTransportFault · SetConnection · RemoveCapability · RestoreCapability
+//   InjectTransportFault · RemoveCapability · RestoreCapability
 service ControlService {
   rpc SetClockMode(SetClockModeRequest) returns (SetClockModeResponse);
   rpc AdvanceClock(AdvanceClockRequest) returns (AdvanceClockResponse);
@@ -232,4 +250,7 @@ service ControlService {
   // §4.9의 제어 권한 상실. 역시 프로파일이 선언할 수 없다.
   rpc ForceControlAuthorityLoss(ForceControlAuthorityLossRequest)
       returns (ForceControlAuthorityLossResponse);
+
+  // §4.7의 연결 상태. 침묵의 세 원인을 강제한다.
+  rpc SetConnection(SetConnectionRequest) returns (SetConnectionResponse);
 }
