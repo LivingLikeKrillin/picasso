@@ -2,7 +2,7 @@ package dev.picasso.gate.cli
 
 import dev.picasso.gate.GateChecks
 import dev.picasso.gate.Resource
-import dev.picasso.gate.input.ProfileKey
+import dev.picasso.profile.ProfileKey
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories

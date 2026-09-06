@@ -11,7 +11,7 @@ import dev.picasso.gate.GateCheck
 import dev.picasso.gate.Resource
 import dev.picasso.gate.Severity
 import dev.picasso.gate.input.GateInput
-import dev.picasso.gate.model.ProfileDocument
+import dev.picasso.profile.ProfileDocument
 import java.util.Locale
 
 /**

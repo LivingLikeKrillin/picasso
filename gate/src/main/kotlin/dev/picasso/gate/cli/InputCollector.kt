@@ -3,8 +3,8 @@ package dev.picasso.gate.cli
 import dev.picasso.gate.buf.BufRunner
 import dev.picasso.gate.input.GateInput
 import dev.picasso.gate.input.MalformedProfile
-import dev.picasso.gate.input.ProfileKey
-import dev.picasso.gate.model.ProfileDocument
+import dev.picasso.profile.ProfileKey
+import dev.picasso.profile.ProfileDocument
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.extension

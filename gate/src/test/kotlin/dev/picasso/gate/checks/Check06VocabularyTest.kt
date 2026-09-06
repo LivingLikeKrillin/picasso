@@ -6,8 +6,8 @@ import dev.picasso.gate.Severity
 import dev.picasso.gate.input.GateInput
 import dev.picasso.gate.input.LedgerAnswer
 import dev.picasso.gate.input.LedgerQuery
-import dev.picasso.gate.input.ProfileKey
-import dev.picasso.gate.model.ProfileDocument
+import dev.picasso.profile.ProfileKey
+import dev.picasso.profile.ProfileDocument
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals

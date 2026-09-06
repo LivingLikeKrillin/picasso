@@ -1,4 +1,4 @@
-package dev.picasso.gate.model
+package dev.picasso.profile
 
 import java.nio.file.Files
 import java.nio.file.Path

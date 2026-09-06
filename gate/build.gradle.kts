@@ -12,6 +12,7 @@ application {
 }
 
 dependencies {
+    implementation(project(":profile-model"))
     implementation(libs.protobuf.java)
     implementation(libs.jsonschema.validator)
     implementation(libs.jackson.databind)

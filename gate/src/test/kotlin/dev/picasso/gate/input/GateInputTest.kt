@@ -1,7 +1,8 @@
 package dev.picasso.gate.input
 
 import dev.picasso.gate.Resource
-import dev.picasso.gate.model.ProfileDocument
+import dev.picasso.profile.ProfileDocument
+import dev.picasso.profile.ProfileKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

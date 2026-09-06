@@ -3,7 +3,7 @@ package dev.picasso.gate.checks
 import dev.picasso.gate.CheckResult
 import dev.picasso.gate.Resource
 import dev.picasso.gate.input.GateInput
-import dev.picasso.gate.model.ProfileDocument
+import dev.picasso.profile.ProfileDocument
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test

@@ -2,19 +2,12 @@ package dev.picasso.gate.input
 
 import dev.picasso.gate.Resource
 import dev.picasso.gate.buf.BufRunner
-import dev.picasso.gate.model.ProfileDocument
+import dev.picasso.profile.ProfileDocument
+import dev.picasso.profile.ProfileKey
 import java.nio.file.Path
 
 /** 파싱조차 되지 않은 프로파일. 검사 3번이 소견으로 보고한다. */
 data class MalformedProfile(val path: String, val message: String)
-
-/**
- * 프로파일 문서의 동일성. 설계 §8.3의 `capability_profile(vendor, model) UNIQUE`.
- * 파일 이름도 개정 번호도 아니다 — 둘 다 바뀌어도 같은 기종이다.
- */
-data class ProfileKey(val vendor: String, val model: String) {
-    override fun toString() = "$vendor/$model"
-}
 
 /**
  * 검사가 읽는 것 전부. 자원마다 있을 수도 없을 수도 있고,

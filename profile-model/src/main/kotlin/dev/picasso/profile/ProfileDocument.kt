@@ -1,4 +1,4 @@
-package dev.picasso.gate.model
+package dev.picasso.profile
 
 import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.databind.JsonNode

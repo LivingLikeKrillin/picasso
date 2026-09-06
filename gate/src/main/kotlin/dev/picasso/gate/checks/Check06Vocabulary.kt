@@ -8,8 +8,8 @@ import dev.picasso.gate.Severity
 import dev.picasso.gate.input.GateInput
 import dev.picasso.gate.input.LedgerAnswer
 import dev.picasso.gate.input.LedgerQuery
-import dev.picasso.gate.input.ProfileKey
-import dev.picasso.gate.model.ProfileDocument
+import dev.picasso.profile.ProfileKey
+import dev.picasso.profile.ProfileDocument
 
 /**
  * 검사 6 — 능력 어휘 파괴 검사와 확장/축소 분류(설계 §11.2·§9.3·§9.4).
@@ -221,18 +221,29 @@ class Check06Vocabulary : GateCheck {
         (oldParams.keys intersect newParams.keys).mapNotNull { key ->
             val o = oldParams.getValue(key)
             val n = newParams.getValue(key)
+            // 지역 변수로 받는다. ProfileDocument가 다른 모듈로 나간 뒤로는
+            // nullable val을 스마트 캐스트할 수 없다 — 같은 모듈에서는 되고
+            // 모듈 경계를 넘으면 안 된다(공개 API 프로퍼티라 값이 바뀔 수
+            // 있다고 컴파일러가 본다).
+            val oMaxLength = o.maxLength
+            val nMaxLength = n.maxLength
+            val oMin = o.minValue
+            val nMin = n.minValue
+            val oMax = o.maxValue
+            val nMax = n.maxValue
+
             val reasons = buildList {
                 if (o.allowedValues.isNotEmpty() && !n.allowedValues.containsAll(o.allowedValues)) {
                     add("허용값이 줄었다 (${o.allowedValues} → ${n.allowedValues})")
                 }
-                if (o.maxLength != null && n.maxLength != null && n.maxLength < o.maxLength) {
-                    add("max_length가 ${o.maxLength} → ${n.maxLength}")
+                if (oMaxLength != null && nMaxLength != null && nMaxLength < oMaxLength) {
+                    add("max_length가 $oMaxLength → $nMaxLength")
                 }
-                if (o.minValue != null && n.minValue != null && n.minValue > o.minValue) {
-                    add("min_value가 ${o.minValue} → ${n.minValue}")
+                if (oMin != null && nMin != null && nMin > oMin) {
+                    add("min_value가 $oMin → $nMin")
                 }
-                if (o.maxValue != null && n.maxValue != null && n.maxValue < o.maxValue) {
-                    add("max_value가 ${o.maxValue} → ${n.maxValue}")
+                if (oMax != null && nMax != null && nMax < oMax) {
+                    add("max_value가 $oMax → $nMax")
                 }
             }
             if (reasons.isEmpty()) {
