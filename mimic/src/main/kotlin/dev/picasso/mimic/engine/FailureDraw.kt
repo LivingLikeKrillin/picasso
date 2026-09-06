@@ -87,9 +87,8 @@ class FailureDraw(private val document: ProfileDocument) {
             // 못박았다 — "있으면 스킬 수준 결함, 없으면 로봇 수준 결함이다".
             //
             // 무조건 붙이면 셋이 깨진다. ① 소비자가 §4.6이 표현하라고 만든
-            // 구분을 **거꾸로** 읽는다 — `quadruped-b`의 `LOCALIZATION_LOST`는
-            // `can_accept_new_task=false`인 로봇 수준 결함인데 그때 마침 돌던
-            // 스킬의 이름이 실려 나간다. ② `FaultRegistry`의 키가
+            // 구분을 **거꾸로** 읽는다 — 로봇 수준 결함(`can_accept_new_task`가
+            // 거짓인 것도 있다)에 그때 마침 돌던 스킬의 이름이 실려 나간다. ② `FaultRegistry`의 키가
             // `(errorType, skillId, taskId)`라 같은 로봇 수준 결함이 스킬 수만큼
             // 부푼다 — "같은 결함을 두 번 내지 않는다"가 무력해진다.
             // ③ §10.5의 `ForceFault`는 `task_id`를 비우면 로봇 수준이라고
