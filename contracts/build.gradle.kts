@@ -103,6 +103,12 @@ val contractIdentity = tasks.register("contractIdentity") {
         val file = outDir.get().file("picasso-contract.properties").asFile
         file.parentFile.mkdirs()
         file.writeText("semver=$semver\ndigest=$digest\n")
+
+        // **디스크립터를 자원으로도 낸다.** `registry`가 교차검증(게이트
+        // 4번)을 하려면 이것이 필요한데, 빌드 출력 경로를 직접 가리키면
+        // 모듈 하나가 다른 모듈의 `build` 디렉터리에 의존하게 된다.
+        // 클래스패스로 주면 그 결합이 사라진다.
+        outDir.get().file("picasso.desc").asFile.writeBytes(bytes)
     }
 }
 
