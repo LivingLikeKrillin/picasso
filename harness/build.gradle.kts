@@ -35,6 +35,13 @@ dependencies {
     // 시험이 DB를 얻는 방식에 두 번째 진실이 생긴다.
     testImplementation(testFixtures(project(":registry")))
 
+    // 실제 브로커를 띄워 §15.30의 "증명되지 않는 것"을 줄인다.
+    // **여기 두는 것은 harness가 이미 Docker를 요구하기 때문이다**(§15.39) —
+    // `:mimic:test`에 넣으면 in-process 결정성 스위트가 느려진다.
+    testImplementation(libs.testcontainers.core)
+    // 구독자 노릇을 하려면 시험도 MQTT 클라이언트가 필요하다.
+    testImplementation(libs.paho.mqttv5)
+
     testImplementation(kotlin("test"))
 }
 

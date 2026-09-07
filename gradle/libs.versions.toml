@@ -13,6 +13,7 @@ tomcatAnnotations = "6.0.53"
 postgresql = "42.7.4"
 flyway = "10.20.1"
 testcontainers = "1.20.4"
+paho = "1.2.5"
 springBoot = "3.4.0"
 
 [libraries]
@@ -36,6 +37,10 @@ postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" 
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
 testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+# 발행자 추상의 실제 구현. §15.30이 "발행자 추상만 두고"라 적어 둔 자리를 채운다.
+paho-mqttv5 = { module = "org.eclipse.paho:org.eclipse.paho.mqttv5.client", version.ref = "paho" }
+# 브로커를 띄우는 통합 시험용. 기본 스위트는 여전히 in-process다(§12.1).
+testcontainers-core = { module = "org.testcontainers:testcontainers", version.ref = "testcontainers" }
 spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
 spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
 spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
