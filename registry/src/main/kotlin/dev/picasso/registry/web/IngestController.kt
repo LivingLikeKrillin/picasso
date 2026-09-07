@@ -2,11 +2,14 @@ package dev.picasso.registry.web
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.google.protobuf.util.JsonFormat
+import dev.picasso.contracts.v1.ConnectionMessage
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.registry.ingest.HandshakeIngestOutcome
 import dev.picasso.registry.ingest.HandshakeIngestService
+import dev.picasso.registry.ingest.LivenessOutcome
+import dev.picasso.registry.ingest.LivenessService
 import dev.picasso.registry.ingest.TaskIngestOutcome
 import dev.picasso.registry.ingest.TaskIngestService
 import dev.picasso.registry.ledger.ConsumerKind
@@ -48,6 +51,7 @@ data class DeclareRequest(
 class IngestController(
     private val handshakes: HandshakeIngestService,
     private val tasks: TaskIngestService,
+    private val liveness: LivenessService,
     private val ledger: LedgerService,
     private val json: com.fasterxml.jackson.databind.ObjectMapper,
 ) {
@@ -101,6 +105,40 @@ class IngestController(
         return ResponseEntity.ok(
             mapOf("recorded" to outcome.recorded, "skipped" to outcome.skipped),
         )
+    }
+
+    /**
+     * 기체 생존 보고(§4.7의 `connection` 스트림).
+     *
+     * **`/ingest/task`와 따로 있는 이유**는 태스크가 없는 기체도 살아 있기
+     * 때문이다. 태스크 적재를 관측선으로 쓰면 일이 없던 기체와 죽은 기체가
+     * 같아지고, 그 둘을 못 가리면 §9.3의 축소 판정이 조용해진 발신자를
+     * "쓰는 사람 0명"으로 읽는다.
+     *
+     * `software`는 계약 메시지에 없으므로 쿼리로 받는다 —
+     * `/ingest/handshake`의 `site`와 같은 자리다. **브로커가 붙는 날
+     * 구독기는 `ConnectionMessage`만 갖고 이것을 비운 채 부른다.**
+     * `COALESCE`가 이미 읽은 값을 지키므로 그때 원장이 퇴행하지 않는다.
+     */
+    @PostMapping("/ingest/liveness")
+    fun liveness(
+        @RequestParam(name = "software", required = false) software: String?,
+        @RequestBody body: String,
+    ): ResponseEntity<Map<String, Any>> {
+        val message = ConnectionMessage.newBuilder()
+        runCatching { JsonFormat.parser().merge(body, message) }
+            .onFailure { return badRequest("ConnectionMessage를 읽을 수 없다: ${it.message}") }
+
+        val built = message.build()
+        // **빈 문자열을 null 로 접는다.** 쿼리 파라미터는 `?software=` 만으로도
+        // 빈 문자열이 되는데, 그것을 그대로 실으면 "못 읽는 기종"이 "버전이
+        // 비어 있다"로 원장에 앉는다.
+        val reported = software?.takeIf { it.isNotBlank() }
+
+        return when (val outcome = liveness.record(built.header, built.state, reported)) {
+            is LivenessOutcome.Recorded -> ResponseEntity.ok(mapOf("recorded" to true))
+            is LivenessOutcome.Rejected -> badRequest(outcome.reason)
+        }
     }
 
     /** §9.2의 요구 등록. `source=DECLARED`. */

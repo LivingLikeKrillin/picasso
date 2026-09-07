@@ -3,6 +3,7 @@ package dev.picasso.registry.web
 import dev.picasso.gate.GateChecks
 import dev.picasso.registry.diag.DiagnosticsService
 import dev.picasso.registry.ingest.HandshakeIngestService
+import dev.picasso.registry.ingest.LivenessService
 import dev.picasso.registry.ingest.TaskIngestService
 import dev.picasso.registry.binding.BindingService
 import dev.picasso.registry.catalog.SiteCatalog
@@ -83,6 +84,9 @@ open class RegistryApplication {
 
     @Bean
     open fun taskIngest(db: Db): TaskIngestService = TaskIngestService(db)
+
+    @Bean
+    open fun liveness(db: Db): LivenessService = LivenessService(db)
 
     /** §9.6의 업스트림 표면. 상위 시스템이 폴링한다. */
     @Bean

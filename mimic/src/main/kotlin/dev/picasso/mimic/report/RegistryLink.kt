@@ -8,8 +8,8 @@ import java.nio.file.Path
  *
  * ## 왜 조립을 한곳에 두는가
  *
- * 붙일 것이 넷이다 — 핸드셰이크 보고, 태스크 적재, 각각의 파일 폴백, 그리고
- * 기동 시 재적재. CLI가 이것을 직접 엮으면 **하나를 빠뜨려도 기동은 된다.**
+ * 붙일 것이 다섯이다 — 핸드셰이크 보고, 태스크 적재, 기체 생존 보고, 앞의
+ * 둘에 대한 파일 폴백, 그리고 기동 시 재적재. CLI가 이것을 직접 엮으면 **하나를 빠뜨려도 기동은 된다.**
  * 폴백을 안 붙이면 레지스트리가 잠깐 없는 동안의 관측이 사라지고, 재적재를
  * 안 부르면 그 파일이 영영 안 밀린다. 둘 다 조용한 실패다.
  *
@@ -68,11 +68,14 @@ class RegistryLink private constructor(
         ): RegistryLink {
             val handshakeHttp = HttpHandshakeReporter(baseUrl, token)
             val taskHttp = HttpTaskObservations(baseUrl, token)
+            // **폴백을 안 붙인다.** 생존은 시점이 곧 내용이라 되밀면 죽은
+            // 기체를 살아 있다고 거짓말한다(HttpLiveness 의 KDoc).
+            val livenessHttp = HttpLiveness(baseUrl, token)
 
             if (fallbackDir == null) {
                 return RegistryLink(
                     reporter = handshakeHttp,
-                    wrap = { IngestBridge(it, taskHttp) },
+                    wrap = { IngestBridge(it, taskHttp, livenessHttp) },
                     replay = null,
                     handshakeFallback = null,
                     taskFallback = null,
@@ -97,7 +100,7 @@ class RegistryLink private constructor(
                     handshakeHttp,
                     FileHandshakeReporter(handshakeFile),
                 ),
-                wrap = { IngestBridge(it, tasks) },
+                wrap = { IngestBridge(it, tasks, livenessHttp) },
                 replay = {
                     val handshakes = replay.replayHandshakes(handshakeFile)
                     val taskLines = replay.replayTasks(taskFile)

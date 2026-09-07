@@ -225,6 +225,38 @@ class IngestEndpointTest {
     }
 
     @Test
+    fun `생존 보고가 관측선을 세운다`() {
+        val body = """
+            {"header":{"robotId":"r1","capabilityEpoch":"3"},"state":"CONNECTION_STATE_HIBERNATING"}
+        """.trimIndent()
+
+        val response = post("/ingest/liveness?software=4.1.0", body, token = TOKEN)
+        assertEquals(200, response.statusCode.value(), response.body)
+
+        // **상태와 소프트웨어까지 본다.** 행이 생겼는지만 보면 연결 상태를
+        // 통째로 무시하는 구현이 통과하고, 그러면 HIBERNATING 이 관측선에서
+        // 사라져 절전한 기체가 축소를 영구히 막는다.
+        val row = PostgresSupport.queryOne(
+            "SELECT connection_state, capability_epoch, robot_software " +
+                "FROM robot_liveness WHERE robot_id = 'r1'",
+        ) { Triple(it.getString(1), it.getLong(2), it.getString(3)) }
+        assertEquals(Triple("CONNECTION_STATE_HIBERNATING", 3L, "4.1.0"), row)
+    }
+
+    @Test
+    fun `생존 보고의 빈 software는 NULL이다`() {
+        // `?software=` 만 붙어도 빈 문자열이 온다. 그것을 그대로 실으면
+        // 못 읽는 기종이 "버전이 비어 있다"로 원장에 앉는다.
+        val body = """{"header":{"robotId":"r1"},"state":"CONNECTION_STATE_ONLINE"}"""
+        assertEquals(200, post("/ingest/liveness?software=", body, token = TOKEN).statusCode.value())
+
+        val software = PostgresSupport.queryOne(
+            "SELECT robot_software FROM robot_liveness WHERE robot_id = 'r1'",
+        ) { it.getString(1) }
+        assertEquals(null, software)
+    }
+
+    @Test
     fun `요구 등록이 DECLARED로 실린다`() {
         val body = """
             {"consumer_id":"MES-A","kind":"UPSTREAM_SYSTEM","site":"line-a",
@@ -297,6 +329,7 @@ class IngestEndpointTest {
         val WRITE_PATHS = listOf(
             "/ingest/handshake?site=line-a" to "{}",
             "/ingest/task" to "{}",
+            "/ingest/liveness" to "{}",
             "/requirements" to "{}",
         )
 

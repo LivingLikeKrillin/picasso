@@ -1,5 +1,7 @@
 package dev.picasso.mimic.report
 
+import dev.picasso.contracts.v1.ConnectionMessage
+import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.mimic.transport.Publication
@@ -35,6 +37,8 @@ class IngestBridge(
     private val delegate: Publisher,
     /** 받은 관측을 적재하는 곳. `registry`의 타입은 여기 안 들어온다. */
     private val sink: TaskObservations,
+    /** 기체 생존 관측선. §9.3의 두 조회가 세기 전에 보는 것이다. */
+    private val liveness: LivenessObservations = LivenessObservations.NONE,
 ) : Publisher {
 
     override fun publish(publication: Publication) {
@@ -44,8 +48,25 @@ class IngestBridge(
         // 비종착으로 한 번도 안 실리고, 이벤트만 받으면 유실된 전이를
         // 메울 길이 없다 — 전자는 축소를 **열고** 후자는 **막는다.**
         when (val message = publication.message) {
-            is StateMessage -> runCatching { sink.onState(message) }
+            // **상태 발행이 ONLINE 기체의 관측선이다.** `publishStateIfDue` 는
+            // `ONLINE` 일 때만 도므로(§4.7) 여기 온 것은 상태가 ONLINE 이라는
+            // 뜻이고, 주기가 있으니 살아 있으면 반드시 갱신된다.
+            is StateMessage -> {
+                runCatching { sink.onState(message) }
+                runCatching {
+                    liveness.onConnection(message.header, ConnectionState.CONNECTION_STATE_ONLINE)
+                }
+            }
+
             is Event -> runCatching { sink.onEvent(message) }
+
+            // **연결 전이가 침묵하는 기체의 관측선이다.** HIBERNATING 은
+            // 의도적으로 상태를 안 내보내므로(§4.7) 이 전이가 마지막 신호이며,
+            // 그것이 원장에 앉아야 절전한 기체가 "관측선이 끊겼다"로 읽혀
+            // 모든 축소를 영구히 막는 일이 없다.
+            is ConnectionMessage ->
+                runCatching { liveness.onConnection(message.header, message.state) }
+
             else -> Unit
         }
     }
