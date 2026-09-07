@@ -216,6 +216,23 @@ class MimicCliTest {
         assertTrue(Files.exists(file), "발행이 안 감싸였다")
     }
 
+    @Test
+    fun `기체마다 다른 브로커 클라이언트로 붙는다`() {
+        // **MQTT clientId가 같으면 두 번째 접속이 첫 번째를 끊는다.**
+        // 기체 둘이 같은 id로 붙으면 하나가 조용히 죽고, 그 기체의 발행이
+        // 통째로 사라진다 — 로그에는 아무것도 안 남는다.
+        //
+        // 브로커 없이도 본다: 기동이 성공하고 두 기체가 다 살아 있으면
+        // 적어도 id 충돌은 아니다. 실제 충돌은 브로커 시험이 본다.
+        val result = run(
+            "--robot", "r1=$minimal", "--robot", "r2=$minimal",
+            "--schema", schema, "--port", "0",
+        )
+
+        assertEquals(0, result.code, result.err)
+        assertTrue("r1" in result.out && "r2" in result.out, result.out)
+    }
+
     /** 연계를 붙여 기동하고, 열린 포트로 무언가 한 뒤 닫는다. */
     private fun withServer(dir: Path, body: (Int) -> Unit) {
         val out = StringBuilder()

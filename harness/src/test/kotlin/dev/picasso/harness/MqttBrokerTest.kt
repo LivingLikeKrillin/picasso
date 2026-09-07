@@ -172,17 +172,37 @@ class MqttBrokerTest {
         assertTrue(!received.arrived(), "정상 종료인데 Last Will이 나갔다")
     }
 
+    @Test
+    fun `Last Will은 retain이라 늦게 붙어도 받는다`() {
+        // **미리 구독하면 retain 여부와 무관하게 받는다.** 죽은 뒤에 붙는
+        // 소비자가 죽음을 알아야 하고(§4.7), 그것이 retain의 이유다.
+        val topic = Topics.robot(1, "line-a", "r5", Topics.Stream.connection)
+
+        val dying = MqttPublisher.connect(url, "robot-r5", topic, header())
+        forceDisconnect(dying)
+        Thread.sleep(500)
+
+        // 죽은 **뒤에** 붙는다.
+        val received = subscribe(topic)
+
+        assertEquals(
+            ConnectionState.CONNECTION_STATE_CONNECTION_BROKEN,
+            ConnectionMessage.parseFrom(received.await()).state,
+        )
+    }
+
     // ── 발행 경로가 실제로 브로커를 문다
 
     @Test
     fun `CLI가 브로커를 주면 발행이 실제로 나간다`() {
         // **§15.30의 마지막 구멍.** `MqttPublisher`가 브로커와 말한다는 것과
         // `mimic`이 그것을 쓴다는 것은 다른 얘기다. 여기서 후자를 본다.
-        val topic = Topics.robot(
-            dev.picasso.contracts.wire.ContractIdentity.major,
-            "line-a", "r1", Topics.Stream.event,
-        )
-        val received = subscribe(topic)
+        val major = dev.picasso.contracts.wire.ContractIdentity.major
+        // **기체 둘이다.** MQTT clientId가 같으면 두 번째 접속이 첫 번째를
+        // 끊어 한 기체의 발행이 통째로 사라지는데, **로그에는 아무것도 안
+        // 남는다.** 하나로 보면 그 결함이 안 보인다.
+        val first = subscribe(Topics.robot(major, "line-a", "r1", Topics.Stream.event))
+        val second = subscribe(Topics.robot(major, "line-a", "r2", Topics.Stream.event))
 
         val cli = dev.picasso.mimic.cli.MimicCli()
         val out = StringBuilder()
@@ -191,6 +211,9 @@ class MqttBrokerTest {
             val code = cli.run(
                 arrayOf(
                     "--robot", "r1=" + java.nio.file.Path.of(
+                        "..", "profile", "fixtures", "minimal.json",
+                    ).normalize().toString(),
+                    "--robot", "r2=" + java.nio.file.Path.of(
                         "..", "profile", "fixtures", "minimal.json",
                     ).normalize().toString(),
                     "--schema", java.nio.file.Path.of(
@@ -204,19 +227,24 @@ class MqttBrokerTest {
             assertTrue("브로커 발행" in out.toString(), out.toString())
 
             // 태스크를 시작하면 전이 이벤트가 발행된다.
-            startTask(requireNotNull(cli.started).server.port)
+            val port = requireNotNull(cli.started).server.port
+            startTask(port, "r1")
+            startTask(port, "r2")
         } finally {
             cli.started?.server?.shutdown()
         }
 
-        val payload = received.await()
         assertTrue(
-            dev.picasso.contracts.v1.Event.parseFrom(payload).hasTaskTransition(),
-            "전이 이벤트가 아니다",
+            dev.picasso.contracts.v1.Event.parseFrom(first.await()).hasTaskTransition(),
+            "r1의 전이가 안 왔다",
+        )
+        assertTrue(
+            dev.picasso.contracts.v1.Event.parseFrom(second.await()).hasTaskTransition(),
+            "r2의 전이가 안 왔다 — 두 기체가 같은 clientId로 붙었는가",
         )
     }
 
-    private fun startTask(port: Int) {
+    private fun startTask(port: Int, robotId: String) {
         val channel = io.grpc.ManagedChannelBuilder.forAddress("127.0.0.1", port)
             .usePlaintext().build()
         try {
@@ -224,10 +252,10 @@ class MqttBrokerTest {
                 dev.picasso.contracts.v1.StartTaskRequest.newBuilder()
                     .setHeader(
                         dev.picasso.contracts.wire.RequestHeaders.build(
-                            "picasso.v1.StartTaskRequest", "r1", "c1",
+                            "picasso.v1.StartTaskRequest", robotId, "c1",
                         ),
                     )
-                    .setTaskId("t1").setRevision(1).setRobotId("r1")
+                    .setTaskId("t1").setRevision(1).setRobotId(robotId)
                     .setSkillType("navigate_to")
                     .addParameters(
                         dev.picasso.contracts.v1.ParameterValue.newBuilder()

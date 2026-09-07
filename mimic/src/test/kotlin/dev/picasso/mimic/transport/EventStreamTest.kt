@@ -330,13 +330,71 @@ class EventStreamTest {
         )
     }
 
+    @Test
+    fun `이미 보낸 것은 다시 안 민다`() {
+        // **경계가 있는 이유.** 버퍼 전체를 다시 밀면 소비자가 같은 전이를
+        // 두 번 본다 — 멱등으로 접을 수는 있으나(§10.4) 우리가 만들 필요
+        // 없는 일이고, 무엇보다 결손 감지가 그만큼 둔해진다.
+        val broker = FlakyPublisher()
+        val robot = instance("r1", sink = broker)
+
+        robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
+        broker.connected = false
+        robot.tasks.start("t2", 1, "navigate_to", listOf(location()))
+        broker.connected = true
+        robot.tasks.start("t3", 1, "navigate_to", listOf(location()))
+
+        assertEquals(
+            listOf(0L, 1L, 2L),
+            broker.received.map { it.sequence },
+            "이미 나간 것을 다시 밀었다",
+        )
+    }
+
+    @Test
+    fun `재생 중 다시 끊기면 그 자리부터 이어 민다`() {
+        // 재생이 통째로 성공한다는 보장이 없다. 중간에 막히면 **거기서부터**
+        // 다시 밀어야 하고, 경계를 갱신하지 않으면 이미 나간 것을 또 민다.
+        val broker = FlakyPublisher()
+        val robot = instance("r1", sink = broker)
+
+        broker.connected = false
+        repeat(3) { robot.tasks.start("t$it", 1, "navigate_to", listOf(location())) }
+
+        // 하나만 받고 다시 끊긴다.
+        broker.acceptOnly(1)
+        robot.tasks.start("t3", 1, "navigate_to", listOf(location()))
+
+        broker.acceptOnly(Int.MAX_VALUE)
+        robot.tasks.start("t4", 1, "navigate_to", listOf(location()))
+
+        assertEquals(
+            listOf(0L, 1L, 2L, 3L, 4L),
+            broker.received.map { it.sequence },
+            "재생이 끊긴 자리를 안 기억했다",
+        )
+    }
+
     /** 연결을 껐다 켤 수 있는 발행자. 실제 브로커는 끊기면 던진다. */
     private class FlakyPublisher : Publisher {
         var connected = true
         val received = mutableListOf<Publication>()
 
+        /** 이 횟수만큼만 받고 다시 끊긴다. 재생이 중간에 막히는 상황을 만든다. */
+        private var budget = Int.MAX_VALUE
+
+        fun acceptOnly(count: Int) {
+            connected = true
+            budget = count
+        }
+
         override fun publish(publication: Publication) {
             if (!connected) error("브로커 단절")
+            if (budget <= 0) {
+                connected = false
+                error("브로커 단절")
+            }
+            budget--
             received += publication
         }
     }
