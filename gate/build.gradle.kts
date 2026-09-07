@@ -2,6 +2,10 @@ import org.gradle.api.tasks.PathSensitivity
 
 plugins {
     application
+    // **`api`가 필요하다.** `GateInput`이 `ProfileDocument`를 노출하므로
+    // `registry`가 그것을 채우려면 `profile-model`이 소비자에게 보여야
+    // 한다. `implementation`으로 두면 registry 가 게이트를 못 부른다.
+    `java-library`
 }
 
 application {
@@ -12,7 +16,7 @@ application {
 }
 
 dependencies {
-    implementation(project(":profile-model"))
+    api(project(":profile-model"))
     implementation(libs.protobuf.java)
     implementation(libs.jsonschema.validator)
     implementation(libs.jackson.databind)
