@@ -18,6 +18,16 @@ dependencies {
     // 폴링·결과 보고). 시험에서만 in-process 로 세운다 — main 이 의존하면
     // 레지스트리 없이는 하네스가 안 도는 것이 되어 그 규칙이 깨진다.
     testImplementation(project(":registry"))
+
+    // 완료 기준 20(카나리)은 **레지스트리에서 바인딩하고 `mimic`이 당겨
+    // 헤더로 관측되는 것까지** 한 줄로 봐야 성립한다. 반으로 쪼개 한쪽은
+    // 레지스트리에서, 한쪽은 하네스에서 보면 **두 표면을 서로 비교하는
+    // 것**이 되고 그 사이에 낀 결함은 어느 쪽에도 안 보인다.
+    //
+    // 컨테이너 기동기는 `registry`의 `testFixtures`에서 온다 — 복사하면
+    // 시험이 DB를 얻는 방식에 두 번째 진실이 생긴다.
+    testImplementation(testFixtures(project(":registry")))
+
     testImplementation(kotlin("test"))
 }
 

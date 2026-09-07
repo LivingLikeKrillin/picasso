@@ -61,6 +61,19 @@ object PostgresSupport {
             }
         }
 
+    /**
+     * 여러 줄 질의. **개수가 아니라 값을 단언하려고 둔다** — 개수만 보면
+     * 이름이 바뀐 것도, 순서가 뒤집힌 것도 통과한다(1단계 실측).
+     */
+    fun <T> queryAll(sql: String, read: (java.sql.ResultSet) -> T): List<T> =
+        connection().use { c ->
+            c.createStatement().use { s ->
+                s.executeQuery(sql).use { rs ->
+                    buildList { while (rs.next()) add(read(rs)) }
+                }
+            }
+        }
+
     fun execute(sql: String) = connection().use { c ->
         c.createStatement().use { it.execute(sql) }
     }

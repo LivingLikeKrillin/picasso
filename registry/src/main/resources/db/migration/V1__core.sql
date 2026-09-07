@@ -7,9 +7,6 @@
 -- 아직 없는 것과 그것을 만드는 청크:
 --   consumer, consumer_requirement          → 3b-1 (완료 기준 18)
 --   change_plan, change_plan_step           → 3b-2 (완료 기준 19)
---   handshake_rejection                     → 3a-3 (완료 기준 13의 나머지)
---   revision_test_request, revision_test_run → 3a-2 (완료 기준 16)
---   capability_epoch_log                    → 3a-3 (진단 3)
 --   skill_type_deprecation, skill_type_param,
 --   profile_optional_field,
 --   runtime_capability_override             → 요구하는 기준이 생길 때

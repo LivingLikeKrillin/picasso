@@ -13,6 +13,7 @@ tomcatAnnotations = "6.0.53"
 postgresql = "42.7.4"
 flyway = "10.20.1"
 testcontainers = "1.20.4"
+springBoot = "3.4.0"
 
 [libraries]
 protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
@@ -29,6 +30,9 @@ postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" 
 flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
 testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "springBoot" }
+spring-boot-starter-web = { module = "org.springframework.boot:spring-boot-starter-web" }
+spring-boot-starter-test = { module = "org.springframework.boot:spring-boot-starter-test" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junitPlatform" }
 

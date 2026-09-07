@@ -1,0 +1,12 @@
+<!--
+  시험 로그를 WARN으로 잠근다.
+
+  이 저장소는 청크당 스위트를 10~17회 돌리고 그때마다 출력을 눈으로 훑는다.
+  INFO가 흐르면 **결함 주입 결과 한 줄이 스프링 기동 로그에 묻힌다.**
+-->
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder><pattern>%-5level %logger{20} - %msg%n</pattern></encoder>
+  </appender>
+  <root level="WARN"><appender-ref ref="STDOUT"/></root>
+</configuration>
