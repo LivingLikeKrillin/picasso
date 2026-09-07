@@ -10,6 +10,10 @@ dependencies {
     api(project(":contracts"))
     implementation(project(":profile-model"))
 
+    // 적재 폴백이 계약 메시지를 protobuf JSON으로 적는다. 적재 표면이
+    // 같은 규약으로 읽으므로 다른 규약을 쓰면 밀어 넣는 날 갈린다.
+    implementation(libs.protobuf.java.util)
+
     // 하네스가 직접 세운다 — 시험 전용이 아니라 main의 기능이다(§10.2의
     // 직접 실행 모드). 별도 프로세스 모드는 제어 채널과 함께 온다.
     implementation(libs.grpc.inprocess)
