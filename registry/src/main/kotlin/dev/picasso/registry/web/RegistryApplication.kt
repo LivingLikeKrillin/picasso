@@ -4,6 +4,7 @@ import dev.picasso.gate.GateChecks
 import dev.picasso.registry.diag.DiagnosticsService
 import dev.picasso.registry.binding.BindingService
 import dev.picasso.registry.ledger.LedgerService
+import dev.picasso.registry.ledger.RegistryLedgerQuery
 import dev.picasso.registry.plan.ChangePlanService
 import dev.picasso.registry.plan.Preconditions
 import dev.picasso.registry.observe.ObservationService
@@ -63,6 +64,13 @@ open class RegistryApplication {
     open fun bindings(db: Db): BindingService = BindingService(db)
 
     /**
+     * §9.3의 두 조회를 게이트에 물린다. **이 빈이 없으면 검사 6번은 축소를
+     * 분류만 하고**, 레지스트리는 소비자가 남아 있는 능력의 제거를 통과시킨다.
+     */
+    @Bean
+    open fun ledgerQuery(db: Db): RegistryLedgerQuery = RegistryLedgerQuery(db)
+
+    /**
      * **활성화는 `BindingService`를 지난다**(§8.4 ③). 계획이 status를 직접
      * 쓰면 승인 조건(TESTED/SUPERSEDED, 세 스위트 PASS)을 안 지나는 두 번째
      * 활성화 경로가 생긴다.
@@ -82,6 +90,7 @@ open class RegistryApplication {
     @Bean
     open fun revisionValidator(
         @Value("\${picasso.profile.schema:}") schemaPath: String,
+        ledger: RegistryLedgerQuery,
     ): RevisionValidator = RevisionValidator(
         schemaJson = schemaPath.takeIf { it.isNotBlank() }
             ?.let { Path.of(it) }
@@ -90,6 +99,7 @@ open class RegistryApplication {
         descriptor = RegistryApplication::class.java.getResourceAsStream("/picasso.desc")
             ?.use { it.readBytes() },
         checks = GateChecks.all(),
+        ledger = ledger,
     )
 }
 

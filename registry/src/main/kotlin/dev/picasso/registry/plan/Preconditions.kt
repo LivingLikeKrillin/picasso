@@ -97,21 +97,30 @@ class Preconditions(
      * 그런데도 단계로 두는 이유는 **순서**다. 예고 없이 이행을 기다리면
      * 소비자는 자기가 옮겨야 하는 줄 모르고, 조회는 영원히 0이 안 된다.
      *
-     * 계약 축의 `skill_type_deprecation`은 아직 없는 표다(V1의 미룬 목록).
-     * 그래서 지금은 **프로파일 축만 본다** — 활성 개정판의
-     * `profile_skill.deprecated_after`.
+     * **두 축 중 하나라도 있으면 예고된 것이다**(§9.3). 프로파일 축은 활성
+     * 개정판의 `profile_skill.deprecated_after`이고, 계약 축은
+     * `skill_type_deprecation`이다. 한쪽만 보면 다른 쪽으로 낸 예고가 없는
+     * 것이 되고, 그러면 예고를 해 놓고도 제거가 영원히 안 열린다.
      */
     private fun deprecationPublished(skill: String): CheckOutcome {
         val published = db.open().use { c ->
             c.prepareStatement(
                 """
-                SELECT count(*) FROM profile_skill ps
-                JOIN skill_type s      ON s.skill_type_id = ps.skill_type_id
-                JOIN profile_revision r ON r.profile_revision_id = ps.profile_revision_id
-                WHERE s.name = ? AND r.status = 'ACTIVE' AND ps.deprecated_after IS NOT NULL
+                SELECT (
+                    SELECT count(*) FROM profile_skill ps
+                    JOIN skill_type s       ON s.skill_type_id = ps.skill_type_id
+                    JOIN profile_revision r ON r.profile_revision_id = ps.profile_revision_id
+                    WHERE s.name = ? AND r.status = 'ACTIVE'
+                      AND ps.deprecated_after IS NOT NULL
+                ) + (
+                    SELECT count(*) FROM skill_type_deprecation d
+                    JOIN skill_type s ON s.skill_type_id = d.skill_type_id
+                    WHERE s.name = ?
+                )
                 """.trimIndent(),
             ).use { st ->
                 st.setString(1, skill)
+                st.setString(2, skill)
                 st.executeQuery().use { rs -> check(rs.next()); rs.getInt(1) }
             }
         }

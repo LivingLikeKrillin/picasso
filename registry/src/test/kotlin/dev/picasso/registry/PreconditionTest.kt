@@ -188,6 +188,30 @@ class PreconditionTest {
         assertTrue(!check(CheckType.DEPRECATION_PUBLISHED, "skill" to "pick_place").satisfied)
     }
 
+    @Test
+    fun `계약 축 예고만 있어도 충족이다`() {
+        // §9.3은 폐기 시각을 **두 축 중 이른 쪽**으로 규정한다. 프로파일 축만
+        // 보면 계약 전체를 접는 예고가 없는 것이 되고, 그 예고를 낸 사람은
+        // 제거가 왜 안 열리는지 알 방법이 없다.
+        activate()
+        announceContract("pick_place")
+        assertTrue(check(CheckType.DEPRECATION_PUBLISHED, "skill" to "pick_place").satisfied)
+    }
+
+    @Test
+    fun `다른 스킬의 계약 축 예고는 안 센다`() {
+        // 축을 하나 더 보는 것과 아무거나 세는 것은 다르다.
+        activate()
+        announceContract("navigate_to")
+        assertTrue(!check(CheckType.DEPRECATION_PUBLISHED, "skill" to "pick_place").satisfied)
+    }
+
+    private fun announceContract(skill: String) = PostgresSupport.execute(
+        "INSERT INTO skill_type_deprecation (skill_type_id, deprecated_after, announced_by) " +
+            "SELECT skill_type_id, now() + interval '30 days', 'contract-owner' " +
+            "FROM skill_type WHERE name = '" + skill + "' AND major = 1",
+    )
+
     // ── NO_ACTIVE_BINDINGS
 
     @Test

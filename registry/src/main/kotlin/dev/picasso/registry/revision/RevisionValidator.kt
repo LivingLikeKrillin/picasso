@@ -56,6 +56,16 @@ class RevisionValidator(
      * 그 가드를 없애는 주입이 조용히 통과한다.
      */
     private val checks: List<dev.picasso.gate.GateCheck> = GateChecks.all(),
+    /**
+     * §9.3의 두 조회. **널이면 검사 6번은 축소를 분류만 하고 끝난다** —
+     * *"원장이 없어 §9.3의 두 조회를 하지 못했다."*
+     *
+     * 널을 허용하는 이유는 CI다. CI에는 DB가 없고(§11.1), 그때 축소는 경고로
+     * 남아 사람이 본다. 레지스트리에서는
+     * [dev.picasso.registry.ledger.RegistryLedgerQuery]가 들어와 그 경고가
+     * **거부**가 된다 — 완료 기준 19가 말한 "조작 거부 조건".
+     */
+    private val ledger: dev.picasso.gate.input.LedgerQuery? = null,
 ) {
     fun validate(
         documentJson: String,
@@ -77,6 +87,7 @@ class RevisionValidator(
             baseline = baseline?.let {
                 mapOf(dev.picasso.profile.ProfileKey(document.vendor, document.model) to it)
             } ?: emptyMap(),
+            registry = ledger,
         )
 
         // **`required`를 채운다.** 비워 두면 자원 결손이 전부 건너뜀이 되어

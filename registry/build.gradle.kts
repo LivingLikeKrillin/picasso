@@ -47,6 +47,7 @@ dependencies {
 
     // 픽스처는 게이트 입력(`RevisionValidator`)과 컨테이너를 함께 낸다.
     testFixturesApi(project(":gate"))
+    testFixturesImplementation(libs.jackson.databind)
     testFixturesApi(libs.testcontainers.postgresql)
     testFixturesApi(libs.flyway.core)
     testFixturesRuntimeOnly(libs.flyway.postgresql)

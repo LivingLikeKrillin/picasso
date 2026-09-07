@@ -5,7 +5,7 @@
 -- 문서의 청크 표에 있다.
 --
 -- 아직 없는 것과 그것을 만드는 청크:
---   skill_type_deprecation, skill_type_param,
+--   skill_type_param,
 --   profile_optional_field,
 --   runtime_capability_override             → 요구하는 기준이 생길 때
 

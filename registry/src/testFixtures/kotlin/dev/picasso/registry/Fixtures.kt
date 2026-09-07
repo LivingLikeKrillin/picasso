@@ -34,6 +34,36 @@ object Fixtures {
         return text
     }
 
+    /**
+     * 스킬 하나를 **뺀** 문서. 게이트 검사 6번이 "스킬 제거"로 분류하는
+     * 축소다(§11.2 6번).
+     *
+     * **문자열 치환이 아니라 파싱해서 뺀다.** 스킬 객체는 여러 줄이라
+     * 치환으로 지우면 픽스처 서식이 바뀔 때 조용히 아무것도 안 지운 문서가
+     * 나오고, 그러면 "축소를 안 막았다"가 아니라 "축소가 아니었다"가 된다 —
+     * 초록인데 아무것도 안 본 시험이다.
+     *
+     * `durations`도 함께 뺀다. 투영 밖이라 소견을 안 만들지만(§11.2), 없는
+     * 스킬의 소요시간이 남아 있으면 문서가 자기모순이다.
+     */
+    fun shrunk(revision: Int = 2, skill: String = "navigate_to"): String {
+        val mapper = com.fasterxml.jackson.databind.ObjectMapper()
+        val root = mapper.readTree(good(revision = revision))
+            as com.fasterxml.jackson.databind.node.ObjectNode
+        var removed = 0
+        listOf("skills", "durations").forEach { field ->
+            val array = root.get(field)
+                as? com.fasterxml.jackson.databind.node.ArrayNode ?: return@forEach
+            val keep = mapper.createArrayNode()
+            array.forEach { node ->
+                if (node.get("skill_type")?.asText() == skill) removed++ else keep.add(node)
+            }
+            root.set<com.fasterxml.jackson.databind.JsonNode>(field, keep)
+        }
+        check(removed >= 2) { "$skill 을 픽스처에서 못 뺐다($removed) — 축소가 안 만들어진다" }
+        return mapper.writeValueAsString(root)
+    }
+
     /** 스키마의 `error_type` enum에 없는 값. 게이트 검사 3번이 막는다. */
     fun badErrorType(): String {
         val text = fixtureRaw.replace("\"LOCALIZATION_LOST\"", "\"NOT_A_REGISTERED_ERROR\"")
