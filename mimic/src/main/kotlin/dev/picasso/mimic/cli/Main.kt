@@ -152,6 +152,11 @@ class MimicCli {
         val source = FileProfileSource(schema)
         val clock: Clock = if (virtual) VirtualClock(Instant.EPOCH) else RealClock()
 
+        // **기체가 보고하는 펌웨어를 발행 시점에 찾을 수 있게 해 둔다.**
+        // link 는 인스턴스보다 먼저 만들어지므로 맵을 미리 두고 람다가
+        // 그것을 본다 — 발행할 때는 이미 차 있다.
+        val built = mutableMapOf<String, RobotInstance>()
+
         val instances = robots.map { (id, path) ->
             try {
                 // **기체마다 하나다.** Last Will이 그 기체의 connection
@@ -172,9 +177,9 @@ class MimicCli {
                     id, source.load(path), clock, seed,
                     // 발행을 감싸 태스크 관측을 적재로 넘긴다. 연계가 없으면
                     // 그대로 지나간다.
-                    publisher = link.wrap(outbound),
+                    publisher = link.wrap(outbound) { built[it]?.robotSoftware },
                     site = site,
-                )
+                ).also { built[id] = it }
             } catch (e: ProfileRejected) {
                 err.appendLine("기동 거부: $id — ${e.message}")
                 return null

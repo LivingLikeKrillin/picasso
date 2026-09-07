@@ -53,6 +53,12 @@ class SkillServiceImpl(
         GetCapabilitiesResponse.newBuilder()
             .setHeader(hosted.headers.forResponse(GetCapabilitiesResponse.getDescriptor()))
             .setCapability(hosted.instance.capability)
+            .also { builder ->
+                // **Capability 밖이다.** 프로파일에서 파생되지 않고 기체가
+                // 읽어 오는 사실이므로, 안에 넣으면 완료 기준 10의 투영 일치
+                // 시험이 성립하지 않는다. 못 읽는 기종이면 아예 안 싣는다.
+                hosted.instance.robotSoftware?.let(builder::setRobotSoftware)
+            }
             .build()
     }
 

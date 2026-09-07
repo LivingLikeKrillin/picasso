@@ -24,6 +24,8 @@ import dev.picasso.mimic.control.v1.RestoreCapabilityRequest
 import dev.picasso.mimic.control.v1.SetClockModeRequest
 import dev.picasso.mimic.control.v1.SetConnectionRequest
 import dev.picasso.mimic.control.v1.SetConnectionResponse
+import dev.picasso.mimic.control.v1.SetRobotSoftwareRequest
+import dev.picasso.mimic.control.v1.SetRobotSoftwareResponse
 import dev.picasso.mimic.control.v1.SetSeedRequest
 import dev.picasso.mimic.control.v1.SetSeedResponse
 import dev.picasso.mimic.control.v1.SetSingleStepRequest
@@ -403,6 +405,30 @@ class ControlServer(
                 SetConnectionResponse.newBuilder()
                     .setState(state.name)
                     .setChanged(changed)
+                    .build(),
+            )
+        }
+
+        /**
+         * 기체가 보고하는 로봇 소프트웨어를 바꾼다.
+         *
+         * **에뮬레이터는 기본적으로 선언대로 행동하므로**(§10.1) 프로파일의
+         * `derived_from`과 기체가 말하는 값이 언제나 같다. 그 상태에서는
+         * 대조가 무엇을 잡는지 시험할 수 없다.
+         *
+         * 빈 문자열은 **못 읽는 기종**이다. `null`로 바꾸는 것이 그 뜻이며,
+         * 진단이 "모름"과 "불일치"를 가르는지 보려면 그 상태가 필요하다.
+         */
+        override fun setRobotSoftware(
+            request: SetRobotSoftwareRequest,
+            observer: StreamObserver<SetRobotSoftwareResponse>,
+        ) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            hosted.instance.robotSoftware = request.version.takeIf { it.isNotBlank() }
+            reply(
+                observer,
+                SetRobotSoftwareResponse.newBuilder()
+                    .setVersion(hosted.instance.robotSoftware ?: "")
                     .build(),
             )
         }

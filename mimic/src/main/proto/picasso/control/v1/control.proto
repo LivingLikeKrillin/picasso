@@ -263,6 +263,30 @@ message CapabilityChangeResponse {
 
 // §4.7의 연결 상태를 강제한다. **§4.3의 값을 그대로 쓴다** — 제어 채널이
 // 자기 어휘를 만들면 시험과 소비자가 다른 말을 하게 된다.
+// 기체가 보고하는 로봇 소프트웨어 식별자를 바꾼다.
+//
+// **불일치를 만들 수 없으면 대조를 시험할 수 없다.** 프로파일의
+// derived_from.software_version 과 기체가 말하는 값이 갈라진 상황이 진단에
+// 보여야 하는데, 에뮬레이터는 기본적으로 선언대로 행동하므로(§10.1) 둘이
+// 언제나 같다.
+//
+// **필드 번호를 재사용하지 않는다.** 제어 채널 proto 는 buf lint·breaking
+// 밖이라(§15.32) 번호 규율을 사람이 지켜야 한다. 이 두 메시지가 그 관례를
+// 세우는 첫 자리이며, 필드를 지우면 지운 번호를 reserved 로 남긴다.
+message SetRobotSoftwareRequest {
+  string robot_id = 1;
+
+  // 빈 문자열은 **못 읽는 기종**을 뜻한다 — 신원 질의가 아예 없는 실물이
+  // 있고(§2.3), 그 상태를 만들 수 없으면 "모름"과 "불일치"를 가르는 진단을
+  // 시험할 수 없다.
+  string version = 2;
+}
+
+message SetRobotSoftwareResponse {
+  // 바꾼 뒤의 값. 못 읽는 기종이면 비어 있다.
+  string version = 1;
+}
+
 message SetConnectionRequest {
   string robot_id = 1;
 
@@ -328,4 +352,8 @@ service ControlService {
 
   // §10.3의 폴링을 한 번 돌린다.
   rpc PullRegistry(PullRegistryRequest) returns (PullRegistryResponse);
+
+  // 기체가 보고하는 로봇 소프트웨어를 바꾼다. 프로파일 선언과의 불일치를
+  // 만드는 유일한 방법이다.
+  rpc SetRobotSoftware(SetRobotSoftwareRequest) returns (SetRobotSoftwareResponse);
 }

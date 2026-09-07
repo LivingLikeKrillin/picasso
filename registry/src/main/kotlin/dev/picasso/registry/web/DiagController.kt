@@ -10,12 +10,14 @@ import dev.picasso.registry.ledger.LedgerService
 import dev.picasso.registry.plan.ChangePlanService
 import dev.picasso.registry.plan.PlanView
 import dev.picasso.registry.diag.RejectionRow
+import dev.picasso.registry.diag.SoftwareRow
+import dev.picasso.registry.diag.StalledRow
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 /**
- * §8.5의 진단 여섯. **read-only이며 `GET`뿐이다.**
+ * §8.5의 진단 여덟. **read-only이며 `GET`뿐이다.**
  *
  * 진단이 무언가를 바꿀 수 있으면 그것은 진단이 아니라 조작이고, 조작은
  * 감사 로그와 승인 경계를 지나야 한다(§8.5). 여기 `POST`를 하나 더하는
@@ -47,6 +49,22 @@ class DiagController(
         @RequestParam(name = "from") from: Long,
         @RequestParam(name = "to") to: Long,
     ): DiffAnswer = diagnostics.diff(from, to)
+
+    /**
+     * 진단 7번 — 프로파일이 전제한 펌웨어와 기체가 보고한 것.
+     *
+     * 여기 나오는 불일치는 **프로파일이 더 이상 그 개체를 설명하지 않는다**는
+     * 뜻이다. §15.1이 *"선언을 그대로 두고 거동만 바꾸면 게이트가 못 본다"*고
+     * 인정한 자리의 런타임 쪽 대응이다.
+     */
+    @GetMapping("/diag/software")
+    fun software(
+        @RequestParam(name = "site", required = false) site: String?,
+    ): List<SoftwareRow> = diagnostics.software(site)
+
+    /** 진단 8번 — 오래 비종착으로 남아 축소를 막고 있는 태스크. */
+    @GetMapping("/diag/stalled")
+    fun stalled(): List<StalledRow> = diagnostics.stalled()
 
     @GetMapping("/diag/epochs")
     fun epochs(

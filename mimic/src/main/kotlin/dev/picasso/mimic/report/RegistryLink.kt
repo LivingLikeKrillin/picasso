@@ -23,8 +23,14 @@ import java.nio.file.Path
 class RegistryLink private constructor(
     /** §5.4의 핸드셰이크 결과 보고. */
     val reporter: HandshakeReporter,
-    /** 발행을 감싸 태스크 관측을 적재로 넘기는 데코레이터. */
-    val wrap: (Publisher) -> Publisher,
+    /**
+     * 발행을 감싸 관측을 적재로 넘기는 데코레이터.
+     *
+     * **두 번째 인자가 있는 것은 순서 때문이다** — 이 연결은 기체보다 먼저
+     * 만들어지므로 "그 기체의 펌웨어"를 지금은 모른다. 발행 시점에 평가되는
+     * 람다로 받는다.
+     */
+    private val decorate: (Publisher, (String) -> String?) -> Publisher,
     private val replay: (() -> ReplayOutcome)?,
     private val handshakeFallback: Path?,
     private val taskFallback: Path?,
@@ -39,6 +45,13 @@ class RegistryLink private constructor(
      *
      * @return 밀어 넣은 결과. 없으면 null(연결이 없거나 파일이 없다).
      */
+    /**
+     * @param software 그 기체가 보고하는 로봇 소프트웨어를 찾는다. 발행할
+     *   때 평가되므로 기체가 아직 없어도 된다.
+     */
+    fun wrap(publisher: Publisher, software: (String) -> String? = { null }): Publisher =
+        decorate(publisher, software)
+
     fun replayFallbacks(): ReplayOutcome? = replay?.invoke()
 
     /** 폴백이 쌓이는 자리. 운영자가 볼 수 있게 알린다. */
@@ -49,7 +62,7 @@ class RegistryLink private constructor(
         /** 레지스트리 없이 도는 모드(§3.2의 "없을 때"). */
         fun none(): RegistryLink = RegistryLink(
             reporter = HandshakeReporter.NONE,
-            wrap = { it },
+            decorate = { p, _ -> p },
             replay = null,
             handshakeFallback = null,
             taskFallback = null,
@@ -75,7 +88,7 @@ class RegistryLink private constructor(
             if (fallbackDir == null) {
                 return RegistryLink(
                     reporter = handshakeHttp,
-                    wrap = { IngestBridge(it, taskHttp, livenessHttp) },
+                    decorate = { p, sw -> IngestBridge(p, taskHttp, livenessHttp, sw) },
                     replay = null,
                     handshakeFallback = null,
                     taskFallback = null,
@@ -100,7 +113,7 @@ class RegistryLink private constructor(
                     handshakeHttp,
                     FileHandshakeReporter(handshakeFile),
                 ),
-                wrap = { IngestBridge(it, tasks, livenessHttp) },
+                decorate = { p, sw -> IngestBridge(p, tasks, livenessHttp, sw) },
                 replay = {
                     val handshakes = replay.replayHandshakes(handshakeFile)
                     val taskLines = replay.replayTasks(taskFile)

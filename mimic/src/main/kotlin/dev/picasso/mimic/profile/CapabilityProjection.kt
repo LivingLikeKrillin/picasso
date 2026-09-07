@@ -21,10 +21,16 @@ import dev.picasso.profile.ProfileDocument
  * 순수 함수다 — 같은 문서는 언제나 같은 메시지가 된다. 기종별 분기가 없고
  * 코드는 해석기다(§10.1).
  *
- * **비투영 넷을 싣지 않는다** — `schema_version`, 소요시간·지터, 실패 모드와
- * `rate`·`resolution`, 재생 버퍼 크기. [ProfileDocument.NON_PROJECTION]이
- * 그 목록이고 게이트 6번도 같은 상수를 쓴다. `Capability`에 자리 자체가
- * 없으므로 실을 수도 없다.
+ * **비투영 다섯을 싣지 않는다** — `schema_version`, `derived_from`,
+ * 소요시간·지터, 실패 모드와 `rate`·`resolution`, 재생 버퍼 크기.
+ * [ProfileDocument.NON_PROJECTION]이 그 목록이고 게이트 6번도 같은 상수를
+ * 쓴다. `Capability`에 자리 자체가 없으므로 실을 수도 없다.
+ *
+ * **`derived_from`은 `GetCapabilitiesResponse.robot_software`와 짝이다.**
+ * 프로파일이 "어느 펌웨어에서 파생했는가"를 선언하고 기체가 "나는 지금 어느
+ * 펌웨어인가"를 보고한다. 둘을 대조하는 것은 `registry`의 일이며, 그래서
+ * 전자는 투영 밖이고 후자는 `Capability` 밖이다 — 하나는 판단의 근거이고
+ * 하나는 사실이다(§4.9의 "판단은 밖으로, 사실은 안으로").
  */
 object CapabilityProjection {
 

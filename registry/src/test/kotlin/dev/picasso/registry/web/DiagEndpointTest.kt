@@ -220,6 +220,66 @@ class DiagEndpointTest {
     }
 
     @Test
+    fun `진단 7번이 선언과 보고를 세 값으로 가른다`() {
+        // 씨앗의 r1 은 프로파일 선언과 보고가 둘 다 있고 값이 갈린다.
+        PostgresSupport.execute(
+            "UPDATE robot_liveness SET robot_software = '9.9.9' WHERE robot_id = 'r1'",
+        )
+        assertTrue("\"verdict\":\"MISMATCH\"" in get("/diag/software"), get("/diag/software"))
+
+        // **못 읽는 기종은 불일치가 아니다.** 접으면 신원 질의가 없는 실물이
+        // 언제나 빨갛고, 진짜 불일치가 그 소음에 묻힌다.
+        PostgresSupport.execute(
+            "UPDATE robot_liveness SET robot_software = NULL WHERE robot_id = 'r1'",
+        )
+        assertTrue("\"verdict\":\"UNREPORTED\"" in get("/diag/software"), get("/diag/software"))
+
+        val declared = PostgresSupport.queryOne(
+            "SELECT pr.document->'derived_from'->>'software_version' " +
+                "FROM robot_binding b JOIN profile_revision pr " +
+                "ON pr.profile_revision_id = b.profile_revision_id " +
+                "WHERE b.robot_id = 'r1' AND b.unbound_at IS NULL",
+        ) { it.getString(1) }
+        PostgresSupport.execute(
+            "UPDATE robot_liveness SET robot_software = '$declared' WHERE robot_id = 'r1'",
+        )
+        assertTrue("\"verdict\":\"MATCH\"" in get("/diag/software"), get("/diag/software"))
+    }
+
+    @Test
+    fun `진단 8번이 정체된 태스크만 낸다`() {
+        // 셋을 넣는다 — 임계 안, 임계 밖 비종착, 임계 밖 **종착**.
+        // 종착이 안 나오는 것을 보려면 그것도 오래돼야 한다. 안 그러면
+        // terminal 필터가 아니라 시간 필터가 걸러 낸 것을 못 구분한다.
+        val skillTypeId = PostgresSupport.queryOne(
+            "SELECT skill_type_id FROM skill_type WHERE name = 'pick_place' LIMIT 1",
+        ) { it.getLong(1) }
+        val revisionId = PostgresSupport.queryOne(
+            "SELECT profile_revision_id FROM robot_binding " +
+                "WHERE robot_id = 'r1' AND unbound_at IS NULL",
+        ) { it.getLong(1) }
+
+        fun task(id: String, state: String, terminal: Boolean, hoursAgo: Int) {
+            PostgresSupport.execute(
+                "INSERT INTO task (task_id, robot_id, profile_revision_id, skill_type_id, " +
+                    "revision, state, terminal, updated_at) VALUES " +
+                    "('$id','r1',$revisionId,$skillTypeId,1,'$state',$terminal," +
+                    "now() - interval '$hoursAgo hours')",
+            )
+        }
+        task("fresh", "TASK_STATE_RUNNING", false, 1)
+        task("stuck", "TASK_STATE_NEEDS_INTERVENTION", false, 48)
+        task("old-done", "TASK_STATE_SUCCEEDED", true, 48)
+
+        val body = get("/diag/stalled")
+
+        assertTrue("stuck" in body, body)
+        assertTrue("fresh" !in body, "임계 안의 태스크가 실렸다: $body")
+        assertTrue("old-done" !in body, "종착한 태스크가 실렸다: $body")
+        assertTrue("\"needsHuman\":true" in body, "사람이 손대야 하는 것이 표시 안 됐다: $body")
+    }
+
+    @Test
     fun `진단 6번의 끝난 계획 파라미터가 실제로 읽힌다`() {
         // **끝난 계획이 하나도 없으면 두 값이 같은 답을 낸다.** 그러면
         // 파라미터를 안 넘기는 결함이 조용히 통과한다 — 3b-2 주입에서

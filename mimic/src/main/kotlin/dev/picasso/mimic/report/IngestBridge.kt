@@ -39,6 +39,13 @@ class IngestBridge(
     private val sink: TaskObservations,
     /** 기체 생존 관측선. §9.3의 두 조회가 세기 전에 보는 것이다. */
     private val liveness: LivenessObservations = LivenessObservations.NONE,
+    /**
+     * 그 기체가 보고하는 로봇 소프트웨어를 찾는다.
+     *
+     * **람다인 것은 순서 때문이다** — 발행자를 감싸는 시점에는 아직 기체가
+     * 만들어지지 않았고, 이 람다는 발행할 때 평가된다.
+     */
+    private val software: (String) -> String? = { null },
 ) : Publisher {
 
     override fun publish(publication: Publication) {
@@ -54,7 +61,11 @@ class IngestBridge(
             is StateMessage -> {
                 runCatching { sink.onState(message) }
                 runCatching {
-                    liveness.onConnection(message.header, ConnectionState.CONNECTION_STATE_ONLINE)
+                    liveness.onConnection(
+                        message.header,
+                        ConnectionState.CONNECTION_STATE_ONLINE,
+                        software(message.header.robotId),
+                    )
                 }
             }
 
@@ -64,8 +75,13 @@ class IngestBridge(
             // 의도적으로 상태를 안 내보내므로(§4.7) 이 전이가 마지막 신호이며,
             // 그것이 원장에 앉아야 절전한 기체가 "관측선이 끊겼다"로 읽혀
             // 모든 축소를 영구히 막는 일이 없다.
-            is ConnectionMessage ->
-                runCatching { liveness.onConnection(message.header, message.state) }
+            is ConnectionMessage -> runCatching {
+                liveness.onConnection(
+                    message.header,
+                    message.state,
+                    software(message.header.robotId),
+                )
+            }
 
             else -> Unit
         }

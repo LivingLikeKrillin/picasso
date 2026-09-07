@@ -220,6 +220,102 @@ class DiagnosticsService(
     // ── 진단 3: GET /diag/epochs?robot_id=
 
     /** 세대 이력. **최신이 위다** — 운영자가 찾는 것은 방금 무슨 일이 났나다. */
+    /**
+     * 프로파일이 전제한 펌웨어와 기체가 보고한 펌웨어를 대조한다.
+     *
+     * **판정이 세 값인 것이 요점이다.** 일치·불일치로 접으면 신원 질의가
+     * 아예 없는 기종(§2.3의 Unitree)이 언제나 불일치로 보이고, 그러면
+     * 진짜 불일치가 그 소음에 묻힌다.
+     *
+     * **막지는 않는다.** 어느 정도 차이까지 허용하는가는 정책이고 정책
+     * 저장소가 비목표다(§1.3). 여기서는 보이게만 한다.
+     */
+    fun software(site: String? = null): List<SoftwareRow> = db.open().use { c ->
+        val sql = buildString {
+            append(
+                """
+                SELECT r.robot_id,
+                       pr.document->'derived_from'->>'software_version',
+                       l.robot_software
+                FROM robot_binding b
+                JOIN robot r ON r.robot_id = b.robot_id
+                JOIN profile_revision pr ON pr.profile_revision_id = b.profile_revision_id
+                LEFT JOIN robot_liveness l ON l.robot_id = r.robot_id
+                WHERE b.unbound_at IS NULL
+                """.trimIndent(),
+            )
+            if (site != null) append(" AND r.site_id = ?")
+            append(" ORDER BY r.robot_id")
+        }
+        c.prepareStatement(sql).use { s ->
+            if (site != null) s.setString(1, site)
+            s.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        val declared = rs.getString(2)
+                        val reported = rs.getString(3)
+                        add(
+                            SoftwareRow(
+                                robotId = rs.getString(1),
+                                declared = declared,
+                                reported = reported,
+                                verdict = when {
+                                    reported == null -> "UNREPORTED"
+                                    declared == reported -> "MATCH"
+                                    else -> "MISMATCH"
+                                },
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 오래 비종착으로 남은 태스크. **아무도 정리하지 않는 태스크가 그 스킬의
+     * 축소를 영원히 막는다**(§9.3의 드레인).
+     *
+     * `needsHuman`이 따로 있는 이유는 `RETRIABLE`·`NEEDS_INTERVENTION`이
+     * **기다린다고 풀리지 않기** 때문이다. 둘의 탈출구는 `RetryTask`나
+     * `CancelTask`이고, 재시도 정책의 주인인 미션 계층이 비목표이므로(§1.3)
+     * 지금은 사람이 걸어야 한다.
+     */
+    fun stalled(
+        olderThanHours: Long = STALL_THRESHOLD_HOURS,
+    ): List<StalledRow> = db.open().use { c ->
+        c.prepareStatement(
+            """
+            SELECT t.task_id, t.robot_id, s.name, s.major, t.state, t.updated_at
+            FROM task t
+            JOIN skill_type s ON s.skill_type_id = t.skill_type_id
+            WHERE NOT t.terminal
+              AND t.updated_at < now() - make_interval(hours => ?::int)
+            ORDER BY t.updated_at
+            """.trimIndent(),
+        ).use { s ->
+            s.setInt(1, olderThanHours.toInt())
+            s.executeQuery().use { rs ->
+                buildList {
+                    while (rs.next()) {
+                        val state = rs.getString(5)
+                        add(
+                            StalledRow(
+                                taskId = rs.getString(1),
+                                robotId = rs.getString(2),
+                                skillType = rs.getString(3),
+                                major = rs.getInt(4),
+                                state = state,
+                                updatedAt = rs.getTimestamp(6).toInstant().toString(),
+                                needsHuman = state in NEEDS_HUMAN,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     fun epochs(robotId: String, limit: Int = DiagAnswerLimits.DEFAULT): List<EpochRow> = db.open().use { c ->
         c.prepareStatement(
             """
@@ -306,4 +402,36 @@ class DiagnosticsService(
             }
         }
     }
+
+    private companion object {
+        /**
+         * **상수다.** 정책 저장소가 비목표이므로(§1.3) 설정 가능하게 만들지
+         * 않는다. 이 값이 정책이 되는 날 그것을 담을 자리부터 만들어야 한다.
+         */
+        const val STALL_THRESHOLD_HOURS: Long = 24
+
+        /** 기다린다고 안 풀리는 둘(§4.4). */
+        val NEEDS_HUMAN = setOf("TASK_STATE_RETRIABLE", "TASK_STATE_NEEDS_INTERVENTION")
+    }
 }
+
+/** 진단 7번의 한 줄. `declared`는 프로파일 선언, `reported`는 기체가 말한 것. */
+data class SoftwareRow(
+    val robotId: String,
+    val declared: String?,
+    val reported: String?,
+    /** MATCH | MISMATCH | UNREPORTED */
+    val verdict: String,
+)
+
+/** 진단 8번의 한 줄. */
+data class StalledRow(
+    val taskId: String,
+    val robotId: String,
+    val skillType: String,
+    val major: Int,
+    val state: String,
+    val updatedAt: String,
+    /** 참이면 기다려도 안 풀린다 — 사람이 RetryTask 나 CancelTask 를 걸어야 한다. */
+    val needsHuman: Boolean,
+)

@@ -149,6 +149,20 @@ message GetCapabilitiesRequest {
 message GetCapabilitiesResponse {
   MessageHeader header = 1;
   Capability capability = 2;
+
+  // 기체가 보고하는 로봇 소프트웨어 식별자. **Capability 밖이다.**
+  //
+  // Capability 는 프로파일의 투영이고 완료 기준 10이 그 동일성을 정확
+  // 비교한다. 이 값은 프로파일에서 파생되지 않고 기체가 읽어 오는 사실이므로
+  // 안에 넣으면 그 시험이 성립하지 않는다(설계 §7.2의 투영 경계).
+  //
+  // 프로파일의 derived_from.software_version 과 대조하는 것이 쓰임이다 —
+  // 선언은 사람이 벤더 문서에서 파생하고, 이 값은 기체가 말한다. 둘이
+  // 갈라졌다는 것은 프로파일이 더 이상 그 개체를 설명하지 않는다는 뜻이다.
+  //
+  // **존재성을 쓴다.** 읽지 못하는 기종이 있고(§2.3의 Unitree 는 신원 질의가
+  // 아예 없다), 빈 문자열로 실으면 소비자가 "버전이 비어 있다"로 읽는다.
+  optional string robot_software = 3;
 }
 
 message NegotiateRequest {

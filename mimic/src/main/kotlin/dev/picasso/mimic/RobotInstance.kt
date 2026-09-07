@@ -62,6 +62,21 @@ class RobotInstance(
         private set
 
     /**
+     * 기체가 보고하는 로봇 소프트웨어 식별자.
+     *
+     * **기본값이 프로파일의 `derived_from.software_version`인 것은 이것이
+     * 에뮬레이터이기 때문이다** — 선언대로 행동하는 것이 mimic 의 일이고
+     * (§10.1), 그래서 기본 상태에서는 선언과 사실이 같다.
+     *
+     * 제어 채널이 이 값을 바꾼다. **불일치를 만들 수 없으면 대조를 시험할
+     * 수 없고**, 시험할 수 없는 대조는 있으나 마나다.
+     *
+     * `null`은 **못 읽는 기종**이다. 신원 질의가 아예 없는 실물이 있으므로
+     * (§2.3의 Unitree) 빈 문자열과 구분해야 한다.
+     */
+    var robotSoftware: String? = initialDocument.derivedFromSoftware.takeIf { it.isNotBlank() }
+
+    /**
      * 새 세션을 발급한다. **재생 버퍼가 넘쳐 못 보낸 이벤트를 버렸을 때만**
      * 부른다(§10.6).
      *

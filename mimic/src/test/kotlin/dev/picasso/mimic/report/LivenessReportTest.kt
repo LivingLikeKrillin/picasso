@@ -27,11 +27,17 @@ class LivenessReportTest {
 
     private class Spy : LivenessObservations {
         val seen = mutableListOf<Pair<String, ConnectionState>>()
+        val software = mutableListOf<String?>()
         var fail = false
 
-        override fun onConnection(header: MessageHeader, state: ConnectionState) {
+        override fun onConnection(
+            header: MessageHeader,
+            state: ConnectionState,
+            software: String?,
+        ) {
             if (fail) error("적재가 죽었다")
             seen += header.robotId to state
+            this.software += software
         }
     }
 
@@ -149,6 +155,30 @@ class LivenessReportTest {
         bridge.publish(Publication("t/state", stateMessage(), 0))
 
         assertTrue(spy.seen.isNotEmpty(), "태스크 적재 실패가 생존 보고를 막았다")
+    }
+
+    @Test
+    fun `보고에 그 기체의 펌웨어가 실린다`() {
+        // 조회 람다가 발행 시점에 평가되는지 본다 — 기체는 발행자를 감싼
+        // 뒤에 만들어지므로 미리 평가하면 언제나 null 이다.
+        val spy = Spy()
+        val bridge = IngestBridge(RecordingPublisher(), Sink(), spy) { id ->
+            if (id == "r1") "4.1.0" else null
+        }
+
+        bridge.publish(Publication("t/state", stateMessage(), 0))
+
+        assertEquals(listOf<String?>("4.1.0"), spy.software)
+    }
+
+    @Test
+    fun `못 읽는 기종은 빈 문자열이 아니라 null 이다`() {
+        val spy = Spy()
+        val bridge = IngestBridge(RecordingPublisher(), Sink(), spy) { null }
+
+        bridge.publish(Publication("t/state", stateMessage(), 0))
+
+        assertEquals(listOf<String?>(null), spy.software)
     }
 
     @Test

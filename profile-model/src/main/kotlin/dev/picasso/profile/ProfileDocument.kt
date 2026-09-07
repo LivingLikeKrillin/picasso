@@ -25,6 +25,15 @@ class ProfileDocument private constructor(
     val vendor: String get() = root.path("vendor").asText()
     val model: String get() = root.path("model").asText()
     val revision: Int get() = root.path("revision").asInt()
+
+    /**
+     * 이 선언을 파생한 로봇 소프트웨어 버전(§7.2의 `derived_from`).
+     *
+     * **투영에 안 들어간다**(비투영). 소비자가 판정에 쓰지 않고, 이것과
+     * 기체가 보고하는 값을 대조하는 것은 `registry`의 일이다.
+     */
+    val derivedFromSoftware: String
+        get() = root.path("derived_from").path("software_version").asText()
     val exclusiveControlRequired: Boolean
         get() = root.path("exclusive_control_required").asBoolean()
     val replayBufferSize: Int get() = root.path("replay_buffer_size").asInt()
@@ -186,11 +195,21 @@ class ProfileDocument private constructor(
     companion object {
         /**
          * §7.2 — 투영에 들어가지 않는 최상위 필드. [projection]이 뺀다.
-         * `schema_version`은 문서의 메타이고, 나머지 셋은 에뮬레이터의
-         * 거동 설정이라 §5.2의 버전 규칙 대상이 아니다.
+         *
+         * 성격이 셋이다. `schema_version`과 `derived_from`은 **문서의
+         * 메타**이고(각각 이 문서가 따르는 스키마와, 이 선언을 어디서
+         * 파생했는가), 나머지 셋은 **에뮬레이터의 거동 설정**이다. 어느
+         * 쪽도 능력이 아니므로 §5.2의 버전 규칙 대상이 아니다.
+         *
+         * `derived_from`이 여기 있는 것이 중요하다 — 벤더 문서를 다시 보고
+         * 파생 근거만 갱신한 개정판이 **능력 변경으로 분류되면** 게이트
+         * 6번이 major를 요구하고, 그러면 아무도 근거를 갱신하지 않는다.
          */
         val NON_PROJECTION: Set<String> =
-            setOf("schema_version", "durations", "failure_modes", "replay_buffer_size")
+            setOf(
+                "schema_version", "durations", "failure_modes", "replay_buffer_size",
+                "derived_from",
+            )
 
         private val mapper = ObjectMapper()
             // 기본 설정은 중복 멤버 이름을 조용히 마지막 값으로 접는다.

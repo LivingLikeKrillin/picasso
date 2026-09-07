@@ -219,7 +219,10 @@ class CapabilityProjectionTest {
     fun `NON_PROJECTION 집합을 게이트와 공유한다`() {
         // 같은 상수를 게이트 6번과 이 투영이 함께 쓴다. 한쪽만 고치면 어긋난다.
         assertEquals(
-            setOf("schema_version", "durations", "failure_modes", "replay_buffer_size"),
+            setOf(
+                "schema_version", "durations", "failure_modes", "replay_buffer_size",
+                "derived_from",
+            ),
             ProfileDocument.NON_PROJECTION,
         )
     }

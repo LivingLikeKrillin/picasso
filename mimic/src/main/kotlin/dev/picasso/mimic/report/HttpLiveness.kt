@@ -29,11 +29,19 @@ import java.time.Duration
  * 거짓말한다.** 실패하면 버리고 다음 발행에서 다시 온다.
  */
 interface LivenessObservations {
-    fun onConnection(header: MessageHeader, state: ConnectionState)
+    /**
+     * @param software 기체가 보고하는 로봇 소프트웨어. **못 읽는 기종이면
+     *   `null`이고 빈 문자열이 아니다** — 신원 질의가 아예 없는 실물이 있다.
+     */
+    fun onConnection(header: MessageHeader, state: ConnectionState, software: String?)
 
     companion object {
         val NONE = object : LivenessObservations {
-            override fun onConnection(header: MessageHeader, state: ConnectionState) = Unit
+            override fun onConnection(
+                header: MessageHeader,
+                state: ConnectionState,
+                software: String?,
+            ) = Unit
         }
     }
 }
@@ -45,11 +53,6 @@ interface LivenessObservations {
 class HttpLiveness(
     baseUrl: String,
     private val token: String,
-    /**
-     * 기체가 보고하는 로봇 소프트웨어 식별자를 찾는다. **못 읽는 기종이면
-     * `null`이고 빈 문자열이 아니다** — 신원 질의가 아예 없는 실물이 있다(§2.3).
-     */
-    private val software: (String) -> String? = { null },
     private val client: HttpClient = HttpClient.newBuilder()
         .connectTimeout(CONNECT_TIMEOUT)
         .build(),
@@ -58,14 +61,13 @@ class HttpLiveness(
 
     private val base = baseUrl.trimEnd('/')
 
-    override fun onConnection(header: MessageHeader, state: ConnectionState) {
+    override fun onConnection(header: MessageHeader, state: ConnectionState, software: String?) {
         val message = ConnectionMessage.newBuilder().setHeader(header).setState(state).build()
         val body = JsonFormat.printer().omittingInsignificantWhitespace().print(message)
 
         // 계약 메시지에 없는 값이라 쿼리로 간다 — `/ingest/handshake` 의
         // `site` 와 같은 자리다.
-        val reported = software(header.robotId)
-        val query = reported
+        val query = software
             ?.let { "?software=" + URLEncoder.encode(it, StandardCharsets.UTF_8) }
             ?: ""
 
