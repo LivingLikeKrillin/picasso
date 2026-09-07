@@ -210,6 +210,26 @@ message InjectTransportFaultRequest {
   uint32 loss_every = 3;
 }
 
+// §10.3의 폴링을 **한 번** 돌린다.
+//
+// 운영에서는 5초 주기지만 시험은 배경 스레드를 못 쓴다 — 가상 시계와
+// 충돌해 §12.1의 결정성이 깨진다. `AdvanceClock`이 시계를 명시적으로 미는
+// 것과 같은 이유로, 당김도 명시적으로 한 번 돌린다.
+message PullRegistryRequest {
+  string robot_id = 1;
+}
+
+message PullRegistryResponse {
+  // 실제로 바뀌었으면 참. 레지스트리가 이 기체를 모르거나 같은 개정판이면
+  // 거짓이며 아무 일도 안 일어난다.
+  bool changed = 1;
+
+  // 반영 뒤의 개정판. 파일 모드면 0이다.
+  uint64 profile_revision_id = 2;
+
+  uint64 capability_epoch = 3;
+}
+
 message InjectTransportFaultResponse {
   string kind = 1;
   uint32 loss_every = 2;
@@ -305,4 +325,7 @@ service ControlService {
   // §10.5의 전송 장애 다섯.
   rpc InjectTransportFault(InjectTransportFaultRequest)
       returns (InjectTransportFaultResponse);
+
+  // §10.3의 폴링을 한 번 돌린다.
+  rpc PullRegistry(PullRegistryRequest) returns (PullRegistryResponse);
 }

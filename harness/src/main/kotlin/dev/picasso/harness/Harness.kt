@@ -35,6 +35,11 @@ class Harness(
     schema: Path = Path.of("..", "profile", "schema", "capability-profile.schema.json").normalize(),
     seed: Long = 0,
     start: Instant = Instant.parse("2026-09-06T00:00:00Z"),
+    /**
+     * §10.3의 폴링이 당기는 곳. **기본은 없음이다** — 레지스트리가 안 떠
+     * 있어도 하네스는 파일 모드로 돈다(§3.2의 "없을 때").
+     */
+    registrySource: dev.picasso.mimic.RegistrySource = dev.picasso.mimic.RegistrySource.NONE,
 ) : AutoCloseable {
 
     val clock = VirtualClock(start)
@@ -51,6 +56,7 @@ class Harness(
         robots.map { (id, path) ->
             RobotInstance(id, source.load(path), clock, seed, publisher, site = "line-a")
         },
+        registrySource,
     )
 
     private val name: String = InProcessServerBuilder.generateName()

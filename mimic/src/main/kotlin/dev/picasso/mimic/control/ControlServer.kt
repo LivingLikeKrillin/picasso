@@ -17,6 +17,8 @@ import dev.picasso.mimic.control.v1.InjectTransportFaultRequest
 import dev.picasso.mimic.control.v1.InjectTransportFaultResponse
 import dev.picasso.mimic.control.v1.InternalFault
 import dev.picasso.mimic.control.v1.InternalTask
+import dev.picasso.mimic.control.v1.PullRegistryRequest
+import dev.picasso.mimic.control.v1.PullRegistryResponse
 import dev.picasso.mimic.control.v1.RemoveCapabilityRequest
 import dev.picasso.mimic.control.v1.RestoreCapabilityRequest
 import dev.picasso.mimic.control.v1.SetClockModeRequest
@@ -233,6 +235,32 @@ class ControlServer(
             reply(
                 observer,
                 SetSingleStepResponse.newBuilder().setEnabled(request.enabled).build(),
+            )
+        }
+
+        /**
+         * §10.3의 폴링을 한 번 돌린다.
+         *
+         * **밀지 않는다.** 반영은 태스크 로그에 아무것도 안 적으므로 열린
+         * `WatchTask`에 밀 것이 없다 — 능력 변경은 `EventStream`을 타고
+         * 발행 축으로 이미 나갔다(§4.7의 두 축).
+         *
+         * 실측: 밀어내기를 지우는 결함을 주입했는데 아무 시험도 안
+         * 빨개졌다. 8c의 래치 위반에서와 **같은 죽은 줄**이었다.
+         */
+        override fun pullRegistry(
+            request: PullRegistryRequest,
+            observer: StreamObserver<PullRegistryResponse>,
+        ) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            val changed = hosted.instance.pull(registry.registrySource)
+            reply(
+                observer,
+                PullRegistryResponse.newBuilder()
+                    .setChanged(changed)
+                    .setProfileRevisionId(hosted.instance.profileRevisionId ?: 0L)
+                    .setCapabilityEpoch(hosted.instance.capabilityEpoch)
+                    .build(),
             )
         }
 

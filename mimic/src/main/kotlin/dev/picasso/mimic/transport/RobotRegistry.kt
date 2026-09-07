@@ -11,7 +11,15 @@ import io.grpc.Status
  * 포트는 하나다. "엔드포인트만 바꿔 실물과 교체"는 호스트·포트만 바뀌고
  * `robot_id`는 그대로라는 뜻이며, PoC의 편의이지 아키텍처 주장이 아니다(ADR 21).
  */
-class RobotRegistry(instances: List<RobotInstance>) {
+class RobotRegistry(
+    instances: List<RobotInstance>,
+    /**
+     * §10.3의 폴링이 당기는 곳. **없으면 파일 모드다**(§3.2의 "없을 때") —
+     * 레지스트리가 안 떠 있어도 에뮬레이터는 돈다.
+     */
+    val registrySource: dev.picasso.mimic.RegistrySource =
+        dev.picasso.mimic.RegistrySource.NONE,
+) {
 
     /** 기체 하나와 그 기체 전용 헤더 발급기. */
     class Hosted(val instance: RobotInstance) {

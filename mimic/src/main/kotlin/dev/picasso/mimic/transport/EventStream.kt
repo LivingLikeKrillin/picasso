@@ -131,12 +131,15 @@ class EventStream(
      * delta로 캐시를 갱신하거나 `GetCapabilities`로 전량을 다시 가져오고,
      * 어느 쪽이든 판정 기준은 `capability_epoch`다.
      *
-     * `cause`는 **런타임 축소**로 고정한다. 바인딩 변경은 개정판 축이라
-     * 제어 채널이 만들 수 있는 일이 아니다(§8.2의 네 축).
+     * `cause`는 호출자가 정한다 — 런타임 축소(§8.2)와 바인딩 변경(§8.4 ④)이
+     * 둘 다 여기로 오고, **소비자가 그 둘을 구별해야 한다.** 축소는 능력이
+     * 줄어든 것이고 바인딩 변경은 개정판이 바뀐 것이라 대응이 다르다.
      */
     fun capabilityChanged(
         added: List<String> = emptyList(),
         removed: List<String> = emptyList(),
+        cause: CapabilityChangeCause =
+            CapabilityChangeCause.CAPABILITY_CHANGE_CAUSE_RUNTIME_DEGRADED,
     ) = emit { header ->
         Event.newBuilder().setHeader(header)
             .setCapabilityChanged(
@@ -145,7 +148,7 @@ class EventStream(
                     .setCapabilityEpoch(instance.capabilityEpoch)
                     .addAllAdded(added)
                     .addAllRemoved(removed)
-                    .setCause(CapabilityChangeCause.CAPABILITY_CHANGE_CAUSE_RUNTIME_DEGRADED),
+                    .setCause(cause),
             )
             .build()
     }

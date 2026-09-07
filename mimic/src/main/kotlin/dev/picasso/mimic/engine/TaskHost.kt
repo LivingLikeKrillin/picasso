@@ -14,6 +14,19 @@ class TaskRuntime(
     val taskId: String,
     val skillType: String,
     val machine: TaskMachine,
+    /**
+     * **접수 시점의 스킬 선언과 문자열 한도**(§8.4의 pinning).
+     *
+     * `TaskMachine`은 이미 자기 몫을 들고 있는데(전이표·소요시간) **갱신의
+     * 파라미터 검사가 빠져 있었다** — 라이브 능력을 봤다. 그래서 개정판이
+     * 좁아진 뒤 진행 중 태스크를 갱신하면 자기가 접수될 때 유효했던 값이
+     * 거절됐다. 소비자는 자기가 보낸 것이 왜 갑자기 틀렸는지 알 수 없다.
+     *
+     * 실측으로 찾았다 — 폴링 청크의 결함 주입이 그 자리를 지나는 시험이
+     * 없다는 것을 먼저 알려 줬다.
+     */
+    val pinnedSkill: SkillDeclaration,
+    val pinnedMaxStringLength: Int,
 ) {
     val log = TaskLog()
 
@@ -81,8 +94,16 @@ sealed interface StartOutcome {
  * wire로 옮긴다(§10.1).
  */
 class TaskHost(
-    private val capability: Capability,
-    private val document: ProfileDocument,
+    /**
+     * 지금 유효한 능력과 문서를 **매번 읽는다**(§8.4 ④의 반영).
+     *
+     * 스냅샷으로 잡으면 개정판이 바뀌어도 엔진이 옛것을 계속 쓴다 — 그러면
+     * 활성화가 아무 일도 안 하는 것과 같다. 이미 **접수된 태스크**는
+     * 자기 `TaskMachine`이 생성 시점의 스킬 선언과 소요시간을 들고 있으므로
+     * 여기가 바뀌어도 안 흔들린다. **그것이 §8.4의 pinning이다.**
+     */
+    private val capabilityOf: () -> Capability,
+    private val documentOf: () -> ProfileDocument,
     private val clock: Clock,
     /** 엔진이 전이를 보고할 곳(§4.7). 발행은 전송이 붙인다. */
     private val listener: EngineListener = EngineListener.NONE,
@@ -102,7 +123,38 @@ class TaskHost(
      */
     private val withdrawn: () -> Set<String> = { emptySet() },
 ) {
-    private val draw = FailureDraw(document)
+    /**
+     * 편의 생성자. 프로파일이 안 바뀌는 호출 지점(시험 대부분)이 쓴다.
+     */
+    constructor(
+        capability: Capability,
+        document: ProfileDocument,
+        clock: Clock,
+        listener: EngineListener = EngineListener.NONE,
+        faults: FaultRegistry = FaultRegistry(clock),
+        random: Seeded,
+        withdrawn: () -> Set<String> = { emptySet() },
+    ) : this({ capability }, { document }, clock, listener, faults, random, withdrawn)
+
+    private val capability: Capability get() = capabilityOf()
+    private val document: ProfileDocument get() = documentOf()
+
+    /**
+     * 추첨은 문서에서 온다. 문서가 바뀌면 다시 만든다 — **캐시하지 않으면**
+     * 매 tick 마다 실패 모드를 다시 파싱하고, **캐시만 하면** 새 개정판의
+     * 실패 모드가 영영 안 걸린다.
+     */
+    private var drawFor: ProfileDocument? = null
+    private var drawCache: FailureDraw? = null
+    private val draw: FailureDraw
+        get() {
+            val current = document
+            if (drawFor !== current) {
+                drawFor = current
+                drawCache = FailureDraw(current)
+            }
+            return drawCache!!
+        }
 
     private val tasks = LinkedHashMap<String, TaskRuntime>()
 
@@ -144,6 +196,8 @@ class TaskHost(
         validate(skill, parameters)?.let { return it }
 
         val task = TaskRuntime(
+            pinnedSkill = skill,
+            pinnedMaxStringLength = capability.protocolLimits.maxStringLength,
             taskId = taskId,
             skillType = skillType,
             machine = TaskMachine(
@@ -201,7 +255,11 @@ class TaskHost(
         // 태스크에 대해 OUTDATED_REVISION·INVALID_TRANSITION 대신
         // PARAMETER_INVALID가 나가 소비자가 엉뚱한 것을 고친다.
         if (task.machine.willApply(revision)) {
-            validate(skillOf(task.skillType)!!, parameters)?.let { return it }
+            // **접수 시점의 규칙으로 본다**(§8.4의 pinning). 라이브 능력을
+            // 보면 개정판이 좁아진 뒤 갱신이 자기 접수 시점에 유효했던 값으로
+            // 거절된다.
+            validate(task.pinnedSkill, parameters, task.pinnedMaxStringLength)
+                ?.let { return it }
         }
 
         return when (val outcome = task.machine.update(revision, parameters)) {
@@ -227,8 +285,9 @@ class TaskHost(
     private fun validate(
         skill: SkillDeclaration,
         parameters: List<ParameterValue>,
+        maxStringLength: Int = capability.protocolLimits.maxStringLength,
     ): StartOutcome.Rejected? {
-        val problems = ParameterCheck.check(skill, parameters, capability.protocolLimits.maxStringLength)
+        val problems = ParameterCheck.check(skill, parameters, maxStringLength)
         if (problems.isEmpty()) return null
         return StartOutcome.Rejected(
             RejectionCode.REJECTION_CODE_PARAMETER_INVALID,

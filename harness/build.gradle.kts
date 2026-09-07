@@ -14,6 +14,10 @@ dependencies {
     // 직접 실행 모드). 별도 프로세스 모드는 제어 채널과 함께 온다.
     implementation(libs.grpc.inprocess)
 
+    // §3.2가 `harness ⇢ registry`를 **런타임 접근**으로 뒀다(시험 요청
+    // 폴링·결과 보고). 시험에서만 in-process 로 세운다 — main 이 의존하면
+    // 레지스트리 없이는 하네스가 안 도는 것이 되어 그 규칙이 깨진다.
+    testImplementation(project(":registry"))
     testImplementation(kotlin("test"))
 }
 

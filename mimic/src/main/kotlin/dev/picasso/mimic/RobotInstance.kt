@@ -26,7 +26,16 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class RobotInstance(
     val robotId: String,
-    val document: ProfileDocument,
+    /**
+     * **이름이 프로퍼티와 달라야 한다.** 같으면 초기화 구문 안의
+     * `{ document }` 람다가 프로퍼티가 아니라 **이 파라미터를**
+     * 캡처한다 — 그러면 폴링이 문서를 갈아 끼워도 엔진은 기동 시점의
+     * 것을 영영 쓴다.
+     *
+     * 실측으로 물렸다: `declaredCapability`는 동명 파라미터가 없어
+     * 멀쩡히 갱신됐고 `document`만 안 됐다. 그 비대칭이 단서였다.
+     */
+    initialDocument: ProfileDocument,
     val clock: Clock,
     seed: Long = 0,
     /** 발행이 나갈 곳. 붙이지 않으면 아무 데도 안 나간다(§15.30). */
@@ -77,7 +86,19 @@ class RobotInstance(
      * 선언한 적 없는 스킬(`SKILL_ABSENT`)과 있었는데 사라진 스킬
      * (`CAPABILITY_WITHDRAWN`)을 가르려면 둘을 다 알아야 하기 때문이다.
      */
-    val declaredCapability: Capability = CapabilityProjection.of(document)
+    /**
+     * 지금 쓰는 프로파일 문서. **`var`인 것이 §8.4 ④다** — 레지스트리에서
+     * 당긴 개정판이 여기로 들어온다.
+     */
+    var document: ProfileDocument = initialDocument
+        private set
+
+    /** 지금 문서가 온 개정판. 파일 모드면 `null`이다(§5.5의 `profile_ref`). */
+    var profileRevisionId: Long? = null
+        private set
+
+    var declaredCapability: Capability = CapabilityProjection.of(document)
+        private set
 
     /**
      * §8.2의 런타임 축소로 지금 못 쓰는 스킬들.
@@ -193,9 +214,41 @@ class RobotInstance(
      * 캐시를 다시 세우면 된다.
      */
     val tasks: TaskHost = TaskHost(
-        declaredCapability, document, clock, events, faults, random,
+        // **매번 읽는다.** 스냅샷이면 개정판이 바뀌어도 엔진이 옛것을 쓴다.
+        { declaredCapability }, { document }, clock, events, faults, random,
         withdrawn = { withdrawn },
     )
+
+    /**
+     * §10.3의 폴링. 레지스트리에서 당겨 바뀌었으면 반영한다.
+     *
+     * **배경 스레드를 두지 않는다.** 5초 주기는 운영값이고, 시험은 제어
+     * 채널로 한 번 당긴다 — `AdvanceClock`이 시계를 명시적으로 미는 것과
+     * 같은 이유다(§12.1).
+     *
+     * **진행 중이던 태스크는 안 건드린다.** 각 `TaskMachine`이 생성 시점의
+     * 스킬 선언과 소요시간을 들고 있으므로 여기가 바뀌어도 그것들은 그대로
+     * 간다 — 그것이 §8.4의 pinning이며, 없으면 활성화가 **진행 중인 로봇의
+     * 발밑을 바꾼다.**
+     *
+     * @return 실제로 바뀌었으면 참.
+     */
+    fun pull(source: RegistrySource): Boolean {
+        val binding = source.binding(robotId) ?: return false
+        if (binding.profileRevisionId == profileRevisionId) return false
+
+        val next = ProfileDocument.parse("registry-${binding.profileRevisionId}", binding.documentJson)
+            .getOrElse { return false }
+
+        document = next
+        declaredCapability = CapabilityProjection.of(next)
+        profileRevisionId = binding.profileRevisionId
+
+        // §8.2 — **epoch 증가는 발신자가 한다.** 레지스트리가 아니라 여기다.
+        bumpCapabilityEpoch()
+        events.capabilityChanged(cause = dev.picasso.contracts.v1.CapabilityChangeCause.CAPABILITY_CHANGE_CAUSE_BINDING_CHANGED)
+        return true
+    }
 
     private companion object {
         val STARTUP_COUNTER = AtomicLong()
