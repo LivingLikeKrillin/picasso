@@ -1,5 +1,10 @@
 package dev.picasso.harness
 
+import dev.picasso.mimic.report.FallbackReplay
+import dev.picasso.mimic.report.FallbackTaskObservations
+import dev.picasso.mimic.report.FileTaskObservations
+import dev.picasso.mimic.report.ReplayOutcome
+import dev.picasso.mimic.report.TaskObservations
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import dev.picasso.contracts.v1.CapabilityRequirement

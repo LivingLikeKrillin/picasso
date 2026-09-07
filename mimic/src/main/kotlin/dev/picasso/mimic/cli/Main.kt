@@ -6,6 +6,7 @@ import dev.picasso.mimic.engine.RealClock
 import dev.picasso.mimic.engine.VirtualClock
 import dev.picasso.mimic.profile.FileProfileSource
 import dev.picasso.mimic.profile.ProfileRejected
+import dev.picasso.mimic.report.RegistryLink
 import dev.picasso.mimic.transport.MimicServer
 import dev.picasso.mimic.transport.RobotRegistry
 import io.grpc.ServerBuilder
@@ -37,6 +38,10 @@ class MimicCli {
         var port = 0
         var virtual = false
         var seed = 0L
+        var registry: String? = null
+        var token: String? = null
+        var site = "default"
+        var fallbackDir: Path? = null
 
         var i = 0
         while (i < args.size) {
@@ -73,6 +78,10 @@ class MimicCli {
                     seed = value!!.toLongOrNull() ?: return usage(err, "--seed 가 정수가 아니다")
                     i += 2
                 }
+                "--registry" -> { registry = value!!; i += 2 }
+                "--ingest-token" -> { token = value!!; i += 2 }
+                "--site" -> { site = value!!; i += 2 }
+                "--fallback-dir" -> { fallbackDir = Path.of(value!!); i += 2 }
                 else -> return usage(err, "모르는 인자다: '$arg'")
             }
         }
@@ -80,9 +89,31 @@ class MimicCli {
         if (robots.isEmpty()) return usage(err, "--robot 이 하나도 없다")
         val schemaPath = schema ?: return usage(err, "--schema 가 없다")
 
-        val running = start(robots, schemaPath, port, virtual, seed, err) ?: return 2
+        // **토큰 없이 레지스트리를 붙이지 않는다.** 적재 표면은 전부 401을
+        // 낼 것이고(§15.38), 그러면 관측이 통째로 폴백 파일로 가면서
+        // "붙었다"고 보고된다 — 기동에서 막는 편이 정직하다.
+        if (registry != null && token.isNullOrBlank()) {
+            return usage(err, "--registry 를 쓰면 --ingest-token 이 있어야 한다")
+        }
+        val link = registry?.let { RegistryLink.http(it, token!!, site, fallbackDir) }
+            ?: RegistryLink.none()
+
+        // **기동할 때 폴백을 먼저 민다**(§15.46). 프로세스가 다시 뜨는 것이
+        // 가장 흔한 복구 계기다.
+        link.replayFallbacks()?.let { outcome ->
+            out.appendLine(
+                "폴백 재적재: ${outcome.replayed}건 성공, ${outcome.failed.size}건 실패, " +
+                    "${outcome.malformed}건 읽을 수 없음",
+            )
+        }
+
+        val running = start(robots, schemaPath, port, virtual, seed, err, link) ?: return 2
         started = running
         out.appendLine("mimic 이 포트 ${running.server.port} 에서 ${running.robotIds.sorted()} 를 호스팅한다")
+        if (registry != null) {
+            out.appendLine("레지스트리 연계: $registry (site=$site)")
+            link.fallbackPaths().forEach { out.appendLine("폴백 파일: $it") }
+        }
         return 0
     }
 
@@ -101,13 +132,20 @@ class MimicCli {
         virtual: Boolean,
         seed: Long,
         err: Appendable,
+        /** 레지스트리 연계. 붙이지 않으면 파일 모드로 돈다(§3.2의 "없을 때"). */
+        link: RegistryLink = RegistryLink.none(),
     ): Started? {
         val source = FileProfileSource(schema)
         val clock: Clock = if (virtual) VirtualClock(Instant.EPOCH) else RealClock()
 
         val instances = robots.map { (id, path) ->
             try {
-                RobotInstance(id, source.load(path), clock, seed)
+                RobotInstance(
+                    id, source.load(path), clock, seed,
+                    // 발행을 감싸 태스크 관측을 적재로 넘긴다. 연계가 없으면
+                    // 그대로 지나간다.
+                    publisher = link.wrap(dev.picasso.mimic.transport.Publisher.NONE),
+                )
             } catch (e: ProfileRejected) {
                 err.appendLine("기동 거부: $id — ${e.message}")
                 return null
@@ -115,7 +153,11 @@ class MimicCli {
         }
 
         return Started(
-            MimicServer(RobotRegistry(instances), ServerBuilder.forPort(port)).start(),
+            MimicServer(
+                RobotRegistry(instances),
+                ServerBuilder.forPort(port),
+                link.reporter,
+            ).start(),
             robots.keys,
         )
     }
@@ -124,7 +166,8 @@ class MimicCli {
         err.appendLine(message)
         err.appendLine(
             "사용법: mimic --robot <id>=<profile.json> [--robot ...] --schema <path> " +
-                "[--port <n>] [--clock real|virtual] [--seed <n>]",
+                "[--port <n>] [--clock real|virtual] [--seed <n>] " +
+                "[--registry <url> --ingest-token <t> [--site <s>] [--fallback-dir <path>]]",
         )
         return 2
     }

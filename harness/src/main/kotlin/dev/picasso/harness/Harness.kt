@@ -1,5 +1,7 @@
 package dev.picasso.harness
 
+import dev.picasso.mimic.report.TaskObservations
+import dev.picasso.mimic.report.IngestBridge
 import com.google.protobuf.Descriptors
 import com.google.protobuf.Message
 import dev.picasso.client.PicassoClient

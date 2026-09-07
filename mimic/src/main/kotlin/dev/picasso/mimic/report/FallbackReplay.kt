@@ -1,4 +1,4 @@
-package dev.picasso.harness
+package dev.picasso.mimic.report
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper

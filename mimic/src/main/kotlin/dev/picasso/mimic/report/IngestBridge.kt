@@ -1,4 +1,4 @@
-package dev.picasso.harness
+package dev.picasso.mimic.report
 
 import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.StateMessage
