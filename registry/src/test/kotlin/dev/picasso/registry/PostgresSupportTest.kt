@@ -49,7 +49,8 @@ class PostgresSupportTest {
         assertEquals(
             listOf(
                 "adapter", "adapter_version", "audit_log", "capability_epoch_log",
-                "capability_profile", "flyway_schema_history", "handshake_rejection",
+                "capability_profile", "consumer", "consumer_requirement",
+                "flyway_schema_history", "handshake_rejection",
                 "profile_revision", "profile_skill", "profile_skill_param",
                 "revision_test_request", "revision_test_run",
                 "robot", "robot_binding", "skill_type", "task",

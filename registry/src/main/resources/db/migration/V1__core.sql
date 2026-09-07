@@ -5,7 +5,6 @@
 -- 문서의 청크 표에 있다.
 --
 -- 아직 없는 것과 그것을 만드는 청크:
---   consumer, consumer_requirement          → 3b-1 (완료 기준 18)
 --   change_plan, change_plan_step           → 3b-2 (완료 기준 19)
 --   skill_type_deprecation, skill_type_param,
 --   profile_optional_field,

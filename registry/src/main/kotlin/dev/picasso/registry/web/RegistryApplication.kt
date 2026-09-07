@@ -2,6 +2,7 @@ package dev.picasso.registry.web
 
 import dev.picasso.gate.GateChecks
 import dev.picasso.registry.diag.DiagnosticsService
+import dev.picasso.registry.ledger.LedgerService
 import dev.picasso.registry.observe.ObservationService
 import dev.picasso.registry.revision.RevisionValidator
 import dev.picasso.registry.store.Db
@@ -51,6 +52,9 @@ open class RegistryApplication {
 
     @Bean
     open fun observations(db: Db): ObservationService = ObservationService(db)
+
+    @Bean
+    open fun ledger(db: Db): LedgerService = LedgerService(db)
 
     /**
      * §11.1 — **검증은 게이트가 한다.** 여기서는 그 입력을 모아 줄 뿐이다.

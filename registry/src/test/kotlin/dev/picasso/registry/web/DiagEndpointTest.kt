@@ -11,6 +11,8 @@ import dev.picasso.registry.adapter.RegisterOutcome
 import dev.picasso.registry.binding.ActivateOutcome
 import dev.picasso.registry.binding.BindOutcome
 import dev.picasso.registry.binding.BindingService
+import dev.picasso.registry.ledger.ConsumerKind
+import dev.picasso.registry.ledger.LedgerService
 import dev.picasso.registry.observe.ObservationService
 import dev.picasso.registry.revision.RevisionService
 import dev.picasso.registry.revision.SkillTypeSync
@@ -94,6 +96,10 @@ class DiagEndpointTest {
                     ProfileRef.newBuilder().setProfileId("fixture/minimal").setRevision(1),
                 ).build(),
         )
+        LedgerService(db).declare(
+            "MES-A", ConsumerKind.UPSTREAM_SYSTEM, "line-a", "MES",
+            listOf("pick_place@^1.2"),
+        )
         observations.recordRejection(
             "r1", "consumer-a", listOf("pick_place@^9.9"),
             Rejection.newBuilder()
@@ -175,6 +181,20 @@ class DiagEndpointTest {
         assertTrue(
             "\"clientId\"" !in get("/diag/rejections?reason_code=REJECTION_CODE_SKILL_ABSENT"),
             "사유 코드 필터가 안 걸린다",
+        )
+    }
+
+    @Test
+    fun `진단 5번이 선다`() {
+        val body = get("/diag/dependents?skill=pick_place")
+        assertTrue("\"consumerId\":\"MES-A\"" in body, body)
+        assertTrue("\"active\":[" in body, body)
+        assertTrue("\"dormant\":[]" in body, "산 것과 조용한 것이 안 갈렸다: $body")
+
+        // (d) — 좁혀지는지를 봐야 배선을 본 것이다.
+        assertTrue(
+            "\"consumerId\"" !in get("/diag/dependents?skill=inspect"),
+            "아무도 안 쓰는 능력에 소비자가 나온다",
         )
     }
 
