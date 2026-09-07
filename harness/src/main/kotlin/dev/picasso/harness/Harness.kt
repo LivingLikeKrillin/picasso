@@ -44,7 +44,7 @@ class Harness(
      * §3.2의 `registry ⇠ 브로커` 구독을 대신하는 적재 지점([IngestBridge]).
      * **기본은 없음이다** — 붙이지 않으면 발행은 [publisher]에만 쌓인다.
      */
-    taskSink: ((dev.picasso.contracts.v1.StateMessage) -> Unit)? = null,
+    taskSink: TaskObservations? = null,
     /**
      * §5.4의 핸드셰이크 결과 보고. **기본은 없음이다** — 레지스트리가 안 떠
      * 있어도 하네스는 돈다(§3.2의 "없을 때").

@@ -119,8 +119,8 @@ class LedgerIngestEndToEndTest {
                 ROBOT, "t1", revision = 1, skillType = "navigate_to",
                 parameters = parametersFor("navigate_to"),
             )
+            // **전이 이벤트가 적재를 낳는다**(§15.44) — 주기 발행을 안 기다린다.
             harness.advance(Duration.ofSeconds(5))
-            publishState(harness)
 
             assertEquals(
                 listOf("navigate_to"), inflightSkills(),
@@ -144,7 +144,6 @@ class LedgerIngestEndToEndTest {
 
             // ── 4. 태스크가 끝난다. 소비자가 남아 **여전히 거부된다.**
             harness.advance(Duration.ofMinutes(5))
-            publishState(harness)
             assertEquals(emptyList(), inflightSkills(), "태스크가 종착하지 않았다")
 
             assertTrue(
@@ -159,6 +158,37 @@ class LedgerIngestEndToEndTest {
             assertTrue(
                 findings().any { "축소가 승인됐다" in it },
                 "둘 다 0인데 축소가 안 열렸다 — 이러면 기능이 죽는다: ${findings()}",
+            )
+        }
+    }
+
+    @Test
+    fun `발행 주기보다 짧은 태스크도 드레인에 잡힌다`() {
+        // **§15.44가 닫혔다는 관측.**
+        //
+        // 스냅샷만 적재하면 `navigate_to`(20초)가 발행 상한(30초) 사이에
+        // 시작과 종료를 마쳐 **비종착으로 한 번도 안 실린다** — 그러면 §9.3의
+        // 드레인이 도는 태스크를 0으로 보고, 틀리는 방향이 축소를 **여는**
+        // 쪽이다. 전이 이벤트(§4.7)를 함께 적재해야 닫힌다.
+        //
+        // **첫 주기 발행을 먼저 소진한다.** `publishStateIfDue()`는 첫 발행을
+        // 조건 없이 내보내므로, 태스크를 바로 시작하면 스냅샷 경로가 드레인을
+        // 채워 **이벤트 경로가 죽어 있어도 이 시험이 통과한다**(실측으로
+        // 주입 셋이 그렇게 빠져나갔다).
+        harness().use { harness ->
+            harness.advance(Duration.ofSeconds(1))
+            assertEquals(emptyList(), inflightSkills(), "아직 태스크가 없어야 한다")
+
+            harness.client(CLIENT).start(
+                ROBOT, "t1", revision = 1, skillType = "navigate_to",
+                parameters = parametersFor("navigate_to"),
+            )
+            // 발행 상한(30초)에 한참 못 미치므로 주기 발행은 안 난다.
+            harness.advance(Duration.ofSeconds(1))
+
+            assertEquals(
+                listOf("navigate_to"), inflightSkills(),
+                "전이 이벤트가 적재되지 않았다 — 주기보다 짧은 태스크가 드레인에서 사라진다",
             )
         }
     }
@@ -199,7 +229,15 @@ class LedgerIngestEndToEndTest {
     /** 두 관측선을 실제 경로로 잇는다. */
     private fun harness() = Harness(
         mapOf(ROBOT to Path.of("..", "profile", "fixtures", "minimal.json").normalize()),
-        taskSink = { tasks.record(it) },
+        taskSink = object : TaskObservations {
+            override fun onState(message: dev.picasso.contracts.v1.StateMessage) {
+                tasks.record(message)
+            }
+
+            override fun onEvent(event: dev.picasso.contracts.v1.Event) {
+                tasks.record(event)
+            }
+        },
         reporter = { report ->
             val outcome = handshakes.record(report.request, report.response, report.site)
             // 적재가 거부되면 시험이 조용히 초록이 되지 않도록 여기서 깬다.
@@ -213,12 +251,6 @@ class LedgerIngestEndToEndTest {
         "SELECT s.name FROM task t JOIN skill_type s ON s.skill_type_id = t.skill_type_id " +
             "WHERE NOT t.terminal ORDER BY s.name",
     ) { it.getString(1) }
-
-    /** 지금 상태를 한 번 발행한다 — 주기 발행과 **같은 메시지**가 나간다. */
-    private fun publishState(harness: Harness) {
-        val hosted = requireNotNull(harness.registry.byId(ROBOT))
-        hosted.instance.events.publishState()
-    }
 
     private fun parametersFor(skill: String): List<ParameterValue> = when (skill) {
         "pick_place" -> listOf(

@@ -25,9 +25,15 @@ import kotlin.test.assertTrue
 class IngestBridgeTest {
 
     private val downstream = RecordingPublisher()
-    private val received = mutableListOf<StateMessage>()
+    private val states = mutableListOf<StateMessage>()
+    private val events = mutableListOf<Event>()
 
-    private val bridge = IngestBridge(downstream) { received += it }
+    private val sink = object : TaskObservations {
+        override fun onState(message: StateMessage) { states += message }
+        override fun onEvent(event: Event) { events += event }
+    }
+
+    private val bridge = IngestBridge(downstream, sink)
 
     @Test
     fun `발행은 그대로 지나간다`() {
@@ -50,24 +56,43 @@ class IngestBridgeTest {
     fun `상태 메시지가 적재로 간다`() {
         bridge.publish(publication(state(), sequence = 1))
 
-        assertEquals(1, received.size)
+        assertEquals(1, states.size)
     }
 
     @Test
-    fun `상태가 아닌 발행은 적재로 안 간다`() {
-        // `event`·`connection`도 같은 발행자를 지난다(§5.5의 발행 열). 전부
-        // 넘기면 `task` 표가 태스크가 아닌 것으로 채워진다.
+    fun `전이 이벤트도 적재로 간다`() {
+        // **드레인의 해상도가 여기서 정해진다.** 스냅샷만 받으면 발행 주기보다
+        // 짧은 태스크가 비종착으로 한 번도 안 실린다(§15.44).
         bridge.publish(publication(Event.newBuilder().setHeader(header()).build(), sequence = 2))
 
-        assertEquals(0, received.size, "상태가 아닌 것이 적재로 갔다")
+        assertEquals(1, events.size, "전이가 적재로 안 갔다")
+        assertEquals(0, states.size, "이벤트가 스냅샷 경로로 갔다")
         assertEquals(1, downstream.publications.size, "그래도 발행은 지나가야 한다")
+    }
+
+    @Test
+    fun `둘 다 아닌 발행은 적재로 안 간다`() {
+        // `connection`도 같은 발행자를 지난다(§5.5의 발행 열).
+        val connection = dev.picasso.contracts.v1.ConnectionMessage.newBuilder()
+            .setHeader(header()).build()
+
+        bridge.publish(publication(connection, sequence = 3))
+
+        assertEquals(0, states.size + events.size, "연결 메시지가 적재로 갔다")
+        assertEquals(1, downstream.publications.size)
     }
 
     @Test
     fun `적재가 던져도 발행은 지나간다`() {
         // §5.4가 핸드셰이크 보고에 대해 정한 것과 같은 규칙이다 — 적재가
         // 발행을 막으면 레지스트리가 죽은 날 로봇이 조용해진다.
-        val exploding = IngestBridge(downstream) { throw IllegalStateException("적재가 죽었다") }
+        val exploding = IngestBridge(
+            downstream,
+            object : TaskObservations {
+                override fun onState(message: StateMessage) = throw IllegalStateException("적재가 죽었다")
+                override fun onEvent(event: Event) = throw IllegalStateException("적재가 죽었다")
+            },
+        )
 
         exploding.publish(publication(state(), sequence = 1))
 
@@ -79,7 +104,13 @@ class IngestBridgeTest {
         // 적재가 느리면 발행이 그만큼 밀린다. 순서를 뒤집으면 **적재
         // 지연이 곧 발행 지연**이 되고, 그것은 "영향 없음"이 아니다.
         val order = mutableListOf<String>()
-        val ordered = IngestBridge({ order += "publish" }) { order += "ingest" }
+        val ordered = IngestBridge(
+            { order += "publish" },
+            object : TaskObservations {
+                override fun onState(message: StateMessage) { order += "ingest" }
+                override fun onEvent(event: Event) { order += "ingest" }
+            },
+        )
 
         ordered.publish(publication(state(), sequence = 1))
 
@@ -92,7 +123,7 @@ class IngestBridgeTest {
         repeat(3) { bridge.publish(publication(state("t$it"), sequence = it.toLong())) }
 
         assertEquals(3, downstream.publications.size)
-        assertEquals(3, received.size)
+        assertEquals(3, states.size)
     }
 
     // ── 씨앗

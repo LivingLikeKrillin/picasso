@@ -1,5 +1,6 @@
 package dev.picasso.harness
 
+import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.mimic.transport.Publication
 import dev.picasso.mimic.transport.Publisher
@@ -32,16 +33,37 @@ import dev.picasso.mimic.transport.Publisher
  */
 class IngestBridge(
     private val delegate: Publisher,
-    /** 받은 상태 메시지를 적재하는 곳. `registry`의 타입은 여기 안 들어온다. */
-    private val sink: (StateMessage) -> Unit,
+    /** 받은 관측을 적재하는 곳. `registry`의 타입은 여기 안 들어온다. */
+    private val sink: TaskObservations,
 ) : Publisher {
 
     override fun publish(publication: Publication) {
         delegate.publish(publication)
 
-        val message = publication.message
-        if (message is StateMessage) {
-            runCatching { sink(message) }
+        // **둘 다 넘긴다.** 스냅샷만 받으면 발행 주기보다 짧은 태스크가
+        // 비종착으로 한 번도 안 실리고, 이벤트만 받으면 유실된 전이를
+        // 메울 길이 없다 — 전자는 축소를 **열고** 후자는 **막는다.**
+        when (val message = publication.message) {
+            is StateMessage -> runCatching { sink.onState(message) }
+            is Event -> runCatching { sink.onEvent(message) }
+            else -> Unit
         }
     }
+}
+
+/**
+ * 적재를 받는 쪽. **`harness`에 있는 것이 경계다** — `registry`의 타입이
+ * `mimic` 쪽 코드에 들어오지 않아야 §3.2가 지켜진다(`registry`는 `mimic`을
+ * 모르고, 그 역도 마찬가지다).
+ *
+ * 브로커가 붙는 날 구독기가 같은 두 메시지를 넘기면 되고, 이 인터페이스는
+ * 그때 사라진다.
+ */
+interface TaskObservations {
+
+    /** 주기 스냅샷(§7.2). 놓친 전이를 메운다. */
+    fun onState(message: StateMessage)
+
+    /** 전이 이벤트(§4.7). **드레인의 해상도가 여기서 정해진다.** */
+    fun onEvent(event: Event)
 }

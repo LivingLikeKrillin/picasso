@@ -1,6 +1,7 @@
 package dev.picasso.registry
 
 import dev.picasso.contracts.v1.CapabilityRequirement
+import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
@@ -9,6 +10,7 @@ import dev.picasso.contracts.v1.Rejection
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskSnapshot
+import dev.picasso.contracts.v1.TaskTransition
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.registry.binding.ActivateOutcome
 import dev.picasso.registry.binding.BindingService
@@ -206,6 +208,70 @@ class IngestTest {
         )
     }
 
+    // ── 전이 이벤트 적재 (§15.44)
+
+    @Test
+    fun `전이 이벤트가 도착 상태로 적재된다`() {
+        // **`to`를 쓴다.** `from`을 쓰면 표가 언제나 한 걸음 뒤처지고,
+        // 종착 전이가 비종착으로 남아 드레인이 안 끝난다.
+        val outcome = tasks.record(transition(TaskState.TASK_STATE_ACCEPTED, TaskState.TASK_STATE_RUNNING))
+
+        assertEquals(1, outcome.recorded, "${outcome.skipped}")
+        assertEquals(
+            "TASK_STATE_RUNNING",
+            PostgresSupport.queryOne("SELECT state FROM task WHERE task_id = 't1'") { it.getString(1) },
+        )
+    }
+
+    @Test
+    fun `종착 전이가 드레인에서 뺀다`() {
+        tasks.record(transition(TaskState.TASK_STATE_ACCEPTED, TaskState.TASK_STATE_RUNNING))
+        tasks.record(transition(TaskState.TASK_STATE_RUNNING, TaskState.TASK_STATE_SUCCEEDED))
+
+        assertEquals(
+            0,
+            PostgresSupport.queryOne("SELECT count(*) FROM task WHERE NOT terminal") { it.getInt(1) },
+        )
+    }
+
+    @Test
+    fun `태스크가 아닌 이벤트는 아무것도 안 적재한다`() {
+        // 스킬 전이·결함·능력 변경도 같은 스트림으로 온다. 세면 `task` 표가
+        // 태스크가 아닌 것으로 채워지고 드레인이 영영 안 끝난다.
+        val skillOnly = Event.newBuilder()
+            .setHeader(header())
+            .setSkillTransition(
+                dev.picasso.contracts.v1.SkillTransition.newBuilder().setSkillType("pick_place"),
+            ).build()
+
+        val outcome = tasks.record(skillOnly)
+
+        assertEquals(0, outcome.recorded)
+        assertEquals(emptyList(), outcome.skipped, "정상 트래픽이 건너뜀 사유로 쌓이면 진짜 문제가 묻힌다")
+        assertEquals(0, PostgresSupport.queryOne("SELECT count(*) FROM task") { it.getInt(1) })
+    }
+
+    @Test
+    fun `전이도 종착을 되돌리지 않는다`() {
+        tasks.record(transition(TaskState.TASK_STATE_RUNNING, TaskState.TASK_STATE_SUCCEEDED))
+        tasks.record(transition(TaskState.TASK_STATE_SUCCEEDED, TaskState.TASK_STATE_RUNNING))
+
+        assertEquals(
+            "TASK_STATE_SUCCEEDED",
+            PostgresSupport.queryOne("SELECT state FROM task WHERE task_id = 't1'") { it.getString(1) },
+        )
+    }
+
+    @Test
+    fun `전이의 모르는 스킬은 건너뛴다`() {
+        val outcome = tasks.record(
+            transition(TaskState.TASK_STATE_ACCEPTED, TaskState.TASK_STATE_RUNNING, skill = "inspect"),
+        )
+
+        assertEquals(0, outcome.recorded)
+        assertEquals(1, outcome.skipped.size, "${outcome.skipped}")
+    }
+
     @Test
     fun `모르는 개정판은 통째로 건너뛴다`() {
         val unknown = state(snapshot("t1", TaskState.TASK_STATE_RUNNING), revision = 99)
@@ -288,6 +354,19 @@ class IngestTest {
         .setCode(RejectionCode.REJECTION_CODE_SKILL_ABSENT)
         .setDetail("그런 스킬이 없다")
         .build()
+
+    private fun transition(
+        from: TaskState,
+        to: TaskState,
+        skill: String = "pick_place",
+    ): Event = Event.newBuilder()
+        .setHeader(header())
+        .setTaskTransition(
+            TaskTransition.newBuilder()
+                .setTaskId("t1").setSkillType(skill)
+                .setFrom(from).setTo(to)
+                .setRevision(1).setAttempt(0),
+        ).build()
 
     private fun snapshot(
         taskId: String,

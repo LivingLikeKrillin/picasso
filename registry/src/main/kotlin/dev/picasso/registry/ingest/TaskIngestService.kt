@@ -1,7 +1,10 @@
 package dev.picasso.registry.ingest
 
+import dev.picasso.contracts.v1.Event
+import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskSnapshot
+import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.wire.isTerminal
 import dev.picasso.registry.store.Db
 import java.sql.Connection
@@ -38,44 +41,108 @@ data class TaskIngestOutcome(val recorded: Int, val skipped: List<String>)
  */
 class TaskIngestService(private val db: Db) {
 
-    fun record(message: StateMessage): TaskIngestOutcome {
-        val robotId = message.header.robotId
+    /**
+     * 주기 스냅샷(§7.2의 `publish_interval`)으로 적재한다.
+     *
+     * **놓친 전이를 메우는 쪽이다.** 스냅샷은 "지금 전부"라 이벤트가 유실돼도
+     * 다음 주기에 상태가 맞춰진다. 대신 **주기보다 짧은 태스크는 여기 안
+     * 잡힌다** — 그것을 [record] 의 이벤트 오버로드가 맡는다.
+     */
+    fun record(message: StateMessage): TaskIngestOutcome =
+        ingest(message.header) { c, revisionId, skipped ->
+            var recorded = 0
+            message.tasksList.forEach { snapshot ->
+                if (one(
+                        c, message.header.robotId, revisionId, skipped,
+                        snapshot.taskId, snapshot.skillType, snapshot.state,
+                        snapshot.revision, snapshot.attempt,
+                    )
+                ) {
+                    recorded++
+                }
+            }
+            recorded
+        }
+
+    /**
+     * 전이 이벤트로 적재한다(§4.7). **드레인의 해상도가 여기서 정해진다.**
+     *
+     * 스냅샷만 받으면 발행 주기보다 짧은 태스크가 비종착으로 한 번도 안
+     * 실리고, 그러면 §9.3의 드레인이 도는 태스크를 0으로 관측한다 — 틀리는
+     * 방향이 **축소를 여는** 쪽이라 위험하다.
+     *
+     * 계약이 이 경로를 예정해 두었다: `TaskTransition`이 `skill_type`을
+     * 싣는 이유가 *"registry가 이 이벤트를 구독해 task 테이블을 적재하며
+     * 드레인 판정이 스킬 단위로 서려면"*이라고 `event.proto`에 적혀 있다.
+     *
+     * **태스크 전이가 아닌 이벤트는 조용히 넘긴다.** 스킬 전이·결함·능력
+     * 변경도 같은 스트림으로 오며, 그것을 건너뜀으로 세면 사유 목록이
+     * 정상 트래픽으로 가득 차 진짜 문제가 묻힌다.
+     */
+    fun record(event: Event): TaskIngestOutcome {
+        if (!event.hasTaskTransition()) return TaskIngestOutcome(0, emptyList())
+        val transition = event.taskTransition
+        return ingest(event.header) { c, revisionId, skipped ->
+            val written = one(
+                c, event.header.robotId, revisionId, skipped,
+                transition.taskId, transition.skillType, transition.to,
+                transition.revision, transition.attempt,
+            )
+            if (written) 1 else 0
+        }
+    }
+
+    /** 두 경로가 공유하는 껍데기 — 기체·개정판을 풀고 트랜잭션을 연다. */
+    private fun ingest(
+        header: MessageHeader,
+        body: (java.sql.Connection, Long, MutableList<String>) -> Int,
+    ): TaskIngestOutcome {
+        val robotId = header.robotId
         if (robotId.isBlank()) {
             return TaskIngestOutcome(0, listOf("헤더에 robot_id가 없다"))
         }
 
         return db.transaction { c ->
-            val revisionId = profileRevisionId(c, message.header.profileRef.profileId, message.header.profileRef.revision)
+            val revisionId = profileRevisionId(c, header.profileRef.profileId, header.profileRef.revision)
                 ?: return@transaction TaskIngestOutcome(
                     0,
                     listOf(
-                        "모르는 개정판이다: ${message.header.profileRef.profileId}" +
-                            "#${message.header.profileRef.revision}",
+                        "모르는 개정판이다: ${header.profileRef.profileId}" +
+                            "#${header.profileRef.revision}",
                     ),
                 )
 
             val skipped = mutableListOf<String>()
-            var recorded = 0
-
-            message.tasksList.forEach { snapshot ->
-                val skillTypeId = skillTypeId(c, revisionId, snapshot.skillType)
-                if (skillTypeId == null) {
-                    // **그 행만 건너뛴다.** 메시지 전체를 버리면 스킬 하나가
-                    // 낯설다는 이유로 같은 로봇의 다른 태스크가 드레인에서
-                    // 통째로 사라진다.
-                    skipped += "개정판 $revisionId 이 선언하지 않은 스킬이다: ${snapshot.skillType}"
-                    return@forEach
-                }
-                if (snapshot.taskId.isBlank()) {
-                    skipped += "task_id가 없다"
-                    return@forEach
-                }
-                upsert(c, robotId, revisionId, skillTypeId, snapshot)
-                recorded++
-            }
-
+            val recorded = body(c, revisionId, skipped)
             TaskIngestOutcome(recorded, skipped)
         }
+    }
+
+    /** 태스크 한 줄. @return 적재했으면 참. */
+    private fun one(
+        c: java.sql.Connection,
+        robotId: String,
+        revisionId: Long,
+        skipped: MutableList<String>,
+        taskId: String,
+        skillType: String,
+        state: TaskState,
+        revision: Int,
+        attempt: Int,
+    ): Boolean {
+        val skillTypeId = skillTypeId(c, revisionId, skillType)
+        if (skillTypeId == null) {
+            // **그 행만 건너뛴다.** 메시지 전체를 버리면 스킬 하나가 낯설다는
+            // 이유로 같은 로봇의 다른 태스크가 드레인에서 통째로 사라진다.
+            skipped += "개정판 $revisionId 이 선언하지 않은 스킬이다: $skillType"
+            return false
+        }
+        if (taskId.isBlank()) {
+            skipped += "task_id가 없다"
+            return false
+        }
+        upsert(c, robotId, revisionId, skillTypeId, taskId, state, revision, attempt)
+        return true
     }
 
     /**
@@ -126,7 +193,10 @@ class TaskIngestService(private val db: Db) {
         robotId: String,
         revisionId: Long,
         skillTypeId: Long,
-        snapshot: TaskSnapshot,
+        taskId: String,
+        state: TaskState,
+        revision: Int,
+        attempt: Int,
     ) {
         c.prepareStatement(
             """
@@ -143,14 +213,14 @@ class TaskIngestService(private val db: Db) {
                 updated_at = now()
             """.trimIndent(),
         ).use { s ->
-            s.setString(1, snapshot.taskId)
+            s.setString(1, taskId)
             s.setString(2, robotId)
             s.setLong(3, revisionId)
             s.setLong(4, skillTypeId)
-            s.setInt(5, snapshot.revision)
-            s.setInt(6, snapshot.attempt)
-            s.setString(7, snapshot.state.name)
-            s.setBoolean(8, snapshot.state.isTerminal)
+            s.setInt(5, revision)
+            s.setInt(6, attempt)
+            s.setString(7, state.name)
+            s.setBoolean(8, state.isTerminal)
             s.executeUpdate()
         }
     }
