@@ -50,10 +50,11 @@ class PostgresSupportTest {
             listOf(
                 "adapter", "adapter_version", "audit_log", "capability_profile",
                 "flyway_schema_history", "profile_revision", "profile_skill",
-                "profile_skill_param", "robot", "robot_binding", "skill_type", "task",
+                "profile_skill_param", "revision_test_request", "revision_test_run",
+                "robot", "robot_binding", "skill_type", "task",
             ),
             tables,
-            "V1이 만드는 테이블 목록이 다르다",
+            "마이그레이션이 만드는 테이블 목록이 다르다",
         )
     }
 

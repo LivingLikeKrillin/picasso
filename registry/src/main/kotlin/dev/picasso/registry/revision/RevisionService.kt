@@ -70,6 +70,10 @@ class RevisionService(
         }
 
         val id = insertRevision(c, profileId, parsed, documentJson, status, reasons, actor)
+        // **선언한 스킬을 펴서 넣는다.** 문서만 두면 바인딩의 semver 검사와
+        // 진단 2번의 diff가 JSONB를 매번 파싱해야 하고, 그러면 파싱이 두
+        // 곳에 생긴다. 관계로 두는 이유가 그것이다(§8.1).
+        insertSkills(c, id, parsed)
         audit(
             c, actor,
             operation = "PROFILE_REVISION_SUBMIT",
@@ -141,6 +145,38 @@ class RevisionService(
         s.setString(7, if (reasons.isEmpty()) null else reasonsJson(reasons))
         s.setString(8, actor)
         s.executeQuery().use { rs -> check(rs.next()); rs.getLong(1) }
+    }
+
+    /**
+     * 선언한 스킬을 `profile_skill`로 편다.
+     *
+     * **`skill_type`에 없는 스킬은 건너뛴다.** 동기화가 아직 안 돌았거나
+     * 계약에 없는 스킬인데, 여기서 만들어 넣으면 §8.1의 "이 표는 계약이
+     * 소유한다"가 깨진다. 그 부재는 바인딩이 보고 막는다.
+     */
+    private fun insertSkills(c: Connection, revisionId: Long, document: ProfileDocument) {
+        document.skills.forEach { skill ->
+            val skillTypeId = c.prepareStatement(
+                "SELECT skill_type_id FROM skill_type WHERE name = ? AND major = ?",
+            ).use { s ->
+                s.setString(1, skill.skillType)
+                s.setInt(2, skill.major)
+                s.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) else null }
+            } ?: return@forEach
+
+            c.prepareStatement(
+                "INSERT INTO profile_skill " +
+                    "(profile_revision_id, skill_type_id, minor, pause_support, cancel_support) " +
+                    "VALUES (?, ?, ?, ?, ?)",
+            ).use { s ->
+                s.setLong(1, revisionId)
+                s.setLong(2, skillTypeId)
+                s.setInt(3, skill.minor)
+                s.setString(4, skill.pauseSupport)
+                s.setString(5, skill.cancelSupport)
+                s.executeUpdate()
+            }
+        }
     }
 
     /**
