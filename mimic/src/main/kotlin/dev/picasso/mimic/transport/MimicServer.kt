@@ -10,12 +10,18 @@ import io.grpc.ServerBuilder
  * 코드로 서야 한다 — 시험이 세우는 것과 CLI가 세우는 것이 다르면 시험이
  * 표면을 증명하지 못한다.
  */
-class MimicServer(private val registry: RobotRegistry, builder: ServerBuilder<*>) {
+class MimicServer(
+    private val registry: RobotRegistry,
+    builder: ServerBuilder<*>,
+    /** §5.4의 핸드셰이크 결과 보고. 붙이지 않으면 아무 데도 안 나간다. */
+    reporter: dev.picasso.mimic.report.HandshakeReporter =
+        dev.picasso.mimic.report.HandshakeReporter.NONE,
+) {
 
     private val taskService = TaskServiceImpl(registry)
 
     private val server: Server = builder
-        .addService(SkillServiceImpl(registry))
+        .addService(SkillServiceImpl(registry, reporter))
         .addService(taskService)
         .addService(EventServiceImpl(registry))
         .build()

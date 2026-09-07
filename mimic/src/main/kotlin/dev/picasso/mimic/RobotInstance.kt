@@ -40,8 +40,13 @@ class RobotInstance(
     seed: Long = 0,
     /** 발행이 나갈 곳. 붙이지 않으면 아무 데도 안 나간다(§15.30). */
     publisher: Publisher = Publisher.NONE,
-    /** §5.5의 토픽 두 번째 레벨. */
-    site: String = "default",
+    /**
+     * §5.5의 토픽 두 번째 레벨.
+     *
+     * **`val`인 것은 핸드셰이크 보고가 이것을 실어야 하기 때문이다**
+     * (§8.3의 `consumer.site`가 "토픽의 site"다). 헤더에는 site가 없다.
+     */
+    val site: String = "default",
 ) {
     /**
      * §4.8 — 기체 단위이며 발신자가 온라인이 될 때마다 새로 발급한다.

@@ -5,6 +5,8 @@ import dev.picasso.contracts.v1.GetCapabilitiesResponse
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.SkillServiceGrpc
+import dev.picasso.mimic.report.HandshakeReport
+import dev.picasso.mimic.report.HandshakeReporter
 import io.grpc.Status
 import io.grpc.stub.StreamObserver
 
@@ -18,6 +20,13 @@ import io.grpc.stub.StreamObserver
  */
 class SkillServiceImpl(
     private val registry: RobotRegistry,
+    /**
+     * §5.4 — *"결과는 성공·실패 모두 `registry`에 보고된다."*
+     *
+     * 기본값이 [HandshakeReporter.NONE]인 것은 §3.2가 이 방향을 **런타임
+     * 접근**으로 두었기 때문이다 — 상대가 없어도 모듈이 동작해야 한다.
+     */
+    private val reporter: HandshakeReporter = HandshakeReporter.NONE,
 ) : SkillServiceGrpc.SkillServiceImplBase() {
 
     override fun getCapabilities(
@@ -58,12 +67,23 @@ class SkillServiceImpl(
             request.requirement,
         )
 
-        NegotiateResponse.newBuilder()
+        val response = NegotiateResponse.newBuilder()
             .setHeader(hosted.headers.forResponse(NegotiateResponse.getDescriptor()))
             // accepted와 거절 목록이 어긋나면 클라이언트가 통과했다고 믿는다.
             // 둘을 따로 계산하지 않는다.
             .setAccepted(rejections.isEmpty())
             .addAllRejections(rejections)
             .build()
+
+        // **§5.4 — 보고 실패는 핸드셰이크 결과에 영향을 주지 않는다.**
+        //
+        // 그래서 삼킨다. 삼켜도 잃지 않는 것은 폴백의 몫이고(FileHandshakeReporter),
+        // 삼킨 것이 조용하지 않은 것은 워터마크의 몫이다 — 적재가 멈추면
+        // §9.3의 조회가 `NotObservable`이 되어 축소를 막는다.
+        runCatching {
+            reporter.report(HandshakeReport(hosted.instance.site, request, response))
+        }
+
+        response
     }
 }

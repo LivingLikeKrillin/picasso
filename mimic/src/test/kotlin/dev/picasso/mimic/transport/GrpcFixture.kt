@@ -24,10 +24,15 @@ class GrpcFixture(
     documents: Map<String, ProfileDocument>,
     val clock: Clock = VirtualClock(Instant.parse("2026-09-06T00:00:00Z")),
     val publisher: RecordingPublisher = RecordingPublisher(),
+    site: String = "default",
+    reporter: dev.picasso.mimic.report.HandshakeReporter =
+        dev.picasso.mimic.report.HandshakeReporter.NONE,
 ) : AutoCloseable {
 
     val registry = RobotRegistry(
-        documents.map { (id, doc) -> RobotInstance(id, doc, clock, publisher = publisher) },
+        documents.map { (id, doc) ->
+            RobotInstance(id, doc, clock, publisher = publisher, site = site)
+        },
     )
 
     private val name: String = InProcessServerBuilder.generateName()
@@ -35,6 +40,7 @@ class GrpcFixture(
     val server = MimicServer(
         registry,
         InProcessServerBuilder.forName(name).directExecutor(),
+        reporter,
     ).start()
 
     private val channel: ManagedChannel =

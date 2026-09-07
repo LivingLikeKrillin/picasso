@@ -18,6 +18,9 @@ application {
 
 // 프로파일 주도 에뮬레이터. 거동은 프로파일에서 오고 코드는 해석기다(§10.1).
 dependencies {
+    // 보고자가 계약 메시지를 protobuf JSON으로 적고 보낸다. 적재 표면이
+    // 같은 규약으로 읽으므로 여기서 다른 규약을 쓰면 밀어 넣는 날 갈린다.
+    implementation(libs.protobuf.java.util)
     implementation(project(":profile-model"))
     implementation(project(":contracts"))
     implementation(libs.jackson.databind)
