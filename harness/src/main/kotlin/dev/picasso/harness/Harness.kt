@@ -40,6 +40,17 @@ class Harness(
      * 있어도 하네스는 파일 모드로 돈다(§3.2의 "없을 때").
      */
     registrySource: dev.picasso.mimic.RegistrySource = dev.picasso.mimic.RegistrySource.NONE,
+    /**
+     * §3.2의 `registry ⇠ 브로커` 구독을 대신하는 적재 지점([IngestBridge]).
+     * **기본은 없음이다** — 붙이지 않으면 발행은 [publisher]에만 쌓인다.
+     */
+    taskSink: ((dev.picasso.contracts.v1.StateMessage) -> Unit)? = null,
+    /**
+     * §5.4의 핸드셰이크 결과 보고. **기본은 없음이다** — 레지스트리가 안 떠
+     * 있어도 하네스는 돈다(§3.2의 "없을 때").
+     */
+    reporter: dev.picasso.mimic.report.HandshakeReporter =
+        dev.picasso.mimic.report.HandshakeReporter.NONE,
 ) : AutoCloseable {
 
     val clock = VirtualClock(start)
@@ -52,9 +63,17 @@ class Harness(
 
     private val source = FileProfileSource(schema)
 
+    /**
+     * 기체가 실제로 미는 곳. 적재 지점이 있으면 [publisher]를 감싼다.
+     *
+     * **감싸되 가로채지 않는다** — [publisher]는 그대로 다 받는다.
+     */
+    private val outbound: dev.picasso.mimic.transport.Publisher =
+        taskSink?.let { IngestBridge(publisher, it) } ?: publisher
+
     val registry = RobotRegistry(
         robots.map { (id, path) ->
-            RobotInstance(id, source.load(path), clock, seed, publisher, site = "line-a")
+            RobotInstance(id, source.load(path), clock, seed, outbound, site = "line-a")
         },
         registrySource,
     )
@@ -64,6 +83,7 @@ class Harness(
     private val server = MimicServer(
         registry,
         InProcessServerBuilder.forName(name).directExecutor().intercept(recorder),
+        reporter,
     ).start()
 
     private val channel: ManagedChannel =
