@@ -13,6 +13,10 @@ import dev.picasso.registry.binding.BindOutcome
 import dev.picasso.registry.binding.BindingService
 import dev.picasso.registry.ledger.ConsumerKind
 import dev.picasso.registry.ledger.LedgerService
+import dev.picasso.registry.plan.ChangePlanService
+import dev.picasso.registry.plan.CreateOutcome
+import dev.picasso.registry.plan.Intent
+import dev.picasso.registry.plan.Preconditions
 import dev.picasso.registry.observe.ObservationService
 import dev.picasso.registry.revision.RevisionService
 import dev.picasso.registry.revision.SkillTypeSync
@@ -181,6 +185,49 @@ class DiagEndpointTest {
         assertTrue(
             "\"clientId\"" !in get("/diag/rejections?reason_code=REJECTION_CODE_SKILL_ABSENT"),
             "사유 코드 필터가 안 걸린다",
+        )
+    }
+
+    @Test
+    fun `진단 6번이 선다`() {
+        val outcome = ChangePlanService(db, Preconditions(db, LedgerService(db)), BindingService(db))
+            .create(
+                Intent.REMOVE_CAPABILITY,
+                mapOf("skill" to "pick_place", "major" to "1"),
+                "line-a", "op",
+            )
+        assertTrue(outcome is CreateOutcome.Created, "$outcome")
+
+        val body = get("/diag/plans")
+        assertTrue("\"intent\":\"REMOVE_CAPABILITY\"" in body, body)
+        assertTrue("\"kind\":\"APPLY\"" in body, body)
+        // 씨앗에 소비자가 하나 있으므로 **불충족으로 보여야 한다** —
+        // 캐시(기본 false)를 낸 것과 재평가한 것이 여기서 갈리지 않으므로
+        // 사유 문자열까지 본다.
+        assertTrue(
+            "소비자가 pick_place 을 쓴다" in body,
+            "지금 재평가한 사유가 안 실렸다: $body",
+        )
+    }
+
+    @Test
+    fun `진단 6번의 끝난 계획 파라미터가 실제로 읽힌다`() {
+        // **끝난 계획이 하나도 없으면 두 값이 같은 답을 낸다.** 그러면
+        // 파라미터를 안 넘기는 결함이 조용히 통과한다 — 3b-2 주입에서
+        // 실제로 그랬고, 3a-3의 `history`에서도 같은 실수를 했다.
+        val plans = ChangePlanService(db, Preconditions(db, LedgerService(db)), BindingService(db))
+        val outcome = plans.create(
+            Intent.REMOVE_CAPABILITY,
+            mapOf("skill" to "navigate_to", "major" to "1"),
+            "line-a", "op",
+        )
+        assertTrue(outcome is CreateOutcome.Created, "$outcome")
+        plans.abandon(outcome.planId, "op")
+
+        assertTrue("navigate_to" !in get("/diag/plans"), "끝난 계획이 기본 목록에 실렸다")
+        assertTrue(
+            "navigate_to" in get("/diag/plans?finished=true"),
+            "끝난 계획을 달라고 했는데 안 준다",
         )
     }
 

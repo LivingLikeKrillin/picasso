@@ -2,7 +2,10 @@ package dev.picasso.registry.web
 
 import dev.picasso.gate.GateChecks
 import dev.picasso.registry.diag.DiagnosticsService
+import dev.picasso.registry.binding.BindingService
 import dev.picasso.registry.ledger.LedgerService
+import dev.picasso.registry.plan.ChangePlanService
+import dev.picasso.registry.plan.Preconditions
 import dev.picasso.registry.observe.ObservationService
 import dev.picasso.registry.revision.RevisionValidator
 import dev.picasso.registry.store.Db
@@ -55,6 +58,21 @@ open class RegistryApplication {
 
     @Bean
     open fun ledger(db: Db): LedgerService = LedgerService(db)
+
+    @Bean
+    open fun bindings(db: Db): BindingService = BindingService(db)
+
+    /**
+     * **활성화는 `BindingService`를 지난다**(§8.4 ③). 계획이 status를 직접
+     * 쓰면 승인 조건(TESTED/SUPERSEDED, 세 스위트 PASS)을 안 지나는 두 번째
+     * 활성화 경로가 생긴다.
+     */
+    @Bean
+    open fun changePlans(
+        db: Db,
+        ledger: LedgerService,
+        bindings: BindingService,
+    ): ChangePlanService = ChangePlanService(db, Preconditions(db, ledger), bindings)
 
     /**
      * §11.1 — **검증은 게이트가 한다.** 여기서는 그 입력을 모아 줄 뿐이다.

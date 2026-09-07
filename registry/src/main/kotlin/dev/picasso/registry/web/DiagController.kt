@@ -7,14 +7,15 @@ import dev.picasso.registry.diag.DiffAnswer
 import dev.picasso.registry.diag.EpochRow
 import dev.picasso.registry.ledger.DependentsAnswer
 import dev.picasso.registry.ledger.LedgerService
+import dev.picasso.registry.plan.ChangePlanService
+import dev.picasso.registry.plan.PlanView
 import dev.picasso.registry.diag.RejectionRow
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 
 /**
- * §8.5의 진단 1~5. **read-only이며 `GET`뿐이다.** 6번은 변경 계획이
- * 서는 3b-2다.
+ * §8.5의 진단 여섯. **read-only이며 `GET`뿐이다.**
  *
  * 진단이 무언가를 바꿀 수 있으면 그것은 진단이 아니라 조작이고, 조작은
  * 감사 로그와 승인 경계를 지나야 한다(§8.5). 여기 `POST`를 하나 더하는
@@ -32,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController
 class DiagController(
     private val diagnostics: DiagnosticsService,
     private val ledger: LedgerService,
+    private val changePlans: ChangePlanService,
 ) {
 
     @GetMapping("/diag/bindings")
@@ -66,6 +68,19 @@ class DiagController(
     @GetMapping("/diag/dependents")
     fun dependents(@RequestParam(name = "skill") skill: String): DependentsAnswer =
         ledger.dependents(skill)
+
+    /**
+     * 진단 6번 — 진행 중 변경 계획과 각 단계의 충족 여부(§8.5).
+     *
+     * **`satisfied`는 DB의 캐시가 아니라 지금 재평가한 값이다**(§9.5).
+     * 캐시를 내면 화면이 "열렸다"고 하는데 실행은 거부되는 상태가 생기고,
+     * 그때 운영자는 화면을 믿는다.
+     */
+    @GetMapping("/diag/plans")
+    fun plans(
+        @RequestParam(name = "finished", required = false, defaultValue = "false")
+        finished: Boolean,
+    ): List<PlanView> = changePlans.plans(finished)
 
     @GetMapping("/diag/rejections")
     fun rejections(
