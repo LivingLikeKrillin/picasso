@@ -8,6 +8,9 @@ import dev.picasso.mimic.profile.FileProfileSource
 import dev.picasso.mimic.profile.ProfileRejected
 import dev.picasso.mimic.report.RegistryLink
 import dev.picasso.mimic.transport.MimicServer
+import dev.picasso.mimic.transport.MqttPublisher
+import dev.picasso.mimic.transport.Publisher
+import dev.picasso.mimic.transport.Topics
 import dev.picasso.mimic.transport.RobotRegistry
 import io.grpc.ServerBuilder
 import java.nio.file.Path
@@ -41,6 +44,7 @@ class MimicCli {
         var registry: String? = null
         var token: String? = null
         var site = "default"
+        var broker: String? = null
         var fallbackDir: Path? = null
 
         var i = 0
@@ -81,6 +85,7 @@ class MimicCli {
                 "--registry" -> { registry = value!!; i += 2 }
                 "--ingest-token" -> { token = value!!; i += 2 }
                 "--site" -> { site = value!!; i += 2 }
+                "--broker" -> { broker = value!!; i += 2 }
                 "--fallback-dir" -> { fallbackDir = Path.of(value!!); i += 2 }
                 else -> return usage(err, "모르는 인자다: '$arg'")
             }
@@ -107,9 +112,11 @@ class MimicCli {
             )
         }
 
-        val running = start(robots, schemaPath, port, virtual, seed, err, link) ?: return 2
+        val running = start(robots, schemaPath, port, virtual, seed, err, link, broker, site)
+            ?: return 2
         started = running
         out.appendLine("mimic 이 포트 ${running.server.port} 에서 ${running.robotIds.sorted()} 를 호스팅한다")
+        if (broker != null) out.appendLine("브로커 발행: $broker (site=$site)")
         if (registry != null) {
             out.appendLine("레지스트리 연계: $registry (site=$site)")
             link.fallbackPaths().forEach { out.appendLine("폴백 파일: $it") }
@@ -134,17 +141,39 @@ class MimicCli {
         err: Appendable,
         /** 레지스트리 연계. 붙이지 않으면 파일 모드로 돈다(§3.2의 "없을 때"). */
         link: RegistryLink = RegistryLink.none(),
+        /**
+         * MQTT 브로커. **없으면 아무 데도 안 나간다**(§15.30) — 기본이
+         * in-process인 것은 §12.1의 결정성 때문이며, 시험 스위트는 이 값을
+         * 주지 않는다.
+         */
+        broker: String? = null,
+        site: String = "default",
     ): Started? {
         val source = FileProfileSource(schema)
         val clock: Clock = if (virtual) VirtualClock(Instant.EPOCH) else RealClock()
 
         val instances = robots.map { (id, path) ->
             try {
+                // **기체마다 하나다.** Last Will이 그 기체의 connection
+                // 토픽이어야 하므로 발행자를 공유할 수 없다(§4.7).
+                val outbound: Publisher = broker?.let {
+                    MqttPublisher.connect(
+                        it,
+                        clientId = "picasso-mimic-$id",
+                        willTopic = Topics.robot(
+                            dev.picasso.contracts.wire.ContractIdentity.major,
+                            site, id, Topics.Stream.connection,
+                        ),
+                        willHeader = dev.picasso.contracts.v1.MessageHeader.newBuilder()
+                            .setRobotId(id).build(),
+                    )
+                } ?: Publisher.NONE
                 RobotInstance(
                     id, source.load(path), clock, seed,
                     // 발행을 감싸 태스크 관측을 적재로 넘긴다. 연계가 없으면
                     // 그대로 지나간다.
-                    publisher = link.wrap(dev.picasso.mimic.transport.Publisher.NONE),
+                    publisher = link.wrap(outbound),
+                    site = site,
                 )
             } catch (e: ProfileRejected) {
                 err.appendLine("기동 거부: $id — ${e.message}")
@@ -167,7 +196,8 @@ class MimicCli {
         err.appendLine(
             "사용법: mimic --robot <id>=<profile.json> [--robot ...] --schema <path> " +
                 "[--port <n>] [--clock real|virtual] [--seed <n>] " +
-                "[--registry <url> --ingest-token <t> [--site <s>] [--fallback-dir <path>]]",
+                "[--registry <url> --ingest-token <t> [--site <s>] [--fallback-dir <path>]] " +
+                "[--broker <tcp://host:port>]",
         )
         return 2
     }

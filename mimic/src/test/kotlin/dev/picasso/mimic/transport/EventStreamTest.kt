@@ -236,14 +236,118 @@ class EventStreamTest {
     fun `발행이 막혀도 버퍼에는 남는다`() {
         // §10.6 — 단절 중 쌓았다가 재연결 시 재생한다. 발행 뒤에 넣으면
         // 장애 주입이 버퍼까지 비운다.
+        // **예외가 위로 안 간다**(§10.6). 발행 실패가 태스크 실행을 막으면
+        // 브로커가 죽은 날 로봇이 함께 멈춘다.
         val blocked = Publisher { error("발행 불통") }
         val robot = instance("r1", sink = blocked)
 
-        assertFailsWith<IllegalStateException> {
-            robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
-        }
+        robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
+
         assertEquals(1, robot.events.buffered.size, "발행이 막히자 버퍼도 비었다")
+        assertTrue(robot.events.disconnected, "못 보낸 것을 기억하지 않는다")
     }
+
+    // ── §10.6 단절 중 버퍼링
+
+    @Test
+    fun `재연결되면 못 보낸 것을 순서대로 민다`() {
+        val broker = FlakyPublisher()
+        val robot = instance("r1", sink = broker)
+
+        broker.connected = false
+        robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
+        robot.tasks.start("t2", 1, "navigate_to", listOf(location()))
+        assertEquals(0, broker.received.size, "단절 중인데 나갔다")
+
+        broker.connected = true
+        robot.tasks.start("t3", 1, "navigate_to", listOf(location()))
+
+        // 쌓인 둘이 먼저, 그 다음 새것. **순서가 지켜져야 한다.**
+        assertEquals(
+            listOf(0L, 1L, 2L),
+            broker.received.map { it.sequence },
+            "순서가 어긋났거나 쌓인 것을 안 밀었다",
+        )
+        assertTrue(!robot.events.disconnected)
+    }
+
+    @Test
+    fun `단절만으로는 세션이 안 바뀐다`() {
+        // **단절만으로 바꾸면 버퍼링이 무의미해진다**(§10.6). 넘칠 때만
+        // 바꾸므로 버퍼가 실제로 값을 한다.
+        val broker = FlakyPublisher()
+        val robot = instance("r1", sink = broker)
+        val before = robot.sessionId
+
+        broker.connected = false
+        robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
+
+        assertEquals(before, robot.sessionId, "단절만으로 세션이 바뀌었다")
+    }
+
+    @Test
+    fun `버퍼가 넘치면 새 세션을 발급한다`() {
+        // 못 보낸 구간이 버려지면 소비자에게 영영 안 간다. 세션을 바꿔
+        // **스냅샷부터 다시 세우게** 하는 것이 유일하게 정직한 답이다.
+        val broker = FlakyPublisher()
+        val robot = instance("r1", document = smallBuffer(), sink = broker)
+        val before = robot.sessionId
+
+        broker.connected = false
+        repeat(4) { robot.tasks.start("t$it", 1, "navigate_to", listOf(location())) }
+
+        assertTrue(robot.sessionId != before, "넘쳤는데 세션이 그대로다")
+    }
+
+    @Test
+    fun `넘치기 전에는 세션이 그대로다`() {
+        // 반대쪽이 없으면 "언제나 새 세션"이 위 시험을 통과한다.
+        val broker = FlakyPublisher()
+        val robot = instance("r1", document = smallBuffer(), sink = broker)
+        val before = robot.sessionId
+
+        broker.connected = false
+        robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
+
+        assertEquals(before, robot.sessionId)
+    }
+
+    @Test
+    fun `재생해도 sequence가 안 바뀐다`() {
+        // 번호를 다시 매기면 **소비자가 결손을 아예 못 본다**(§10.4).
+        val broker = FlakyPublisher()
+        val robot = instance("r1", sink = broker)
+
+        broker.connected = false
+        robot.tasks.start("t1", 1, "navigate_to", listOf(location()))
+        broker.connected = true
+        robot.tasks.start("t2", 1, "navigate_to", listOf(location()))
+
+        assertEquals(
+            broker.received.map { it.sequence },
+            broker.received.map { it.message.let { m -> (m as Event).header.sequence } },
+            "발행의 번호와 헤더의 번호가 갈렸다",
+        )
+    }
+
+    /** 연결을 껐다 켤 수 있는 발행자. 실제 브로커는 끊기면 던진다. */
+    private class FlakyPublisher : Publisher {
+        var connected = true
+        val received = mutableListOf<Publication>()
+
+        override fun publish(publication: Publication) {
+            if (!connected) error("브로커 단절")
+            received += publication
+        }
+    }
+
+    /** 버퍼가 둘뿐인 프로파일. 넘침을 몇 줄로 만들 수 있다. */
+    private fun smallBuffer(): ProfileDocument = TaskMachineFixtures.document(
+        TaskMachineFixtures.fixtureRaw.replace(
+            "\"replay_buffer_size\": 256",
+            "\"replay_buffer_size\": 2",
+        ),
+    )
 
     // ── 스냅샷의 키 (§4.5의 실제 모습)
 

@@ -58,7 +58,22 @@ class RobotInstance(
      * 쓰면 결정성이 깨진다. 세션의 요건은 "온라인이 될 때마다 새것"이고
      * 그것은 카운터로 족하다. 한계는 §15에 적었다.
      */
-    val sessionId: String = "%s-%013d-%06d".format(
+    var sessionId: String = newSessionId()
+        private set
+
+    /**
+     * 새 세션을 발급한다. **재생 버퍼가 넘쳐 못 보낸 이벤트를 버렸을 때만**
+     * 부른다(§10.6).
+     *
+     * 세션이 바뀌면 소비자는 스냅샷부터 다시 세운다. 그것이 "너에게 안 간
+     * 구간이 있다"를 알리는 유일한 방법이고, 단절만으로 바꾸면 버퍼링이
+     * 무의미해지므로 **넘칠 때만** 바꾼다.
+     */
+    fun renewSession() {
+        sessionId = newSessionId()
+    }
+
+    private fun newSessionId(): String = "%s-%013d-%06d".format(
         robotId,
         clock.now().toEpochMilli(),
         STARTUP_COUNTER.incrementAndGet(),

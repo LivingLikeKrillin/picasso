@@ -67,6 +67,20 @@ class EventStream(
     var evictedUpTo: Long? = null
         private set
 
+    /**
+     * 아직 브로커에 못 보낸 첫 `sequence`. 없으면 전부 나갔다.
+     *
+     * §10.6의 "단절 중 버퍼링"이 이 하나로 표현된다 — **따로 큐를 두지
+     * 않는다.** 재생 버퍼가 이미 그 이벤트들을 들고 있고, 못 보낸 경계만
+     * 알면 재연결 때 어디서부터 밀지 정해진다. 큐를 따로 두면 같은 이벤트가
+     * 두 곳에 있게 되고, 둘이 어긋난 날 무엇이 진실인지 알 수 없다.
+     */
+    var unsentFrom: Long? = null
+        private set
+
+    /** 지금 못 보내고 쌓여 있는가. 시험과 진단이 본다. */
+    val disconnected: Boolean get() = unsentFrom != null
+
     // ── 엔진의 보고를 이벤트로
 
     override fun onSkillTransition(
@@ -113,17 +127,86 @@ class EventStream(
         // **버퍼에 먼저 넣고 발행한다.** 발행이 장애 주입에 막혀도 재생
         // 버퍼에는 남아야 한다 — §10.6이 단절 중 쌓았다가 재생하라고 한다.
         buffer.addLast(event)
+        evict()
+        send(event)
+    }
+
+    /**
+     * 버퍼가 넘치면 가장 오래된 것을 버린다.
+     *
+     * **버린 것이 아직 못 보낸 것이면 새 세션을 발급한다**(§10.6). 그 구간은
+     * 소비자에게 영영 안 가므로, 세션을 바꿔 **스냅샷부터 다시 세우게** 하는
+     * 것이 유일하게 정직한 답이다.
+     *
+     * 단절만으로 세션을 바꾸지 않는 이유가 여기 있다 — 그러면 버퍼링이
+     * 무의미해진다. 넘칠 때만 바꾸므로 버퍼가 실제로 값을 한다.
+     */
+    private fun evict() {
         while (buffer.size > bufferSize) {
             // **실제로 버린 것만 축출이다.** 버퍼의 첫 항목보다 앞이라는
             // 이유로 축출이라 판정하면, `state`·`connection`이 쓴 번호를
             // 요청한 소비자에게 "잃었다"고 거짓말하게 된다 — 셋이 같은
             // `sequence` 축을 쓰기 때문이다(§5.5의 발행 열).
-            evictedUpTo = buffer.removeFirst().header.sequence
+            val dropped = buffer.removeFirst().header.sequence
+            evictedUpTo = dropped
+            val unsent = unsentFrom
+            if (unsent != null && dropped >= unsent) {
+                instance.renewSession()
+                // 세션이 바뀌었으니 옛 구간을 다시 밀 뜻이 없다.
+                unsentFrom = null
+                buffer.clear()
+            }
         }
+    }
 
-        publisher.publish(
-            Publication(topic(Topics.Stream.event), event, sequence),
-        )
+    /**
+     * 발행한다. 못 보내고 있던 것이 있으면 **그것부터 순서대로** 민다.
+     *
+     * 재연결을 따로 감지하지 않는다 — 다음 발행이 곧 재시도이고, 발행은
+     * 계속 나온다. 별도 재연결 루프를 두면 그 루프의 주기가 조율할 축 하나를
+     * 더 만든다.
+     */
+    private fun send(event: Event) {
+        if (unsentFrom != null) {
+            // **여기서 직접 발행하지 않는다.** 새 이벤트는 이미 버퍼에
+            // 들어가 있으므로(emit이 넣고 부른다) `drain`이 함께 민다.
+            // 둘 다 하면 마지막 하나가 두 번 나간다 — 실측으로 걸렸다.
+            if (!drain()) markUnsent(event.header.sequence)
+            return
+        }
+        try {
+            publisher.publish(
+                Publication(topic(Topics.Stream.event), event, event.header.sequence),
+            )
+        } catch (e: Exception) {
+            markUnsent(event.header.sequence)
+        }
+    }
+
+    /**
+     * 쌓인 것을 순서대로 민다. 하나라도 실패하면 거기서 멈춘다.
+     *
+     * **순서를 지키는 것이 요점이다.** 뒤엣것을 먼저 보내면 소비자가
+     * 재정렬로 복원할 수는 있으나(§10.4), 그것은 우리가 만들 필요 없는 일이다.
+     */
+    private fun drain(): Boolean {
+        val from = unsentFrom ?: return true
+        buffer.filter { it.header.sequence >= from }.forEach { pending ->
+            try {
+                publisher.publish(
+                    Publication(topic(Topics.Stream.event), pending, pending.header.sequence),
+                )
+            } catch (e: Exception) {
+                unsentFrom = pending.header.sequence
+                return false
+            }
+        }
+        unsentFrom = null
+        return true
+    }
+
+    private fun markUnsent(sequence: Long) {
+        if (unsentFrom == null) unsentFrom = sequence
     }
 
     /**
