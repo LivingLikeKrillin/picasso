@@ -18,6 +18,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -324,5 +325,96 @@ class PreconditionTest {
 
     private companion object {
         val CONTRACT_SEMVER: String = dev.picasso.contracts.wire.ContractIdentity.semver
+    }
+
+    // ── 축소 완료 검증 (CAPABILITY_WITHDRAWN)
+
+    /** 그 기체가 지금 보고하는 epoch. */
+    private fun report(robotId: String, epoch: Long) {
+        PostgresSupport.execute(
+            "INSERT INTO robot_liveness " +
+                "(robot_id, last_reported_at, connection_state, capability_epoch) " +
+                "VALUES ('$robotId', now(), 'CONNECTION_STATE_ONLINE', $epoch) " +
+                "ON CONFLICT (robot_id) DO UPDATE SET " +
+                "last_reported_at = now(), capability_epoch = $epoch",
+        )
+    }
+
+    private fun baseline(planId: Long, robotId: String, epoch: Long) {
+        PostgresSupport.execute(
+            "INSERT INTO withdrawal_baseline (change_plan_id, robot_id, epoch_at_apply) " +
+                "VALUES ($planId, '$robotId', $epoch)",
+        )
+    }
+
+    private fun withdrawn(planId: Long) = checks.evaluate(
+        PreconditionCheck(
+            CheckType.CAPABILITY_WITHDRAWN,
+            mapOf("skill" to "pick_place", "plan" to planId.toString()),
+        ),
+    )
+
+    private fun plan(): Long = PostgresSupport.queryOne(
+        "INSERT INTO change_plan (intent, target, target_key, site, created_by) " +
+            "VALUES ('REMOVE_CAPABILITY', '{}'::jsonb, 'k', 'line-a', 'op') RETURNING plan_id",
+    ) { it.getLong(1) }
+
+    @Test
+    fun `baseline이 없으면 충족이 아니다`() {
+        // 없는 것을 "전부 반영됨"으로 읽으면 APPLY 하기도 전에 완료로 넘어간다.
+        report("r1", 5)
+        val outcome = withdrawn(plan())
+
+        assertFalse(outcome.satisfied, outcome.detail)
+        assertTrue("baseline" in outcome.detail, outcome.detail)
+    }
+
+    @Test
+    fun `APPLY 직후에는 아직 안 내려갔다`() {
+        val planId = plan()
+        report("r1", 5)
+        baseline(planId, "r1", 5)
+
+        val outcome = withdrawn(planId)
+
+        assertFalse(outcome.satisfied, "epoch 가 그대로인데 반영됐다고 한다: ${outcome.detail}")
+        assertTrue("r1" in outcome.detail, outcome.detail)
+    }
+
+    @Test
+    fun `전 기체가 새 epoch로 보고해야 충족이다`() {
+        val planId = plan()
+        PostgresSupport.execute(
+            "INSERT INTO robot (robot_id, site_id, serial_number) VALUES ('r2','line-a','sn2')",
+        )
+        report("r1", 5); baseline(planId, "r1", 5)
+        report("r2", 5); baseline(planId, "r2", 5)
+
+        // 하나만 올린다 — **둘 다 올라야 충족이다.**
+        report("r1", 6)
+        val partial = withdrawn(planId)
+        assertFalse(partial.satisfied, partial.detail)
+        assertTrue("r2" in partial.detail, partial.detail)
+
+        report("r2", 6)
+        val full = withdrawn(planId)
+        assertTrue(full.satisfied, full.detail)
+    }
+
+    @Test
+    fun `기체 사이에 epoch를 비교하지 않는다`() {
+        // §8.2가 채번자를 발신자로 정했으므로 r1 의 7과 r2 의 7은 비교할 수
+        // 없다. **같은 기체의 baseline 대비로만** 본다 — 전역 임계를 쓰는
+        // 구현은 여기서 잡힌다.
+        val planId = plan()
+        PostgresSupport.execute(
+            "INSERT INTO robot (robot_id, site_id, serial_number) VALUES ('r2','line-a','sn2')",
+        )
+        report("r1", 100); baseline(planId, "r1", 99)
+        report("r2", 3); baseline(planId, "r2", 2)
+
+        val outcome = withdrawn(planId)
+
+        assertTrue(outcome.satisfied, "둘 다 자기 baseline 을 넘었는데 막혔다: ${outcome.detail}")
     }
 }
