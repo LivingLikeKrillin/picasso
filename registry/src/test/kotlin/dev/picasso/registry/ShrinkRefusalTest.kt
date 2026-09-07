@@ -38,6 +38,23 @@ import kotlin.test.assertTrue
  */
 class ShrinkRefusalTest {
 
+    /**
+     * 바인딩된 기체가 살아 있다고 보고한다.
+     *
+     * **이것이 없으면 §9.3의 두 조회가 `NOT_OBSERVABLE`로 막힌다** — 그리고
+     * 그것이 옳다. 바인딩만 되고 한 번도 보고한 적 없는 기체는 지금 그
+     * 능력을 돌리고 있는지 알 수 없고, 모르는 것을 0으로 세면 아직 쓰는
+     * 능력의 제거가 열린다.
+     */
+    private fun reportLive(robotId: String = "r1") {
+        dev.picasso.registry.ingest.LivenessService(db).record(
+            dev.picasso.contracts.v1.MessageHeader.newBuilder()
+                .setRobotId(robotId).setCapabilityEpoch(1).build(),
+            dev.picasso.contracts.v1.ConnectionState.CONNECTION_STATE_ONLINE,
+            null,
+        )
+    }
+
     private lateinit var db: Db
     private lateinit var ledger: LedgerService
     private lateinit var revisions: RevisionService
@@ -136,6 +153,7 @@ class ShrinkRefusalTest {
     fun `소비자와 태스크가 빠진 뒤에야 제거가 열린다`() {
         val old = activate(revision = 1)
         assertTrue(bindings.bind("r1", adapterVersionId, old, "op") is BindOutcome.Bound)
+        reportLive()
         announce(old)
         ledger.observe("WCS-B", "line-a", listOf("pick_place@^1.2"))
         inflight(old)
@@ -190,6 +208,7 @@ class ShrinkRefusalTest {
         // 없으면 그 창이 사고가 된다.
         val old = activate(revision = 1)
         assertTrue(bindings.bind("r1", adapterVersionId, old, "op") is BindOutcome.Bound)
+        reportLive()
         announce(old)
         val planId = plan()
 
@@ -223,6 +242,7 @@ class ShrinkRefusalTest {
         // 고장 났다고 읽고, 그다음에 우회를 찾는다.
         val old = activate(revision = 1)
         assertTrue(bindings.bind("r1", adapterVersionId, old, "op") is BindOutcome.Bound)
+        reportLive()
         announce(old)
         val planId = plan()
         assertTrue(plans.execute(planId, 2, "op") is ExecuteOutcome.Executed)
@@ -241,6 +261,7 @@ class ShrinkRefusalTest {
         // 생기고, 그때 운영자는 화면을 믿는다.**
         val old = activate(revision = 1)
         assertTrue(bindings.bind("r1", adapterVersionId, old, "op") is BindOutcome.Bound)
+        reportLive()
         announce(old)
         val planId = plan()
         assertTrue(plans.execute(planId, 2, "op") is ExecuteOutcome.Executed)
@@ -255,7 +276,13 @@ class ShrinkRefusalTest {
         assertEquals(planId, view.planId)
         assertEquals(Intent.REMOVE_CAPABILITY, view.intent)
         assertEquals(
-            listOf(StepKind.ANNOUNCE, StepKind.OBSERVE_MIGRATION, StepKind.DRAIN, StepKind.APPLY),
+            listOf(
+                StepKind.ANNOUNCE, StepKind.OBSERVE_MIGRATION, StepKind.DRAIN,
+                StepKind.APPLY,
+                // 축소는 APPLY 로 안 끝난다 — 어댑터까지 내려갔는지 확인해야
+                // 카탈로그에서만 사라진 중간 상태를 안 남긴다.
+                StepKind.VERIFY_WITHDRAWAL,
+            ),
             view.steps.map { it.kind },
             "시스템이 §9.5의 단계를 안 만들었다",
         )
@@ -271,6 +298,7 @@ class ShrinkRefusalTest {
     fun `끝난 계획은 기본으로 안 보인다`() {
         val old = activate(revision = 1)
         assertTrue(bindings.bind("r1", adapterVersionId, old, "op") is BindOutcome.Bound)
+        reportLive()
         val planId = plan()
         plans.abandon(planId, "op")
 

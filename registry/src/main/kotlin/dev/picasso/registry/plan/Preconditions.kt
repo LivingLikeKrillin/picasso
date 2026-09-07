@@ -1,16 +1,37 @@
 package dev.picasso.registry.plan
 
 import dev.picasso.registry.ledger.LedgerService
+import dev.picasso.registry.ledger.Observability
+import dev.picasso.registry.ledger.RobotObservability
 import dev.picasso.registry.store.Db
 
-/** §9.5의 `precondition.checks[].type` 다섯. */
+/** §9.5의 `precondition.checks[].type`. */
 enum class CheckType {
     NO_ACTIVE_CONSUMERS,
     NO_INFLIGHT_TASKS,
     DEPRECATION_PUBLISHED,
     NO_ACTIVE_BINDINGS,
     SUCCESSOR_ACTIVE,
+
+    /**
+     * 축소가 **어댑터까지 내려갔는가.** 대상 능력을 제공하던 기체 전부가
+     * `APPLY` 시점 baseline 보다 큰 `capability_epoch` 로 보고를 마쳤는가.
+     *
+     * 이것이 없으면 §9.3이 시작 조건만 엄격하고 끝은 열려 있다 — §15.5의
+     * 폴링 지연과 §10.6의 "불통 중 마지막 능력 유지" 때문에 **카탈로그에서는
+     * 사라졌는데 로봇은 여전히 받는** 중간 상태가 실제로 생긴다.
+     */
+    CAPABILITY_WITHDRAWN,
 }
+
+/**
+ * "충족 안 됨"의 두 이유.
+ *
+ * **`satisfied = false` 하나로는 운영자가 할 일을 못 정한다** — 정말 소비자가
+ * 남아 있는 것과 관측선이 끊겨 알 수 없는 것은 전혀 다른 상황이다. 앞은
+ * 기다리는 것이고 뒤는 조용한 기체를 찾는 것이다.
+ */
+enum class Observed { OBSERVED, NOT_OBSERVABLE }
 
 /** 검사 하나. `params`는 `type`마다 다르다. */
 data class PreconditionCheck(val type: CheckType, val params: Map<String, String>)
@@ -21,7 +42,13 @@ data class PreconditionCheck(val type: CheckType, val params: Map<String, String
  * **차단 사유를 함께 낸다.** *"현재 차단 사유: 소비자 2, 진행 중 3"*(§9.5).
  * 참/거짓만 내면 운영자는 왜 안 되는지 모르고, 모르면 우회를 찾는다.
  */
-data class CheckOutcome(val type: CheckType, val satisfied: Boolean, val detail: String)
+data class CheckOutcome(
+    val type: CheckType,
+    val satisfied: Boolean,
+    val detail: String,
+    /** [Observed.NOT_OBSERVABLE] 이면 [satisfied] 는 언제나 거짓이다. */
+    val observability: Observed = Observed.OBSERVED,
+)
 
 /**
  * §9.5의 전제 조건 다섯. **운영자가 판단하지 않는다**(§9.3).
@@ -39,6 +66,13 @@ data class CheckOutcome(val type: CheckType, val satisfied: Boolean, val detail:
 class Preconditions(
     private val db: Db,
     private val ledger: LedgerService,
+    /**
+     * **기체 단위 관측선.** `RegistryLedgerQuery`(CI 경로)와 **같은 클래스를**
+     * 쓴다 — 두 경로가 서로 다른 판정을 내리면 CI가 통과시킨 축소를
+     * 레지스트리가 거부하거나 그 반대가 되고, 그날 누구도 어느 쪽이 옳은지
+     * 말할 수 없다(ADR 22가 게이트에 대해 한 것과 같은 판단).
+     */
+    private val robots: RobotObservability = RobotObservability(db),
 ) {
 
     fun evaluate(checks: List<PreconditionCheck>): List<CheckOutcome> = checks.map { evaluate(it) }
@@ -49,6 +83,83 @@ class Preconditions(
         CheckType.DEPRECATION_PUBLISHED -> deprecationPublished(check.required("skill"))
         CheckType.NO_ACTIVE_BINDINGS -> noActiveBindings(check)
         CheckType.SUCCESSOR_ACTIVE -> successorActive(check)
+        CheckType.CAPABILITY_WITHDRAWN -> capabilityWithdrawn(check)
+    }
+
+    /**
+     * 관측선이 죽었으면 그 사실을 담은 결과를, 살았거나 제공자가 없으면 null.
+     *
+     * **[Observability.NoProvider] 를 통과시키는 것이 의도다** — 그 능력을
+     * 제공하는 활성 바인딩이 없으면 볼 기체가 없고, 그때 막으면 아직 아무
+     * 기체도 안 붙인 스킬의 축소가 영원히 열리지 않는다.
+     */
+    private fun blindOr(type: CheckType, skill: String): CheckOutcome? =
+        when (val seen = robots.of(skill)) {
+            is Observability.Blind -> CheckOutcome(
+                type,
+                satisfied = false,
+                detail = seen.reason,
+                observability = Observed.NOT_OBSERVABLE,
+            )
+
+            is Observability.Live, Observability.NoProvider -> null
+        }
+
+    /**
+     * 축소가 어댑터까지 내려갔는가. **같은 기체의 baseline 대비로만 비교한다** —
+     * §8.2가 `capability_epoch` 의 채번자를 발신자로 정했으므로 기체 A의 7과
+     * 기체 B의 7은 비교할 수 없다.
+     */
+    private fun capabilityWithdrawn(check: PreconditionCheck): CheckOutcome {
+        val skill = check.required("skill")
+        val planId = check.required("plan").toLongOrNull()
+            ?: return CheckOutcome(
+                CheckType.CAPABILITY_WITHDRAWN, false, "plan 파라미터가 숫자가 아니다",
+            )
+
+        blindOr(CheckType.CAPABILITY_WITHDRAWN, skill)?.let { return it }
+
+        val pending = db.open().use { c ->
+            c.prepareStatement(
+                """
+                SELECT w.robot_id
+                FROM withdrawal_baseline w
+                JOIN robot_liveness l ON l.robot_id = w.robot_id
+                WHERE w.change_plan_id = ? AND l.capability_epoch <= w.epoch_at_apply
+                ORDER BY w.robot_id
+                """.trimIndent(),
+            ).use { s ->
+                s.setLong(1, planId)
+                s.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString(1)) } }
+            }
+        }
+
+        val recorded = db.open().use { c ->
+            c.prepareStatement(
+                "SELECT count(*) FROM withdrawal_baseline WHERE change_plan_id = ?",
+            ).use { s ->
+                s.setLong(1, planId)
+                s.executeQuery().use { rs -> check(rs.next()); rs.getInt(1) }
+            }
+        }
+
+        // **baseline 이 없으면 충족이 아니다.** 없는 것을 "전부 반영됨"으로
+        // 읽으면 APPLY 하기도 전에 완료로 넘어간다.
+        if (recorded == 0) {
+            return CheckOutcome(
+                CheckType.CAPABILITY_WITHDRAWN, false, "APPLY 가 아직 baseline 을 박지 않았다",
+            )
+        }
+
+        return CheckOutcome(
+            CheckType.CAPABILITY_WITHDRAWN,
+            pending.isEmpty(),
+            if (pending.isEmpty()) {
+                "전 기체가 새 epoch 로 보고했다"
+            } else {
+                "아직 옛 epoch 로 보고하는 기체: $pending"
+            },
+        )
     }
 
     /**
@@ -56,6 +167,10 @@ class Preconditions(
      * 하나라도 살아 있으면 "사용 중"이다(§8.3 결정 6).
      */
     private fun noActiveConsumers(skill: String): CheckOutcome {
+        // **세기 전에 볼 수 있는지부터 본다.** 빈 표는 정확히 0을 돌려주고,
+        // 그 0을 충족으로 읽으면 아직 쓰는 능력의 제거가 열린다.
+        blindOr(CheckType.NO_ACTIVE_CONSUMERS, skill)?.let { return it }
+
         val count = ledger.activeConsumerCount(skill)
         return CheckOutcome(
             CheckType.NO_ACTIVE_CONSUMERS,
@@ -71,6 +186,8 @@ class Preconditions(
      * 드레인을 스킬 단위로 판정할 수 없고, 로봇 전체가 비기를 기다리게 된다.
      */
     private fun noInflightTasks(skill: String): CheckOutcome {
+        blindOr(CheckType.NO_INFLIGHT_TASKS, skill)?.let { return it }
+
         val count = db.open().use { c ->
             c.prepareStatement(
                 """

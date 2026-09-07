@@ -82,6 +82,15 @@ class DiagEndpointTest {
             as RegisterOutcome.Registered
 
         revisionId = activate(revisions, bindings, Fixtures.good(revision = 1))
+        // **바인딩된 기체가 살아 있다고 보고한다.** 없으면 §9.3의 두 조회가
+        // NOT_OBSERVABLE 로 막혀 전제 조건 사유가 "소비자가 남아 있다"가
+        // 아니라 "관측선이 끊겼다"가 된다 — 그리고 그것이 옳다.
+        PostgresSupport.execute(
+            "INSERT INTO robot_liveness " +
+                "(robot_id, last_reported_at, connection_state, capability_epoch) " +
+                "VALUES ('r1', now(), 'CONNECTION_STATE_ONLINE', 1) " +
+                "ON CONFLICT (robot_id) DO UPDATE SET last_reported_at = now()",
+        )
         assertTrue(
             bindings.bind("r1", version.adapterVersionId, revisionId, "op") is BindOutcome.Bound,
         )

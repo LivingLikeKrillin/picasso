@@ -55,7 +55,7 @@ class PostgresSupportTest {
                 "profile_revision", "profile_skill", "profile_skill_param",
                 "revision_test_request", "revision_test_run",
                 "robot", "robot_binding", "robot_liveness",
-                "skill_type", "skill_type_deprecation", "task",
+                "skill_type", "skill_type_deprecation", "task", "withdrawal_baseline",
             ),
             tables,
             "마이그레이션이 만드는 테이블 목록이 다르다",

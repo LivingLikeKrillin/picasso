@@ -49,6 +49,12 @@ import java.time.Instant
 class RegistryLedgerQuery(
     private val db: Db,
     /**
+     * **기체 단위 관측선.** 전역 워터마크보다 먼저 본다 — 아래 KDoc의
+     * "관측선이 살아 있는가"는 옳지만 그 범위가 전역 하나였고, 그러면
+     * 열 대 중 하나가 조용해져도 원장이 신선하다고 답한다.
+     */
+    private val robots: RobotObservability = RobotObservability(db),
+    /**
      * 관측선이 살아 있다고 인정하는 최대 침묵.
      *
      * 24시간인 이유는 **가동 중인 라인이 하루 한 번도 협상하지 않거나 태스크
@@ -61,14 +67,42 @@ class RegistryLedgerQuery(
 ) : LedgerQuery {
 
     override fun activeConsumers(skillType: String, major: Int): LedgerAnswer =
-        answer("consumer_requirement", "MAX(last_seen) FROM consumer_requirement") { c ->
+        gated(skillType, major, "consumer_requirement", "MAX(last_seen) FROM consumer_requirement") { c ->
             countConsumers(c, skillType, major)
         }
 
     override fun inflightTasks(skillType: String, major: Int): LedgerAnswer =
-        answer("task", "MAX(updated_at) FROM task") { c ->
+        gated(skillType, major, "task", "MAX(updated_at) FROM task") { c ->
             countInflight(c, skillType, major)
         }
+
+    /**
+     * **기체 관측선을 먼저 보고, 그것이 답하지 못할 때만 전역 워터마크로
+     * 내려간다.**
+     *
+     * 전역 규칙을 지우지 않은 것은 [Observability.NoProvider] 때문이다 —
+     * 그 능력을 제공하는 활성 바인딩이 하나도 없으면 볼 기체가 없고, 그때는
+     * 표 자신이 유일한 증거다. 둘을 접으면 아직 아무 기체도 안 붙인 스킬의
+     * 축소가 영원히 막힌다.
+     */
+    private fun gated(
+        skillType: String,
+        major: Int,
+        stream: String,
+        watermarkSql: String,
+        count: (Connection) -> Int,
+    ): LedgerAnswer = when (val seen = robots.of(skillType, major)) {
+        is Observability.Blind -> LedgerAnswer.NotObservable(seen.reason)
+
+        // **개수는 세되 근거 시각은 가장 뒤처진 기체의 것을 쓴다.**
+        is Observability.Live -> try {
+            db.open().use { c -> LedgerAnswer.Observed(count(c), seen.asOf) }
+        } catch (e: SQLException) {
+            LedgerAnswer.NotObservable("원장에 닿지 못했다: ${e.message}")
+        }
+
+        Observability.NoProvider -> answer(stream, watermarkSql, count)
+    }
 
     /**
      * 워터마크를 먼저 보고, 살아 있을 때만 센다.

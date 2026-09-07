@@ -15,7 +15,16 @@ enum class Intent {
 }
 
 /** §9.5의 단계 `kind` 넷. */
-enum class StepKind { ANNOUNCE, OBSERVE_MIGRATION, DRAIN, APPLY }
+/**
+ * §9.5의 단계 종류.
+ *
+ * [VERIFY_WITHDRAWAL] 은 **`APPLY` 뒤에 온다.** §9.3이 시작 조건 둘을
+ * 엄격하게 정해 놓고 끝은 열어 뒀는데, §15.5의 폴링 지연과 §10.6의 "불통 중
+ * 마지막 능력 유지" 때문에 **카탈로그에서는 사라졌는데 로봇은 여전히 받는**
+ * 중간 상태가 실제로 생긴다. 가역성은 `DRAIN` 과 같이 **무해** — 아무것도
+ * 하지 않고 조건 충족만 기다린다.
+ */
+enum class StepKind { ANNOUNCE, OBSERVE_MIGRATION, DRAIN, APPLY, VERIFY_WITHDRAWAL }
 
 sealed interface CreateOutcome {
     data class Created(val planId: Long) : CreateOutcome
@@ -106,7 +115,18 @@ class ChangePlanService(
             s.executeQuery().use { rs -> check(rs.next()); rs.getLong(1) }
         }
 
-        stepsFor(intent, target).forEachIndexed { i, (kind, checks) ->
+        // **plan 은 계획을 만든 뒤에야 안다.** stepsFor 가 자리표시자를 두고
+        // 여기서 실제 id 로 바꾼다 — 자리표시자가 그대로 남으면
+        // CAPABILITY_WITHDRAWN 이 "plan 파라미터가 숫자가 아니다"로 막는다.
+        stepsFor(intent, target).map { (kind, checks) ->
+            kind to checks.map { check ->
+                if (check.params["plan"] == PLAN_ID_PLACEHOLDER) {
+                    check.copy(params = check.params + ("plan" to planId.toString()))
+                } else {
+                    check
+                }
+            }
+        }.forEachIndexed { i, (kind, checks) ->
             c.prepareStatement(
                 "INSERT INTO change_plan_step (plan_id, seq, kind, precondition) " +
                     "VALUES (?, ?, ?, ?::jsonb)",
@@ -130,6 +150,11 @@ class ChangePlanService(
         CreateOutcome.Created(planId)
     }
 
+    private companion object {
+        /** [create] 가 실제 `plan_id` 로 바꾼다. */
+        const val PLAN_ID_PLACEHOLDER = "<plan>"
+    }
+
     /**
      * §9.5의 표 — `intent`별 단계와 각 단계의 검사.
      *
@@ -145,6 +170,11 @@ class ChangePlanService(
         val consumers = PreconditionCheck(CheckType.NO_ACTIVE_CONSUMERS, mapOf("skill" to (skill ?: "")))
         val drained = PreconditionCheck(CheckType.NO_INFLIGHT_TASKS, mapOf("skill" to (skill ?: "")))
         val announced = PreconditionCheck(CheckType.DEPRECATION_PUBLISHED, mapOf("skill" to (skill ?: "")))
+        // `plan` 은 계획을 만든 뒤에야 알 수 있으므로 create 가 채운다.
+        val withdrawn = PreconditionCheck(
+            CheckType.CAPABILITY_WITHDRAWN,
+            mapOf("skill" to (skill ?: ""), "plan" to PLAN_ID_PLACEHOLDER),
+        )
 
         return when (intent) {
             Intent.REMOVE_CAPABILITY -> listOf(
@@ -152,6 +182,7 @@ class ChangePlanService(
                 StepKind.OBSERVE_MIGRATION to listOf(consumers),
                 StepKind.DRAIN to listOf(drained),
                 StepKind.APPLY to listOf(announced, consumers, drained),
+                StepKind.VERIFY_WITHDRAWAL to listOf(withdrawn),
             )
 
             Intent.MIGRATE_MAJOR -> {
@@ -212,7 +243,7 @@ class ChangePlanService(
         if (blocking.isNotEmpty()) {
             // **캐시도 함께 내린다.** 화면이 "충족"이라 적힌 채 실행만
             // 거부되면 운영자는 시스템이 고장 났다고 읽는다.
-            markSatisfied(planId, seq, false)
+            markSatisfied(planId, seq, false, blocking)
             return ExecuteOutcome.Refused(
                 blocking,
                 "차단 사유: " + blocking.joinToString("; ") { it.detail },
@@ -226,14 +257,20 @@ class ChangePlanService(
                 StepKind.ANNOUNCE,
                 StepKind.OBSERVE_MIGRATION,
                 StepKind.DRAIN,
+                StepKind.VERIFY_WITHDRAWAL,
                 -> "조건 충족 확인"
 
-                StepKind.APPLY -> apply(c, planId, actor, successorRevisionId)
+                StepKind.APPLY -> {
+                    val detail = apply(c, planId, actor, successorRevisionId)
+                    recordBaseline(c, planId)
+                    detail
+                }
             }
 
             c.prepareStatement(
                 "UPDATE change_plan_step SET satisfied = true, satisfied_at = now(), " +
-                    "executed_at = now() WHERE plan_id = ? AND seq = ?",
+                    "executed_at = now(), observability = 'OBSERVED' " +
+                    "WHERE plan_id = ? AND seq = ?",
             ).use { it.setLong(1, planId); it.setInt(2, seq); it.executeUpdate() }
 
             audit(c, actor, "CHANGE_PLAN_STEP", "$planId#$seq:$kind")
@@ -402,15 +439,47 @@ class ChangePlanService(
             s.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) else null }
         }
 
-    private fun markSatisfied(planId: Long, seq: Int, value: Boolean) = db.transaction { c ->
+    /**
+     * @param blocking 차단한 결과들. **관측 불가가 하나라도 있으면 그 사실을
+     *   함께 적는다** — "소비자가 둘이라 막혔다"와 "관측선이 끊겨 알 수
+     *   없다"는 운영자가 할 일이 전혀 다르다.
+     */
+    private fun markSatisfied(
+        planId: Long,
+        seq: Int,
+        value: Boolean,
+        blocking: List<CheckOutcome> = emptyList(),
+    ) = db.transaction { c ->
+        val blind = blocking.any { it.observability == Observed.NOT_OBSERVABLE }
         c.prepareStatement(
             "UPDATE change_plan_step SET satisfied = ?, " +
-                "satisfied_at = CASE WHEN ? THEN now() ELSE NULL END " +
+                "satisfied_at = CASE WHEN ? THEN now() ELSE NULL END, " +
+                "observability = ? " +
                 "WHERE plan_id = ? AND seq = ?",
         ).use {
             it.setBoolean(1, value); it.setBoolean(2, value)
-            it.setLong(3, planId); it.setInt(4, seq); it.executeUpdate()
+            it.setString(3, if (blind) "NOT_OBSERVABLE" else "OBSERVED")
+            it.setLong(4, planId); it.setInt(5, seq); it.executeUpdate()
         }
+    }
+
+    /**
+     * `APPLY` 순간 각 기체의 `capability_epoch` 을 박는다.
+     *
+     * **여기서 박지 않으면 [CheckType.CAPABILITY_WITHDRAWN] 이 판정할 기준이
+     * 없다.** 나중에 세면 그 사이 새로 바인딩된 기체가 baseline 없이 들어와
+     * "이미 반영됨"으로 읽힌다.
+     */
+    private fun recordBaseline(c: Connection, planId: Long) {
+        c.prepareStatement(
+            """
+            INSERT INTO withdrawal_baseline (change_plan_id, robot_id, epoch_at_apply)
+            SELECT ?, l.robot_id, l.capability_epoch
+            FROM robot_liveness l
+            JOIN robot_binding b ON b.robot_id = l.robot_id AND b.unbound_at IS NULL
+            ON CONFLICT (change_plan_id, robot_id) DO NOTHING
+            """.trimIndent(),
+        ).use { it.setLong(1, planId); it.executeUpdate() }
     }
 
     /**
