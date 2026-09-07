@@ -15,10 +15,27 @@ data class SiteCapability(
     val site: String,
     val skillType: String,
     val major: Int,
+    /**
+     * 이 사이트에서 **쓸 수 있는 minor의 범위**(§9.6).
+     *
+     * 소비자는 `pick_place@^1.2` 형태로 요구하므로(§5.2) `max` 이상을 요구하면
+     * 아무 기체도 못 받고, `min` 이하를 요구하면 **어느 기체에 붙어도** 된다.
+     * 둘을 다 실어야 소비자가 그 폭을 알고 자기 요구를 정할 수 있다.
+     */
+    val minMinor: Int,
+    val maxMinor: Int,
     /** 지금 이 능력을 실제로 제공하는 기체 수. **0이면 이 줄 자체가 없다.** */
     val availableRobots: Int,
     /** 계약 축과 프로파일 축 **두 값 중 이른 쪽**(§9.3). 없으면 null. */
     val deprecatedAfter: Instant?,
+    /**
+     * 이 능력을 쓰려면 **반드시 보내야 하는** 선택 필드(§7.2의 `REQUIRED`).
+     *
+     * **합집합이다.** 제공 기체 중 하나라도 필수로 요구하면 소비자는 보내야
+     * 한다 — 교집합으로 내면 그 필드를 요구하는 기체에 붙는 순간
+     * `REQUIRED_OPTIONAL_MISSING`으로 거절된다.
+     */
+    val requiredOptionalFields: List<String>,
 )
 
 /**
@@ -58,6 +75,8 @@ class SiteCatalog(private val db: Db) {
         c.prepareStatement(
             """
             SELECT s.name, s.major,
+                   min(ps.minor) AS min_minor,
+                   max(ps.minor) AS max_minor,
                    count(DISTINCT b.robot_id) AS available,
                    LEAST(
                        CASE WHEN bool_or(ps.deprecated_after IS NULL) THEN NULL
@@ -83,13 +102,43 @@ class SiteCatalog(private val db: Db) {
                                 site = site,
                                 skillType = rs.getString(1),
                                 major = rs.getInt(2),
-                                availableRobots = rs.getInt(3),
-                                deprecatedAfter = rs.getTimestamp(4)?.toInstant(),
+                                minMinor = rs.getInt(3),
+                                maxMinor = rs.getInt(4),
+                                availableRobots = rs.getInt(5),
+                                deprecatedAfter = rs.getTimestamp(6)?.toInstant(),
+                                requiredOptionalFields = emptyList(),
                             ),
                         )
                     }
                 }
             }
         }
-    }
+    }.map { it.copy(requiredOptionalFields = requiredFields(site, it.skillType, it.major)) }
+
+    /**
+     * 그 능력을 제공하는 개정판들이 `REQUIRED`로 선언한 선택 필드의 합집합.
+     *
+     * **관계에서 읽는다**(§8.1). 문서(JSONB)를 파싱하면 파싱이 두 곳에 생기고,
+     * 그때 카탈로그가 보는 것과 협상이 보는 것이 갈릴 수 있다.
+     */
+    private fun requiredFields(site: String, skillType: String, major: Int): List<String> =
+        db.open().use { c ->
+            c.prepareStatement(
+                """
+                SELECT DISTINCT f.parameter_path
+                FROM robot_binding b
+                JOIN robot r          ON r.robot_id = b.robot_id
+                JOIN profile_skill ps ON ps.profile_revision_id = b.profile_revision_id
+                JOIN skill_type s     ON s.skill_type_id = ps.skill_type_id
+                JOIN profile_optional_field f
+                     ON f.profile_revision_id = b.profile_revision_id
+                WHERE b.unbound_at IS NULL AND r.site_id = ?
+                  AND s.name = ? AND s.major = ? AND f.support = 'REQUIRED'
+                ORDER BY f.parameter_path
+                """.trimIndent(),
+            ).use { st ->
+                st.setString(1, site); st.setString(2, skillType); st.setInt(3, major)
+                st.executeQuery().use { rs -> buildList { while (rs.next()) add(rs.getString(1)) } }
+            }
+        }
 }

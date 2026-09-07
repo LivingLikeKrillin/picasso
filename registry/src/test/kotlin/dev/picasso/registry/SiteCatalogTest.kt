@@ -114,6 +114,116 @@ class SiteCatalogTest {
         assertEquals(1, pickPlace("line-a")?.availableRobots, "이력까지 세면 한 대가 두 대가 된다")
     }
 
+    // ── §9.6이 요구하는 나머지 둘
+
+    @Test
+    fun `쓸 수 있는 minor 범위가 실린다`() {
+        // 소비자는 `pick_place@^1.2` 형태로 요구한다(§5.2). `max` 이상을
+        // 요구하면 아무 기체도 못 받고, `min` 이하면 어느 기체에 붙어도 된다.
+        val rev = activate()
+        bind("r1", rev)
+
+        val pickPlace = requireNotNull(pickPlace("line-a"))
+
+        assertEquals(2, pickPlace.minMinor)
+        assertEquals(2, pickPlace.maxMinor)
+    }
+
+    @Test
+    fun `기체마다 minor가 다르면 범위가 벌어진다`() {
+        // 하나만 보면 min과 max를 같은 값으로 내는 구현이 통과한다.
+        val low = activate()
+        val high = activate(model = "second")
+        bind("r1", low)
+        bind("r2", high)
+        PostgresSupport.execute(
+            "UPDATE profile_skill SET minor = 5 WHERE profile_revision_id = $high " +
+                "AND skill_type_id = (SELECT skill_type_id FROM skill_type " +
+                "WHERE name = 'pick_place' AND major = 1)",
+        )
+
+        val pickPlace = requireNotNull(pickPlace("line-a"))
+
+        assertEquals(2, pickPlace.minMinor)
+        assertEquals(5, pickPlace.maxMinor)
+    }
+
+    @Test
+    fun `필수 선택 필드가 실린다`() {
+        // 소비자가 협상 전에 자기 요구를 맞추려면 "무엇을 반드시 보내야
+        // 하는가"를 알아야 한다.
+        val rev = activate()
+        bind("r1", rev)
+
+        assertEquals(
+            listOf("task.parameters.verify_grasp"),
+            requireNotNull(pickPlace("line-a")).requiredOptionalFields,
+        )
+    }
+
+    @Test
+    fun `필수 선택 필드는 합집합이다`() {
+        // **교집합으로 내면** 그 필드를 요구하는 기체에 붙는 순간
+        // `REQUIRED_OPTIONAL_MISSING`으로 거절된다.
+        val required = activate()
+        val relaxed = activate(model = "second")
+        bind("r1", required)
+        bind("r2", relaxed)
+        PostgresSupport.execute(
+            "UPDATE profile_optional_field SET support = 'SUPPORTED' " +
+                "WHERE profile_revision_id = $relaxed",
+        )
+
+        assertEquals(
+            listOf("task.parameters.verify_grasp"),
+            requireNotNull(pickPlace("line-a")).requiredOptionalFields,
+            "한 기체만 필수여도 소비자는 보내야 한다",
+        )
+    }
+
+    @Test
+    fun `아무도 필수로 안 하면 비어 있다`() {
+        val rev = activate()
+        bind("r1", rev)
+        PostgresSupport.execute("UPDATE profile_optional_field SET support = 'SUPPORTED'")
+
+        assertEquals(emptyList(), requireNotNull(pickPlace("line-a")).requiredOptionalFields)
+    }
+
+    @Test
+    fun `필수 선택 필드는 그 스킬을 제공하는 개정판만 본다`() {
+        // `optional_fields`는 **문서 단위**라 그 프로파일이 주는 모든 스킬에
+        // 걸린다. 스킬로 안 가리면 **그 능력을 주지도 않는 개정판의 필드**가
+        // 실리고, 소비자는 안 보내도 되는 것을 필수로 안다.
+        val both = activate()
+        val navigateOnly = activate(model = "second")
+        bind("r1", both)
+        bind("r2", navigateOnly)
+        dropSkill(navigateOnly, "pick_place")
+        renameRequiredField(navigateOnly, "task.parameters.only_navigate")
+
+        assertEquals(
+            listOf("task.parameters.verify_grasp"),
+            requireNotNull(pickPlace("line-a")).requiredOptionalFields,
+            "pick_place를 안 주는 개정판의 필드가 실렸다",
+        )
+    }
+
+    @Test
+    fun `필수 선택 필드가 사이트를 넘지 않는다`() {
+        val here = activate()
+        val there = activate(model = "second")
+        bind("r1", here)
+        bind("r3", there)
+        renameRequiredField(there, "task.parameters.other_site")
+
+        assertEquals(
+            listOf("task.parameters.verify_grasp"),
+            requireNotNull(pickPlace("line-a")).requiredOptionalFields,
+            "다른 사이트의 필드가 넘어왔다",
+        )
+    }
+
     // ── 폐기 예고: 두 축
 
     @Test
@@ -221,6 +331,24 @@ class SiteCatalogTest {
     private fun unbind(robot: String) = PostgresSupport.execute(
         "UPDATE robot_binding SET unbound_at = now() " +
             "WHERE robot_id = '$robot' AND unbound_at IS NULL",
+    )
+
+    /** 그 개정판에서 스킬 하나를 뺀다. 파라미터가 FK로 물려 있어 먼저 지운다. */
+    private fun dropSkill(revisionId: Long, skill: String) {
+        val id = "(SELECT skill_type_id FROM skill_type WHERE name = '$skill' AND major = 1)"
+        PostgresSupport.execute(
+            "DELETE FROM profile_skill_param WHERE profile_revision_id = $revisionId " +
+                "AND skill_type_id = $id",
+        )
+        PostgresSupport.execute(
+            "DELETE FROM profile_skill WHERE profile_revision_id = $revisionId " +
+                "AND skill_type_id = $id",
+        )
+    }
+
+    private fun renameRequiredField(revisionId: Long, path: String) = PostgresSupport.execute(
+        "UPDATE profile_optional_field SET parameter_path = '$path' " +
+            "WHERE profile_revision_id = $revisionId AND support = 'REQUIRED'",
     )
 
     private fun announceProfile(revisionId: Long, days: Int) = PostgresSupport.execute(

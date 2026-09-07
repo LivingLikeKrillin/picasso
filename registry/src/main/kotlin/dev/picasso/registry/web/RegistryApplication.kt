@@ -5,6 +5,7 @@ import dev.picasso.registry.diag.DiagnosticsService
 import dev.picasso.registry.ingest.HandshakeIngestService
 import dev.picasso.registry.ingest.TaskIngestService
 import dev.picasso.registry.binding.BindingService
+import dev.picasso.registry.catalog.SiteCatalog
 import dev.picasso.registry.ledger.LedgerService
 import dev.picasso.registry.ledger.RegistryLedgerQuery
 import dev.picasso.registry.plan.ChangePlanService
@@ -82,6 +83,10 @@ open class RegistryApplication {
 
     @Bean
     open fun taskIngest(db: Db): TaskIngestService = TaskIngestService(db)
+
+    /** §9.6의 업스트림 표면. 상위 시스템이 폴링한다. */
+    @Bean
+    open fun siteCatalog(db: Db): SiteCatalog = SiteCatalog(db)
 
     /**
      * **빈 토큰은 전부 401이다**(§15.38). 배포에서 토큰을 빠뜨린 것과 일부러

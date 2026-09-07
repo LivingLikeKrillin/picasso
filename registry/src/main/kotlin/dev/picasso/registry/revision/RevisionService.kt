@@ -177,6 +177,20 @@ class RevisionService(
                 s.executeUpdate()
             }
         }
+
+        // **선택 필드도 편다.** 상위 표면(§9.6)이 필수 선택 필드를 실어야
+        // 하고, 문서를 파싱해 답하면 파싱이 두 곳에 생긴다(§8.1).
+        document.optionalFields.forEach { field ->
+            c.prepareStatement(
+                "INSERT INTO profile_optional_field " +
+                    "(profile_revision_id, parameter_path, support) VALUES (?, ?, ?)",
+            ).use { s ->
+                s.setLong(1, revisionId)
+                s.setString(2, field.parameterPath)
+                s.setString(3, field.support)
+                s.executeUpdate()
+            }
+        }
     }
 
     /**

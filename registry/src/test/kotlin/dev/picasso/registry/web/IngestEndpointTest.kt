@@ -110,6 +110,55 @@ class IngestEndpointTest {
         assertEquals(200, response.statusCode.value(), response.body)
     }
 
+    @Test
+    fun `상위 표면이 능력 단위로 답한다`() {
+        // §9.6의 업스트림 표면. **기체가 아니라 능력이 단위다** — 상위는
+        // "3번 로봇"이 아니라 "이 공장에서 pick_place가 되는가"를 묻는다.
+        //
+        // 토큰 없이 서야 한다. read-only이고 §8.5의 승인 경계는 조작에 걸린다.
+        bindRobot()
+
+        val response = rest.getForEntity(
+            "http://localhost:$port/catalog?site=line-a", String::class.java,
+        )
+
+        assertEquals(200, response.statusCode.value(), response.body)
+        val body = response.body ?: ""
+        assertTrue("\"skillType\":\"pick_place\"" in body, body)
+        assertTrue("\"availableRobots\":1" in body, body)
+        // §9.6이 요구하는 나머지 셋도 실려야 한다.
+        assertTrue("\"minMinor\"" in body && "\"maxMinor\"" in body, body)
+        assertTrue("task.parameters.verify_grasp" in body, "필수 선택 필드가 없다: $body")
+    }
+
+    @Test
+    fun `다른 사이트를 물으면 비어 있다`() {
+        // **line-a에 능력이 있는 상태에서 line-b를 묻는다.** 바인딩 없이
+        // 물으면 두 사이트가 똑같이 비어 있어, 파라미터를 안 넘기고 상수를
+        // 쓰는 결함이 통과한다 — `history`·`finished`에 이어 같은 실수를
+        // 네 번째로 했다(실측).
+        bindRobot()
+        assertTrue("pick_place" in (get("/catalog?site=line-a") ?: ""), "씨앗이 비었다")
+
+        assertEquals("[]", get("/catalog?site=line-b"))
+    }
+
+    private fun get(path: String): String? =
+        rest.getForEntity("http://localhost:$port$path", String::class.java).body
+
+    /** 기체 하나를 활성 개정판에 붙인다 — 카탈로그가 답할 것이 생긴다. */
+    private fun bindRobot() {
+        val adapters = dev.picasso.registry.adapter.AdapterService(db)
+        val adapterId = adapters.registerAdapter("acme", "drv", "op")
+        val version = adapters.registerVersion(adapterId, "1.0.0", CONTRACT_SEMVER, "op")
+                as dev.picasso.registry.adapter.RegisterOutcome.Registered
+        val revisionId = PostgresSupport.queryOne(
+            "SELECT profile_revision_id FROM profile_revision WHERE status = 'ACTIVE'",
+        ) { it.getLong(1) }
+        dev.picasso.registry.binding.BindingService(db)
+            .bind("r1", version.adapterVersionId, revisionId, "op")
+    }
+
     // ── 실제 적재
 
     @Test
