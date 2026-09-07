@@ -1,0 +1,265 @@
+package dev.picasso.registry.web
+
+import com.google.protobuf.util.JsonFormat
+import dev.picasso.contracts.v1.CapabilityRequirement
+import dev.picasso.contracts.v1.MessageHeader
+import dev.picasso.contracts.v1.NegotiateRequest
+import dev.picasso.contracts.v1.NegotiateResponse
+import dev.picasso.contracts.v1.ProfileRef
+import dev.picasso.contracts.v1.Rejection
+import dev.picasso.contracts.v1.RejectionCode
+import dev.picasso.contracts.v1.StateMessage
+import dev.picasso.contracts.v1.TaskSnapshot
+import dev.picasso.contracts.v1.TaskState
+import dev.picasso.registry.Fixtures
+import dev.picasso.registry.PostgresSupport
+import dev.picasso.registry.binding.ActivateOutcome
+import dev.picasso.registry.binding.BindingService
+import dev.picasso.registry.ledger.LedgerService
+import dev.picasso.registry.revision.RevisionService
+import dev.picasso.registry.revision.SkillTypeSync
+import dev.picasso.registry.revision.SubmitOutcome
+import dev.picasso.registry.store.Db
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.client.TestRestTemplate
+import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.http.HttpEntity
+import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpMethod
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * 적재 표면이 **실제로 라우팅되고, 관문이 실제로 막는가.**
+ *
+ * ## 관문은 여기서만 증명된다
+ *
+ * [IngestToken]의 거동은 단위로 볼 수 있지만 **인터셉터가 그 경로에 실제로
+ * 걸렸는지**는 서버를 띄워야 안다. 배선을 빠뜨린 관문은 단위 시험이 전부
+ * 초록인 채로 문을 열어 둔다 — 그리고 그 문 뒤에 §9.3의 축소 판정을
+ * 떠받치는 원장이 있다.
+ *
+ * ## 토큰이 맞을 때도 본다
+ *
+ * 401만 보면 **언제나 막는 관문**이 통과한다. 그러면 적재가 통째로 죽고,
+ * 죽은 것은 워터마크가 늙어 축소가 막히는 모습으로만 나타난다 — 아무도
+ * 그것을 관문 탓이라 생각하지 않는다.
+ */
+@SpringBootTest(
+    classes = [RegistryApplication::class],
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+)
+class IngestEndpointTest {
+
+    @Autowired
+    private lateinit var rest: TestRestTemplate
+
+    @LocalServerPort
+    private var port: Int = 0
+
+    private lateinit var db: Db
+    private lateinit var ledger: LedgerService
+
+    @BeforeTest
+    fun seed() {
+        PostgresSupport.reset()
+        db = Db(PostgresSupport.jdbcUrl, PostgresSupport.username, PostgresSupport.password)
+        ledger = LedgerService(db)
+        SkillTypeSync(db).sync(Fixtures.descriptor(), CONTRACT_SEMVER, "sync")
+        PostgresSupport.execute(
+            "INSERT INTO robot (robot_id, site_id, serial_number) VALUES ('r1','line-a','sn')",
+        )
+        val stored = RevisionService(db, Fixtures.validator()).submit(Fixtures.good(), "op")
+        assertTrue(stored is SubmitOutcome.Stored, "$stored")
+        val bindings = BindingService(db)
+        BindingService.SUITE_NAMES.forEach {
+            bindings.recordTestRun(stored.profileRevisionId, it, "PASS", "harness")
+        }
+        assertTrue(bindings.activate(stored.profileRevisionId, "op") is ActivateOutcome.Activated)
+    }
+
+    // ── 관문
+
+    @Test
+    fun `토큰이 없으면 적재가 401이다`() {
+        WRITE_PATHS.forEach { (path, body) ->
+            val status = post(path, body, token = null).statusCode.value()
+            assertEquals(401, status, "$path 가 토큰 없이 통과했다")
+        }
+    }
+
+    @Test
+    fun `틀린 토큰도 401이다`() {
+        WRITE_PATHS.forEach { (path, _) ->
+            assertEquals(401, post(path, "{}", token = "wrong").statusCode.value(), path)
+        }
+    }
+
+    @Test
+    fun `진단은 토큰 없이도 선다`() {
+        // §8.5의 승인 경계는 **조작**에 걸린다. 관문이 진단까지 막으면
+        // read-only 표면이 죽고, 그것은 이 변경이 의도한 바가 아니다.
+        val response = rest.getForEntity(
+            "http://localhost:$port/diag/bindings", String::class.java,
+        )
+        assertEquals(200, response.statusCode.value(), response.body)
+    }
+
+    // ── 실제 적재
+
+    @Test
+    fun `핸드셰이크 성공 보고가 원장을 채운다`() {
+        val body = """{"request":${json(request())},"response":${json(accepted())}}"""
+
+        val response = post("/ingest/handshake?site=line-a", body, TOKEN)
+
+        assertEquals(200, response.statusCode.value(), response.body)
+        assertTrue("\"written\":1" in (response.body ?: ""), response.body)
+        assertEquals(1, ledger.activeConsumerCount("pick_place"))
+    }
+
+    @Test
+    fun `site 질의 파라미터가 실제로 읽힌다`() {
+        // **씨앗과 다른 site로 보낸다.** 같은 값만 쓰면 파라미터를 안 넘기고
+        // 상수를 쓰는 결함이 통과한다 — `history`(3a-3)·`finished`(3b-2)에서
+        // 같은 실수를 두 번 했다.
+        val body = """{"request":${json(request())},"response":${json(accepted())}}"""
+
+        post("/ingest/handshake?site=line-b", body, TOKEN)
+
+        assertEquals(
+            "line-b",
+            PostgresSupport.queryOne("SELECT site FROM consumer") { it.getString(1) },
+            "site가 요청이 아니라 어딘가의 상수에서 왔다",
+        )
+    }
+
+    @Test
+    fun `모순된 보고는 400이고 원장은 그대로다`() {
+        val contradictory = accepted().toBuilder().addRejections(
+            Rejection.newBuilder()
+                .setCode(RejectionCode.REJECTION_CODE_SKILL_ABSENT).setDetail("x"),
+        ).build()
+        val body = """{"request":${json(request())},"response":${json(contradictory)}}"""
+
+        val response = post("/ingest/handshake?site=line-a", body, TOKEN)
+
+        assertEquals(400, response.statusCode.value(), response.body)
+        assertEquals(0, ledger.activeConsumerCount("pick_place"))
+    }
+
+    @Test
+    fun `본문이 계약 메시지가 아니면 400이다`() {
+        val response = post(
+            "/ingest/handshake?site=line-a",
+            """{"request":{"nope":1},"response":{}}""",
+            TOKEN,
+        )
+
+        assertEquals(400, response.statusCode.value(), response.body)
+    }
+
+    @Test
+    fun `태스크 적재가 드레인을 채운다`() {
+        val response = post("/ingest/task", json(stateMessage()), TOKEN)
+
+        assertEquals(200, response.statusCode.value(), response.body)
+        assertEquals(
+            1,
+            PostgresSupport.queryOne("SELECT count(*) FROM task WHERE NOT terminal") { it.getInt(1) },
+        )
+    }
+
+    @Test
+    fun `요구 등록이 DECLARED로 실린다`() {
+        val body = """
+            {"consumer_id":"MES-A","kind":"UPSTREAM_SYSTEM","site":"line-a",
+             "display_name":"MES","requires":["pick_place@^1.2"]}
+        """.trimIndent()
+
+        val response = post("/requirements", body, TOKEN)
+
+        assertEquals(200, response.statusCode.value(), response.body)
+        assertEquals(1, ledger.activeConsumerCount("pick_place"))
+    }
+
+    @Test
+    fun `모르는 kind는 400이다`() {
+        val body = """{"consumer_id":"x","kind":"ROBOT","site":"line-a","requires":["a@^1.0"]}"""
+
+        assertEquals(400, post("/requirements", body, TOKEN).statusCode.value())
+    }
+
+    // ── 씨앗
+
+    private fun post(path: String, body: String, token: String?) = rest.exchange(
+        "http://localhost:$port$path",
+        HttpMethod.POST,
+        HttpEntity(
+            body,
+            HttpHeaders().apply {
+                add("Content-Type", "application/json")
+                token?.let { add("Authorization", "Bearer $it") }
+            },
+        ),
+        String::class.java,
+    )
+
+    private fun json(message: com.google.protobuf.Message): String =
+        JsonFormat.printer().print(message)
+
+    private fun header() = MessageHeader.newBuilder()
+        .setClientId("line-controller")
+        .setRobotId("r1")
+        .setProfileRef(ProfileRef.newBuilder().setProfileId("fixture/minimal").setRevision(1))
+        .build()
+
+    private fun request() = NegotiateRequest.newBuilder()
+        .setHeader(header())
+        .setRequirement(
+            CapabilityRequirement.newBuilder()
+                .setClientId("line-controller").setRobotId("r1")
+                .addRequirements("pick_place@^1.2"),
+        ).build()
+
+    private fun accepted() = NegotiateResponse.newBuilder().setAccepted(true).build()
+
+    private fun stateMessage() = StateMessage.newBuilder()
+        .setHeader(header())
+        .addTasks(
+            TaskSnapshot.newBuilder()
+                .setTaskId("t1").setSkillType("pick_place")
+                .setState(TaskState.TASK_STATE_RUNNING).setRevision(1),
+        ).build()
+
+    private companion object {
+        // ASCII만 쓴다 — HTTP 헤더 값이 그 밖을 못 싣는다(IngestToken이 기동에서 막는다).
+        const val TOKEN = "test-ingest-token"
+
+        /**
+         * **쓰기 표면 전부.** 새 적재 경로를 더하고 여기 안 더하면 관문
+         * 시험이 그 경로를 안 본다 — 그것이 조용히 새는 문이다.
+         */
+        val WRITE_PATHS = listOf(
+            "/ingest/handshake?site=line-a" to "{}",
+            "/ingest/task" to "{}",
+            "/requirements" to "{}",
+        )
+
+        val CONTRACT_SEMVER: String = dev.picasso.contracts.wire.ContractIdentity.semver
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun properties(registry: DynamicPropertyRegistry) {
+            registry.add("picasso.db.url") { PostgresSupport.jdbcUrl }
+            registry.add("picasso.db.user") { PostgresSupport.username }
+            registry.add("picasso.db.password") { PostgresSupport.password }
+            registry.add("picasso.ingest.token") { TOKEN }
+        }
+    }
+}

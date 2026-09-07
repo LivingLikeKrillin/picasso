@@ -35,6 +35,8 @@ dependencies {
     implementation(project(":contracts"))
 
     implementation(libs.jackson.databind)
+    implementation(libs.protobuf.java.util)
+    implementation(libs.jackson.module.kotlin)
     implementation(libs.postgresql)
     implementation(libs.flyway.core)
     runtimeOnly(libs.flyway.postgresql)

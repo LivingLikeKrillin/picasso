@@ -17,8 +17,14 @@ springBoot = "3.4.0"
 
 [libraries]
 protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
+# JsonFormat. 적재 표면이 계약 메시지를 protobuf JSON 규약으로 읽는다 —
+# Jackson으로 읽으면 oneof·enum·uint64 표현이 규약과 갈라진다.
+protobuf-java-util = { module = "com.google.protobuf:protobuf-java-util", version.ref = "protobuf" }
 jsonschema-validator = { module = "com.networknt:json-schema-validator", version.ref = "jsonSchema" }
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
+# 적재 표면이 Kotlin data class를 본문으로 받는다. 없으면 기본 생성자가 없어
+# 500이 나고, 그 500은 배선이 아니라 본문 형식 문제처럼 보인다.
+jackson-module-kotlin = { module = "com.fasterxml.jackson.module:jackson-module-kotlin", version.ref = "jackson" }
 clikt = { module = "com.github.ajalt.clikt:clikt", version.ref = "clikt" }
 slf4j-nop = { module = "org.slf4j:slf4j-nop", version.ref = "slf4j" }
 grpc-protobuf = { module = "io.grpc:grpc-protobuf", version.ref = "grpc" }

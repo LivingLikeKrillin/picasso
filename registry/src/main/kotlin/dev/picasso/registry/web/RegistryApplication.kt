@@ -2,6 +2,8 @@ package dev.picasso.registry.web
 
 import dev.picasso.gate.GateChecks
 import dev.picasso.registry.diag.DiagnosticsService
+import dev.picasso.registry.ingest.HandshakeIngestService
+import dev.picasso.registry.ingest.TaskIngestService
 import dev.picasso.registry.binding.BindingService
 import dev.picasso.registry.ledger.LedgerService
 import dev.picasso.registry.ledger.RegistryLedgerQuery
@@ -16,6 +18,8 @@ import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
 import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
 import org.springframework.boot.runApplication
 import org.springframework.context.annotation.Bean
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -69,6 +73,36 @@ open class RegistryApplication {
      */
     @Bean
     open fun ledgerQuery(db: Db): RegistryLedgerQuery = RegistryLedgerQuery(db)
+
+    @Bean
+    open fun handshakeIngest(
+        ledger: LedgerService,
+        observations: ObservationService,
+    ): HandshakeIngestService = HandshakeIngestService(ledger, observations)
+
+    @Bean
+    open fun taskIngest(db: Db): TaskIngestService = TaskIngestService(db)
+
+    /**
+     * **빈 토큰은 전부 401이다**(§15.38). 배포에서 토큰을 빠뜨린 것과 일부러
+     * 안 쓰는 것을 구별할 방법이 없고, 전자가 압도적으로 흔하다.
+     */
+    @Bean
+    open fun ingestToken(
+        @Value("\${picasso.ingest.token:}") token: String,
+    ): IngestToken = IngestToken(token)
+
+    /**
+     * 적재 경로를 **경로로** 지킨다. 엔드포인트마다 확인하는 구조는 새 것을
+     * 더할 때 잊으면 조용히 새는 문이 된다.
+     */
+    @Bean
+    open fun ingestGuard(token: IngestToken): WebMvcConfigurer = object : WebMvcConfigurer {
+        override fun addInterceptors(registry: InterceptorRegistry) {
+            registry.addInterceptor(IngestTokenInterceptor(token))
+                .addPathPatterns(IngestTokenInterceptor.GUARDED)
+        }
+    }
 
     /**
      * **활성화는 `BindingService`를 지난다**(§8.4 ③). 계획이 status를 직접
