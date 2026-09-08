@@ -48,6 +48,38 @@ interface SpotLink {
     val mission: MissionLayer?
 
     /**
+     * 이 기체에 **팔이 붙어 있는가.**
+     *
+     * ## 벤더가 존재를 말해 준다
+     *
+     * `RobotState.manipulator_state` 의 주석이 *"only populated if an arm is
+     * attached to the robot"* 다. **필드가 채워졌는지가 곧 신호**이며, 그것을
+     * 읽는 것은 남쪽 구현의 일이다.
+     *
+     * `HardwareConfiguration.skeleton.links[].name` 으로도 셀 수 있지만 그쪽은
+     * **어느 링크가 팔인지 우리가 정해야 한다** — 벤더가 `has_arm` 을 안 판다
+     * (`has_audio_visual_system` 은 파는데도). 그래서 앞의 것을 쓴다.
+     *
+     * ## 왜 필요한가 — 그리고 왜 처음 든 이유는 틀렸었다
+     *
+     * 처음에는 *"팔 없는 기체에 팔 명령을 보내면 조용히 아무 일도 안 일어난다"*
+     * 로 적었다. **그 문장은 `BodyAssistForManipulation` 하나에만 붙어 있고**
+     * (proto 152 개 전체에서 팔 부재를 말하는 유일한 자리다), 명령 일반에는
+     * `RobotCommandResponse.Status.STATUS_UNSUPPORTED` *"The robot does not
+     * understand this command"* 가 있다. 한 문장을 표면 전체로 넓힌 것이었다.
+     *
+     * 진짜 이유는 **결속이 어긋난 것을 보이게 하는 것**이다. 어댑터가
+     * `spot-arm` 프로파일에 묶여 있는데 기체에 팔이 없으면 그 아래의 선언이
+     * 전부 거짓 전제 위에 선다. 막지는 않는다 — `move_relative` 와
+     * `navigate_to` 는 팔 없이도 돈다(§9.7 ④·§15.47과 같은 판단).
+     */
+    @VendorSurface(
+        "bosdyn.api.RobotStateService.GetRobotState",
+        "bosdyn.api.RobotState.manipulator_state",
+    )
+    fun armAttached(): Result<Boolean>
+
+    /**
      * 지도 계층(`GraphNavService`). **사이트 이름이 여기 산다.**
      *
      * 미션 계층과 따로 두는 것은 하는 일이 다르기 때문이다 — 미션은 *시키는*

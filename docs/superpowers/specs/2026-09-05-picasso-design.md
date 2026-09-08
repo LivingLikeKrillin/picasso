@@ -1646,6 +1646,14 @@ mimic/
 
     **그래서 `pick_place`는 이제 표본 하나가 아니다** — YES 하나(Digit) + PARTIAL 하나(Spot).
 
+    **팔 유무 확인을 붙였다 — 다만 처음 든 이유가 틀렸었다.** 나는 *"팔 없는 기체에 팔 명령을 보내면 조용히 아무 일도 안 일어난다"*고 적었는데, **그 문장은 `BodyAssistForManipulation` 하나에만 붙어 있다**(proto 152개 전체에서 팔 부재를 말하는 유일한 자리다). 명령 일반에는 `RobotCommandResponse.Status.STATUS_UNSUPPORTED` — *"The robot does not understand this command"* — 가 있다. 한 문장을 표면 전체로 넓힌 것이었고, 같은 종류의 성급함이 이 항목에서만 세 번째다.
+
+    **진짜 이유는 결속이 어긋난 것을 보이게 하는 것이다.** 어댑터가 `spot-arm` 프로파일에 묶였는데 기체가 팔을 보고하지 않으면 그 아래 선언이 전부 거짓 전제 위에 선다. 신호는 벤더가 준다 — `RobotState.manipulator_state`가 *"only populated if an arm is attached to the robot"*이다(`HardwareConfiguration.skeleton.links[].name`으로도 셀 수 있지만 **어느 링크가 팔인지 우리가 정해야** 해서 안 쓴다. 벤더가 `has_audio_visual_system`은 파는데 `has_arm`은 안 판다).
+
+    **막지 않고 보이게 한다.** 팔이 없어도 `move_relative`·`navigate_to`는 돈다. 그래서 거절이 아니라 결함이며, **팔이 필요한 스킬이 들어오는 날 그 스킬이 이 답을 보고 거절해야 한다** — 지금은 그런 스킬이 없어 거절 경로를 안 만든다(ADR 9). 그리고 **"없다"와 "못 물어봤다"를 가른다**: 읽기 실패를 팔 없음으로 접으면 관측 실패가 결속 오류로 보이고 운영자가 멀쩡한 기체의 배포를 뒤진다. `X_BOSTONDYNAMICS_ARM_ABSENT`와 `X_BOSTONDYNAMICS_HARDWARE_UNKNOWN`으로 따로 낸다. 전제는 모델 이름을 뜯어 짐작하지 않고 **배포하는 쪽이 명시한다**(`expectsArm`).
+
+    **매니페스트도 전수로 바꿨다.** 앞 판은 손으로 고른 proto 12개만 덮어서 `survey_scope`의 *"서비스 54개 전수"*와 앞뒤가 안 맞았고, 실제로 `robot_state.proto`를 안 덮어 이 인용을 못 붙일 뻔했다. 이제 152개 전부에서 8089개 심볼을 뽑는다.
+
     **ADR 35는 오히려 강해진다** — 표본 하나가 아니라 독립적인 벤더 둘이 같은 배치(이름은 로봇 안에 산다)를 골랐다. 약해지는 것은 *"Digit이 유일하다"*는 서술뿐이다.
 
     **`inspect`에 대해 이 조사가 새로 제기하는 것.** BD는 점검을 *"어디에 서서 어느 이름의 액션을 돌리는가"*(`Element{target, action}`)로 모델링하는데 우리 계약은 `inspect(target)`으로 **물체 신원**을 묻는다. `inspect`가 실물 셋 어디에도 안 닿는 것이 벤더의 결손이 아니라 **우리 형식이 틀렸을 가능성**이 처음으로 근거를 얻었다.

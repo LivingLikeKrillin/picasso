@@ -40,11 +40,31 @@ import java.time.Instant
 class SpotAdapter(
     private val link: SpotLink,
     private val identity: AdapterIdentity,
+    /**
+     * 묶인 프로파일이 팔을 전제하는가.
+     *
+     * **어댑터가 모델 이름을 보고 짐작하지 않는다.** `spot-arm` 이라는 문자열을
+     * 뜯어 팔을 유추하면 게이트 7번이 금지한 기종 지식이 코드로 들어오고, 그
+     * 유추는 프로파일이 바뀌어도 안 따라온다. 배포하는 쪽이 명시한다.
+     */
+    private val expectsArm: Boolean = false,
 ) {
 
     private var task: RunningTask? = null
     private var issued = 0
     private var authorityLost: LeaseStatus? = null
+
+    /**
+     * 팔 유무를 한 번만 묻고 기억한다.
+     *
+     * **널은 "아직 안 물어봤다"** 이고, `Result` 의 실패는 **"물어봤는데 못 들었다"**
+     * 다. 둘을 접으면 관측 실패가 "팔 없음" 으로 보고되고, 그러면 멀쩡한 기체에
+     * 결속 불일치 경보가 뜬다.
+     *
+     * 폴마다 다시 묻지 않는 것은 팔이 런타임에 붙었다 떨어졌다 하지 않기
+     * 때문이다. 그 가정이 틀리는 날 이 캐시가 틀린다.
+     */
+    private var armAttached: Result<Boolean>? = null
 
     /** 지금 든 태스크의 상태. 아무것도 안 들었으면 `UNSPECIFIED`. */
     val state: TaskState
@@ -380,6 +400,8 @@ class SpotAdapter(
     fun faults(): FaultObservation {
         val faults = mutableListOf<Fault>()
 
+        hardwareFault()?.let { faults += it }
+
         authorityLost?.let {
             faults += Fault.newBuilder()
                 .setErrorType("CONTROL_AUTHORITY_LOST")
@@ -399,6 +421,55 @@ class SpotAdapter(
         }
 
         return FaultObservation.Observed(faults)
+    }
+
+    /**
+     * 프로파일이 전제한 하드웨어와 기체가 말하는 것이 어긋났는가.
+     *
+     * ## 막지 않고 보이게 한다
+     *
+     * 팔이 없어도 `move_relative` 와 `navigate_to` 는 돈다. 그래서 태스크를
+     * 거절하지 않고 결함으로만 낸다 — §9.7 ④의 `UNTESTED`, §15.47의 `NEVER`,
+     * 사이트 이름의 `CLAIMED` 와 같은 판단이다. **팔이 필요한 스킬이 이
+     * 어댑터에 들어오는 날** 그 스킬이 여기를 보고 거절해야 하며, 지금은
+     * 그런 스킬이 없어서 거절 경로를 안 만든다(ADR 9 — 소비 표면이 없는
+     * 선언은 두지 않는다).
+     *
+     * ## "없다" 와 "못 물어봤다" 를 가른다
+     *
+     * 읽기가 실패했을 때 팔 없음으로 보고하면 관측 실패가 결속 오류로 보이고,
+     * 운영자가 멀쩡한 기체의 배포를 뒤진다. 별도의 결함으로 낸다.
+     */
+    private fun hardwareFault(): Fault? {
+        if (!expectsArm) return null
+
+        val answer = armAttached ?: link.armAttached().also { armAttached = it }
+
+        return answer.fold(
+            onSuccess = { attached ->
+                if (attached) {
+                    null
+                } else {
+                    Fault.newBuilder()
+                        .setErrorType("X_BOSTONDYNAMICS_ARM_ABSENT")
+                        .setCanContinueCurrentTask(true)
+                        .setCanAcceptNewTask(true)
+                        .setErrorHint(
+                            "이 기체는 팔이 붙어 있다는 전제로 배포됐는데 로봇이 팔을 보고하지 않습니다. " +
+                                "묶인 프로파일이 맞는지 확인하십시오.",
+                        )
+                        .build()
+                }
+            },
+            onFailure = {
+                Fault.newBuilder()
+                    .setErrorType("X_BOSTONDYNAMICS_HARDWARE_UNKNOWN")
+                    .setCanContinueCurrentTask(true)
+                    .setCanAcceptNewTask(true)
+                    .setErrorHint("팔 유무를 못 읽었습니다(${it.message}). 없다는 뜻이 아닙니다.")
+                    .build()
+            },
+        )
     }
 
     /** 태스크가 올라탄 벤더 계층. **어느 층이냐가 조작의 답을 바꾼다.** */

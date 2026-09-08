@@ -157,6 +157,65 @@ class SpotAdapterTest {
         assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
     }
 
+    // ── 프로파일이 전제한 하드웨어와 기체가 어긋났는가
+
+    private fun withArm(arm: Boolean?, expectsArm: Boolean = true): SpotAdapter =
+        SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), arm), identity, expectsArm)
+
+    private fun errorTypes(a: SpotAdapter) =
+        assertIs<FaultObservation.Observed>(a.faults()).faults.map { it.errorType }
+
+    @Test
+    fun `팔을 전제했는데 기체가 팔을 안 들면 결함으로 낸다`() {
+        assertEquals(listOf("X_BOSTONDYNAMICS_ARM_ABSENT"), errorTypes(withArm(arm = false)))
+    }
+
+    @Test
+    fun `팔이 있으면 아무 말도 안 한다`() {
+        assertEquals(emptyList(), errorTypes(withArm(arm = true)))
+    }
+
+    @Test
+    fun `팔을 안 전제한 배포는 묻지도 않는다`() {
+        // 팔 없는 기체에 팔 없는 프로파일을 묶는 것은 정상이다. 경보를 내면
+        // **정상 배포가 빨갛게 보이고**, 그러면 운영자가 이 화면을 안 믿는다.
+        val link = FakeLink(FakeCommand(), FakeMission(), mapped(), arm = false)
+        val a = SpotAdapter(link, identity, expectsArm = false)
+
+        assertEquals(emptyList(), errorTypes(a))
+        assertEquals(0, link.armAsks, "안 쓸 답을 물어봤다")
+    }
+
+    @Test
+    fun `못 물어본 것을 팔 없음으로 보고하지 않는다`() {
+        // **이 시험이 이 묶음의 이유다.** 접으면 관측 실패가 결속 오류로 보이고
+        // 운영자가 멀쩡한 기체의 배포를 뒤진다.
+        assertEquals(listOf("X_BOSTONDYNAMICS_HARDWARE_UNKNOWN"), errorTypes(withArm(arm = null)))
+    }
+
+    @Test
+    fun `한 번만 묻는다`() {
+        // 폴마다 남쪽 호출이 늘면 신선도 창이 좁은 배치에서 그것이 비용이 된다.
+        val link = FakeLink(FakeCommand(), FakeMission(), mapped(), arm = false)
+        val a = SpotAdapter(link, identity, expectsArm = true)
+
+        repeat(5) { a.faults() }
+        assertEquals(1, link.armAsks)
+    }
+
+    @Test
+    fun `하드웨어 결함이 리스 결함을 가리지 않는다`() {
+        // 결함이 목록인 이유다. 하나만 내면 먼저 발견한 것이 나머지를 덮는다.
+        val link = FakeLink(FakeCommand(reject = LeaseStatus.STATUS_REVOKED), FakeMission(), mapped(), arm = false)
+        val a = SpotAdapter(link, identity, expectsArm = true)
+        a.accept("move_relative", move, t0)
+
+        assertEquals(
+            listOf("X_BOSTONDYNAMICS_ARM_ABSENT", "CONTROL_AUTHORITY_LOST"),
+            errorTypes(a),
+        )
+    }
+
     // ── 아는 이름을 답한다 (ADR 35)
 
     @Test
@@ -400,5 +459,15 @@ class SpotAdapterTest {
         override val command: CommandLayer?,
         override val mission: MissionLayer?,
         override val graph: GraphLayer?,
-    ) : SpotLink
+        /** 널이 아니면 그 답을, 널이면 읽기 실패를 낸다 — **"없다" 와 "못 물어봤다" 를 가른다.** */
+        private val arm: Boolean? = true,
+    ) : SpotLink {
+        var armAsks = 0
+
+        override fun armAttached(): Result<Boolean> {
+            armAsks += 1
+            return arm?.let { Result.success(it) }
+                ?: Result.failure(IllegalStateException("상태를 못 받았다"))
+        }
+    }
 }

@@ -101,13 +101,24 @@ def symbols(text):
 
 
 def build(source_dir, vendor, release, out_path):
+    u"""디렉터리를 **재귀로** 훑는다.
+
+    처음에는 평평한 목록만 봤고, 그래서 매니페스트가 우리가 손으로 고른
+    proto 12 개만 덮었다. `survey_scope` 에 *"서비스 54 개 전수"* 라고 적어
+    놓고 대조 대상은 부분집합인 상태였고, 그 틈에서 **인용하려는 이름이
+    매니페스트에 없어 못 붙이는** 일이 났다. 공개된 것 전부를 덮는다.
+    """
     names, sources = set(), []
-    for entry in sorted(os.listdir(source_dir)):
-        if not entry.endswith(".proto"):
-            continue
-        blob = io.open(os.path.join(source_dir, entry), "rb").read()
-        names |= symbols(blob.decode("utf-8"))
-        sources.append((entry, hashlib.sha256(blob).hexdigest()))
+    for dirpath, _, files in os.walk(source_dir):
+        for entry in sorted(files):
+            if not entry.endswith(".proto"):
+                continue
+            path = os.path.join(dirpath, entry)
+            blob = io.open(path, "rb").read()
+            names |= symbols(blob.decode("utf-8"))
+            rel = os.path.relpath(path, source_dir).replace(os.sep, "/")
+            sources.append((rel, hashlib.sha256(blob).hexdigest()))
+    sources.sort()
 
     write(out_path, vendor, release, "tools/vendor-manifest/proto_symbols.py", sources, names)
     return names, sources
