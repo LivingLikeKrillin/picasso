@@ -46,6 +46,14 @@ class IngestBridge(
      * 만들어지지 않았고, 이 람다는 발행할 때 평가된다.
      */
     private val software: (String) -> String? = { null },
+    /**
+     * 그 기체가 아는 사이트 이름의 요약(ADR 35). 같은 이유로 람다다.
+     *
+     * `null`은 **아직 안 물어봤다**는 뜻이고 [SiteNameSummary.unsupported]는
+     * **물어봤더니 못 한다더라**는 뜻이다. 접으면 등록할 자리가 없는 기체와
+     * 아직 모르는 기체가 같아 보인다.
+     */
+    private val siteNames: (String) -> SiteNameSummary? = { null },
 ) : Publisher {
 
     override fun publish(publication: Publication) {
@@ -65,6 +73,7 @@ class IngestBridge(
                         message.header,
                         ConnectionState.CONNECTION_STATE_ONLINE,
                         software(message.header.robotId),
+                        siteNames(message.header.robotId),
                     )
                 }
             }
@@ -80,6 +89,7 @@ class IngestBridge(
                     message.header,
                     message.state,
                     software(message.header.robotId),
+                    siteNames(message.header.robotId),
                 )
             }
 

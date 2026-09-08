@@ -28,12 +28,33 @@ import java.time.Duration
  * 되밀면 레지스트리가 그것을 받은 시각으로 적어 **죽은 기체를 살아 있다고
  * 거짓말한다.** 실패하면 버리고 다음 발행에서 다시 온다.
  */
+/**
+ * 기체가 아는 사이트 이름의 **요약**(ADR 35).
+ *
+ * **이름 자체를 나르지 않는다.** 계약의 `GetKnownSiteNames`는 목록을 주지만
+ * 레지스트리는 그것을 갖지 않는다 — 사이트 이름의 주인은 사이트이고
+ * `registry`는 *"등록됐는가"* 만 상태로 든다(ADR 35의 결정 3). 개수와
+ * "호스팅 못 함"만 있으면 그 판정이 선다.
+ *
+ * [unsupported]와 `count == 0`을 **접으면 안 된다.** 앞은 등록할 자리가 없는
+ * 기종이고 뒤는 자리는 있는데 비어 있는 것이다. 접으면 자리가 없는 기체에게
+ * 등록을 요구하게 된다.
+ */
+data class SiteNameSummary(val unsupported: Boolean, val count: Int)
+
 interface LivenessObservations {
     /**
      * @param software 기체가 보고하는 로봇 소프트웨어. **못 읽는 기종이면
      *   `null`이고 빈 문자열이 아니다** — 신원 질의가 아예 없는 실물이 있다.
+     * @param siteNames 기체가 아는 사이트 이름의 요약(ADR 35). 아직 물어본
+     *   적이 없으면 `null`이며, 그것은 "없다"가 아니라 **"모른다"** 다.
      */
-    fun onConnection(header: MessageHeader, state: ConnectionState, software: String?)
+    fun onConnection(
+        header: MessageHeader,
+        state: ConnectionState,
+        software: String?,
+        siteNames: SiteNameSummary? = null,
+    )
 
     companion object {
         val NONE = object : LivenessObservations {
@@ -41,6 +62,7 @@ interface LivenessObservations {
                 header: MessageHeader,
                 state: ConnectionState,
                 software: String?,
+                siteNames: SiteNameSummary?,
             ) = Unit
         }
     }
@@ -61,15 +83,27 @@ class HttpLiveness(
 
     private val base = baseUrl.trimEnd('/')
 
-    override fun onConnection(header: MessageHeader, state: ConnectionState, software: String?) {
+    override fun onConnection(
+        header: MessageHeader,
+        state: ConnectionState,
+        software: String?,
+        siteNames: SiteNameSummary?,
+    ) {
         val message = ConnectionMessage.newBuilder().setHeader(header).setState(state).build()
         val body = JsonFormat.printer().omittingInsignificantWhitespace().print(message)
 
         // 계약 메시지에 없는 값이라 쿼리로 간다 — `/ingest/handshake` 의
         // `site` 와 같은 자리다.
-        val query = software
-            ?.let { "?software=" + URLEncoder.encode(it, StandardCharsets.UTF_8) }
-            ?: ""
+        val params = buildList {
+            software?.let { add("software=" + URLEncoder.encode(it, StandardCharsets.UTF_8)) }
+            // **셋을 구별해 싣는다** — 안 실으면 "모른다", `unsupported=true`면
+            // 호스팅 못 하는 기종, 숫자면 그만큼 안다.
+            siteNames?.let {
+                add("site_names_unsupported=${it.unsupported}")
+                add("site_names_count=${it.count}")
+            }
+        }
+        val query = if (params.isEmpty()) "" else params.joinToString("&", prefix = "?")
 
         val request = HttpRequest.newBuilder(URI.create("$base/ingest/liveness$query"))
             .timeout(timeout)

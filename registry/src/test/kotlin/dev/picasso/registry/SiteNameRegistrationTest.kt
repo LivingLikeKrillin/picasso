@@ -5,10 +5,14 @@ import dev.picasso.registry.adapter.RegisterOutcome
 import dev.picasso.registry.binding.ActivateOutcome
 import dev.picasso.registry.binding.BindOutcome
 import dev.picasso.registry.binding.BindingService
+import dev.picasso.contracts.v1.ConnectionState
+import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.registry.binding.RecordOutcome
 import dev.picasso.registry.binding.SiteNameRegistration
 import dev.picasso.registry.binding.SiteNameStatus
 import dev.picasso.registry.diag.DiagnosticsService
+import dev.picasso.registry.ingest.LivenessService
+import dev.picasso.registry.ingest.SiteNameReport
 import dev.picasso.registry.revision.RevisionService
 import dev.picasso.registry.revision.SkillTypeSync
 import dev.picasso.registry.revision.SubmitOutcome
@@ -137,7 +141,9 @@ class SiteNameRegistrationTest {
         bound("r-both", activate(Fixtures.good()))
 
         assertIs<RecordOutcome.Recorded>(siteNames.record("r-both", "op"))
-        assertEquals(SiteNameStatus.REGISTERED, siteNames.statusOf("r-both"))
+        // **기체가 아직 답한 적이 없으므로 CLAIMED 다.** 사람의 말이 관측인
+        // 척하지 않는 것이 이 상태의 일이다(ADR 35).
+        assertEquals(SiteNameStatus.CLAIMED, siteNames.statusOf("r-both"))
     }
 
     @Test
@@ -157,6 +163,100 @@ class SiteNameRegistrationTest {
             "INSERT INTO robot (robot_id, site_id, serial_number) VALUES ('r-none','line-a','sn-none')",
         )
         assertEquals(RecordOutcome.NoActiveBinding, siteNames.record("r-none", "op"))
+    }
+
+    // ── 기체의 답 (계약의 GetKnownSiteNames 가 생겨서 가능해진 것)
+
+    /** 기체가 사이트 이름을 안다고 보고한 것으로 만든다. */
+    private fun reports(id: String, count: Int, unsupported: Boolean = false) {
+        LivenessService(db) { clock }.record(
+            MessageHeader.newBuilder().setRobotId(id).setCapabilityEpoch(1).build(),
+            ConnectionState.CONNECTION_STATE_ONLINE,
+            null,
+            SiteNameReport(unsupported, count),
+        )
+    }
+
+    @Test
+    fun `기체가 이름을 안다고 답하면 확인으로 올라간다`() {
+        bound("r-both", activate(Fixtures.good()))
+        assertIs<RecordOutcome.Recorded>(siteNames.record("r-both", "op"))
+        assertEquals(SiteNameStatus.CLAIMED, siteNames.statusOf("r-both"))
+
+        reports("r-both", count = 3)
+
+        assertEquals(SiteNameStatus.CONFIRMED, siteNames.statusOf("r-both"))
+    }
+
+    @Test
+    fun `사람은 했다는데 기체가 모르면 어긋남이다`() {
+        // **이 상태가 이번 확장의 이유다.** 계약에 질의가 생기기 전까지는
+        // 이것을 표현할 수단 자체가 없었다 — 통째로 안 했거나 엉뚱한 기체에
+        // 했어도 화면은 초록이었다.
+        bound("r-both", activate(Fixtures.good()))
+        assertIs<RecordOutcome.Recorded>(siteNames.record("r-both", "op"))
+
+        reports("r-both", count = 0)
+
+        assertEquals(SiteNameStatus.CONTRADICTED, siteNames.statusOf("r-both"))
+    }
+
+    @Test
+    fun `호스팅 못 하는 기종이라 답해도 어긋남이다`() {
+        // 등록할 자리가 없는데 등록했다고 적혀 있으면 그 기록이 틀린 것이다.
+        bound("r-both", activate(Fixtures.good()))
+        assertIs<RecordOutcome.Recorded>(siteNames.record("r-both", "op"))
+
+        reports("r-both", count = 0, unsupported = true)
+
+        assertEquals(SiteNameStatus.CONTRADICTED, siteNames.statusOf("r-both"))
+    }
+
+    @Test
+    fun `못 한다면서 개수를 낸 보고도 어긋남이다`() {
+        // **주입이 여기서 약했다.** 위 시험이 `count = 0` 을 함께 주는 바람에
+        // `unsupported` 검사를 지워도 안 빨개졌다 — `count == 0` 이 대신
+        // 잡았기 때문이다.
+        //
+        // 지금 `mimic` 은 못 한다면서 개수를 내지 않는다. **그러나 레지스트리는
+        // 그 불변식을 믿을 자리가 아니다** — 값이 망 너머에서 오고, 다른
+        // 어댑터가 그렇게 보낼 수 있다. 모순된 보고는 확인이 아니라 어긋남이다.
+        bound("r-both", activate(Fixtures.good()))
+        assertIs<RecordOutcome.Recorded>(siteNames.record("r-both", "op"))
+
+        reports("r-both", count = 3, unsupported = true)
+
+        assertEquals(SiteNameStatus.CONTRADICTED, siteNames.statusOf("r-both"))
+    }
+
+    @Test
+    fun `기체가 답해도 사람의 기록이 없으면 미등록이다`() {
+        // **답이 기록을 대신하지 않는다.** 이름이 있다는 것과 "이 사이트의
+        // 이름을 등록했다" 는 다른 주장이며, 앞의 것으로 뒤의 것을 채우면
+        // 옛 사이트의 이름이 남아 있는 기체가 등록된 것으로 보인다.
+        bound("r-both", activate(Fixtures.good()))
+        reports("r-both", count = 3)
+
+        assertEquals(SiteNameStatus.UNREGISTERED, siteNames.statusOf("r-both"))
+    }
+
+    @Test
+    fun `안 물어본 보고가 이미 받은 답을 지우지 않는다`() {
+        // 옛 어댑터가 섞여 도는 동안 그 보고마다 상태가 되돌아가면 확인이
+        // 영원히 안 선다.
+        bound("r-both", activate(Fixtures.good()))
+        assertIs<RecordOutcome.Recorded>(siteNames.record("r-both", "op"))
+        reports("r-both", count = 3)
+        assertEquals(SiteNameStatus.CONFIRMED, siteNames.statusOf("r-both"))
+
+        LivenessService(db) { clock }.record(
+            MessageHeader.newBuilder().setRobotId("r-both").setCapabilityEpoch(1).build(),
+            ConnectionState.CONNECTION_STATE_ONLINE,
+            null,
+            null,
+        )
+
+        assertEquals(SiteNameStatus.CONFIRMED, siteNames.statusOf("r-both"))
     }
 
     // ── 재바인딩 (주입이 처음에 못 잡은 자리)

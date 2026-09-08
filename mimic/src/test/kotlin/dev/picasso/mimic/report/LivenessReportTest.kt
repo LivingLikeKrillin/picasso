@@ -28,16 +28,19 @@ class LivenessReportTest {
     private class Spy : LivenessObservations {
         val seen = mutableListOf<Pair<String, ConnectionState>>()
         val software = mutableListOf<String?>()
+        val siteNames = mutableListOf<SiteNameSummary?>()
         var fail = false
 
         override fun onConnection(
             header: MessageHeader,
             state: ConnectionState,
             software: String?,
+            siteNames: SiteNameSummary?,
         ) {
             if (fail) error("적재가 죽었다")
             seen += header.robotId to state
             this.software += software
+            this.siteNames += siteNames
         }
     }
 
@@ -162,9 +165,9 @@ class LivenessReportTest {
         // 조회 람다가 발행 시점에 평가되는지 본다 — 기체는 발행자를 감싼
         // 뒤에 만들어지므로 미리 평가하면 언제나 null 이다.
         val spy = Spy()
-        val bridge = IngestBridge(RecordingPublisher(), Sink(), spy) { id ->
+        val bridge = IngestBridge(RecordingPublisher(), Sink(), spy, software = { id ->
             if (id == "r1") "4.1.0" else null
-        }
+        })
 
         bridge.publish(Publication("t/state", stateMessage(), 0))
 
@@ -172,9 +175,47 @@ class LivenessReportTest {
     }
 
     @Test
+    fun `보고에 사이트 이름 요약이 실린다`() {
+        // ADR 35 — **이름이 아니라 요약이다.** 레지스트리는 이름의 주인이
+        // 아니므로 목록을 받지 않는다.
+        val spy = Spy()
+        val bridge = IngestBridge(
+            RecordingPublisher(),
+            Sink(),
+            spy,
+            software = { null },
+            siteNames = { id -> if (id == "r1") SiteNameSummary(unsupported = false, count = 3) else null },
+        )
+
+        bridge.publish(Publication("t/state", stateMessage(), 0))
+
+        assertEquals(listOf<SiteNameSummary?>(SiteNameSummary(unsupported = false, count = 3)), spy.siteNames)
+    }
+
+    @Test
+    fun `안 물어본 것과 못 하는 기종을 가른다`() {
+        // **`null` 은 "아직 안 물어봤다" 이고 `unsupported` 는 "물어봤더니 못
+        // 한다더라" 다.** 접으면 등록할 자리가 없는 기체와 아직 모르는 기체가
+        // 같아 보이고, 그러면 앞의 것에게 등록을 요구하게 된다.
+        val spy = Spy()
+        IngestBridge(RecordingPublisher(), Sink(), spy)
+            .publish(Publication("t/state", stateMessage(), 0))
+        assertEquals(listOf<SiteNameSummary?>(null), spy.siteNames.toList())
+
+        val other = Spy()
+        IngestBridge(
+            RecordingPublisher(),
+            Sink(),
+            other,
+            siteNames = { SiteNameSummary(unsupported = true, count = 0) },
+        ).publish(Publication("t/state", stateMessage(), 0))
+        assertEquals(listOf<SiteNameSummary?>(SiteNameSummary(unsupported = true, count = 0)), other.siteNames)
+    }
+
+    @Test
     fun `못 읽는 기종은 빈 문자열이 아니라 null 이다`() {
         val spy = Spy()
-        val bridge = IngestBridge(RecordingPublisher(), Sink(), spy) { null }
+        val bridge = IngestBridge(RecordingPublisher(), Sink(), spy, software = { null })
 
         bridge.publish(Publication("t/state", stateMessage(), 0))
 

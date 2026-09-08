@@ -55,8 +55,15 @@ class OperationsController(private val siteNames: SiteNameRegistration) {
         @RequestParam robot: String,
         @RequestHeader("X-Actor") actor: String,
     ): ResponseEntity<Map<String, Any>> = when (val outcome = siteNames.record(robot, actor)) {
+        // **기록한 뒤의 실제 상태를 낸다.** "REGISTERED" 를 박아 두면 기체가
+        // 아직 답한 적 없는 것(CLAIMED)과 답이 어긋난 것(CONTRADICTED)이
+        // 성공으로 보인다 — 그것이 이 확장이 막으려는 것이다(ADR 35).
         is RecordOutcome.Recorded -> ResponseEntity.ok(
-            mapOf("robot" to robot, "status" to "REGISTERED", "keys" to outcome.keys),
+            mapOf(
+                "robot" to robot,
+                "status" to siteNames.statusOf(robot).name,
+                "keys" to outcome.keys,
+            ),
         )
 
         // **409다.** 요청이 잘못된 것이 아니라 이 기체의 상태에서 뜻이 없는

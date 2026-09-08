@@ -273,6 +273,27 @@ message CapabilityChangeResponse {
 // **필드 번호를 재사용하지 않는다.** 제어 채널 proto 는 buf lint·breaking
 // 밖이라(§15.32) 번호 규율을 사람이 지켜야 한다. 이 두 메시지가 그 관례를
 // 세우는 첫 자리이며, 필드를 지우면 지운 번호를 reserved 로 남긴다.
+// 이 기체가 아는 **사이트 이름들**을 정한다(ADR 35).
+//
+// 사이트 이름은 프로파일에 없다 — 프로파일은 기종을 기술하고 이름은 사이트가
+// 저작한다. 그래서 이것은 **런타임 사실**이고, 제어 채널이 그 자리다(§10.5).
+// 프로파일에 넣으면 같은 기종이 사이트마다 다른 문서를 갖게 된다.
+message SetKnownSiteNamesRequest {
+  string robot_id = 1;
+
+  // 이 기체가 알게 할 이름들.
+  repeated string known = 2;
+
+  // **이름을 호스팅하지 못하는 기종으로 만든다.** 빈 목록과 구별해야
+  // 하며(§2.3의 Unitree 는 등록할 자리가 아예 없다) 그 상태를 만들 수
+  // 없으면 "0개"와 "못 함"을 가르는 진단을 시험할 수 없다.
+  bool unsupported = 3;
+}
+message SetKnownSiteNamesResponse {
+  repeated string known = 1;
+  bool unsupported = 2;
+}
+
 message SetRobotSoftwareRequest {
   string robot_id = 1;
 
@@ -356,4 +377,7 @@ service ControlService {
   // 기체가 보고하는 로봇 소프트웨어를 바꾼다. 프로파일 선언과의 불일치를
   // 만드는 유일한 방법이다.
   rpc SetRobotSoftware(SetRobotSoftwareRequest) returns (SetRobotSoftwareResponse);
+
+  // 사이트 이름을 심는다(ADR 35). 프로파일이 아니라 런타임 사실이다.
+  rpc SetKnownSiteNames(SetKnownSiteNamesRequest) returns (SetKnownSiteNamesResponse);
 }

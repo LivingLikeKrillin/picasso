@@ -10,6 +10,7 @@ import dev.picasso.registry.ingest.HandshakeIngestOutcome
 import dev.picasso.registry.ingest.HandshakeIngestService
 import dev.picasso.registry.ingest.LivenessOutcome
 import dev.picasso.registry.ingest.LivenessService
+import dev.picasso.registry.ingest.SiteNameReport
 import dev.picasso.registry.ingest.TaskIngestOutcome
 import dev.picasso.registry.ingest.TaskIngestService
 import dev.picasso.registry.ledger.ConsumerKind
@@ -123,6 +124,8 @@ class IngestController(
     @PostMapping("/ingest/liveness")
     fun liveness(
         @RequestParam(name = "software", required = false) software: String?,
+        @RequestParam(name = "site_names_unsupported", required = false) siteNamesUnsupported: Boolean?,
+        @RequestParam(name = "site_names_count", required = false) siteNamesCount: Int?,
         @RequestBody body: String,
     ): ResponseEntity<Map<String, Any>> {
         val message = ConnectionMessage.newBuilder()
@@ -135,7 +138,15 @@ class IngestController(
         // 비어 있다"로 원장에 앉는다.
         val reported = software?.takeIf { it.isNotBlank() }
 
-        return when (val outcome = liveness.record(built.header, built.state, reported)) {
+        // **둘이 함께 와야 답으로 친다.** 하나만 오면 그것은 잘린 보고이고,
+        // 반쪽으로 상태를 올리면 "기체가 답했다"가 거짓이 된다(ADR 35).
+        val siteNames = if (siteNamesUnsupported != null && siteNamesCount != null) {
+            SiteNameReport(siteNamesUnsupported, siteNamesCount)
+        } else {
+            null
+        }
+
+        return when (val outcome = liveness.record(built.header, built.state, reported, siteNames)) {
             is LivenessOutcome.Recorded -> ResponseEntity.ok(mapOf("recorded" to true))
             is LivenessOutcome.Rejected -> badRequest(outcome.reason)
         }

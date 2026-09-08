@@ -43,24 +43,56 @@ class SiteNameRegistration(private val db: Db, private val now: () -> Instant = 
      */
     fun required(robotId: String): Set<String> = db.transaction { c -> requiredIn(c, robotId) }
 
-    /** 이 기체의 등록 상태. */
+    /**
+     * 이 기체의 등록 상태.
+     *
+     * **사람의 말과 기체의 답을 함께 본다**(ADR 35). 운영자의 기록만 보면
+     * 오타 하나나 빠뜨린 이름 하나를 아무도 못 잡는다 — 계약의
+     * `GetKnownSiteNames`가 생기기 전까지가 그 상태였다.
+     */
     fun statusOf(robotId: String): SiteNameStatus {
         // **요구 집합을 먼저 본다.** 비어 있으면 등록 여부를 묻는 것 자체가
         // 뜻이 없다 — G1처럼 시맨틱 스킬을 하나도 안 드는 기종이 그렇다.
         if (required(robotId).isEmpty()) return SiteNameStatus.NOT_REQUIRED
 
-        val recorded = db.transaction { c ->
+        val row = db.transaction { c ->
             c.prepareStatement(
-                "SELECT site_names_registered_at IS NOT NULL FROM robot_binding " +
-                    "WHERE robot_id = ? AND unbound_at IS NULL",
+                """
+                SELECT b.site_names_registered_at IS NOT NULL,
+                       l.site_names_reported_at IS NOT NULL,
+                       COALESCE(l.site_names_unsupported, false),
+                       COALESCE(l.site_names_count, 0)
+                FROM robot_binding b
+                LEFT JOIN robot_liveness l ON l.robot_id = b.robot_id
+                WHERE b.robot_id = ? AND b.unbound_at IS NULL
+                """.trimIndent(),
             ).use { st ->
                 st.setString(1, robotId)
-                st.executeQuery().use { rs -> if (rs.next()) rs.getBoolean(1) else null }
+                st.executeQuery().use { rs ->
+                    if (rs.next()) Row(rs.getBoolean(1), rs.getBoolean(2), rs.getBoolean(3), rs.getInt(4)) else null
+                }
             }
         } ?: return SiteNameStatus.NOT_REQUIRED
 
-        return if (recorded) SiteNameStatus.REGISTERED else SiteNameStatus.UNREGISTERED
+        if (!row.claimed) return SiteNameStatus.UNREGISTERED
+
+        // 기체가 아직 답한 적이 없다 — 사람의 말뿐이다.
+        if (!row.answered) return SiteNameStatus.CLAIMED
+
+        // **답했는데 아는 이름이 없다.** 통째로 안 했거나 엉뚱한 기체에 했다.
+        // 이름을 호스팅 못 하는 기종도 여기다 — 등록할 자리가 없는데 했다고
+        // 적혀 있으면 그 기록이 틀린 것이다.
+        if (row.unsupported || row.count == 0) return SiteNameStatus.CONTRADICTED
+
+        return SiteNameStatus.CONFIRMED
     }
+
+    private class Row(
+        val claimed: Boolean,
+        val answered: Boolean,
+        val unsupported: Boolean,
+        val count: Int,
+    )
 
     /**
      * 등록했다고 기록한다.
@@ -146,11 +178,21 @@ sealed interface RecordOutcome {
 }
 
 /**
- * 등록 상태 셋.
+ * 등록 상태 다섯.
+ *
+ * ## 왜 다섯인가
  *
  * **`NOT_REQUIRED`와 `UNREGISTERED`를 접으면 안 된다.** 접으면 이름을 쓸 일이
  * 없는 기종이 영원히 "안 했다"로 보이고, 그러면 화면이 언제나 빨개서 아무도
  * 안 본다 — §15.47이 `liveness`를 다섯으로 나눈 것과 같은 이유다.
+ *
+ * **`CLAIMED`와 `CONFIRMED`를 접으면 안 된다.** 앞은 사람이 그렇다고 말한
+ * 것이고 뒤는 기체가 그렇게 답한 것이다. 접으면 자기 신고가 관측인 척한다 —
+ * §9.7 ④의 `UNTESTED`가 막으려는 바로 그것이다.
+ *
+ * **`CONTRADICTED`가 이 확장의 이유다.** 사람은 했다는데 기체는 아는 이름이
+ * 없다고 답한 상태이며, 계약에 질의가 생기기 전까지는 **이 상태를 표현할
+ * 수단 자체가 없었다.**
  */
 enum class SiteNameStatus {
     /** 이 기체가 드는 스킬 중 사이트 이름을 쓰는 것이 없다. */
@@ -159,6 +201,19 @@ enum class SiteNameStatus {
     /** 써야 하는데 등록했다는 기록이 없다. **기본값이며 그것이 요점이다.** */
     UNREGISTERED,
 
-    /** 사람이 등록했다고 기록했다. */
-    REGISTERED,
+    /** 사람은 등록했다는데 **기체가 아직 답한 적이 없다.** */
+    CLAIMED,
+
+    /** 사람도 등록했다 하고 **기체도 이름을 안다고 답했다.** */
+    CONFIRMED,
+
+    /**
+     * 사람은 등록했다는데 **기체는 아는 이름이 없다**고 답했다.
+     *
+     * 통째로 안 했거나, 엉뚱한 기체에 했거나, 이름을 호스팅 못 하는 기종이다.
+     * **이름 하나를 오타 낸 것은 여기서 안 잡힌다** — 개수가 같기 때문이고,
+     * 잡으려면 무엇을 등록했어야 하는지의 목록이 필요한데 그것을 `registry`가
+     * 드는 순간 ADR 35의 결정이 깨진다.
+     */
+    CONTRADICTED,
 }

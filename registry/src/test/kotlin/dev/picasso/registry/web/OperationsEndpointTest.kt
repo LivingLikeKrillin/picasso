@@ -157,7 +157,10 @@ class OperationsEndpointTest {
         val response = post("r1", token = OPERATOR_TOKEN)
         assertEquals(200, response.statusCode.value())
         val body = response.body.orEmpty()
-        assertTrue("REGISTERED" in body, body)
+        // **"REGISTERED" 가 아니라 "CLAIMED" 다.** 기록한 순간에는 사람의
+        // 말뿐이고 기체는 아직 답한 적이 없다 — 그것을 성공으로 적으면 자기
+        // 신고가 관측인 척한다(ADR 35).
+        assertTrue("CLAIMED" in body, body)
         assertTrue("location" in body && "object_id" in body && "destination" in body, body)
     }
 

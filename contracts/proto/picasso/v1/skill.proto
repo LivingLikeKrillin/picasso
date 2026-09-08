@@ -182,10 +182,49 @@ message NegotiateResponse {
   repeated Rejection rejections = 3;
 }
 
+// 이 기체가 아는 **사이트 이름들**을 묻는다. ADR 35 — *"사이트 이름은 로봇
+// 안에 산다"*.
+//
+// 계약이 나르는 `location`·`object_id`·`destination`·`target` 은 사이트가
+// 저작해 로봇에 등록해 둔 이름이고, 등록은 계약 밖의 배포 작업이다. 그러면
+// **등록했는지를 무엇으로 아는가**가 남는다 — 지금까지는 사람이 레지스트리에
+// "했다"고 적는 것뿐이었고, 오타 하나나 빠뜨린 이름 하나를 아무도 못 잡았다.
+//
+// 이 질의가 그 자리를 메운다. 기체가 답하면 사람의 말이 아니라 **기체의
+// 보고**가 된다.
+message GetKnownSiteNamesRequest {
+  MessageHeader header = 1;
+  string robot_id = 2;
+}
+
+message GetKnownSiteNamesResponse {
+  MessageHeader header = 1;
+
+  // 이 기체가 아는 이름들. 빈 목록은 **"하나도 등록 안 됐다"** 는 뜻이고
+  // 그것은 사실이다 — 모른다는 뜻이 아니다. 모르는 경우는 아래 unsupported다.
+  repeated string names = 2;
+
+  // **이름을 호스팅하지 못하는 기종인가.** 빈 목록과 반드시 구별한다 —
+  // Unitree G1 처럼 이름을 등록할 자리 자체가 없는 기체가 있고(§2.3),
+  // 그것을 "0개 등록됨"으로 접으면 등록을 요구하게 된다. 이 저장소가
+  // 원장에서 "0"과 "모른다"를 가른 것과 같은 규율이다.
+  bool unsupported = 3;
+
+  // 기체가 아는 이름의 **전체 개수**. `names` 는 §7.2의
+  // `protocol_limits.max_array_length` 에 걸려 잘릴 수 있으므로, 잘렸는지를
+  // 이 값으로 안다(`total_count > names.size`). 세지 않으면 지도가 큰
+  // 사이트에서 목록이 조용히 잘리고 소비자는 그것을 전부로 읽는다.
+  uint32 total_count = 4;
+}
+
 service SkillService {
   // 유효 능력의 투영을 돌려준다 = 프로파일 - 런타임 오버라이드.
   rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
 
   // 세션 시작 시 한 번. 태스크를 보내보고 실패하는 것이 아니라 사전 협상이다.
   rpc Negotiate(NegotiateRequest) returns (NegotiateResponse);
+
+  // 이 기체가 아는 사이트 이름들(ADR 35). **등록했다는 사람의 말을 기체의
+  // 보고로 바꾸는 유일한 경로다.**
+  rpc GetKnownSiteNames(GetKnownSiteNamesRequest) returns (GetKnownSiteNamesResponse);
 }

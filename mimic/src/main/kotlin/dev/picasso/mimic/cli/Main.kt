@@ -7,6 +7,7 @@ import dev.picasso.mimic.engine.VirtualClock
 import dev.picasso.mimic.profile.FileProfileSource
 import dev.picasso.mimic.profile.ProfileRejected
 import dev.picasso.mimic.report.RegistryLink
+import dev.picasso.mimic.report.SiteNameSummary
 import dev.picasso.mimic.transport.MimicServer
 import dev.picasso.mimic.transport.MqttPublisher
 import dev.picasso.mimic.transport.Publisher
@@ -177,7 +178,22 @@ class MimicCli {
                     id, source.load(path), clock, seed,
                     // 발행을 감싸 태스크 관측을 적재로 넘긴다. 연계가 없으면
                     // 그대로 지나간다.
-                    publisher = link.wrap(outbound) { built[it]?.robotSoftware },
+                    // 사이트 이름 요약이 생존 보고에 함께 실린다(ADR 35) —
+                    // 목록이 아니라 요약인 것이 요점이며, 레지스트리는 이름의
+                    // 주인이 아니다.
+                    publisher = link.wrap(
+                        outbound,
+                        software = { built[it]?.robotSoftware },
+                        siteNames = { id ->
+                            built[id]?.let { instance ->
+                                val known = instance.knownSiteNames
+                                SiteNameSummary(
+                                    unsupported = known == null,
+                                    count = known?.size ?: 0,
+                                )
+                            }
+                        },
+                    ),
                     site = site,
                 ).also { built[id] = it }
             } catch (e: ProfileRejected) {

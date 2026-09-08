@@ -5,6 +5,8 @@ import dev.picasso.mimic.control.v1.AdvanceClockResponse
 import dev.picasso.mimic.control.v1.ClockMode
 import dev.picasso.mimic.control.v1.CapabilityChangeResponse
 import dev.picasso.mimic.control.v1.ControlServiceGrpc
+import dev.picasso.mimic.control.v1.SetKnownSiteNamesRequest
+import dev.picasso.mimic.control.v1.SetKnownSiteNamesResponse
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
 import dev.picasso.mimic.control.v1.DumpInternalStateResponse
 import dev.picasso.mimic.control.v1.ForceControlAuthorityLossRequest
@@ -419,6 +421,32 @@ class ControlServer(
          * 빈 문자열은 **못 읽는 기종**이다. `null`로 바꾸는 것이 그 뜻이며,
          * 진단이 "모름"과 "불일치"를 가르는지 보려면 그 상태가 필요하다.
          */
+        /**
+         * 사이트 이름을 심는다(ADR 35).
+         *
+         * **프로파일이 아니라 여기인 것이 요점이다.** 프로파일은 기종을
+         * 기술하고 이름은 사이트가 저작한다 — 프로파일에 넣으면 같은 기종이
+         * 사이트마다 다른 문서를 갖게 된다.
+         *
+         * `unsupported`가 목록보다 세다. 이름을 호스팅 못 하는 기종을 만들 때
+         * 목록을 함께 주는 것은 모순이므로 목록을 버린다.
+         */
+        override fun setKnownSiteNames(
+            request: SetKnownSiteNamesRequest,
+            observer: StreamObserver<SetKnownSiteNamesResponse>,
+        ) {
+            val hosted = hosted(request.robotId, observer) ?: return
+            hosted.instance.knownSiteNames =
+                if (request.unsupported) null else request.knownList.toList()
+            reply(
+                observer,
+                SetKnownSiteNamesResponse.newBuilder()
+                    .addAllKnown(hosted.instance.knownSiteNames.orEmpty())
+                    .setUnsupported(hosted.instance.knownSiteNames == null)
+                    .build(),
+            )
+        }
+
         override fun setRobotSoftware(
             request: SetRobotSoftwareRequest,
             observer: StreamObserver<SetRobotSoftwareResponse>,

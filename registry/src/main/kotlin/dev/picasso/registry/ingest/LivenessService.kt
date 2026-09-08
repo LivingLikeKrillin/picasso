@@ -51,10 +51,15 @@ class LivenessService(
      * @param software 기체가 보고한 로봇 소프트웨어 식별자. **못 읽는 기종이면
      *   `null`이고 빈 문자열이 아니다** — 신원 질의가 아예 없는 실물이 있다.
      */
+    /**
+     * @param siteNames 기체가 아는 사이트 이름의 요약(ADR 35). `null`이면
+     *   **안 물어본 것**이고, 이미 받아 둔 값을 지우지 않는다.
+     */
     fun record(
         header: MessageHeader,
         state: ConnectionState,
         software: String?,
+        siteNames: SiteNameReport? = null,
     ): LivenessOutcome {
         val robotId = header.robotId
         if (robotId.isBlank()) return LivenessOutcome.Rejected("헤더에 robot_id가 없다")
@@ -74,8 +79,9 @@ class LivenessService(
             c.prepareStatement(
                 """
                 INSERT INTO robot_liveness
-                    (robot_id, last_reported_at, connection_state, capability_epoch, robot_software)
-                VALUES (?, ?, ?, ?, ?)
+                    (robot_id, last_reported_at, connection_state, capability_epoch, robot_software,
+                     site_names_unsupported, site_names_count, site_names_reported_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (robot_id) DO UPDATE SET
                     last_reported_at = EXCLUDED.last_reported_at,
                     connection_state = EXCLUDED.connection_state,
@@ -87,6 +93,18 @@ class LivenessService(
                     -- **못 읽는 보고가 이미 읽은 값을 지우지 않는다.**
                     robot_software = COALESCE(
                         EXCLUDED.robot_software, robot_liveness.robot_software
+                    ),
+                    -- **안 물어본 보고가 이미 받은 답을 지우지 않는다.**
+                    -- 옛 어댑터가 섞여 도는 동안 그 보고마다 상태가 "모른다"로
+                    -- 되돌아가면 등록 확인이 영원히 안 선다.
+                    site_names_unsupported = COALESCE(
+                        EXCLUDED.site_names_unsupported, robot_liveness.site_names_unsupported
+                    ),
+                    site_names_count = COALESCE(
+                        EXCLUDED.site_names_count, robot_liveness.site_names_count
+                    ),
+                    site_names_reported_at = COALESCE(
+                        EXCLUDED.site_names_reported_at, robot_liveness.site_names_reported_at
                     )
                 """.trimIndent(),
             ).use { s ->
@@ -95,9 +113,30 @@ class LivenessService(
                 s.setString(3, state.name)
                 s.setLong(4, header.capabilityEpoch)
                 s.setString(5, software)
+                if (siteNames == null) {
+                    s.setNull(6, java.sql.Types.BOOLEAN)
+                    s.setNull(7, java.sql.Types.INTEGER)
+                    s.setNull(8, java.sql.Types.TIMESTAMP)
+                } else {
+                    s.setBoolean(6, siteNames.unsupported)
+                    s.setInt(7, siteNames.count)
+                    s.setTimestamp(8, java.sql.Timestamp.from(now()))
+                }
                 s.executeUpdate()
             }
             LivenessOutcome.Recorded
         }
     }
 }
+
+/**
+ * 기체가 보고한 사이트 이름 요약(ADR 35).
+ *
+ * **이름이 아니라 요약이다.** `registry`는 사이트 이름의 주인이 아니므로
+ * 목록을 저장하지 않는다 — 저장하면 그 표가 두 번째 진실이 되고, 사이트에서
+ * 이름을 바꾼 날 어느 쪽이 맞는지 정해져 있지 않다.
+ *
+ * [unsupported]와 `count == 0`을 접으면 안 된다. 앞은 등록할 자리가 없는
+ * 기종이고 뒤는 자리는 있는데 비어 있는 것이다.
+ */
+data class SiteNameReport(val unsupported: Boolean, val count: Int)

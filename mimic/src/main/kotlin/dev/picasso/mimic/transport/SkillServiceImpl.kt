@@ -2,6 +2,8 @@ package dev.picasso.mimic.transport
 
 import dev.picasso.contracts.v1.GetCapabilitiesRequest
 import dev.picasso.contracts.v1.GetCapabilitiesResponse
+import dev.picasso.contracts.v1.GetKnownSiteNamesRequest
+import dev.picasso.contracts.v1.GetKnownSiteNamesResponse
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.SkillServiceGrpc
@@ -58,6 +60,60 @@ class SkillServiceImpl(
                 // 읽어 오는 사실이므로, 안에 넣으면 완료 기준 10의 투영 일치
                 // 시험이 성립하지 않는다. 못 읽는 기종이면 아예 안 싣는다.
                 hosted.instance.robotSoftware?.let(builder::setRobotSoftware)
+            }
+            .build()
+    }
+
+    /**
+     * 이 기체가 아는 **사이트 이름들**(ADR 35).
+     *
+     * **등록했다는 사람의 말을 기체의 보고로 바꾸는 자리다.** 여기까지 오기
+     * 전에는 운영자가 레지스트리에 "했다"고 적는 것뿐이었고, 오타 하나나
+     * 빠뜨린 이름 하나를 아무도 못 잡았다.
+     *
+     * 셋을 구별해서 답한다.
+     *
+     * | 상태 | 어떻게 답하나 |
+     * |---|---|
+     * | 이름을 호스팅 못 하는 기종 | `unsupported = true` |
+     * | 호스팅하는데 하나도 등록 안 됨 | 빈 목록, `unsupported = false` |
+     * | 아는 이름이 있음 | 목록과 [GetKnownSiteNamesResponse.getTotalCount] |
+     *
+     * **가운데를 첫째와 접으면 안 된다** — 등록할 자리가 없는 기체에게 등록을
+     * 요구하게 된다.
+     *
+     * 목록은 `protocol_limits.max_array_length`에 걸려 **잘린다.** 잘린 것을
+     * 알리는 것이 `total_count`이며, 세지 않으면 지도가 큰 사이트에서 목록이
+     * 조용히 잘리고 소비자가 그것을 전부로 읽는다.
+     */
+    override fun getKnownSiteNames(
+        request: GetKnownSiteNamesRequest,
+        observer: StreamObserver<GetKnownSiteNamesResponse>,
+    ) = reply(observer) {
+        val hosted = registry.require(request.header)
+
+        val payloadRobotId = request.robotId
+        if (payloadRobotId.isNotBlank() && payloadRobotId != request.header.robotId) {
+            throw Status.INVALID_ARGUMENT
+                .withDescription(
+                    "헤더와 페이로드의 robot_id가 다르다: " +
+                        "헤더='${request.header.robotId}', 페이로드='$payloadRobotId'",
+                )
+                .asRuntimeException()
+        }
+
+        val known = hosted.instance.knownSiteNames
+        val limit = hosted.instance.document.maxArrayLength
+
+        GetKnownSiteNamesResponse.newBuilder()
+            .setHeader(hosted.headers.forResponse(GetKnownSiteNamesResponse.getDescriptor()))
+            .also { builder ->
+                if (known == null) {
+                    builder.unsupported = true
+                } else {
+                    builder.totalCount = known.size
+                    builder.addAllNames(known.take(limit))
+                }
             }
             .build()
     }
