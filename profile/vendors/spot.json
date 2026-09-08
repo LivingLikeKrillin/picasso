@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "derived_from": {
-    "source": "설계 §2.3의 실물 조사. Boston Dynamics Spot SDK 공개 문서와 라이선스 원문.",
-    "observed_at": "2026-09-05"
+    "source": "설계 §2.3의 실물 조사(2026-09-05, 공개 문서와 라이선스 원문). **2026-09-08에 공개 proto 원문으로 갱신했다** — boston-dynamics/spot-sdk 의 `graph_nav.proto`·`manipulation_api.proto`·`basic_command.proto`·`image.proto`·`lease.proto`·`mission/mission_service.proto`·`mission/nodes.proto`. 그 읽기가 `UNKNOWN` 둘을 해소했고 하나는 뒤집었다.",
+    "observed_at": "2026-09-08"
   },
   "vendor": "Boston Dynamics",
   "model": "Spot",
@@ -10,8 +10,8 @@
   "transport": "GRPC",
 
   "exclusive_control_required": "YES",
-  "pause_support": "UNKNOWN",
-  "cancel_support": "UNKNOWN",
+  "pause_support": "YES",
+  "cancel_support": "YES",
   "terminal_latches": "UNKNOWN",
 
   "coverage": {
@@ -24,8 +24,8 @@
       "evidence": "DirectoryService.ListServiceEntries 로 런타임 서비스 발견"
     },
     "cancel_pause": {
-      "level": "PARTIAL",
-      "evidence": "취소·일시정지 가능 여부를 선언하지 않는다. 되는지 안 되는지가 아니라 말하지 않는다는 뜻이다"
+      "level": "FULL",
+      "evidence": "**미션 계층에서 선언한다** — MissionService 에 PauseMission·StopMission·RestartMission 이 RPC 로 있다. 명령 계층(basic_command.proto)에는 없으며 StopCommand 는 'takes no additional arguments' 이고 'provides no feedback' 이다. 층을 안 나누면 이 항목의 판정이 갈린다"
     },
     "parameter_ranges": {
       "level": "PARTIAL",
@@ -48,6 +48,10 @@
   "notes": [
     "우리 설계의 정본 사례다 — 능력을 선언하고, 결함의 복구 가능성을 로봇이 판정하고, 소유권을 Lease{resource, epoch, sequence[]} 벡터 클럭으로 다룬다.",
     "그런데 코드를 쓸 수 없다. 라이선스 §2(c)가 BD 하드웨어 전용이고 §2(b)가 재라이선스를 금하므로 Spot proto·생성 스텁을 벤더 중립 공통 계층에 넣으면 위반이다. 개념만 차용하고 코드는 Spot 어댑터 안에 격리한다(ADR 31).",
-    "cancel_support 가 NO 가 아니라 UNKNOWN 인 것이 §7.2의 Support 3값이 필요한 이유다. NO 로 접으면 취소를 못 하는 로봇이 되고, YES 로 접으면 되는 줄 알고 보냈다가 런타임에 안다."
+    "**cancel_support 가 UNKNOWN 에서 YES 로 뒤집혔고, 그것이 §7.2의 Support 3값이 필요한 이유의 증명이다.** 2026-09-05에는 선언을 못 찾아 UNKNOWN 이었다. 2026-09-08에 proto 를 전수로 읽으니 MissionService.StopMission 이 있었다. UNKNOWN 을 NO 로 접는 규약이었다면 우리는 '취소를 못 하는 로봇'이라고 **거짓을 적었을** 것이고, 그 거짓 위에서 어댑터가 취소를 구현하지 않았을 것이다.",
+    "**우리 계약은 명령 계층이 아니라 미션 계층에 있다.** MissionService 의 PlayMission·PauseMission·StopMission·RestartMission·GetState·AnswerQuestion 이 우리 태스크 생명주기와 모양이 같고, NEEDS_INTERVENTION 에 해당하는 것(AnswerQuestion + Prompt 노드)까지 있다. 명령 계층에는 그 중 어느 것도 없다. 이 층 구분이 G1 의 거리도 설명한다 — G1 은 미션 계층이 아예 없다.",
+    "**나머지 스킬의 거리는 전부 시맨틱 신원이다.** navigate_to 만 맞는데, 항법이 쉬워서가 아니라 GraphNav 이 이미 시맨틱 결속을 해 두고 destination_waypoint_id 라는 문자열로 노출하기 때문이다. inspect 는 ImageRequest.image_source_name 이 **센서** 이름이지 대상이 아니고, pick_place 는 PickObjectInImage{pixel_xy}·PickObject{object_rt_frame: Vec3} 라 픽셀과 3D 점이다.",
+    "**벤더 자신의 API 에도 같은 비대칭이 있다.** manipulation_cmd oneof 의 여섯이 전부 pick 이나 walk-to 인데 피드백 열거에는 MANIP_STATE_MOVING_TO_PLACE·PLACE_SUCCEEDED·PLACE_FAILED 가 있다. 놓기의 결과는 선언하면서 놓으라는 요청이 없고, 미션 노드에도 없다. 벤더의 답은 RemoteGrpc(네 서비스를 불러라)다.",
+    "**CONTROL_AUTHORITY_LOST 의 근거가 여기 있다.** LeaseUseResult.Status 에 STATUS_REVOKED·STATUS_OLDER·STATUS_WRONG_EPOCH 가 있어 §4.9 를 기계적으로 채울 수 있다. G1 은 lease id 가 있어도 인증이 없어 같은 것을 못 채운다."
   ]
 }

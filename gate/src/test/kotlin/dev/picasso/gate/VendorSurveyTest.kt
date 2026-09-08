@@ -84,23 +84,46 @@ class VendorSurveyTest {
         }
     }
 
-    // ── §2.3이 발견한 것들
+    // ── §2.3이 발견한 것들 (그리고 2026-09-08 에 갱신된 것들)
 
     @Test
-    fun `취소 지원이 NO 와 UNKNOWN 으로 갈린다`() {
-        // **이것이 `Support` 3값이 존재하는 이유다.** §2.3의 문장 —
-        // *"지원하지 않음과 근거가 없어 모름을 구분하지 못하면 Digit 프로파일
-        // 작성자가 거짓말을 하게 된다."*
+    fun `모른다를 없다로 접었다면 거짓을 적었을 자리가 있다`() {
+        // **`Support` 3값이 필요한 이유가 여기서 증명됐다.**
         //
-        // 둘을 접으면 Spot 이 "취소를 못 하는 로봇"이 되거나 Digit 이
-        // "취소가 되는 로봇"이 된다. 어느 쪽이든 거짓이다.
+        // Spot 의 `cancel_support` 는 2026-09-05 조사에서 `UNKNOWN` 이었다 —
+        // 선언을 못 찾았기 때문이다. 2026-09-08 에 공개 proto 를 전수로 읽으니
+        // `MissionService.StopMission` 이 있었고 값이 **`YES` 로 뒤집혔다.**
+        //
+        // `UNKNOWN` 을 `NO` 로 접는 규약이었다면 우리는 "취소를 못 하는 로봇"
+        // 이라고 적었을 것이고, 그 거짓 위에서 어댑터가 취소를 구현하지 않았을
+        // 것이다. §2.3이 걱정한 것은 *"프로파일 작성자가 거짓말을 하게 된다"*
+        // 였고 실제로 그렇게 될 뻔했다.
         val byModel = surveys().associate { (_, n) ->
             value(n, "model") to value(n, "cancel_support")
         }
 
-        assertEquals("UNKNOWN", byModel["Spot"], "Spot 은 선언이 없어 모르는 것이다")
+        assertEquals("YES", byModel["Spot"], "미션 계층의 StopMission 이 취소다")
         assertEquals("NO", byModel["Digit"], "Digit 은 개념 자체가 없다")
         assertEquals("NO", byModel["G1"], "G1 은 프리미티브가 없다")
+    }
+
+    @Test
+    fun `아직 모르는 것이 남아 있다`() {
+        // **3값의 셋째가 데이터에서 사라지면 그 값은 스키마에만 있는 것이 되고,**
+        // 다음 사람이 "아무도 안 쓰는 값"이라 지운다. 지우고 나면 조사자가
+        // 모르는 것을 `NO` 로 적게 되고, 그 `NO` 는 근거 없는 판정이다.
+        //
+        // 위 시험이 `UNKNOWN` 을 하나 소비했으므로 남은 것이 있는지 여기서 센다.
+        // 없어지는 날은 이 시험이 빨개지고, 그때 물어야 할 것은 "정말 다
+        // 알아냈는가"이지 "이 시험을 지울까"가 아니다.
+        val unresolved = surveys().flatMap { (name, node) ->
+            THREE_VALUED.filter { value(node, it) == "UNKNOWN" }.map { "$name#$it" }
+        }
+
+        assertTrue(
+            unresolved.isNotEmpty(),
+            "조사 전체에 UNKNOWN 이 하나도 없다 — 3값의 셋째가 죽은 값이 됐다",
+        )
     }
 
     @Test
@@ -175,6 +198,15 @@ class VendorSurveyTest {
     }
 
     private companion object {
+
+        /** `Support` 3값 어휘를 쓰는 조사 필드들. */
+        val THREE_VALUED = listOf(
+            "exclusive_control_required",
+            "pause_support",
+            "cancel_support",
+            "terminal_latches",
+        )
+
         val CONFIG: SchemaValidatorsConfig =
             SchemaValidatorsConfig.builder().locale(Locale.KOREAN).build()
     }
