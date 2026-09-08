@@ -80,7 +80,7 @@ class Preconditions(
     fun evaluate(check: PreconditionCheck): CheckOutcome = when (check.type) {
         CheckType.NO_ACTIVE_CONSUMERS -> noActiveConsumers(check.required("skill"), check.major())
         CheckType.NO_INFLIGHT_TASKS -> noInflightTasks(check.required("skill"), check.major())
-        CheckType.DEPRECATION_PUBLISHED -> deprecationPublished(check.required("skill"))
+        CheckType.DEPRECATION_PUBLISHED -> deprecationPublished(check.required("skill"), check.major())
         CheckType.NO_ACTIVE_BINDINGS -> noActiveBindings(check)
         CheckType.SUCCESSOR_ACTIVE -> successorActive(check)
         CheckType.CAPABILITY_WITHDRAWN -> capabilityWithdrawn(check)
@@ -211,8 +211,13 @@ class Preconditions(
      * 개정판의 `profile_skill.deprecated_after`이고, 계약 축은
      * `skill_type_deprecation`이다. 한쪽만 보면 다른 쪽으로 낸 예고가 없는
      * 것이 되고, 그러면 예고를 해 놓고도 제거가 영원히 안 열린다.
+     *
+     * **major까지 짚는다.** `skill_type_deprecation`의 PK가 `skill_type_id`이고
+     * 그것이 `(name, major)` 단위이므로 표가 이미 그 해상도를 갖고 있었다.
+     * 이름만 보면 `@2`에 낸 예고가 `@1`의 제거를 열어 준다 — 아무도 아직
+     * 옮기라고 듣지 못한 판을 지우는 것이다.
      */
-    private fun deprecationPublished(skill: String): CheckOutcome {
+    private fun deprecationPublished(skill: String, major: Int): CheckOutcome {
         val published = db.open().use { c ->
             c.prepareStatement(
                 """
@@ -220,24 +225,28 @@ class Preconditions(
                     SELECT count(*) FROM profile_skill ps
                     JOIN skill_type s       ON s.skill_type_id = ps.skill_type_id
                     JOIN profile_revision r ON r.profile_revision_id = ps.profile_revision_id
-                    WHERE s.name = ? AND r.status = 'ACTIVE'
+                    WHERE s.name = ? AND s.major = ? AND r.status = 'ACTIVE'
                       AND ps.deprecated_after IS NOT NULL
                 ) + (
                     SELECT count(*) FROM skill_type_deprecation d
                     JOIN skill_type s ON s.skill_type_id = d.skill_type_id
-                    WHERE s.name = ?
+                    WHERE s.name = ? AND s.major = ?
                 )
                 """.trimIndent(),
             ).use { st ->
-                st.setString(1, skill)
-                st.setString(2, skill)
+                st.setString(1, skill); st.setInt(2, major)
+                st.setString(3, skill); st.setInt(4, major)
                 st.executeQuery().use { rs -> check(rs.next()); rs.getInt(1) }
             }
         }
         return CheckOutcome(
             CheckType.DEPRECATION_PUBLISHED,
             published > 0,
-            if (published > 0) "폐기 예고 기입됨" else "$skill 의 폐기 예고가 아직 없다",
+            if (published > 0) {
+                "폐기 예고 기입됨"
+            } else {
+                "$skill@$major 의 폐기 예고가 아직 없다"
+            },
         )
     }
 
