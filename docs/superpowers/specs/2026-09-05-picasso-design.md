@@ -1701,3 +1701,10 @@ mimic/
     **이름 공간이 둘이다.** 장소는 `Waypoint.annotations.name`, 대상은 `WorldObject.name`. 계약의 `is_site_reference`도 장소(`location`·`destination`)와 대상(`object_id`·`target`)으로 갈린다. **그러므로 `GetKnownSiteNames`가 그래프만 보는 것은 반만 보는 것이다**(§15.73에 더한다).
 
     **막는 장치.** 거리 스키마에 `survey_scope`를 **필수**로 더했다 — *"이 측정이 벤더 표면의 얼마를 봤는가"*. `evidence_grade`가 *출처가 얼마나 1차인가*라면 이것은 *얼마나 넓게 봤는가*이고, **둘은 다르다**: 1차 원문 세 개만 읽어도 등급은 `VENDOR_PRIMARY`다. 이 항목의 오류가 정확히 그 틈에서 났다. 셋 다 범위를 적었다.
+
+
+77. **어댑터가 벤더의 *어느 층*에 붙는지가 어디에도 안 적혀 있다 — 가정으로만 있다.** 실물 어댑터 셋이 전부 **로봇에 직접** 붙는다(Spot gRPC · Digit WebSocket · G1 DDS). 그래서 *"어댑터 하나 = 기종 하나"*가 ADR 31·33의 전제로 굳어 있는데, **그 전제가 코드에도 프로파일에도 선언돼 있지 않다.**
+
+    붙는 자리가 다른 층일 수 있다는 것은 추측이 아니라 실물이다 — BD의 **Orbit**이 플릿 매니저로 실재하고, 그 표면을 직접 재어 `docs/vendors/orbit.md`에 적었다. 거기 붙으면 셋이 달라진다: 어댑터가 **플릿 하나에 하나**이고 뒤에 로봇 N대가 `nickname`으로 구분되며(신원의 단위가 바뀐다), **`Lease`가 없고**(§4.9의 배타 제어가 걸 데가 없다 — Orbit에는 `task.forceAcquireEstop` 불리언과 `robotIndex`뿐이다), **결과가 정수 하나로 뭉개진다**(`RunEvent.error`는 `type: "integer"`이고 `eventType`은 `daq|screenshot` 둘이다 — Spot이 `ManipulationFeedbackState`로 가르는 파지 실패와 raycast 실패가 그 문을 못 지난다).
+
+    **여기서 정하지 않는다.** 플릿 경유 어댑터가 실제 대상인지 모르는 상태에서 결정을 내리는 것이 이 항목의 목적이 아니다. 적어 두는 이유는 **가정이 안 적혀 있으면 그것이 깨질 때 깨진 줄을 모르기 때문**이고, 그것은 §15.75(표본 셋으로 전수를 단정)와 같은 종류의 실수다. 정하게 된다면 값은 최소 `ROBOT_DIRECT`와 `FLEET_MANAGER` 둘이며, 배타 제어와 결과 어휘가 그 값에 딸려 간다.
