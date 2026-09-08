@@ -33,21 +33,23 @@
       "evidence": "**정정 (2026-09-09). PARTIAL 은 그대로지만 앞 판이 적은 두 결손 중 하나가 틀렸다.** 앞 판은 *'관측 결과를 대상에 결속하는 것이 없다 — 취득물은 카메라와 시각에 묶인다'* 고 적었다. **결속할 자리가 있다** — `CaptureActionId{action_name, group_name, timestamp}` 가 취득 하나를 **사이트가 짓는 이름**으로 묶고, Autowalk 이 *'replaces the action_name field in the CaptureActionId with the element name'* 로 그 이름을 워크의 원소 이름으로 채운다. 결과는 저장소에서 그 id 로 조회된다. 생명주기도 온전하다 — `AcquireData`(수락) · `GetStatus`(폴) · `CancelAcquisition`(취소) · `GetServiceInfo`(능력 질의). **진짜 결손은 모양의 어긋남이다.** BD 는 점검을 *'어디에 서서 어느 이름의 액션을 돌리는가'* 로 모델링한다(`Element{target, action}`). 우리 계약은 `inspect(target)` 로 **물체 신원**을 묻는다. `inspect` 가 실물 셋 어디에도 안 닿는 것이 벤더의 결손이 아니라 **우리 형식이 틀렸을 가능성**을 이 조사가 처음 제기한다."
     },
     "pick_place": {
-      "reachable": "NO",
-      "vendor_primitive": "`ManipulationApiService.ManipulationApi` — 요청 `oneof` 가 여섯이다: `PickObject{frame_name, object_rt_frame: Vec3}` · `PickObjectInImage{pixel_xy}` · `PickObjectRayInWorld` · `PickObjectExecutePlan` · `WalkToObjectInImage` · `WalkToObjectRayInWorld`. 그리고 `WorldObjectService.{ListWorldObjects, MutateWorldObjects}` 가 `WorldObject{id, name, transforms_snapshot, apriltag_properties, object_lifetime}` 를 판다.",
+      "reachable": "PARTIAL",
+      "vendor_primitive": "`WorldObjectService.{ListWorldObjects, MutateWorldObjects}` + `ManipulationApiService.ManipulationApi{PickObject{frame_name, object_rt_frame}}` + `RobotCommandService` 의 `ArmCartesianCommand{root_frame_name, pose_trajectory_in_task}` + `ClawGripperCommand`. 놓기는 이 셋의 합성이다.",
       "missing": [
-        "**놓기 요청이 없다.** 피드백 열거에는 `MANIP_STATE_MOVING_TO_PLACE`·`PLACE_SUCCEEDED`·`PLACE_FAILED` 가 있는데 요청 `oneof` 에는 대응이 없고 `reserved 3, 6, 9` 만 남아 있다. 놓기를 하려면 어댑터가 `destination`(사이트 이름)을 팔 자세로 옮겨야 하고 그것은 ADR 34 위반이다",
-        "이름으로 대상을 지시하는 **집기 요청** — `WorldObject.name` 으로 고른 객체의 프레임을 얻어 `PickObject{frame_name}` 로 합성할 수 있어 보이나, 클라이언트가 `ACTION_ADD` 로 넣은 객체에도 프레임 이름이 붙는지 확인하지 못했다(근거 등급 INFERRED)"
+        "**대상을 신원이 아니라 위치로 지시한다.** `PickObject` 는 3D 점을 받고, 이름→점 변환은 질의 시점의 스냅샷으로 한 번 굳는다. 질의와 파지 사이에 객체가 움직이면 어댑터가 모른다 — Digit 은 `ObjectSelector{name}` 를 넘겨 **로봇이 파지 시점에 다시 푼다**",
+        "**놓기가 하나의 의미 액션이 아니다.** 팔 궤적 + 그리퍼 열기의 순서이며, 목적지 프레임 대비 **놓는 자세를 어댑터가 정한다**(Digit 의 `action-place` 도 `pose` 를 받지만 한 메시지 안이고 로봇이 참조 프레임을 푼다)"
       ],
-      "adapter_must_own": "놓기 자세. **그래서 안 든다.**",
-      "evidence": "**정정 (2026-09-09). 판정은 그대로 NO 지만 이유가 틀려 있었다.** 앞 판은 *'대상 시맨틱이 없다 — 픽셀과 3D 점만 있다'* 고 적었고, 그 위에서 *'Digit 이 대상을 이름으로 지시하는 유일한 기종'* 이라는 표본 셋 일반화가 나왔다. **Spot 에 `WorldObjectService` 가 있다** — `WorldObject.name` 이 *'A human readable name'* 이고, `ListWorldObjects` 로 열거하고 `MutateWorldObjects(ACTION_ADD)` 로 클라이언트가 등록하며, `ACTION_CHANGE`·`ACTION_DELETE` 는 *'only allowed to change objects added by the API-user'* 다. Digit 의 `add-object` + `notify-objects` + `ObjectSelector{name}` 와 **구조가 같고 만료 시간까지 대응한다.** 그러니 ADR 35 의 근거는 Digit 하나가 아니라 둘이며, 이 스킬이 안 서는 이유는 **대상 시맨틱의 부재가 아니라 놓기 요청의 부재**다. 이 오독은 54 개 중 3 개만 읽고 벤더에게 없는 것을 적어서 생겼다."
+      "adapter_must_own": "좌표 변환과 다단계 순서. **표는 안 갖는다** — 이름→위치는 로봇의 `transforms_snapshot` 에서 읽고, 어댑터는 `get_a_tform_b(snapshot, \"vision\", <객체 프레임>)` 에 해당하는 기계적 변환만 한다. 놓는 자세의 기본값은 어댑터의 것이며 로봇의 것이 아니다.",
+      "evidence": "**두 번 정정됐다.** 첫 판 NO(2026-09-08) — *'대상 시맨틱이 없다, 픽셀·3D 점뿐'*. 전수 조사 1 차(2026-09-09) — `WorldObjectService` 를 찾았으나 판정은 NO 로 두고 *'놓기 요청이 없다'* 로 이유만 바꿨다. **2 차(같은 날) — 그것도 과했다.** 고수준 놓기 *액션* 이 없는 것은 맞지만 놓기 자체는 `ArmCartesianCommand` + `ClawGripperCommand` 로 되고, 그것은 우리가 Digit 에서 이미 YES 로 인정한 **어댑터 합성**과 같은 종류다. 일관성상 NO 로 둘 수 없다.\n\n**프레임 결속의 실제 모양(벤더 예제로 확인).** 객체 프레임 이름은 명령에 **안 들어간다** — `fiducial_follow.py` 가 `get_a_tform_b(fiducial.transforms_snapshot, VISION_FRAME_NAME, fiducial.apriltag_properties.frame_name_fiducial)` 로 스냅샷에서 꺼내 `vision` 으로 옮기고 명령은 `frame_name=VISION_FRAME_NAME` 으로 나간다. `arm_grasp.py` 도 `grasp_params_frame_name = VISION_FRAME_NAME` 이다. **그래도 결속의 주인은 로봇이다** — 어댑터는 로봇이 준 프레임 트리를 읽을 뿐 표를 갖지 않는다(ADR 34).\n\n**사이트가 이름을 등록할 수 있다.** `mutate_world_objects.py` 가 `WorldObject(id=16, name='red_sphere_ball', ...)` 를 `ACTION_ADD` 로 넣고, 객체의 프레임(`'drawing_sphere'`)을 `vision` 기준 변환으로 직접 짜 넣는다. ADR 35 의 배치가 Spot 에서도 성립한다."
     }
   },
   "notes": [
     "**이 문서는 2026-09-09 에 전수 조사로 다시 쓰였다.** 앞 판은 서비스 54 개 중 3 개를 읽고 작성됐고, 그 위에서 ADR 34·35 의 근거와 '못 닿는 이유가 전부 시맨틱 신원이다' 라는 결론이 나왔다. 뒤집힌 것 셋 — 층이 넷이라는 것, Spot 에 세계 모델이 있다는 것, 취득 결과를 이름으로 결속할 자리가 있다는 것.",
+    "**`pick_place` 는 하루에 두 번 고쳤다** — NO(이유 틀림) → NO(이유 고침) → PARTIAL. 두 번째도 과했던 것은 *'고수준 놓기 액션이 없다'* 를 *'놓기를 못 한다'* 로 읽었기 때문이다. **있는 것을 조합하는 것과 없는 것을 짓는 것은 다르고, 우리는 Digit 에서 이미 앞의 것을 인정했다.**",
     "**여전히 맞는 것.** `move_relative`·`navigate_to` 의 판정과 근거, 놓기 요청의 부재, `location` 이 사람 이름이고 항법이 생성 id 를 받는다는 정정(2026-09-08).",
     "**닥는 둘이 서로 다른 계층에 올라탄다** — `move_relative` 는 명령, `navigate_to` 는 미션. 미션 서비스가 없는 기체에서 하나만 죽는다. §7.2 가 `Support` 를 스킬 단위로 둔 것이 **한 로봇 안에서** 값을 하는 첫 사례다.",
-    "**이름 공간이 둘이다.** 장소는 GraphNav 의 `Waypoint.annotations.name`, 대상은 `WorldObject.name`. 계약의 `is_site_reference` 파라미터도 장소(`location`·`destination`)와 대상(`object_id`·`target`)으로 갈리므로, `GetKnownSiteNames` 가 지금 그래프만 보는 것은 **반만 보는 것**이다(§15.73 의 남는 항목에 더한다)."
+    "**이름 공간이 둘이다.** 장소는 GraphNav 의 `Waypoint.annotations.name`, 대상은 `WorldObject.name`. 계약의 `is_site_reference` 파라미터도 장소(`location`·`destination`)와 대상(`object_id`·`target`)으로 갈리므로, `GetKnownSiteNames` 가 지금 그래프만 보는 것은 **반만 보는 것**이다(§15.73 의 남는 항목에 더한다).",
+    "**남은 비대칭이 진짜다.** Digit 은 파지 시점에 로봇이 이름을 다시 풀고, Spot 은 질의 시점의 좌표로 굳는다. 움직이는 대상에서 둘의 행동이 갈리며, 그것은 배관이 아니라 의미의 차이다."
   ],
-  "survey_scope": "BD 공개 SDK 의 서비스 **54 개 전수**(commit 8577b41, protos 152 개). 앞 판은 robot_command·mission·graph_nav **3 개**만 보고 판정했고, 그 위에서 '이 벤더에 무엇이 없다'를 적었다."
+  "survey_scope": "BD 공개 SDK 의 서비스 **54 개 전수**(commit 8577b41, protos 152 개) + 프레임 결속을 확인하기 위한 벤더 예제 코드 셋(`fiducial_follow`·`arm_grasp`·`mutate_world_objects`). 앞 판은 robot_command·mission·graph_nav **3 개**만 보고 판정했다."
 }

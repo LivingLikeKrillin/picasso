@@ -76,7 +76,15 @@ ADR 34는 후보 셋을 열어 두었다 — `registry`가 데이터로, 상위 
 
 이 문단은 원래 *"이 결정으로 안 풀린다 — 장소는 저작물이지만 물체는 매번 다른 곳에 있고, 필요한 것이 표가 아니라 관측하는 주체이며 그것은 §1.3의 비목표다"* 였다. **표본 둘에서 일반화한 것이었고 셋째가 반증했다.**
 
-- **Spot** — 결론(`pick_place` 안 섬)은 그대로지만 **이유가 틀렸었다.** 놓기 요청이 없는 것은 맞다(피드백 열거에 `MANIP_STATE_PLACE_*`가 있는데 요청 `oneof`에는 대응이 없고 `reserved 3, 6, 9`만 남았다). 틀린 것은 *"픽셀·3D점으로만 집는다"* 로 대상 시맨틱의 부재를 단정한 부분이다 — `WorldObject.name`으로 고른 객체의 프레임을 `PickObject{frame_name}`에 넣는 합성이 가능해 보인다(다만 클라이언트가 추가한 객체에도 프레임 이름이 붙는지는 **미확인**이라 근거 등급이 INFERRED다). BD의 답이 `RemoteGrpc`인 것은 그대로다.
+- **Spot** — **결론까지 바뀌었다(`NO` → `PARTIAL`).** 아래는 그 전말이다. 놓기 요청이 없는 것은 맞다(피드백 열거에 `MANIP_STATE_PLACE_*`가 있는데 요청 `oneof`에는 대응이 없고 `reserved 3, 6, 9`만 남았다). 틀린 것은 *"픽셀·3D점으로만 집는다"* 로 대상 시맨틱의 부재를 단정한 부분이다.
+
+  **미확인이었던 것이 확인됐다 (같은 날, 벤더 예제 코드).** 객체 프레임 이름은 명령에 **안 들어간다** — `fiducial_follow.py`가 `get_a_tform_b(fiducial.transforms_snapshot, VISION_FRAME_NAME, fiducial.apriltag_properties.frame_name_fiducial)`로 스냅샷에서 꺼내 `vision`으로 옮기고, 명령은 `frame_name=VISION_FRAME_NAME`으로 나간다.
+
+  **그래도 이 ADR의 배치는 지켜진다.** 이름→위치의 결속은 로봇의 프레임 트리에 있고 어댑터는 그것을 **읽을 뿐 표를 갖지 않는다.** 그리고 사이트가 이름을 등록할 수 있다 — `mutate_world_objects.py`가 `WorldObject(id=16, name='red_sphere_ball', …)`를 `ACTION_ADD`로 넣고 객체의 프레임을 `vision` 기준 변환으로 직접 짜 넣는다.
+
+  **그래서 `pick_place`가 `PARTIAL`로 올라간다.** 놓기는 `ArmCartesianCommand` + `ClawGripperCommand`의 합성으로 되고, 그것은 우리가 Digit에서 이미 YES로 인정한 **어댑터 합성**과 같은 종류다. 남는 비대칭은 하나이며 그것이 진짜다 — **Digit은 파지 시점에 로봇이 이름을 다시 풀고, Spot은 질의 시점의 좌표로 굳는다.** 움직이는 대상에서 둘의 행동이 갈린다.
+
+  BD의 답이 `RemoteGrpc`인 것은 그대로다.
 - **G1** — 그대로 맞다.
 - **Digit** — **벤더가 그 층을 판다.** `ObjectSelector`가 `name`만이 아니라 `has_attributes`·`april_tag_id`로도 고른다. 태그로 고르는 것은 **런타임 관측**이고, 물체가 움직여도 로봇이 따라간다는 뜻이다. 등록해 두는 것(`add-object`)과 관측해 찾는 것(`april_tag_id`)이 **같은 선택자 안에 있다.**
 

@@ -1638,7 +1638,13 @@ mimic/
     | Spot에는 대상 시맨틱이 없다 (픽셀·3D점뿐) | **`WorldObjectService`가 있다** — `WorldObject.name`이 *"A human readable name"*, `ListWorldObjects`로 열거, `MutateWorldObjects(ACTION_ADD)`로 클라이언트가 등록. Digit의 세계 모델과 구조가 같다 |
     | 취득 결과를 대상에 결속할 자리가 없다 | **`CaptureActionId{action_name, group_name, timestamp}`가 있다.** Autowalk이 *"replaces the action_name … with the element name"*로 채운다. 생명주기도 온전하다 — `AcquireData`·`GetStatus`·`CancelAcquisition`·`GetServiceInfo` |
 
-    **판정 자체는 둘 다 안 바뀐다** — `pick_place`는 여전히 NO(**놓기 요청이 없다**: 피드백 열거에 `MANIP_STATE_PLACE_*`가 있는데 요청 `oneof`에는 대응이 없고 `reserved 3, 6, 9`만 남았다), `inspect`는 여전히 PARTIAL. 바뀐 것은 **이유**이고, 그 이유 위에 ADR 34·35와 *"못 닿는 이유가 전부 시맨틱 신원이다"*라는 결론이 서 있었다.
+    **`pick_place`는 하루에 두 번 고쳤다 — NO(이유 틀림) → NO(이유 고침) → PARTIAL.** 두 번째도 과했다. 고수준 놓기 *액션*이 없는 것은 맞지만(피드백 열거에 `MANIP_STATE_PLACE_*`가 있는데 요청 `oneof`에는 대응이 없고 `reserved 3, 6, 9`만 남았다) **놓기 자체는 `ArmCartesianCommand` + `ClawGripperCommand`로 되고, 그것은 우리가 Digit에서 이미 YES로 인정한 어댑터 합성과 같은 종류다.** 일관성상 NO로 둘 수 없다. `inspect`는 PARTIAL 그대로.
+
+    **프레임 결속의 실제 모양(벤더 예제로 확인).** 객체 프레임 이름은 명령에 **안 들어간다** — `fiducial_follow.py`가 `get_a_tform_b(snapshot, VISION_FRAME_NAME, frame_name_fiducial)`로 스냅샷에서 꺼내 `vision`으로 옮기고 명령은 그 관성 프레임으로 나간다. **그래도 결속의 주인은 로봇이다** — 어댑터는 로봇이 준 프레임 트리를 읽을 뿐 표를 갖지 않으므로 ADR 34가 지켜진다. 그리고 사이트가 이름을 등록할 수 있다(`mutate_world_objects.py`가 `WorldObject(name='red_sphere_ball')`를 `ACTION_ADD`로 넣는다).
+
+    **남는 비대칭이 진짜다.** Digit은 `ObjectSelector{name}`을 넘겨 **파지 시점에 로봇이 다시 풀고**, Spot은 질의 시점의 좌표로 굳는다. 움직이는 대상에서 둘의 행동이 갈리며 그것은 배관이 아니라 의미의 차이다.
+
+    **그래서 `pick_place`는 이제 표본 하나가 아니다** — YES 하나(Digit) + PARTIAL 하나(Spot).
 
     **ADR 35는 오히려 강해진다** — 표본 하나가 아니라 독립적인 벤더 둘이 같은 배치(이름은 로봇 안에 산다)를 골랐다. 약해지는 것은 *"Digit이 유일하다"*는 서술뿐이다.
 
