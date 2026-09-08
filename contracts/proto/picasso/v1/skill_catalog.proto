@@ -49,15 +49,14 @@ extend google.protobuf.MessageOptions {
 // 지키면서 실물이 실제로 답할 수 있는 첫 스킬이라서 이것을 골랐다. 기종 하나를
 // 위해 어휘를 늘리는 것이었다면 골라서는 안 됐다.
 //
-// **처음에 든 근거의 절반이 틀렸다.** *"속도와 지속시간은 Spot·Digit·AMR이 모두
-// 갖는 이동 원시"*라고 적었는데, 셋째 실물을 재 보니 Digit의 `action-move`는
-// **지속시간을 안 받는다**(같은 어휘의 `action-stand`에는 있으므로 개념이 없는
-// 것이 아니라 이 액션에 없다). 셋 다 드는 것은 맞으니 선택은 유지하되, 근거는
-// *"속도를 셋 다 갖는다"*까지다.
+// **셋이 지속시간을 서로 다른 모양으로 받는다.** G1은 인자
+// (`SetVelocity(..., duration)`), Spot은 절대 시각(`SE2VelocityCommand.end_time`),
+// Digit은 **합성**(`action-duration{action, duration}`이 `action-move`를 감싼다).
+// 셋 다 로봇이 그것을 집행하므로 어댑터가 시계를 들지 않는다.
 //
-// 그래서 `duration`을 필수로 둔 것이 더 중요해졌다 — Digit 어댑터는 그 값을
-// 받아 **스스로 정지를 보내야** 하고, 그것이 없으면 로봇이 계속 걷는다.
-// 자세한 것은 `profile/distance/agility-digit.json`.
+// 이 줄은 한나절 동안 *"Digit은 지속시간을 안 받는다"*로 적혀 있었다. 근거를
+// 벤더 문서가 아니라 제3자 래퍼에서 뽑았기 때문이고, 래퍼가 API의 부분집합이라
+// `action-duration`을 안 썼다. §15.65·§15.66에 그 기록이 있다.
 //
 // proto 타입 → 설계 §4.3의 ValueType 매핑. ContractIndex가 이 표대로 옮긴다.
 //   bool   → VALUE_TYPE_BOOL

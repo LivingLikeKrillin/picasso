@@ -4,58 +4,50 @@
   "survey": "digit.json",
 
   "layer": {
-    "vendor_layer": "COMMAND",
-    "evidence": "액션마다 `action-status-changed{status}` 가 오고(확인한 값 running·success) `action-sequential{actions}`·`action-concurrent{actions}` 로 합성된다 — **명령만 있는 G1 보다 위다.** 그러나 일시정지·취소·재시작이 없다 — **미션 계층을 가진 Spot 보다 아래다.** 세 기종이 이 열거의 세 값을 하나씩 차지하며, **가운데가 있다는 것은 표본 둘로는 안 보였다.**"
+    "vendor_layer": "MISSION",
+    "evidence": "액션이 별도 층으로 서 있고 생명주기 조작이 붙어 있다 — `add-sequential-actions` · `add-concurrent-actions` · `replace-action` · **`remove-action{reference_number}`** · `get-action-command` · `get-execution-state`, 그리고 합성 넷(`action-sequential` · `action-concurrent` · **`action-duration{action, duration}`** · `action-timeout` · `action-loop`)과 지속 세션(`start/resume/stop-persistent-session`). **없는 것은 일시정지 하나이며 그것은 층의 부재가 아니라 능력의 부재다.** 처음에 `COMMAND` 로 적은 것은 제3자 래퍼가 이 메시지들을 안 써서 못 본 결과였다."
   },
 
   "skills": {
     "move_relative": {
       "reachable": "YES",
-      "vendor_primitive": "`[\"action-move\", {velocity: {rpyxyz: [0,0,yaw,vx,vy,0]}, mobility-parameters}]`",
+      "vendor_primitive": "`[\"action-duration\", {action: [\"action-move\", {velocity: {rpyxyz}}], duration}]`",
       "missing": [],
-      "adapter_must_own": "**정지 시점.** `action-move` 는 지속시간을 안 받으므로 어댑터가 시계를 들고 있다가 `action-stand` 로 덮어야 한다. 그리고 **실패 방향이 다른 둘과 반대다** — G1(`SetVelocity` 의 `duration`)·Spot(`SE2VelocityCommand` 의 `end_time`)은 어댑터가 죽으면 로봇이 스스로 서는데 여기서는 계속 걷는다. 어댑터가 `stopDueAt` 으로 그 빚을 드러내지만 **고칠 수는 없다.**",
-      "evidence": "**`move_relative` 를 계약에 넣으며 *\"속도와 지속시간은 Spot·Digit·AMR 이 모두 갖는 이동 원시\"* 라 적었는데 그 절반이 틀렸다.** 속도는 셋 다 갖지만 지속시간은 여기 없다. 같은 어휘의 `action-stand{base-pose, duration}` 에는 있으므로 개념이 없는 것이 아니라 이 액션에 없다. 계약이 `duration` 을 필수로 둔 것은 여전히 옳다 — 어댑터가 정해 버리기 가장 쉬운 자리이고, 정하는 순간 로봇이 언제 서는지를 우리가 몰래 결정하게 된다."
+      "adapter_must_own": "없다. **지속시간이 필드가 아니라 합성이며 로봇이 집행한다** — 어댑터가 시계를 들지 않고, 그래서 실패 방향도 다른 둘과 같다(어댑터가 죽어도 로봇이 선다).",
+      "evidence": "`ActionMove` 자체에는 지속시간이 없지만 `ActionDuration{action, duration, after_success}` 이 아무 액션이나 감싼다. **처음에 '지속시간이 없어 어댑터가 정지를 빚고 실패 방향이 반대' 라고 적은 것은 오독이었다** — 제3자 래퍼에 `action-duration` 이 없었기 때문이다. `move_relative` 를 벤더 중립이라 부른 원래 근거가 셋 다에서 성립한다."
     },
 
     "navigate_to": {
-      "reachable": "PARTIAL",
-      "vendor_primitive": "`[\"action-goto\", {target: {rpyxyz: [...]}, position-tolerance, orientation-tolerance, reference-frame, mobility-parameters}]`",
-      "missing": [
-        "이름으로 목적지를 지정하는 경로 — `target` 이 6자유도 좌표(rpyxyz)다",
-        "확인한 `reference-frame` 형태가 `{special-frame: …}` 뿐이라 사이트 이름을 실을 자리를 못 찾았다"
-      ],
-      "adapter_must_own": "이름→좌표 표. **ADR 34가 그것을 막았다** — 어댑터가 가지면 사이트 명명이 어댑터 배포 축에 실린다.",
-      "evidence": "**§4.3이 `location` 에 대해 *\"좌표가 아니다\"* 라고 못박은 바로 그 자리에 벤더가 좌표를 받는다.** 다만 Spot(벤더가 결속을 소유)·G1(결속이 없음)과 다른 **셋째 가능성**이 여기 있다: 벤더 SDK 예제에 `AddObject`(이름 붙인 프레임 등록)가 있고 `action-goto` 가 `reference-frame` 을 받으므로, **결속을 클라이언트가 채우고 로봇이 호스팅하는** 모양일 수 있다. 그러면 ADR 34가 *\"주인은 미정\"* 이라 남긴 자리에 처음으로 놓을 곳이 생긴다. **확인하지 못했다** — 근거 등급이 낮아(§15.65) `PARTIAL` 로 둔다."
+      "reachable": "YES",
+      "vendor_primitive": "`[\"action-goto\", {reference_frame: {name: <location>}, target, position_tolerance}]`",
+      "missing": [],
+      "adapter_must_own": "없다 — `location` 이 그대로 `ObjectSelector.name` 으로 간다. 목표 자세는 그 프레임의 원점으로 두며, 그 원점이 무엇을 뜻하는지는 **등록할 때** 정해진다(ADR 35).",
+      "evidence": "**`ObjectSelector` 가 이름을 받는다** — `name` · `has_attributes` · `april_tag_id` · `descendant_of` · `include`/`exclude` · `map_name` 을 갖는 **질의 가능한 세계 모델의 선택자**다. Spot 은 웨이포인트 id 문자열 하나였는데 여기는 선택자이며, 그 모델을 `add-object` · `add-landmarks` · `set-floorplan-map` 으로 채운다. **처음에 '목적지가 좌표뿐' 이라 적은 것은 오독이었다.**"
+    },
+
+    "pick_place": {
+      "reachable": "YES",
+      "vendor_primitive": "`[\"action-sequential\", {actions: [[\"action-pick\", {object: {name: <object_id>}}], [\"action-place\", {reference_frame: {name: <destination>}, pose, position_tolerance}]]}]`",
+      "missing": [],
+      "adapter_must_own": "합성 방법과 두 규약 — 태스크 하나를 `action-sequential` 하나로 옮기는 것, 그리고 `action-place` 의 `pose` 를 대상 프레임의 **원점**으로, `position_tolerance` 를 어댑터 기본값으로 두는 것. 둘 다 벤더가 요구하는 값이라 비울 수 없고, 원점이 무엇을 뜻하는지는 등록할 때 정해진다(ADR 35).",
+      "evidence": "**조사한 셋 중 시맨틱 집기·놓기를 파는 유일한 기종이다.** `ActionPick{object: ObjectSelector}` 과 `ActionPlace{pose, reference_frame: ObjectSelector}` 가 둘 다 있다. Spot 은 집기를 픽셀·3D 점으로만 받고 놓기는 **요청 자리가 아예 없으며**(피드백 열거에만 있다), G1 은 정해진 제스처 둘뿐이다. 그래서 *\"가장 능력 있는 벤더도 시맨틱 집기·놓기를 안 판다\"* 는 앞선 판단은 **Spot 에 대해서만 참이고 전체로는 거짓이었다.**"
     },
 
     "inspect": {
       "reachable": "NO",
       "vendor_primitive": "없다. 액션 어휘에 관측 취득이 없다.",
       "missing": [
-        "취득 액션 — 이미지·센서를 요청하는 액션이 어휘에 없다",
-        "대상 시맨틱 — `target` 에 해당하는 자리가 없다",
-        "결과를 싣는 경로 — 부분결과를 돌려줄 자리가 없다"
+        "취득 액션 — SDK 메시지 정의 전수에 이미지·센서를 요청하는 액션이 없다",
+        "결과를 싣는 경로 — 부분결과를 태스크의 산출로 돌려줄 자리가 없다"
       ],
-      "adapter_must_own": "센서 접근과 인지 전체. §1.3의 비목표다.",
-      "evidence": "제3자 코드가 perception 데이터를 ROS2 토픽으로 따로 내는 것에서 보듯 센서 스트림은 있으나 **액션 어휘 밖**이다. 계약의 `inspect` 는 태스크로 요청하고 결과를 받는 것이라 스트림 구독과 층이 다르다. Spot 은 `DataAcquisition` 노드로 취득 *동작* 은 주므로 PARTIAL 이었고, 여기는 그 동작조차 없어 NO 다."
-    },
-
-    "pick_place": {
-      "reachable": "NO",
-      "vendor_primitive": "`action-end-effector-move` 와 그리퍼 액션 — **궤적이지 대상이 아니다.**",
-      "missing": [
-        "대상 시맨틱 — `object_id` 에 해당하는 자리가 없다",
-        "`destination` — 놓을 곳을 이름으로 말할 자리가 없다",
-        "파지 판정 — 잡혔는지를 로봇이 판정해 주지 않는다"
-      ],
-      "adapter_must_own": "인지·파지계획 전체. §1.3의 비목표이며 로봇 제조사도 안 하는 일이다.",
-      "evidence": "**세 기종이 여기서 같은 답을 냈고, 그 답이 각각 다른 이유에서 나왔다** — G1 은 팔에 지시할 것이 미리 정의된 제스처 둘뿐이고, Spot 은 픽셀·3D 점으로 집을 수는 있으나 놓기의 요청 자리가 없으며, Digit 은 손끝 궤적만 받는다. 셋 중 어느 쪽도 *대상* 을 모르며, 그것이 계약의 `pick_place` 가 전제한 층이다."
+      "adapter_must_own": "센서 접근과 관측 결과의 태스크 결속. §1.3의 비목표다.",
+      "evidence": "**대상 지시는 오히려 이 기종이 가장 잘한다** — `ObjectSelector` 에 `snapshot_camera_name` 까지 있다. 없는 것은 *무엇을 볼지* 가 아니라 **관측을 태스크로 요청하고 결과를 받는 경로**다. 센서 스트림은 질의(`query-group`)로 따로 흐르며 액션 어휘 밖이다. Spot 은 `DataAcquisition` 노드로 취득 *동작* 은 주므로 PARTIAL 이었고, 여기는 그 동작이 없어 NO 다 — **셋 중 유일하게 남은 NO 이며 이유가 대상 시맨틱이 아니다.**"
     }
   },
 
   "notes": [
-    "**세 기종을 재고 나니 결론 둘이 버텼다.** ① 계약이 명령 계층이 아니라 그 위에 있다 — Digit 이 가운데를 채우면서 오히려 선명해졌다(상태 스트림과 합성은 있는데 생명주기 조작이 없다). ② 못 닿는 이유가 전부 시맨틱 신원이다 — 셋째에서도 같다.",
-    "**버티지 못한 것이 하나 있다.** `move_relative` 를 벤더 중립이라 부른 근거가 *\"속도와 지속시간을 셋 다 갖는다\"* 였는데 Digit 이 지속시간을 안 받는다. 스킬 선택 자체는 여전히 옳다(셋 다 든다) — 틀린 것은 **근거의 절반**이고, `skill_catalog.proto` 의 주석을 그에 맞게 고쳤다.",
-    "이 문서의 근거 등급이 앞의 둘보다 낮다(§15.65). '없다' 고 적은 것 중 일부는 **'공개된 것에서 못 찾았다'** 이며, 특히 `navigate_to` 의 `PARTIAL` 은 확인만 되면 `YES` 로 갈 수 있는 자리다."
+    "**이 문서는 2026-09-08에 한 번 통째로 뒤집혔다.** 첫 판은 제3자 래퍼 코드(`adubredu/digitinterface`)에서 파생했고 그것이 벤더 API 의 부분집합이라 `navigate_to` 를 PARTIAL, `pick_place` 를 NO, 계층을 COMMAND 로 적었다. 벤더 SDK 원문(`agility/messages/json.py`, 릴리스 2021.06.01)을 전수로 읽고 셋 다 고쳤다.",
+    "**근거 등급을 적어 두고도 그 위에 판정을 얹은 것이 실수였다**(§15.65). 등급이 낮으면 `NO` 가 아니라 `UNKNOWN` 이어야 했고, 그것은 §7.2의 `Support` 3값이 말하는 바로 그것이다 — 조사 문서에서는 지키던 규율을 거리 문서에서 안 지켰다.",
+    "**남는 한계는 릴리스가 2021년판이라는 것이다.** '있다' 는 확실하고 '없다' 는 그 시점 기준이다. `inspect` 의 NO 가 그 영향을 가장 크게 받는 자리다."
   ]
 }

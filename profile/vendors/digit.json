@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "derived_from": {
-    "source": "설계 §2.3의 실물 조사(2026-09-05, Agility Robotics Digit JSON API 문서와 매뉴얼). **2026-09-08에 액션 어휘를 다시 확인했으나 근거 등급이 앞의 둘보다 낮다** — `docs.agilityrobotics.com` 이 닿지 않고 `agility-pysdk` 가 공개 저장소에 없어, 원시 JSON 을 그대로 쓰는 제3자 코드(`adubredu/digitinterface`, 서브프로토콜 `json-v1-agility`)를 읽었다. Spot 은 벤더 proto 원문을 읽었고 여기는 그러지 못했다. 그래서 '없다' 고 적은 것 중 일부는 **'공개된 것에서 못 찾았다'** 이며, 그 구분을 거리 문서의 `evidence` 가 진다.",
+    "source": "설계 §2.3의 실물 조사(2026-09-05, Agility Robotics Digit JSON API 문서와 매뉴얼). **2026-09-08에 두 번 고쳤다.** 처음에는 제3자 코드(`adubredu/digitinterface`)만 보고 적었고 그것이 벤더 API 의 **부분집합**이라 여러 항목을 '없다' 로 잘못 적었다. 같은 날 벤더 SDK 원문을 찾아(`agility/messages/json.py`, 릴리스 `2021.06.01`, `UMich-BipedLab/digit_jsonapi_catkin_ws` 에 통째로 들어 있다) 전수 대조했다. **여기 적힌 것은 그 SDK 의 메시지 정의에서 나온 1차 근거다.** 남는 한계는 릴리스가 2021년판이라는 것 — 그 뒤로 는 것은 몰라도 **'있다' 는 확실하고 '없다' 는 그 시점 기준이다.**",
     "observed_at": "2026-09-08"
   },
   "vendor": "Agility Robotics",
@@ -10,7 +10,7 @@
 
   "exclusive_control_required": "YES",
   "pause_support": "NO",
-  "cancel_support": "NO",
+  "cancel_support": "YES",
   "terminal_latches": "NO",
 
   "coverage": {
@@ -20,11 +20,11 @@
     },
     "supported_skills": {
       "level": "FULL",
-      "evidence": "액션 어휘가 고정이다. 확인한 것 — action-goto{target: rpyxyz, position-tolerance, orientation-tolerance, reference-frame, mobility-parameters} · action-move{velocity, mobility-parameters} · action-stand{base-pose, duration} · action-end-effector-move · **action-sequential{actions}** · **action-concurrent{actions}**. 합성 원시가 있는 유일한 기종이다"
+      "evidence": "액션 어휘가 고정이며 SDK 메시지 정의가 정본이다. **동작** — action-goto{target, reference_frame: ObjectSelector, tolerances} · action-move{velocity} · **action-pick{object: ObjectSelector}** · **action-place{pose, reference_frame: ObjectSelector, position_tolerance}** · action-stand{base_pose, duration} · action-end-effector-move · action-idle · action-sit · action-start. **합성** — action-sequential · action-concurrent · **action-duration{action, duration, after_success}** · action-timeout · action-loop. **생명주기** — add-sequential-actions · add-concurrent-actions · replace-action · remove-action{reference_number} · get-action-command · get-execution-state. **세계 모델** — add-object · remove-objects · set-object-attributes · add-landmarks · set-floorplan-map"
     },
     "cancel_pause": {
-      "level": "NONE",
-      "evidence": "취소·일시정지 프리미티브가 개념 자체로 없다. 중단은 다른 액션으로 덮어쓰기이고 remove-action 은 컨테이너에 성공한 것처럼 보인다"
+      "level": "PARTIAL",
+      "evidence": "**취소는 있고 일시정지는 없다.** remove-action{reference_number} 이 실행 중인 액션을 지우며 replace-action 도 있다 — 처음에 '개념 자체로 없다' 고 적은 것은 **제3자 코드가 그 메시지를 안 써서** 못 본 것이었다. 다만 매뉴얼이 remove-action 이 컨테이너에 대해 성공한 것처럼 보인다고 적었으므로 중첩 액션에서는 미덥지 않다. 일시정지는 SDK 메시지 목록 **전수에 없다** — 그래서 이쪽은 근거 있는 NO 다"
     },
     "parameter_ranges": {
       "level": "PARTIAL",
@@ -50,7 +50,8 @@
     "terminal_latches 가 NO 인 유일한 기종이다. 매뉴얼이 명시한다 — \"This status does not latch once reached\". success 에서 running 으로 되돌아갈 수 있으며, 그래서 계약이 래치를 요구하고 어긋나면 TERMINAL_STATE_VIOLATED 로 나타난다(§4.4).",
     "cancel_support 가 NO 인 것과 Spot 의 UNKNOWN 이 다른 답인 것이 §7.2 Support 3값의 이유다. §2.3이 그것을 이렇게 적었다 — \"지원하지 않음과 근거가 없어 모름을 구분하지 못하면 Digit 프로파일 작성자가 거짓말을 하게 된다\". **2026-09-08에 Spot 의 UNKNOWN 이 YES 로 해소되면서 그 판단이 옳았음이 확인됐다** — 접었다면 Spot 을 취소 못 하는 로봇으로 적었을 것이다.",
     "**액션마다 상태 스트림이 온다** — action-status-changed{status}. 확인한 값은 running·success 이며, 매뉴얼이 \"This status does not latch once reached\" 라 적은 대상이 이것이다. 상태 스트림과 합성은 있는데 **일시정지·취소·재시작이 없다** — G1(아무것도 없음)과 Spot(MissionService 가 생명주기를 다 줌) 사이의 중간이며, 계층 판정이 COMMAND 인 이유다.",
-    "**action-move 에 지속시간이 없다.** 같은 어휘의 action-stand 에는 duration 이 있으므로 개념이 없는 것이 아니라 이 액션에 없다. 그래서 어댑터가 스스로 멈춰야 하고 **실패 방향이 다른 둘과 반대가 된다** — G1(SetVelocity 의 duration)·Spot(SE2VelocityCommand 의 end_time)은 어댑터가 죽으면 로봇이 스스로 서는데, Digit 은 계속 걷는다.",
-    "**action-goto 의 target 이 rpyxyz 좌표다** — §4.3이 location 에 대해 \"좌표가 아니다\" 라고 못박은 자리다. 다만 reference-frame 을 받고 벤더 SDK 예제에 AddObject(이름 붙인 프레임 등록)가 있어, **시맨틱 결속을 클라이언트가 채우고 로봇이 호스팅하는** 모양일 가능성이 있다. Spot(벤더 소유)·G1(없음)과 다른 셋째 답이며 ADR 34의 열린 질문에 처음으로 놓을 곳이 생긴 것이다. **확인하지는 못했다** — 공개 코드에서 본 것은 reference-frame:{special-frame} 뿐이다."
+    "**action-move 자체에는 지속시간이 없지만 action-duration{action, duration, after_success} 이 아무 액션이나 감싼다.** 그래서 지속시간은 필드가 아니라 **합성으로** 표현되며 로봇이 그것을 집행한다 — 어댑터가 시계를 들 필요가 없고 실패 방향도 다른 둘과 같다. 처음에 '어댑터가 스스로 멈춰야 하고 실패 방향이 반대' 라고 적은 것은 제3자 코드에 action-duration 이 없어서 생긴 오독이었다.",
+    "**대상을 이름으로 지시한다 — 조사한 셋 중 유일하다.** ObjectSelector 가 name·has_attributes·april_tag_id·descendant_of·include/exclude·map_name 을 받는 **질의 가능한 세계 모델의 선택자**이고, action-goto 의 reference_frame 과 action-pick 의 object 가 둘 다 그것이다. add-object·add-landmarks·set-floorplan-map 으로 그 모델을 채운다. Spot 은 웨이포인트 id 문자열 하나였고 G1 은 아무것도 없었는데 **여기는 선택자다.** ADR 35('사이트 이름은 로봇 안에 산다')의 가장 강한 증거이며, 처음에 '목적지가 좌표뿐' 이라 적은 것은 제3자 코드가 special_frame 만 써서 생긴 오독이었다.",
+    "**시맨틱 집기·놓기를 파는 유일한 기종이다.** action-pick{object: ObjectSelector} 과 action-place{pose, reference_frame: ObjectSelector} 가 둘 다 있다. Spot 은 집기를 픽셀·3D 점으로만 받고 놓기는 요청 자리가 아예 없다 — 그래서 '가장 능력 있는 벤더도 시맨틱 집기·놓기를 안 판다' 는 앞선 판단은 **Spot 에 대해서만 참이고 전체로는 거짓이었다.**"
   ]
 }

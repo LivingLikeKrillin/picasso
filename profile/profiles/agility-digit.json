@@ -3,13 +3,34 @@
   "derived_from": {
     "software_version": "json-v1-agility (2026-09-08 확인)",
     "observed_at": "2026-09-08",
-    "source": "**근거 등급이 앞의 둘보다 낮다.** 실물도, 그 소프트웨어 버전도, 벤더 문서 원문도 보지 못했다 — `docs.agilityrobotics.com` 이 닿지 않고 `agility-pysdk` 가 공개 저장소에 없다. 원시 JSON 을 그대로 쓰는 제3자 코드(`adubredu/digitinterface`)에서 액션 어휘를 확인했고, 2026-09-05 조사가 매뉴얼을 직접 인용한 것을 함께 썼다. 여기 적은 값은 그 두 근거에서 나온 것이며 `software_version` 은 서브프로토콜 이름이지 펌웨어가 아니다."
+    "source": "벤더 SDK 의 메시지 정의 원문에서 파생했다 — `agility/messages/json.py`(릴리스 `2021.06.01`). 그 안의 `ActionGoto{reference_frame: ObjectSelector}` · `ActionPick{object: ObjectSelector}` · `ActionPlace{pose, reference_frame: ObjectSelector}` · `ActionDuration{action, duration}` · `ObjectSelector{name, has_attributes, april_tag_id, …}` 가 이 프로파일의 근거다. **첫 판은 제3자 래퍼 코드에서 파생했고 그것이 API 의 부분집합이라 여러 항목을 틀리게 적었다** — 그래서 이 문서는 2026-09-08에 한 번 크게 고쳐졌다. 실물도 그 소프트웨어 버전도 보지 못했으며 `software_version` 은 서브프로토콜 이름이지 펌웨어가 아니다. SDK 릴리스가 2021년판이므로 **'있다' 는 확실하고 '없다' 는 그 시점 기준이다.**"
   },
   "vendor": "agility-robotics",
   "model": "agility-digit",
   "revision": 1,
 
   "skills": [
+    {
+      "skill_type": "navigate_to",
+      "major": 1,
+      "minor": 0,
+      "pause_support": "NO",
+      "cancel_support": "YES",
+      "parameters": [
+        { "key": "location", "value_type": "STRING", "optional": false }
+      ]
+    },
+    {
+      "skill_type": "pick_place",
+      "major": 1,
+      "minor": 0,
+      "pause_support": "NO",
+      "cancel_support": "YES",
+      "parameters": [
+        { "key": "object_id", "value_type": "STRING", "optional": false },
+        { "key": "destination", "value_type": "STRING", "optional": false }
+      ]
+    },
     {
       "skill_type": "move_relative",
       "major": 1,
@@ -30,7 +51,9 @@
   "exclusive_control_required": true,
 
   "durations": [
-    { "skill_type": "move_relative", "seconds": 1 }
+    { "skill_type": "move_relative", "seconds": 1 },
+    { "skill_type": "navigate_to", "seconds": 20 },
+    { "skill_type": "pick_place", "seconds": 30 }
   ],
 
   "replay_buffer_size": 128

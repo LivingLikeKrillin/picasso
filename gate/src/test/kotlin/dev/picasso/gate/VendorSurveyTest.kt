@@ -87,24 +87,31 @@ class VendorSurveyTest {
     // ── §2.3이 발견한 것들 (그리고 2026-09-08 에 갱신된 것들)
 
     @Test
-    fun `모른다를 없다로 접었다면 거짓을 적었을 자리가 있다`() {
-        // **`Support` 3값이 필요한 이유가 여기서 증명됐다.**
+    fun `1차 근거를 읽자 취소 판정이 둘이나 뒤집혔다`() {
+        // **이 시험이 붙드는 것은 값이 아니라 교훈이다.**
         //
-        // Spot 의 `cancel_support` 는 2026-09-05 조사에서 `UNKNOWN` 이었다 —
-        // 선언을 못 찾았기 때문이다. 2026-09-08 에 공개 proto 를 전수로 읽으니
-        // `MissionService.StopMission` 이 있었고 값이 **`YES` 로 뒤집혔다.**
+        // 2026-09-05 조사에서 Spot 은 `UNKNOWN`, Digit 은 `NO` 였다. 2026-09-08
+        // 에 **벤더 1차 원문**을 전수로 읽으니 **둘 다 `YES`** 였다 —
+        // Spot 은 `MissionService.StopMission`, Digit 은 `remove-action`.
         //
-        // `UNKNOWN` 을 `NO` 로 접는 규약이었다면 우리는 "취소를 못 하는 로봇"
-        // 이라고 적었을 것이고, 그 거짓 위에서 어댑터가 취소를 구현하지 않았을
-        // 것이다. §2.3이 걱정한 것은 *"프로파일 작성자가 거짓말을 하게 된다"*
-        // 였고 실제로 그렇게 될 뻔했다.
+        // 교훈이 둘이고 방향이 다르다.
+        //
+        // 1. **`UNKNOWN` 을 `NO` 로 접으면 안 된다**(§7.2의 3값). 접었으면
+        //    Spot 을 "취소 못 하는 로봇" 으로 적었을 것이다.
+        // 2. **`NO` 도 근거가 약하면 `UNKNOWN` 과 같은 값어치다.** Digit 의
+        //    `NO` 는 벤더 문서가 아니라 **제3자 래퍼 코드**를 보고 적은 것이었고,
+        //    그 래퍼가 API 의 부분집합이라 있는 것을 못 봤다. 근거 등급을
+        //    적어 두었는데도(§15.65) 그 위에 `NO` 를 얹은 것이 실수였다.
+        //
+        // 그래서 이 시험의 이름이 "모른다를 없다로 접지 마라" 가 아니라
+        // **"1차 근거를 읽어라"** 다.
         val byModel = surveys().associate { (_, n) ->
             value(n, "model") to value(n, "cancel_support")
         }
 
         assertEquals("YES", byModel["Spot"], "미션 계층의 StopMission 이 취소다")
-        assertEquals("NO", byModel["Digit"], "Digit 은 개념 자체가 없다")
-        assertEquals("NO", byModel["G1"], "G1 은 프리미티브가 없다")
+        assertEquals("YES", byModel["Digit"], "remove-action 이 취소다")
+        assertEquals("NO", byModel["G1"], "G1 은 SDK 전수에 프리미티브가 없다")
     }
 
     @Test

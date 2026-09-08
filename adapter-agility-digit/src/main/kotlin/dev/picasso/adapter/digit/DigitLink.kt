@@ -3,24 +3,34 @@ package dev.picasso.adapter.digit
 /**
  * 남쪽 경계 — Digit이 실제로 말하는 것.
  *
- * ## 세 기종 중 계층이 가운데다
+ * ## 이 파일은 한 번 크게 틀렸다
  *
- * | 기종 | 층 | 무엇이 있나 |
- * |---|---|---|
- * | G1 | 없음 | 명령뿐. 태스크 개념이 없다 |
- * | **Digit** | **명령 + 상태 스트림 + 합성** | 액션마다 [ActionStatus]가 오고 `action-sequential`·`action-concurrent`로 묶인다. **그러나 일시정지·취소·재시작이 없다** |
- * | Spot | 미션 | `MissionService`가 생명주기를 그대로 준다 |
+ * 처음 판은 원시 JSON을 쓰는 **제3자 래퍼 코드**에서 파생했고, 그 래퍼가 벤더
+ * API의 **부분집합**이라 없는 것을 여럿 만들어 냈다 — *"지속시간이 없다"*,
+ * *"취소 프리미티브가 없다"*, *"목적지가 좌표뿐이다"*. 셋 다 틀렸다.
  *
- * **표본 둘로는 이 가운데가 안 보였다.** 상태 스트림과 합성은 있는데 생명주기
- * 조작이 없는 상태가 따로 있다는 것이 셋째에서 드러났다.
+ * 벤더 SDK의 메시지 정의(`agility/messages/json.py`, 릴리스 `2021.06.01`)를
+ * 전수로 읽고 다시 썼다. **근거 등급을 §15.65에 적어 두고도 그 위에 "없다"를
+ * 얹은 것이 실수였다** — 등급이 낮으면 `NO`가 아니라 `UNKNOWN`이어야 했다.
  *
- * ## 근거 등급이 다른 둘보다 낮다
+ * ## 이 기종이 셋 중 가장 많이 준다
  *
- * Spot은 벤더의 공개 proto 원문을 읽었다. 여기는 그러지 못했다 — 벤더 문서가
- * 닿지 않고 공식 SDK가 공개 저장소에 없어, **원시 JSON을 그대로 쓰는 제3자
- * 코드**(`json-v1-agility` 서브프로토콜)와 2026-09-05 조사를 썼다. 그래서
- * 여기 없는 것 중 일부는 *"공개된 것에서 못 찾았다"* 이며, 그 구분을
- * `profile/distance/agility-digit.json`이 진다.
+ * | | G1 | Spot | Digit |
+ * |---|---|---|---|
+ * | 대상 지시 | 없음 | 웨이포인트 id(항법만) | **[ObjectSelector]** — 이름·속성·태그·계층 질의 |
+ * | 시맨틱 집기 | 없음 | 픽셀·3D점 | **`action-pick{object}`** |
+ * | 시맨틱 놓기 | 없음 | **요청 자리 없음** | **`action-place{reference_frame}`** |
+ * | 지속시간 | 필드 | 필드(`end_time`) | **합성**(`action-duration`) |
+ * | 취소 | 덮어쓰기 | `StopMission` | `remove-action` |
+ * | 세계 모델 등록 | 없음 | 지도 녹화 | **`add-object`·`add-landmarks`·`set-floorplan-map`** |
+ *
+ * 마지막 줄이 [ADR 35](../../../../../../../docs/adr/0035-site-names-live-in-the-robot.md)의
+ * 가장 강한 증거다 — *"사이트 이름은 로봇 안에 산다"*.
+ *
+ * ## 남는 한계
+ *
+ * SDK 릴리스가 2021년판이다. **"있다"는 확실하고 "없다"는 그 시점 기준이다.**
+ * 그리고 여전히 실물에 붙여 보지 못했다(§9.7 ④·C-3).
  */
 interface DigitLink {
 
@@ -34,23 +44,41 @@ interface DigitLink {
     val privilege: PrivilegeState
 
     /**
-     * `["action-move", {velocity: {rpyxyz: [0,0,yaw,vx,vy,0]}, mobility-parameters}]`.
+     * `["action-duration", {action: ["action-move", {velocity}], duration}]`.
      *
-     * **지속시간을 안 받는다.** 같은 어휘의 `action-stand`에는 `duration`이
-     * 있으므로 개념이 없는 것이 아니라 이 액션에 없다. 보내면 다른 액션이
-     * 덮을 때까지 계속 걷는다 — 정지 시점을 [DigitAdapter]가 소유하는 이유이며,
-     * 그래서 이 기종만 **실패 방향이 반대**다.
+     * **지속시간이 필드가 아니라 합성이다.** `action-move` 자체에는 없고
+     * `action-duration`이 아무 액션이나 감싸며, **로봇이 그것을 집행한다.**
+     * 그래서 어댑터가 시계를 들 필요가 없고 실패 방향도 다른 둘과 같다 —
+     * 어댑터가 죽어도 로봇이 선다.
      */
-    fun move(yawRate: Double, forward: Double, lateral: Double): Result<Unit>
+    fun moveFor(yawRate: Double, forward: Double, lateral: Double, durationSeconds: Double): Result<ActionRef>
 
     /**
-     * `["action-stand", {base-pose, duration}]`.
+     * `["action-goto", {reference_frame: {name: …}, target: <원점>, position_tolerance}]`.
      *
-     * 계약의 취소와 어댑터의 정지가 둘 다 이것으로 나간다. **벤더가 준 취소
-     * 프리미티브가 아니라 다른 액션으로 덮어쓰는 것**이며, 프로파일의
-     * `cancel_support: YES`가 어댑터의 것인 이유다.
+     * **[name]이 그대로 [ObjectSelector]의 `name`으로 간다.** 옮기는 표가 없는
+     * 것이 요점이며(ADR 34), 그 이름을 로봇이 알게 만드는 것은 `add-object`·
+     * `set-floorplan-map`으로 하는 **사이트 작업**이다(ADR 35).
      */
-    fun stand(): Result<Unit>
+    fun gotoNamed(name: String): Result<ActionRef>
+
+    /**
+     * `["action-sequential", {actions: [action-pick{object}, action-place{reference_frame}]}]`.
+     *
+     * 계약의 `pick_place` 하나를 벤더의 액션 **둘을 합성한 하나**로 옮긴다.
+     * 태스크 단위를 계약이 정하고 합성 방법을 어댑터가 정하는 것이며, 벤더가
+     * `action-sequential`을 그 용도로 두었다.
+     */
+    fun pickAndPlace(objectName: String, destinationName: String): Result<ActionRef>
+
+    /**
+     * `["remove-action", {reference_number}]`.
+     *
+     * **취소가 있다.** 처음에 없다고 적었던 것이 이 파일의 가장 큰 오독이었다.
+     * 다만 매뉴얼이 *컨테이너에 대해서는 성공한 것처럼 보인다*고 적었으므로
+     * 중첩 액션에서 미덥지 않다 — 그래서 지운 뒤에도 상태를 다시 본다.
+     */
+    fun removeAction(ref: ActionRef): Result<Unit>
 
     /**
      * 마지막으로 받은 `["action-status-changed", {status}]`.
@@ -64,11 +92,15 @@ interface DigitLink {
     /**
      * 마지막으로 받은 `["error", {info}]`의 **사람이 읽는 자유 문자열**.
      *
-     * 결함 어휘가 없다. 어댑터가 분류를 **포기하는 것**이 정직한 처리이며,
-     * 지어낸 분류는 로봇이 판정한 것처럼 보인다.
+     * 결함 어휘가 없다 — 이것은 SDK 전수를 읽고도 그대로였다. 어댑터가 분류를
+     * **포기하는 것**이 정직한 처리이며, 지어낸 분류는 로봇이 판정한 것처럼 보인다.
      */
     fun error(): String?
 }
+
+/** `remove-action`이 짚는 봉투의 `refnum`. */
+@JvmInline
+value class ActionRef(val referenceNumber: Int)
 
 /** `["privileges", {privileges: [{has}]}]`가 말하는 것. */
 enum class PrivilegeState { HELD, LOST }
@@ -76,7 +108,7 @@ enum class PrivilegeState { HELD, LOST }
 /**
  * `action-status-changed`의 `status`.
  *
- * 확인한 값이 둘이다. **모르는 값이 오면 [ActionStatus]로 접지 않는다** —
- * 어댑터가 널로 받고 "모른다"로 다룬다.
+ * 확인한 값이 둘이다. **모르는 값이 오면 여기로 접지 않는다** — 어댑터가
+ * 널로 받고 "모른다"로 다룬다.
  */
 enum class ActionStatus { RUNNING, SUCCESS }

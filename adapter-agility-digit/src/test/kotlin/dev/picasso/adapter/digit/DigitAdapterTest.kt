@@ -10,90 +10,98 @@ import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * **정지 워치독과 래치**를 붙든다 — 이 기종에만 있는 둘이다.
+ * **이름이 그대로 가는가**와 **어댑터가 시계를 안 드는가**를 붙든다.
  *
- * G1 시험은 *없는 것을 만들면서 만든 티를 내는지*를, Spot 시험은 *어느 스킬이
- * 어느 층에 올라타는지*를 봤다. 여기서 보는 것은 **어댑터가 진 빚**이다:
- * `action-move`가 지속시간을 안 받으므로 정지는 어댑터의 의무이고, 어댑터가
- * 죽으면 로봇이 계속 걷는다.
+ * 이 파일은 한 번 크게 고쳐졌다. 첫 판은 *정지 워치독*을 시험했는데 그것은
+ * 존재하지 말았어야 할 코드였다 — `action-duration`이 지속시간을 나르고
+ * 로봇이 집행한다. 첫 판의 근거가 벤더 문서가 아니라 **제3자 래퍼**였고,
+ * 래퍼가 API의 부분집합이라 없는 것을 만들어 냈다.
  *
- * 실물 없이 검증되는 범위는 앞의 둘과 같다. **"실물 Digit이 이대로
- * 행동하는가"는 안 본다** — §9.7 ④·C-3이며 열려 있다. 여기서는 근거 등급까지
- * 한 단계 낮다(§15.65).
+ * 그래서 [`어댑터가 시계를 들지 않는다`]가 이 파일에서 가장 중요한 시험이다 —
+ * 워치독이 다시 기어들어오면 거기서 빨개진다.
+ *
+ * 실물 없이 검증되는 범위는 앞의 둘과 같다(§9.7 ④·C-3). SDK 릴리스가
+ * 2021년판이라는 한계가 하나 더 있다 — **"있다"는 확실하고 "없다"는 그 시점
+ * 기준이다.**
  */
 class DigitAdapterTest {
 
     private val t0: Instant = Instant.parse("2026-09-08T00:00:00Z")
     private val identity = AdapterIdentity("agility-robotics", "agility-digit", "digit-01")
 
-    private val move = mapOf(
+    private val move = mapOf<String, Any>(
         "forward_speed" to 0.6, "lateral_speed" to 0.0, "yaw_rate" to 0.1, "duration" to 2.0,
     )
+    private val navigate = mapOf<String, Any>("location" to "dock-3")
+    private val pickPlace = mapOf<String, Any>("object_id" to "tote-7", "destination" to "shelf-b")
 
     private fun adapter(link: FakeLink = FakeLink(), identity: AdapterIdentity = this.identity) =
         DigitAdapter(link, identity)
 
-    // ── 어댑터가 진 빚 (이 파일의 핵심)
+    // ── 이름이 그대로 간다 (ADR 34·35)
 
     @Test
-    fun `시간이 되면 어댑터가 정지를 보낸다`() {
-        // **`action-move` 는 지속시간을 안 받는다.** 아무도 안 멈추면 계속
-        // 걷는다 — 다른 두 기종에서는 로봇이 스스로 섰다.
+    fun `목적지 이름이 그대로 간다`() {
+        // 옮기는 표가 **없는 것**이 요점이다(ADR 34). 그 이름을 로봇이 알게
+        // 만드는 것은 `add-object` 로 하는 사이트 작업이다(ADR 35).
+        val link = FakeLink()
+        DigitAdapter(link, identity).accept("navigate_to", navigate, t0)
+        assertEquals(listOf("dock-3"), link.gotos)
+    }
+
+    @Test
+    fun `집을 것과 놓을 곳이 둘 다 이름으로 간다`() {
+        // **조사한 셋 중 시맨틱 집기·놓기를 파는 유일한 기종이다.**
+        // `action-pick{object: ObjectSelector}` · `action-place{reference_frame}`.
+        val link = FakeLink()
+        DigitAdapter(link, identity).accept("pick_place", pickPlace, t0)
+        assertEquals(listOf("tote-7" to "shelf-b"), link.pickPlaces)
+    }
+
+    // ── 어댑터가 시계를 안 든다 (앞 판의 결함에 대한 회귀 방어)
+
+    @Test
+    fun `지속시간이 로봇으로 넘어간다`() {
+        // `action-duration{action, duration}` 이 감싸므로 **로봇이 집행한다.**
+        val link = FakeLink()
+        DigitAdapter(link, identity).accept("move_relative", move, t0)
+        assertEquals(listOf(Move(yawRate = 0.1, forward = 0.6, lateral = 0.0, duration = 2.0)), link.moves)
+    }
+
+    @Test
+    fun `어댑터가 시계를 들지 않는다`() {
+        // **이 파일에서 가장 중요한 시험이다.** 앞 판은 지속시간이 지나면
+        // 어댑터가 스스로 정지를 보내고 성공으로 적었다. 그 코드는 존재하지
+        // 말았어야 했다 — 지속시간은 로봇이 집행하므로 성공 판정은 **오직
+        // 상태 스트림에서만** 와야 한다.
+        //
+        // 워치독이 다시 기어들어오면 여기서 빨개진다.
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
         a.accept("move_relative", move, t0)
 
-        assertEquals(0, link.stands, "아직 멈출 때가 아닌데 멈췄다")
-        assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusMillis(1_999)))
-        assertEquals(0, link.stands)
+        assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusSeconds(9_999)))
+        assertEquals(0, link.removed, "어댑터가 시계를 보고 액션을 건드렸다")
 
-        assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(t0.plusMillis(2_000)))
-        assertEquals(1, link.stands, "시간이 됐는데 정지를 안 보냈다")
+        link.reported = ActionStatus.SUCCESS
+        assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(t0.plusSeconds(9_999)))
     }
 
-    @Test
-    fun `갚아야 할 정지 시각이 밖에서 보인다`() {
-        // 어댑터가 죽으면 이 빚이 아무 데도 안 남는다. 고칠 수는 없고
-        // **드러낼 수는 있다** — 감시자가 이 시각으로 어댑터의 생사를 본다.
-        val a = adapter()
-        assertNull(a.stopDueAt, "아무것도 안 들었는데 갚을 빚이 있다")
-
-        a.accept("move_relative", move, t0)
-        assertEquals(t0.plusSeconds(2), assertNotNull(a.stopDueAt))
-
-        a.poll(t0.plusSeconds(3))
-        assertNull(a.stopDueAt, "정지를 보냈는데 빚이 남아 있다")
-    }
-
-    @Test
-    fun `정지가 실패하면 성공으로 적지 않는다`() {
-        // **이 기종에서 가장 나쁜 거짓말이다** — 걷고 있는데 끝났다고 적는 것.
-        val link = FakeLink(standFails = true)
-        val a = DigitAdapter(link, identity)
-        a.accept("move_relative", move, t0)
-
-        assertEquals(TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED, a.poll(t0.plusSeconds(3)))
-    }
-
-    // ── §4.4 래치 — 이 기종에서 처음 실전이다
+    // ── §4.4 래치 — 종착이 안 래치되는 유일한 기종
 
     @Test
     fun `종착 뒤에 running 이 다시 오면 래치 위반을 낸다`() {
-        // 매뉴얼이 *"This status does not latch once reached"* 라 적은 그 전이다.
-        // G1 에서는 관절 각속도로 추론했는데 **여기서는 벤더가 직접 보낸다.**
-        val link = FakeLink()
+        val link = FakeLink(reported = ActionStatus.SUCCESS)
         val a = DigitAdapter(link, identity)
-        a.accept("move_relative", move, t0)
-        a.poll(t0.plusSeconds(3))
+        a.accept("navigate_to", navigate, t0)
+        a.poll(t0.plusSeconds(1))
         assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.state)
 
         link.reported = ActionStatus.RUNNING
-        a.poll(t0.plusSeconds(4))
+        a.poll(t0.plusSeconds(2))
 
         assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.state, "상태를 되돌렸다 — 래치가 깨졌다")
         val observed = assertIs<FaultObservation.Observed>(a.faults())
@@ -102,37 +110,74 @@ class DigitAdapterTest {
 
     @Test
     fun `종착 전의 running 은 위반이 아니다`() {
-        // 위 시험이 "running 이면 언제나 빨갛다" 로 통과하는 것을 막는다 —
-        // 그러면 걷는 로봇이 전부 위반이 된다.
+        // 위 시험이 "running 이면 언제나 빨갛다" 로 통과하는 것을 막는다.
         val link = FakeLink(reported = ActionStatus.RUNNING)
         val a = DigitAdapter(link, identity)
-        a.accept("move_relative", move, t0)
-        a.poll(t0.plusMillis(500))
+        a.accept("navigate_to", navigate, t0)
+        a.poll(t0.plusSeconds(1))
 
         val observed = assertIs<FaultObservation.Observed>(a.faults())
         assertEquals(emptyList(), observed.faults.map { it.errorType })
+    }
+
+    // ── 취소 = remove-action
+
+    @Test
+    fun `취소가 액션을 지운다`() {
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("navigate_to", navigate, t0)
+
+        assertEquals(Applied.Ok, a.cancel())
+        assertEquals(1, link.removed)
+        assertEquals(TaskState.TASK_STATE_CANCELLED, a.state)
+    }
+
+    @Test
+    fun `지웠다는데 아직 돌면 취소됐다고 적지 않는다`() {
+        // 매뉴얼이 `remove-action` 이 **컨테이너에 대해서는 성공한 것처럼
+        // 보인다**고 적었다. `pick_place` 가 바로 그 컨테이너
+        // (`action-sequential`)라 응답만 믿으면 걷고 있는 로봇을 취소됐다고
+        // 적게 된다.
+        val link = FakeLink(reported = ActionStatus.RUNNING)
+        val a = DigitAdapter(link, identity)
+        a.accept("pick_place", pickPlace, t0)
+
+        val refused = assertIs<Applied.Refused>(a.cancel())
+        assertEquals(Refusal.LINK_ERROR, refused.reason)
+        assertEquals(TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED, a.state)
+    }
+
+    @Test
+    fun `지우기가 실패하면 취소됐다고 적지 않는다`() {
+        val link = FakeLink(removeFails = true)
+        val a = DigitAdapter(link, identity)
+        a.accept("navigate_to", navigate, t0)
+
+        assertEquals(Refusal.LINK_ERROR, assertIs<Applied.Refused>(a.cancel()).reason)
+        assertEquals(TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED, a.state)
     }
 
     // ── 권한 = §4.9
 
     @Test
     fun `권한이 없으면 받지 않는다`() {
-        val a = adapter(FakeLink(privilege = PrivilegeState.LOST))
-        val refused = assertIs<Acceptance.Refused>(a.accept("move_relative", move, t0))
+        val refused = assertIs<Acceptance.Refused>(
+            adapter(FakeLink(privilege = PrivilegeState.LOST)).accept("navigate_to", navigate, t0),
+        )
         assertEquals(Refusal.CONTROL_AUTHORITY_LOST, refused.reason)
     }
 
     @Test
     fun `권한을 잃으면 하던 일이 사라진다`() {
-        // **Spot 의 리스 거절보다 결과가 세다.** 거기서는 요청이 거절될 뿐인데
-        // 여기서는 로봇이 action-idle 로 리셋되므로 태스크가 실패한 것이다.
+        // **Spot 의 리스 거절보다 결과가 세다** — 로봇이 action-idle 로
+        // 리셋되므로 태스크가 실패한 것이다.
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("move_relative", move, t0)
+        a.accept("navigate_to", navigate, t0)
 
         link.privilege = PrivilegeState.LOST
-        assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusMillis(100)))
-
+        assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
         val observed = assertIs<FaultObservation.Observed>(a.faults())
         assertTrue("CONTROL_AUTHORITY_LOST" in observed.faults.map { it.errorType })
     }
@@ -141,14 +186,14 @@ class DigitAdapterTest {
 
     @Test
     fun `분류하지 못하는 실패를 코어 어휘인 척하지 않는다`() {
-        // 벤더가 주는 것이 사람이 읽는 자유 문자열 하나뿐이다. 코어 여덟 중
-        // 하나로 접으면 **우리가 지어낸 분류가 로봇의 판정으로 읽힌다.**
+        // 벤더가 주는 것이 자유 문자열 하나뿐이고 **SDK 전수를 읽고도
+        // 그대로였다.** 코어 여덟 중 하나로 접으면 우리가 지어낸 분류가
+        // 로봇의 판정으로 읽힌다.
         val link = FakeLink(error = "Left leg motor stalled during swing phase")
-        val observed = assertIs<FaultObservation.Observed>(adapter(link).faults())
+        val fault = assertIs<FaultObservation.Observed>(adapter(link).faults()).faults.single()
 
-        val fault = observed.faults.single()
         assertEquals("X_AGILITYROBOTICS_UNCLASSIFIED", fault.errorType)
-        assertEquals("Left leg motor stalled during swing phase", fault.errorHint, "원문을 그대로 싣지 않았다")
+        assertEquals("Left leg motor stalled during swing phase", fault.errorHint, "원문을 그대로 안 실었다")
     }
 
     @Test
@@ -160,68 +205,57 @@ class DigitAdapterTest {
     // ── 계약 규율
 
     @Test
-    fun `취소가 정지와 같은 액션으로 나간다`() {
-        // 벤더에게 취소 프리미티브가 없고 중단은 덮어쓰기다.
-        val link = FakeLink()
-        val a = DigitAdapter(link, identity)
-        a.accept("move_relative", move, t0)
+    fun `일시정지는 언제나 거절한다`() {
+        // **이 NO 는 근거가 있다** — SDK 메시지 전수에 일시정지가 없다.
+        val a = adapter()
+        a.accept("navigate_to", navigate, t0)
+        assertEquals(Refusal.NO_VENDOR_PRIMITIVE, assertIs<Applied.Refused>(a.pause()).reason)
+        assertEquals(TaskState.TASK_STATE_RUNNING, a.state, "거절이 상태를 건드렸다")
+    }
 
-        assertEquals(Applied.Ok, a.cancel())
-        assertEquals(1, link.stands)
-        assertEquals(TaskState.TASK_STATE_CANCELLED, a.state)
+    @Test
+    fun `inspect 만 못 든다`() {
+        // 셋은 들고 하나는 못 든다. 거리 측정과 같은 답이어야 한다.
+        listOf("move_relative" to move, "navigate_to" to navigate, "pick_place" to pickPlace)
+            .forEach { (skill, params) ->
+                assertIs<Acceptance.Accepted>(adapter().accept(skill, params, t0), "$skill 을 못 들었다")
+            }
+
+        assertEquals(
+            Refusal.UNSUPPORTED_SKILL,
+            assertIs<Acceptance.Refused>(adapter().accept("inspect", mapOf("target" to "x"), t0)).reason,
+        )
+    }
+
+    @Test
+    fun `필수 파라미터가 빠지면 값을 지어내지 않는다`() {
+        listOf(
+            "move_relative" to move - "duration",
+            "navigate_to" to emptyMap(),
+            "pick_place" to pickPlace - "destination",
+        ).forEach { (skill, params) ->
+            assertEquals(
+                Refusal.PARAMETER_MISSING,
+                assertIs<Acceptance.Refused>(adapter().accept(skill, params, t0)).reason,
+                "$skill 의 누락",
+            )
+        }
     }
 
     @Test
     fun `종착한 태스크는 조작을 거절한다`() {
-        val a = adapter()
-        a.accept("move_relative", move, t0)
-        a.poll(t0.plusSeconds(3))
+        val a = adapter(FakeLink(reported = ActionStatus.SUCCESS))
+        a.accept("navigate_to", navigate, t0)
+        a.poll(t0.plusSeconds(1))
 
         assertEquals(Refusal.TERMINAL_LATCHED, assertIs<Applied.Refused>(a.cancel()).reason)
         assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.state)
     }
 
     @Test
-    fun `일시정지는 언제나 거절한다`() {
-        val a = adapter()
-        a.accept("move_relative", move, t0)
-        assertEquals(Refusal.NO_VENDOR_PRIMITIVE, assertIs<Applied.Refused>(a.pause()).reason)
-        assertEquals(TaskState.TASK_STATE_RUNNING, a.state, "거절이 상태를 건드렸다")
-    }
-
-    @Test
-    fun `드는 스킬이 아니면 받지 않는다`() {
-        // 거리 측정이 셋을 PARTIAL·NO 로 적었고 어댑터가 같은 답을 낸다.
-        listOf("navigate_to", "pick_place", "inspect").forEach {
-            assertEquals(
-                Refusal.UNSUPPORTED_SKILL,
-                assertIs<Acceptance.Refused>(adapter().accept(it, emptyMap(), t0)).reason,
-                "$it 의 거절",
-            )
-        }
-    }
-
-    @Test
-    fun `필수 파라미터가 빠지면 값을 지어내지 않는다`() {
-        // **`duration` 이 특히 그렇다.** 벤더가 안 받는 값이라 어댑터가 정해
-        // 버리기 가장 쉬운 자리이고, 정하는 순간 로봇이 언제 서는지를 우리가
-        // 몰래 결정하게 된다.
-        val refused = assertIs<Acceptance.Refused>(adapter().accept("move_relative", move - "duration", t0))
-        assertEquals(Refusal.PARAMETER_MISSING, refused.reason)
-        assertTrue("duration" in refused.detail)
-    }
-
-    @Test
-    fun `속도 셋을 벤더 자리에 맞게 넘긴다`() {
-        val link = FakeLink()
-        DigitAdapter(link, identity).accept("move_relative", move, t0)
-        assertEquals(listOf(Velocity(yawRate = 0.1, forward = 0.6, lateral = 0.0)), link.moves)
-    }
-
-    @Test
     fun `이미 도는 태스크가 있으면 받지 않는다`() {
         val a = adapter()
-        assertIs<Acceptance.Accepted>(a.accept("move_relative", move, t0))
+        assertIs<Acceptance.Accepted>(a.accept("navigate_to", navigate, t0))
         assertEquals(
             Refusal.ALREADY_RUNNING,
             assertIs<Acceptance.Refused>(a.accept("move_relative", move, t0)).reason,
@@ -233,31 +267,54 @@ class DigitAdapterTest {
         val blank = AdapterIdentity("agility-robotics", "agility-digit", "")
         assertEquals(
             Refusal.IDENTITY_UNSET,
-            assertIs<Acceptance.Refused>(adapter(identity = blank).accept("move_relative", move, t0)).reason,
+            assertIs<Acceptance.Refused>(adapter(identity = blank).accept("navigate_to", navigate, t0)).reason,
         )
     }
 
     // ── 가짜 남쪽
 
-    private data class Velocity(val yawRate: Double, val forward: Double, val lateral: Double)
+    private data class Move(val yawRate: Double, val forward: Double, val lateral: Double, val duration: Double)
 
     private class FakeLink(
         override var privilege: PrivilegeState = PrivilegeState.HELD,
         var reported: ActionStatus? = null,
         private val error: String? = null,
-        private val standFails: Boolean = false,
+        private val removeFails: Boolean = false,
     ) : DigitLink {
-        val moves = mutableListOf<Velocity>()
-        var stands = 0
+        val moves = mutableListOf<Move>()
+        val gotos = mutableListOf<String>()
+        val pickPlaces = mutableListOf<Pair<String, String>>()
+        var removed = 0
+        private var next = 0
 
-        override fun move(yawRate: Double, forward: Double, lateral: Double): Result<Unit> {
-            moves += Velocity(yawRate, forward, lateral)
-            return Result.success(Unit)
+        private fun issue(): Result<ActionRef> {
+            next += 1
+            return Result.success(ActionRef(next))
         }
 
-        override fun stand(): Result<Unit> {
-            if (standFails) return Result.failure(IllegalStateException("소켓 끊김"))
-            stands += 1
+        override fun moveFor(
+            yawRate: Double,
+            forward: Double,
+            lateral: Double,
+            durationSeconds: Double,
+        ): Result<ActionRef> {
+            moves += Move(yawRate, forward, lateral, durationSeconds)
+            return issue()
+        }
+
+        override fun gotoNamed(name: String): Result<ActionRef> {
+            gotos += name
+            return issue()
+        }
+
+        override fun pickAndPlace(objectName: String, destinationName: String): Result<ActionRef> {
+            pickPlaces += objectName to destinationName
+            return issue()
+        }
+
+        override fun removeAction(ref: ActionRef): Result<Unit> {
+            if (removeFails) return Result.failure(IllegalStateException("소켓 끊김"))
+            removed += 1
             return Result.success(Unit)
         }
 
