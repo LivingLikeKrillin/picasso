@@ -90,12 +90,17 @@ class SiteNameRegistrationTest {
         // 픽스처는 `navigate_to`(location)와 `pick_place`(object_id·destination)
         // 를 든다. 스킬 하나를 빼면 등록 대상이 저절로 줄어야 하며, 그 사이에
         // 사람이 고치는 목록이 없어야 한다.
+        //
+        // **`object_id` 는 여기 안 나온다.** 대상은 등록하는 것이 아니라
+        // 관측되는 것이다(§1.3 비목표 · 설계 §15.78). 앞 판은 `is_site_reference`
+        // 가 불리언이라 넷을 한 덩어리로 묶었고, 그래서 이 시험이 **등록할 수
+        // 없는 것을 등록 대상으로 기대하고 있었다.**
         bound("r-both", activate(Fixtures.good()))
-        assertEquals(setOf("destination", "location", "object_id"), siteNames.required("r-both"))
+        assertEquals(setOf("destination", "location"), siteNames.required("r-both"))
 
         bound("r-fewer", activate(Fixtures.shrunk(revision = 2, skill = "navigate_to")))
         assertEquals(
-            setOf("destination", "object_id"),
+            setOf("destination"),
             siteNames.required("r-fewer"),
             "`navigate_to` 를 뺐는데 `location` 이 남았다 — 목록이 어딘가에 박혀 있다",
         )
@@ -272,7 +277,7 @@ class SiteNameRegistrationTest {
         // 세면 **이미 안 쓰는 프로파일의 이름을 등록하라고 요구한다.**
         val first = activate(Fixtures.good())
         bound("r-rebound", first)
-        assertEquals(setOf("destination", "location", "object_id"), siteNames.required("r-rebound"))
+        assertEquals(setOf("destination", "location"), siteNames.required("r-rebound"))
 
         // 개정판 2는 `navigate_to` 를 뺀다. 바인딩하면 앞의 것이 자동으로
         // 해제되고 이력으로 남는다.
@@ -280,9 +285,30 @@ class SiteNameRegistrationTest {
         assertTrue(bindings.bind("r-rebound", adapterVersionId, second, "op") is BindOutcome.Bound)
 
         assertEquals(
-            setOf("destination", "object_id"),
+            setOf("destination"),
             siteNames.required("r-rebound"),
             "해제된 바인딩의 이름이 남았다 — 안 쓰는 프로파일의 등록을 요구하게 된다",
+        )
+    }
+
+    @Test
+    fun `대상의 이름은 등록 대상이 아니다`() {
+        // **이 시험이 §15.78을 지킨다.** 위 시험들은 기대 집합을 줄이기만
+        // 하므로, 계약이 `object_id` 에 다시 장소 표시를 붙이면 그 집합이
+        // 늘어난 것을 *"픽스처가 바뀌었나"* 로 읽고 넘어갈 수 있다.
+        // 여기서는 **없어야 한다는 것 자체**를 겨냥한다.
+        //
+        // 대상은 인지 장면에 살고 만료된다. 등록해 두는 것이 아니라 로봇이
+        // 관측해서 아는 것이며(§1.3 비목표), 등록을 요구하면 운영자가 할 수
+        // 없는 일을 요구받는다.
+        bound("r-obj", activate(Fixtures.good()))
+
+        val required = siteNames.required("r-obj")
+        assertTrue("destination" in required, "장소가 빠졌다 — 유도 자체가 죽었다")
+        assertEquals(
+            emptySet(),
+            required intersect setOf("object_id", "target"),
+            "대상의 이름이 등록 대상에 들어왔다",
         )
     }
 
@@ -317,7 +343,7 @@ class SiteNameRegistrationTest {
 
         val row = DiagnosticsService(db).bindings().rows.single { it.robotId == "r-both" }
         assertEquals("UNREGISTERED", row.siteNames)
-        assertEquals(listOf("destination", "location", "object_id"), row.siteNameKeys)
+        assertEquals(listOf("destination", "location"), row.siteNameKeys)
     }
 
     private companion object {

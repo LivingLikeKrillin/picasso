@@ -18,12 +18,28 @@ data class ParameterDef(
     val isOptional: Boolean,
 
     /**
-     * 이 파라미터가 **사이트의 이름**인가(ADR 35).
+     * 이 파라미터가 **장소의 이름**인가(ADR 35).
      *
      * `registry`가 바인딩마다 무엇을 등록해야 하는지를 이 표시와 프로파일이
      * 선언한 스킬에서 유도한다 — 기종마다 손으로 적는 목록이 없다.
+     *
+     * **대상의 이름은 여기 안 들어온다.** [isObjectReference]가 그것이며,
+     * 등록의 대상이 아니다.
      */
     val isSiteReference: Boolean = false,
+
+    /**
+     * 이 파라미터가 **대상의 이름**인가.
+     *
+     * 장소와 같은 것이 아니다 — 대상은 인지 장면에 살고 만료되며, 등록이
+     * 아니라 **관측**으로 알려진다(§1.3 비목표). 그래서 등록 유도에 들어가지
+     * 않는다.
+     *
+     * **그래도 표시는 한다.** 표시가 없으면 자유 서술 `STRING`과 구별되지
+     * 않고, 구별하지 못하면 어댑터가 이름을 벤더의 주소로 잘못 넘긴다 —
+     * §15.73에서 실제로 난 사고다.
+     */
+    val isObjectReference: Boolean = false,
 )
 
 data class SkillTypeDef(
@@ -113,6 +129,7 @@ class ContractIndex private constructor(
         private const val OPT_SINCE_MINOR = "$PKG.since_minor"
         private const val OPT_IS_OPTIONAL = "$PKG.is_optional"
         private const val OPT_IS_SITE_REFERENCE = "$PKG.is_site_reference"
+        private const val OPT_IS_OBJECT_REFERENCE = "$PKG.is_object_reference"
 
         private const val WKT_DESCRIPTOR = "google/protobuf/descriptor.proto"
 
@@ -254,12 +271,18 @@ class ContractIndex private constructor(
                 ?.let { opts.getField(it) as Boolean }
                 ?: false
 
+            val isObjectReference = ext[OPT_IS_OBJECT_REFERENCE]
+                ?.takeIf { opts.hasField(it) }
+                ?.let { opts.getField(it) as Boolean }
+                ?: false
+
             return ParameterDef(
                 key = f.name,
                 valueType = valueTypeOf(f),
                 sinceMinor = since,
                 isOptional = isOptional,
                 isSiteReference = isSiteReference,
+                isObjectReference = isObjectReference,
             )
         }
 

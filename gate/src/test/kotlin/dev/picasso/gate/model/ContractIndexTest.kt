@@ -59,33 +59,62 @@ class ContractIndexTest {
     }
 
     @Test
-    fun `사이트 이름인 파라미터를 계약이 표시한다`() {
-        // **ADR 35의 기계적 근거다.** `registry` 가 바인딩마다 무엇을
-        // 등록해야 하는지를 이 표시와 프로파일이 선언한 스킬에서 유도하며,
-        // 그래서 기종마다 손으로 적는 목록이 없다.
+    fun `장소의 이름과 대상의 이름을 계약이 갈라 표시한다`() {
+        // **ADR 35의 기계적 근거이고, 설계 §15.78의 기계적 근거이기도 하다.**
+        // `registry` 가 바인딩마다 무엇을 등록해야 하는지를 장소 표시와
+        // 프로파일이 선언한 스킬에서 유도한다 — 손으로 적는 목록이 없다.
         //
-        // **값 타입으로 유도할 수 없다.** 아래에서 `move_relative` 의 넷이
-        // 전부 아니라는 것과, 사이트 이름 넷이 `STRING` 이지만 `STRING` 이
-        // 곧 사이트 이름은 아니라는 것을 함께 못박는다.
-        val expected = mapOf(
+        // **넷을 한 덩어리로 두면 안 되는 이유가 여기 있다.** 앞 판은 불리언
+        // 하나로 넷을 전부 사이트 이름이라 표시했고, 그래서 레지스트리가
+        // `object_id` 까지 *"등록하라"* 고 요구했다. 대상은 등록하는 것이
+        // 아니라 관측되는 것이다(§1.3 비목표).
+        //
+        // **값 타입으로 유도할 수 없다.** `move_relative` 의 넷이 전부 아니고,
+        // 이름 넷이 `STRING` 이지만 `STRING` 이 곧 이름은 아니다.
+        val places = mapOf(
             "navigate_to" to setOf("location"),
-            "pick_place" to setOf("object_id", "destination"),
+            "pick_place" to setOf("destination"),
+            "inspect" to emptySet(),
+            "move_relative" to emptySet(),
+        )
+        val objects = mapOf(
+            "navigate_to" to emptySet(),
+            "pick_place" to setOf("object_id"),
             "inspect" to setOf("target"),
             "move_relative" to emptySet(),
         )
 
-        expected.forEach { (skill, names) ->
+        places.forEach { (skill, names) ->
             val def = assertNotNull(index.find(skill, major = 1), skill)
             assertEquals(
                 names,
                 def.parameters.filter { it.isSiteReference }.map { it.key }.toSet(),
-                "$skill 의 사이트 이름",
+                "$skill 의 장소 이름",
+            )
+            assertEquals(
+                objects.getValue(skill),
+                def.parameters.filter { it.isObjectReference }.map { it.key }.toSet(),
+                "$skill 의 대상 이름",
             )
         }
 
-        // **표시가 하나도 없으면 위 단언이 `move_relative` 빼고 전부 빈 집합을
-        // 기대하는 것과 구별되지 않는다.** 바닥을 못박는다.
-        assertEquals(4, expected.values.sumOf { it.size })
+        // **표시가 하나도 없으면 위 단언이 전부 빈 집합을 기대하는 것과
+        // 구별되지 않는다.** 양쪽 바닥을 각각 못박는다.
+        assertEquals(2, places.values.sumOf { it.size }, "장소 표시가 사라졌다")
+        assertEquals(2, objects.values.sumOf { it.size }, "대상 표시가 사라졌다")
+    }
+
+    @Test
+    fun `한 파라미터가 장소이면서 대상일 수는 없다`() {
+        // **이 시험이 §15.78을 지킨다.** 둘 다 붙은 파라미터가 생기면 그
+        // 순간 다시 한 덩어리가 되고, 등록 유도가 등록할 수 없는 것을
+        // 집어 든다. 표시를 갈라 놓기만 하고 겹침을 막지 않으면 갈라 둔
+        // 것이 조용히 원상 복구된다.
+        val both = index.all().flatMap { def ->
+            def.parameters.filter { it.isSiteReference && it.isObjectReference }
+                .map { "${def.name}.${it.key}" }
+        }
+        assertEquals(emptyList(), both, "장소와 대상을 겸한 파라미터가 있다")
     }
 
     @Test

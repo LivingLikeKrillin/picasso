@@ -16,9 +16,10 @@ extend google.protobuf.FieldOptions {
   // since_minor > 0으로 유도할 수 없다 — 처음부터 선택인 파라미터가 있다.
   bool is_optional = 50005;
 
-  // 이 파라미터가 **사이트의 이름**인가. ADR 35 — *"사이트 이름은 로봇 안에
-  // 산다"*. 값이 좌표나 수치가 아니라 사이트가 저작하고 로봇에 등록해 둔
-  // 이름이며, 어댑터는 그것을 번역하지 않고 그대로 실어 보낸다(ADR 34).
+  // 이 파라미터가 **장소의 이름**인가. ADR 35 — *"사이트 이름은 로봇 안에
+  // 산다"*. 값이 좌표나 수치가 아니라 사이트가 지도에 저작하고 로봇에
+  // 등록해 둔 이름이며, 어댑터는 그것을 번역하지 않고 그대로 실어
+  // 보낸다(ADR 34).
   //
   // **계약이 이것을 소유해야 한다.** 어느 파라미터가 사이트 이름인지는
   // 계약의 사실이고, registry가 그 목록을 두 번째로 적으면 스킬을 더하는
@@ -29,7 +30,35 @@ extend google.protobuf.FieldOptions {
   //
   // 쓰는 곳: registry가 바인딩마다 **무엇을 등록해야 하는지**를 이 표시와
   // 프로파일이 선언한 스킬에서 유도한다(§15.68).
+  //
+  // **대상의 이름에는 붙이지 않는다** — 그것은 아래
+  // [is_object_reference]이며 등록의 대상이 아니다(설계 §15.78).
   bool is_site_reference = 50006;
+
+  // 이 파라미터가 **대상의 이름**인가. 장소와 갈라 두는 것이 요점이다.
+  //
+  // 둘 다 사람이 붙인 이름이고 어댑터가 벤더의 주소로 옮긴다는 점은
+  // 같다(ADR 34). **그러나 쓰임과 의도가 다르다.**
+  //
+  // | | 장소 | 대상 |
+  // |---|---|---|
+  // | 어디에 사나 | 지도 | 인지 장면 |
+  // | 누가 넣나 | 사이트가 저작 | 사람도 넣고 **로봇이 인지해서도 넣는다** |
+  // | 얼마나 가나 | 지도에 남는다 | **만료된다** |
+  // | 등록할 수 있나 | **그렇다**(ADR 35) | **아니다** — 관측 주체가 필요하다(§1.3 비목표) |
+  //
+  // 벤더 표면에서도 그렇게 갈린다 — Spot은 장소가 `Waypoint.annotations.name`,
+  // 대상이 `WorldObject.name`이고 벤더가 뒤엣것을 *"the currently perceived
+  // world objects"*라 부른다.
+  //
+  // **그러므로 registry의 등록 대상에 이 표시는 들어가지 않는다.** 등록할 수
+  // 없는 것을 등록하라고 요구하게 되고, 앞 판이 정확히 그러고 있었다 —
+  // 불리언 하나가 넷을 한 덩어리로 묶었기 때문이다(설계 §15.78).
+  //
+  // 무표시로 두지 않는 이유는 [is_site_reference]와 같다. 자유 서술
+  // `STRING`과 구별할 방법이 값 타입에 없고, 구별하지 못하면 어댑터가
+  // **이름을 주소로 잘못 넘긴다** — §15.73에서 실제로 난 사고다.
+  bool is_object_reference = 50007;
 }
 
 // 이 메시지가 어느 스킬 타입의 major 몇인가.
@@ -91,7 +120,7 @@ message PickPlaceV1 {
   option (skill_type_max_minor) = 2;
 
   // 집을 대상의 식별자.
-  string object_id = 1 [(since_minor) = 0, (is_optional) = false, (is_site_reference) = true];
+  string object_id = 1 [(since_minor) = 0, (is_optional) = false, (is_object_reference) = true];
 
   // 놓을 위치의 시맨틱 ID.
   string destination = 2 [(since_minor) = 0, (is_optional) = false, (is_site_reference) = true];
@@ -126,7 +155,7 @@ message InspectV1 {
   option (skill_type_max_minor) = 3;
 
   // 살펴볼 대상의 시맨틱 ID.
-  string target = 1 [(since_minor) = 0, (is_optional) = false, (is_site_reference) = true];
+  string target = 1 [(since_minor) = 0, (is_optional) = false, (is_object_reference) = true];
 
   // minor 3에서 추가된 선택 파라미터.
   //

@@ -23,6 +23,7 @@ import org.springframework.test.context.DynamicPropertySource
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -161,7 +162,10 @@ class OperationsEndpointTest {
         // 말뿐이고 기체는 아직 답한 적이 없다 — 그것을 성공으로 적으면 자기
         // 신고가 관측인 척한다(ADR 35).
         assertTrue("CLAIMED" in body, body)
-        assertTrue("location" in body && "object_id" in body && "destination" in body, body)
+        // **`object_id` 는 없어야 한다.** 대상은 등록하는 것이 아니라 관측되는
+        // 것이다(설계 §15.78) — 앞 판은 그것이 있는 것을 통과 조건으로 삼았다.
+        assertTrue("location" in body && "destination" in body, body)
+        assertFalse("object_id" in body, "대상의 이름을 등록하라고 요구한다: $body")
     }
 
     @Test
