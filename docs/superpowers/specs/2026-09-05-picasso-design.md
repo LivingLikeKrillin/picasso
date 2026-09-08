@@ -1627,3 +1627,23 @@ mimic/
     **추출기가 틀리는 두 방향은 위험이 다르다.** 이름을 빠뜨리면 시험이 빨개진다(시끄럽지만 안전하다). 이름을 더 만들면 없는 것을 짚어도 통과한다(조용히 검사가 약해진다). 실제로 안전한 쪽으로 두 번 틀렸고 둘 다 빨강으로 드러났다 — `.proto`의 `oneof`가 이름 있는 스코프를 조기에 닫아 `Graph.waypoints`가 사라졌고, `re.M`이 없어 G1의 API 상수가 통째로 안 나왔다.
 
     **이것은 C-3의 첫 층을 닫은 것이지 C-3을 닫은 것이 아니다.** 나머지 둘은 여전히 열려 있다 — 거동(기종마다 도달 가능한 층이 다르다: Digit은 벤더가 자기 제어 프로그램을 시뮬레이터로 배포하고, G1은 공식 시뮬레이터가 저수준만 흉내내며, Spot은 공개된 것을 못 찾았다 — 마지막은 **부재 주장이고 근거 등급이 낮다**)와 배치(네트워크·인증·시계·재접속).
+
+75. **Spot을 서비스 54개 중 3개만 읽고 쟀다 (2026-09-09 전수 조사로 드러남).** 앞 판의 `profile/distance/spot-arm.json`은 `robot_command`·`mission`·`graph_nav`만 보고 작성됐고, 그 위에서 *"이 벤더에 무엇이 없다"*를 적었다. BD는 공개 SDK에 **서비스 54개, proto 152개**를 판다.
+
+    **뒤집힌 것 셋.**
+
+    | 앞 판 | 실제 |
+    |---|---|
+    | 층이 둘(명령·미션)이고 우리 계약은 미션 계층에 있다 | **넷이다** — 명령 · 미션(행동트리) · **워크(`AutowalkService`)** · 태블릿. 우리 계약과 가장 닮은 것은 미션이 아니라 Autowalk의 `Element{name, target, target_failure_behavior, action, action_wrapper, action_failure_behavior, is_skipped, battery_monitor, action_duration, id}`이며, 그것이 미션으로 **컴파일**된다. 우리는 미션과 워크 **사이**에 있다 |
+    | Spot에는 대상 시맨틱이 없다 (픽셀·3D점뿐) | **`WorldObjectService`가 있다** — `WorldObject.name`이 *"A human readable name"*, `ListWorldObjects`로 열거, `MutateWorldObjects(ACTION_ADD)`로 클라이언트가 등록. Digit의 세계 모델과 구조가 같다 |
+    | 취득 결과를 대상에 결속할 자리가 없다 | **`CaptureActionId{action_name, group_name, timestamp}`가 있다.** Autowalk이 *"replaces the action_name … with the element name"*로 채운다. 생명주기도 온전하다 — `AcquireData`·`GetStatus`·`CancelAcquisition`·`GetServiceInfo` |
+
+    **판정 자체는 둘 다 안 바뀐다** — `pick_place`는 여전히 NO(**놓기 요청이 없다**: 피드백 열거에 `MANIP_STATE_PLACE_*`가 있는데 요청 `oneof`에는 대응이 없고 `reserved 3, 6, 9`만 남았다), `inspect`는 여전히 PARTIAL. 바뀐 것은 **이유**이고, 그 이유 위에 ADR 34·35와 *"못 닿는 이유가 전부 시맨틱 신원이다"*라는 결론이 서 있었다.
+
+    **ADR 35는 오히려 강해진다** — 표본 하나가 아니라 독립적인 벤더 둘이 같은 배치(이름은 로봇 안에 산다)를 골랐다. 약해지는 것은 *"Digit이 유일하다"*는 서술뿐이다.
+
+    **`inspect`에 대해 이 조사가 새로 제기하는 것.** BD는 점검을 *"어디에 서서 어느 이름의 액션을 돌리는가"*(`Element{target, action}`)로 모델링하는데 우리 계약은 `inspect(target)`으로 **물체 신원**을 묻는다. `inspect`가 실물 셋 어디에도 안 닿는 것이 벤더의 결손이 아니라 **우리 형식이 틀렸을 가능성**이 처음으로 근거를 얻었다.
+
+    **이름 공간이 둘이다.** 장소는 `Waypoint.annotations.name`, 대상은 `WorldObject.name`. 계약의 `is_site_reference`도 장소(`location`·`destination`)와 대상(`object_id`·`target`)으로 갈린다. **그러므로 `GetKnownSiteNames`가 그래프만 보는 것은 반만 보는 것이다**(§15.73에 더한다).
+
+    **막는 장치.** 거리 스키마에 `survey_scope`를 **필수**로 더했다 — *"이 측정이 벤더 표면의 얼마를 봤는가"*. `evidence_grade`가 *출처가 얼마나 1차인가*라면 이것은 *얼마나 넓게 봤는가*이고, **둘은 다르다**: 1차 원문 세 개만 읽어도 등급은 `VENDOR_PRIMARY`다. 이 항목의 오류가 정확히 그 틈에서 났다. 셋 다 범위를 적었다.

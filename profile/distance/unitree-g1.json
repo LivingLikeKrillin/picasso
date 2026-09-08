@@ -3,12 +3,10 @@
   "evidence_grade": "VENDOR_PRIMARY",
   "profile": "unitree-g1.json",
   "survey": "unitree-g1.json",
-
   "layer": {
     "vendor_layer": "NONE",
     "evidence": "`sport` 서비스(`LOCO_SERVICE_NAME`, API 7001~7111)가 주는 것은 명령뿐이다 — `SetFsmId`·`SetVelocity`·`SetTaskId`. **진행률을 내는 메서드가 없고 진행 중 동작을 취소하는 메서드가 없다**(`g1_loco_client.py` 전수 확인). 태스크라는 개념 자체가 없으므로 계약의 생명주기가 올라탈 곳이 없고, 어댑터가 시계로 성공을 적을 수밖에 없다. **Spot 과의 대비가 이 항목이다** — 거기는 `MissionService` 가 그 층이다."
   },
-
   "skills": {
     "move_relative": {
       "reachable": "YES",
@@ -17,7 +15,6 @@
       "adapter_must_own": "완료 판정. 벤더가 끝났다고 알려 주지 않으므로 시계로 적고, 종착 뒤 `motor_state[].dq` 가 도는 것을 `TERMINAL_STATE_VIOLATED` 로 잡는다.",
       "evidence": "계약의 파라미터 넷이 벤더의 인자와 하나씩 대응한다. 이 스킬이 계약에 들어온 것도 이 대응 때문이며, Spot 이 독립적으로 같은 원시(`SE2VelocityCommand`)를 갖는 것이 벤더 중립성의 근거다."
     },
-
     "navigate_to": {
       "reachable": "NO",
       "vendor_primitive": "없다. 가장 가까운 것이 `SetVelocity(vx, vy, omega, duration)` 이며 그것은 속도이지 목적지가 아니다.",
@@ -29,7 +26,6 @@
       "adapter_must_own": "항법 스택 전체(측위·경로계획·도착 판정). **§1.3이 비목표로 둔 것**이며, 떠안으면 어댑터가 로봇보다 커지고 §9.1의 어댑터 축이 조작 가능한 크기를 넘는다.",
       "evidence": "Spot 과 정확히 대비된다. 거기서는 GraphNav 이 시맨틱 결속을 이미 해 두고 `destination_waypoint_id` 로 노출하므로 `location` 이 그대로 간다. 여기에는 그 층이 없어 어댑터가 그것을 **만들어야** 하고, 만드는 순간 계약이 재려던 것을 어댑터가 대신 채우게 된다."
     },
-
     "inspect": {
       "reachable": "NO",
       "vendor_primitive": "없다. SDK 에 인지 API 가 없다.",
@@ -41,7 +37,6 @@
       "adapter_must_own": "센서 접근과 인지 전체. 로봇 밖의 것이며 이 기종의 SDK 범위 밖이다.",
       "evidence": "조사의 `failure_modes: NONE`·`supported_skills: PARTIAL` 과 같은 성질이다 — G1 SDK 는 몸을 움직이는 것만 노출한다. Spot 은 취득 *동작* 은 주지만 대상은 안 주므로 PARTIAL 이고, 여기는 동작조차 없어 NO 다."
     },
-
     "pick_place": {
       "reachable": "NO",
       "vendor_primitive": "없다. 팔 쪽에 있는 것은 `SetTaskId`(`WaveHand`·`ShakeHand`) 로 **정해진 제스처 둘**이다.",
@@ -55,9 +50,9 @@
       "evidence": "`GetActionList` 가 팔 동작 목록을 주지만 그것은 **미리 정의된 제스처의 목록**이지 조작 API 가 아니다. 조사가 `supported_skills` 를 `PARTIAL` 로 적은 근거가 이것이며, 계약의 `pick_place` 가 요구하는 것과는 층이 다르다."
     }
   },
-
   "notes": [
     "**첫 실물의 측정이 셋 중 셋을 NO 로 냈고, 그것이 §15.7의 위험이 이미 현실이라는 관측이었다.** 두 번째 실물(Spot)이 `navigate_to` 를 YES 로 내면서 그 NO 들의 원인이 '이 로봇이 약하다' 가 아니라 **'시맨틱 결속 층이 있느냐 없느냐'** 라는 것이 드러났다.",
     "이 문서는 프로파일이 선 뒤에 소급해 적었다. 순서가 그랬던 것은 첫 어댑터 때 잴 도구가 없었기 때문이고, 도구가 생긴 뒤 다시 재니 판정은 바뀌지 않았다."
-  ]
+  ],
+  "survey_scope": "공개 저장소의 `g1_loco_api.hpp`(API ID 상수 + `Jsonize*` 요청 키) 와 `unitree_hg` IDL 생성 클래스. **공개된 것만 봤고** 구매 시 딸려오는 문서가 있는지는 확인 못 했다. 응답의 모양은 어느 원본에도 없다."
 }

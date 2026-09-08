@@ -3,12 +3,10 @@
   "evidence_grade": "VENDOR_PRIMARY",
   "profile": "agility-digit.json",
   "survey": "digit.json",
-
   "layer": {
     "vendor_layer": "MISSION",
     "evidence": "액션이 별도 층으로 서 있고 생명주기 조작이 붙어 있다 — `add-sequential-actions` · `add-concurrent-actions` · `replace-action` · **`remove-action{reference_number}`** · `get-action-command` · `get-execution-state`, 그리고 합성 넷(`action-sequential` · `action-concurrent` · **`action-duration{action, duration}`** · `action-timeout` · `action-loop`)과 지속 세션(`start/resume/stop-persistent-session`). **없는 것은 일시정지 하나이며 그것은 층의 부재가 아니라 능력의 부재다.** 처음에 `COMMAND` 로 적은 것은 제3자 래퍼가 이 메시지들을 안 써서 못 본 결과였다."
   },
-
   "skills": {
     "move_relative": {
       "reachable": "YES",
@@ -17,7 +15,6 @@
       "adapter_must_own": "없다. **지속시간이 필드가 아니라 합성이며 로봇이 집행한다** — 어댑터가 시계를 들지 않고, 그래서 실패 방향도 다른 둘과 같다(어댑터가 죽어도 로봇이 선다).",
       "evidence": "`ActionMove` 자체에는 지속시간이 없지만 `ActionDuration{action, duration, after_success}` 이 아무 액션이나 감싼다. **처음에 '지속시간이 없어 어댑터가 정지를 빚고 실패 방향이 반대' 라고 적은 것은 오독이었다** — 제3자 래퍼에 `action-duration` 이 없었기 때문이다. `move_relative` 를 벤더 중립이라 부른 원래 근거가 셋 다에서 성립한다."
     },
-
     "navigate_to": {
       "reachable": "YES",
       "vendor_primitive": "`[\"action-goto\", {reference_frame: {name: <location>}, target, position_tolerance}]`",
@@ -25,7 +22,6 @@
       "adapter_must_own": "없다 — `location` 이 그대로 `ObjectSelector.name` 으로 간다. 목표 자세는 그 프레임의 원점으로 두며, 그 원점이 무엇을 뜻하는지는 **등록할 때** 정해진다(ADR 35).",
       "evidence": "**`ObjectSelector` 가 이름을 받는다** — `name` · `has_attributes` · `april_tag_id` · `descendant_of` · `include`/`exclude` · `map_name` 을 갖는 **질의 가능한 세계 모델의 선택자**다. Spot 은 웨이포인트 id 문자열 하나였는데 여기는 선택자이며, 그 모델을 `add-object` · `add-landmarks` · `set-floorplan-map` 으로 채운다. **처음에 '목적지가 좌표뿐' 이라 적은 것은 오독이었다.**"
     },
-
     "pick_place": {
       "reachable": "YES",
       "vendor_primitive": "`[\"action-sequential\", {actions: [[\"action-pick\", {object: {name: <object_id>}}], [\"action-place\", {reference_frame: {name: <destination>}, pose, position_tolerance}]]}]`",
@@ -33,7 +29,6 @@
       "adapter_must_own": "합성 방법과 두 규약 — 태스크 하나를 `action-sequential` 하나로 옮기는 것, 그리고 `action-place` 의 `pose` 를 대상 프레임의 **원점**으로, `position_tolerance` 를 어댑터 기본값으로 두는 것. 둘 다 벤더가 요구하는 값이라 비울 수 없고, 원점이 무엇을 뜻하는지는 등록할 때 정해진다(ADR 35).",
       "evidence": "**조사한 셋 중 시맨틱 집기·놓기를 파는 유일한 기종이다.** `ActionPick{object: ObjectSelector}` 과 `ActionPlace{pose, reference_frame: ObjectSelector}` 가 둘 다 있다. Spot 은 집기를 픽셀·3D 점으로만 받고 놓기는 **요청 자리가 아예 없으며**(피드백 열거에만 있다), G1 은 정해진 제스처 둘뿐이다. 그래서 *\"가장 능력 있는 벤더도 시맨틱 집기·놓기를 안 판다\"* 는 앞선 판단은 **Spot 에 대해서만 참이고 전체로는 거짓이었다.**"
     },
-
     "inspect": {
       "reachable": "NO",
       "vendor_primitive": "없다. 액션 어휘에 관측 취득이 없다.",
@@ -45,10 +40,10 @@
       "evidence": "**대상 지시는 오히려 이 기종이 가장 잘한다** — `ObjectSelector` 에 `snapshot_camera_name` 까지 있다. 없는 것은 *무엇을 볼지* 가 아니라 **관측을 태스크로 요청하고 결과를 받는 경로**다. 센서 스트림은 질의(`query-group`)로 따로 흐르며 액션 어휘 밖이다. Spot 은 `DataAcquisition` 노드로 취득 *동작* 은 주므로 PARTIAL 이었고, 여기는 그 동작이 없어 NO 다 — **셋 중 유일하게 남은 NO 이며 이유가 대상 시맨틱이 아니다.**"
     }
   },
-
   "notes": [
     "**이 문서는 2026-09-08에 한 번 통째로 뒤집혔다.** 첫 판은 제3자 래퍼 코드(`adubredu/digitinterface`)에서 파생했고 그것이 벤더 API 의 부분집합이라 `navigate_to` 를 PARTIAL, `pick_place` 를 NO, 계층을 COMMAND 로 적었다. 벤더 SDK 원문(`agility/messages/json.py`, 릴리스 2021.06.01)을 전수로 읽고 셋 다 고쳤다.",
     "**근거 등급을 적어 두고도 그 위에 판정을 얹은 것이 실수였다**(§15.65). 등급이 낮으면 `NO` 가 아니라 `UNKNOWN` 이어야 했고, 그것은 §7.2의 `Support` 3값이 말하는 바로 그것이다 — 조사 문서에서는 지키던 규율을 거리 문서에서 안 지켰다.",
     "**남는 한계는 릴리스가 2021년판이라는 것이다.** '있다' 는 확실하고 '없다' 는 그 시점 기준이다. `inspect` 의 NO 가 그 영향을 가장 크게 받는 자리다."
-  ]
+  ],
+  "survey_scope": "SDK 메시지 정의(`agility/messages/json.py`, 릴리스 2021.06.01) **전수** + 고객 매뉴얼(단일 페이지, 메시지 표제 89 개) **전수**. 로봇→클라이언트 메시지는 SDK 에 없어 매뉴얼이 유일한 출처다. 더 최신 릴리스는 못 봤다."
 }

@@ -62,7 +62,13 @@ ADR 34는 후보 셋을 열어 두었다 — `registry`가 데이터로, 상위 
 
 **셋. Digit이 이 결정의 가장 강한 증거다 (2026-09-08 확인).** 이 문단은 원래 *"성립하는지 아직 모른다"* 였는데, 같은 날 벤더 SDK 원문을 읽고 확인됐다. `ObjectSelector`가 `name`·`has_attributes`·`april_tag_id`·`descendant_of`·`map_name`을 받고 `add-object`·`add-landmarks`·`set-floorplan-map`이 그 모델을 채운다.
 
-**Spot보다 강하다.** 거기서는 이름이 문자열 하나였고 여기서는 선택자다 — *"사이트 이름은 로봇 안에 산다"* 를 벤더가 우리보다 멀리 밀고 간 셈이다. 그 결과로 Digit이 계약의 네 스킬 중 셋을 든다(`inspect`만 못 든다).
+**~~Spot보다 강하다.~~** 그 결과로 Digit이 계약의 네 스킬 중 셋을 든다(`inspect`만 못 든다).
+
+> **정정 (2026-09-09, Spot 표면 전수 조사).** *"거기서는 이름이 문자열 하나였고 여기서는 선택자다"* 는 틀렸다. **Spot에도 세계 모델이 있다** — `WorldObjectService.{ListWorldObjects, MutateWorldObjects}`가 `WorldObject{id, name, transforms_snapshot, apriltag_properties, object_lifetime}`를 팔고, `name`이 *"A human readable name"*이며, `ACTION_ADD`로 클라이언트가 등록하고 `ACTION_CHANGE`·`ACTION_DELETE`는 *"only allowed to change objects added by the API-user"*다. Digit의 `add-object`·`notify-objects`·`ObjectSelector{name}`와 **구조가 같고 만료 시간까지 대응한다.**
+>
+> **그래서 이 ADR의 근거는 오히려 강해진다** — 표본 하나가 아니라 **독립적인 벤더 둘**이 같은 배치를 골랐다. 약해지는 것은 *"Digit이 유일하다"*, *"Digit이 가장 강한 증거"* 라는 서술뿐이다.
+>
+> 왜 못 봤나: Spot을 서비스 **54개 중 3개**만 읽고 쟀다. 그 위에서 표본 셋 일반화를 했고, 이 ADR과 ADR 34가 그 위에 섰다.
 
 **그래서 이 결정의 대가 둘(운영 단계)이 더 무거워졌다** — 등록할 것이 웨이포인트만이 아니라 집을 물체와 놓을 곳까지다. §15.68의 상태를 만들 때 *"무엇을 등록했는가"* 가 기종마다 다른 집합이라는 것을 그때 다뤄야 한다.
 
@@ -70,7 +76,8 @@ ADR 34는 후보 셋을 열어 두었다 — `registry`가 데이터로, 상위 
 
 이 문단은 원래 *"이 결정으로 안 풀린다 — 장소는 저작물이지만 물체는 매번 다른 곳에 있고, 필요한 것이 표가 아니라 관측하는 주체이며 그것은 §1.3의 비목표다"* 였다. **표본 둘에서 일반화한 것이었고 셋째가 반증했다.**
 
-- **Spot·G1** — 그대로 맞다. Spot은 픽셀·3D점으로만 집고, 그마저 놓기는 요청 자리가 없다. BD의 답이 `RemoteGrpc`(네 서비스를 불러라)인 것이 그 경계다.
+- **Spot** — 결론(`pick_place` 안 섬)은 그대로지만 **이유가 틀렸었다.** 놓기 요청이 없는 것은 맞다(피드백 열거에 `MANIP_STATE_PLACE_*`가 있는데 요청 `oneof`에는 대응이 없고 `reserved 3, 6, 9`만 남았다). 틀린 것은 *"픽셀·3D점으로만 집는다"* 로 대상 시맨틱의 부재를 단정한 부분이다 — `WorldObject.name`으로 고른 객체의 프레임을 `PickObject{frame_name}`에 넣는 합성이 가능해 보인다(다만 클라이언트가 추가한 객체에도 프레임 이름이 붙는지는 **미확인**이라 근거 등급이 INFERRED다). BD의 답이 `RemoteGrpc`인 것은 그대로다.
+- **G1** — 그대로 맞다.
 - **Digit** — **벤더가 그 층을 판다.** `ObjectSelector`가 `name`만이 아니라 `has_attributes`·`april_tag_id`로도 고른다. 태그로 고르는 것은 **런타임 관측**이고, 물체가 움직여도 로봇이 따라간다는 뜻이다. 등록해 두는 것(`add-object`)과 관측해 찾는 것(`april_tag_id`)이 **같은 선택자 안에 있다.**
 
 그래서 **`pick_place`가 Digit에서 완전히 선다** — 계약의 네 스킬 중 셋을 드는 유일한 기종이며 못 드는 것은 `inspect` 하나다. 그리고 그 하나가 못 서는 이유는 대상 시맨틱이 아니라 **관측을 태스크로 요청하고 결과를 받는 경로가 없어서**다.
