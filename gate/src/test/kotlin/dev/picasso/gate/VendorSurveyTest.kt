@@ -115,6 +115,34 @@ class VendorSurveyTest {
     }
 
     @Test
+    fun `부재를 단정하려면 1차 근거가 있어야 한다`() {
+        // 거리 문서와 같은 규칙이다. **`NONE` 과 `NO` 는 부재의 단정**이고,
+        // 제3자 코드나 짐작으로는 거기까지 갈 수 없다 — Digit 의
+        // `cancel_support: NO` 가 정확히 그렇게 적혔다가 1차 근거를 읽고
+        // `YES` 로 뒤집혔다.
+        surveys().forEach { (name, node) ->
+            val documentGrade = value(node, "evidence_grade")
+
+            node.path("coverage").fields().forEach { (item, cover) ->
+                if (cover.path("level").asText() != "NONE") return@forEach
+                val grade = cover.path("evidence_grade").takeIf { !it.isMissingNode }?.asText()
+                    ?: documentGrade
+                assertTrue(
+                    grade in GROUNDED,
+                    "$name 의 $item 이 '$grade' 근거로 없다고 단정한다 — UNKNOWN 까지만이다",
+                )
+            }
+
+            THREE_VALUED.filter { value(node, it) == "NO" }.forEach {
+                assertTrue(
+                    documentGrade in GROUNDED,
+                    "$name 의 $it 이 '$documentGrade' 근거로 NO 다 — UNKNOWN 까지만이다",
+                )
+            }
+        }
+    }
+
+    @Test
     fun `아직 모르는 것이 남아 있다`() {
         // **3값의 셋째가 데이터에서 사라지면 그 값은 스키마에만 있는 것이 되고,**
         // 다음 사람이 "아무도 안 쓰는 값"이라 지운다. 지우고 나면 조사자가
@@ -213,6 +241,9 @@ class VendorSurveyTest {
             "cancel_support",
             "terminal_latches",
         )
+
+        /** 부재를 단정해도 되는 근거 등급. 나머지로는 `UNKNOWN` 까지만이다. */
+        val GROUNDED = setOf("VENDOR_PRIMARY", "VENDOR_DOC")
 
         val CONFIG: SchemaValidatorsConfig =
             SchemaValidatorsConfig.builder().locale(Locale.KOREAN).build()

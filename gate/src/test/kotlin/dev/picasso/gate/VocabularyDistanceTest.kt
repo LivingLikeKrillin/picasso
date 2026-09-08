@@ -175,6 +175,32 @@ class VocabularyDistanceTest {
     }
 
     @Test
+    fun `부재를 단정하려면 1차 근거가 있어야 한다`() {
+        // **2026-09-08에 이 저장소가 크게 물린 자리를 필드로 막는다.**
+        //
+        // Digit 측정이 통째로 뒤집혔다 — `navigate_to` PARTIAL→YES,
+        // `pick_place` NO→YES, 계층 COMMAND→MISSION. 원인이 하나였다:
+        // 벤더 문서가 안 닿아 **제3자 래퍼 코드**를 읽었는데 그것이 API의
+        // 부분집합이라, 거기 없는 것을 **없는 것으로 읽었다.**
+        //
+        // 근거 등급을 §15.65에 산문으로 적어 두고도 그 위에 `NO`를 얹은 것이
+        // 실수였다. 등급이 낮으면 `NO`가 아니라 `UNKNOWN`이어야 한다 —
+        // §7.2의 `Support` 3값이 말하는 그것이고, **조사 문서에서 지키던
+        // 규율을 거리 문서에서 안 지켰다.**
+        //
+        // 이제 산문이 아니라 필드이고, 여기가 강제한다.
+        eachSkill { doc, skill, node ->
+            if (node.path("reachable").asText() != "NO") return@eachSkill
+            val grade = grade(doc, node)
+            assertTrue(
+                grade in GROUNDED,
+                "$doc 의 $skill 이 '$grade' 근거로 부재를 단정한다 — " +
+                    "그 등급으로는 UNKNOWN 까지만 적을 수 있다",
+            )
+        }
+    }
+
+    @Test
     fun `근거 없는 측정이 없다`() {
         eachSkill { doc, skill, node ->
             val evidence = node.path("evidence").asText()
@@ -200,6 +226,13 @@ class VocabularyDistanceTest {
         )
     }
 
+    /** 항목이 덮어썼으면 그것, 아니면 문서의 등급. */
+    private fun grade(doc: String, node: JsonNode): String {
+        val own = node.path("evidence_grade")
+        if (!own.isMissingNode) return own.asText()
+        return documents().single { it.first == doc }.second.path("evidence_grade").asText()
+    }
+
     private fun eachSkill(body: (doc: String, skill: String, node: JsonNode) -> Unit) {
         documents().forEach { (name, node) ->
             node.path("skills").fields().forEach { (skill, value) -> body(name, skill, value) }
@@ -214,6 +247,9 @@ class VocabularyDistanceTest {
         const val MINIMUM = 2
 
         const val MIN_EVIDENCE = 10
+
+        /** 부재를 단정해도 되는 근거 등급. 나머지로는 `UNKNOWN` 까지만이다. */
+        val GROUNDED = setOf("VENDOR_PRIMARY", "VENDOR_DOC")
 
         val CONFIG: SchemaValidatorsConfig =
             SchemaValidatorsConfig.builder().locale(Locale.KOREAN).build()

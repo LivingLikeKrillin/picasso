@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version",
+    "evidence_grade",
     "derived_from",
     "vendor",
     "model",
@@ -22,6 +23,7 @@
       "type": "string",
       "const": "1.0.0"
     },
+    "evidence_grade": { "$ref": "#/$defs/evidenceGrade" },
     "derived_from": {
       "description": "무엇을 언제 보고 적었는가. **`source`가 필수이고 `software_version`이 선택인 것이 요점이다** — 벤더 문서를 본 것은 언제나 사실이지만, 그 문서가 어느 펌웨어를 기술하는지는 대개 적혀 있지 않다. 능력 프로파일 쪽은 그 반대(`software_version` 필수)이며, 그것이 채워지려면 이 조사보다 더 나아가야 한다.",
       "type": "object",
@@ -88,6 +90,10 @@
     }
   },
   "$defs": {
+    "evidenceGrade": {
+      "description": "이 판정이 **무엇을 읽고** 내려졌는가. VENDOR_PRIMARY = 벤더가 배포한 기계가독 정의(proto·IDL·SDK 메시지 정의·모듈 목록). VENDOR_DOC = 벤더의 문서·매뉴얼 산문. THIRD_PARTY = 벤더가 아닌 코드나 글. INFERRED = 위 어느 것도 없이 미루어 짐작했다. **부재를 단정하려면 앞의 둘 중 하나여야 한다** — 2026-09-08에 Digit 측정이 통째로 뒤집힌 원인이 정확히 이것이었다. 제3자 래퍼가 API의 부분집합인데 거기 없는 것을 '없다'로 읽었고, 근거 등급을 산문에 적어 두고도 그 위에 판정을 얹었다. 그래서 이제 **필드로 두고 시험이 강제한다.**",
+      "enum": ["VENDOR_PRIMARY", "VENDOR_DOC", "THIRD_PARTY", "INFERRED"]
+    },
     "coverageItem": {
       "type": "object",
       "additionalProperties": false,
@@ -95,8 +101,9 @@
       "properties": {
         "level": {
           "description": "FULL = 벤더가 그 값을 준다. PARTIAL = 일부만 또는 간접적으로. NONE = 아예 없다.",
-          "enum": ["FULL", "PARTIAL", "NONE"]
+          "enum": ["FULL", "PARTIAL", "NONE", "UNKNOWN"]
         },
+        "evidence_grade": { "$ref": "#/$defs/evidenceGrade" },
         "evidence": {
           "description": "**근거를 함께 적는다.** 판정만 남기면 나중에 그것이 조사인지 짐작인지 구분되지 않는다.",
           "type": "string",

@@ -1,5 +1,6 @@
 {
   "schema_version": "1.0.0",
+  "evidence_grade": "VENDOR_PRIMARY",
   "derived_from": {
     "source": "설계 §2.3의 실물 조사. unitree_sdk2 공개 저장소와 unitree_ros2, URDF.",
     "observed_at": "2026-09-05"

@@ -1,5 +1,6 @@
 {
   "schema_version": "1.0.0",
+  "evidence_grade": "VENDOR_PRIMARY",
   "profile": "unitree-g1.json",
   "survey": "unitree-g1.json",
 

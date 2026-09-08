@@ -5,9 +5,10 @@
   "description": "계약의 스킬 어휘와 실물 사이의 거리를 **잰 기록**. §15.7이 경고한 위험 — *\"`mimic`이 계약을 정의해버릴 위험\"* — 을 어댑터를 만들 때마다 재서 남긴다. 조사(`profile/vendors/`)가 *벤더가 무엇을 주는가*이고 출처(`profile/provenance/`)가 *프로파일의 값이 어디서 왔는가*라면, 이 문서는 **우리 어휘가 실물에 닿는가**이다. 셋이 다른 질문이라 문서가 셋이다. 여기 담긴 판정은 어댑터 설계 판단이며 벤더 문서에서 직접 나오지 않는다 — 그래서 `evidence`가 필수다.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "survey", "layer", "skills"],
+  "required": ["schema_version", "evidence_grade", "survey", "layer", "skills"],
   "properties": {
     "schema_version": { "type": "string", "const": "1.0.0" },
+    "evidence_grade": { "$ref": "#/$defs/evidenceGrade" },
     "profile": {
       "description": "`profile/profiles/` 안의 프로파일 파일명. **선택이다** — 프로파일이 서기 전에도 잴 수 있고, 재 보고 나서야 무엇을 선언할지 정해진다. 있으면 `reachable: YES` 인 스킬과 프로파일이 선언한 스킬이 **정확히 같아야** 한다(`VocabularyDistanceTest`).",
       "type": "string",
@@ -44,6 +45,10 @@
     }
   },
   "$defs": {
+    "evidenceGrade": {
+      "description": "이 판정이 **무엇을 읽고** 내려졌는가. VENDOR_PRIMARY = 벤더가 배포한 기계가독 정의(proto·IDL·SDK 메시지 정의·모듈 목록). VENDOR_DOC = 벤더의 문서·매뉴얼 산문. THIRD_PARTY = 벤더가 아닌 코드나 글. INFERRED = 위 어느 것도 없이 미루어 짐작했다. **부재를 단정하려면 앞의 둘 중 하나여야 한다** — 2026-09-08에 Digit 측정이 통째로 뒤집힌 원인이 정확히 이것이었다. 제3자 래퍼가 API의 부분집합인데 거기 없는 것을 '없다'로 읽었고, 근거 등급을 산문에 적어 두고도 그 위에 판정을 얹었다. 그래서 이제 **필드로 두고 시험이 강제한다.**",
+      "enum": ["VENDOR_PRIMARY", "VENDOR_DOC", "THIRD_PARTY", "INFERRED"]
+    },
     "measurement": {
       "type": "object",
       "additionalProperties": false,
@@ -51,8 +56,9 @@
       "properties": {
         "reachable": {
           "description": "YES = 어댑터가 이 스킬을 정직하게 들 수 있다. PARTIAL = 일부만 — 계약이 요구하는 것 중 벤더가 안 주는 것이 있다. NO = 못 든다. **`YES` 는 프로파일 선언과 묶여 있다** — 닿는다고 적고 선언하지 않거나, 선언하고 닿는다고 안 적으면 시험이 실패한다.",
-          "enum": ["YES", "PARTIAL", "NO"]
+          "enum": ["YES", "PARTIAL", "NO", "UNKNOWN"]
         },
+        "evidence_grade": { "$ref": "#/$defs/evidenceGrade" },
         "vendor_primitive": {
           "description": "이 스킬이 올라탈 벤더 쪽 자리. 없으면 없다고 적는다 — 빈 문자열이 아니라 문장으로.",
           "type": "string",
