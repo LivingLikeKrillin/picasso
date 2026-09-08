@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://picasso.dev/schema/vendor-survey/1.0.0",
+  "title": "Vendor Survey",
+  "description": "설계 §2.3의 실물 조사를 기계가 읽을 수 있게 옮긴 것. **능력 프로파일이 아니다** — 프로파일은 `capability-profile.schema.json`을 따르고 `mimic`이 그것으로 돈다. 이 문서는 그 프로파일을 파생하기 **전에** 알아야 하는 것, 즉 '벤더 문서가 무엇을 주고 무엇을 안 주는가'를 담는다. §2.3의 대조표가 산문으로만 있으면 그 사실이 코드와 갈라지고, 갈라진 것이 안 보인다. 실물 기종의 프로파일을 만들려면 여기 담긴 것으로는 모자라며(스킬 어휘·프로토콜 한계가 없다) 그 모자람 자체가 이 문서가 기록하는 것이다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "derived_from",
+    "vendor",
+    "model",
+    "transport",
+    "exclusive_control_required",
+    "pause_support",
+    "cancel_support",
+    "terminal_latches",
+    "coverage"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "derived_from": {
+      "description": "무엇을 언제 보고 적었는가. **`source`가 필수이고 `software_version`이 선택인 것이 요점이다** — 벤더 문서를 본 것은 언제나 사실이지만, 그 문서가 어느 펌웨어를 기술하는지는 대개 적혀 있지 않다. 능력 프로파일 쪽은 그 반대(`software_version` 필수)이며, 그것이 채워지려면 이 조사보다 더 나아가야 한다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "observed_at"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "observed_at": { "type": "string", "format": "date" },
+        "software_version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "vendor": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "license": {
+      "description": "SDK 라이선스 식별자와 제약. 어댑터를 우리가 쓰기로 했으므로(ADR 31) 배포 형태를 여기가 제약한다.",
+      "type": "string"
+    },
+    "transport": {
+      "description": "로봇측이 말하는 프로토콜. §3.5의 경계가 이것을 어댑터 안으로 흡수한다.",
+      "enum": ["GRPC", "DDS", "WEBSOCKET_JSON"]
+    },
+    "exclusive_control_required": {
+      "description": "§4.9 — 배타적 제어 소유권 모델인가. **강제되는가는 별개다**: 모델이 있어도 인증이 없으면 네트워크 도달이 곧 전권이며, 그 사실은 `notes`에 적는다.",
+      "enum": ["YES", "NO", "UNKNOWN"]
+    },
+    "pause_support": {
+      "description": "§7.2의 `Support` 3값과 같은 어휘. **`NO`와 `UNKNOWN`을 접으면 안 된다** — §2.3이 발견한 것이 정확히 그것이다.",
+      "enum": ["YES", "NO", "UNKNOWN"]
+    },
+    "cancel_support": {
+      "enum": ["YES", "NO", "UNKNOWN"]
+    },
+    "terminal_latches": {
+      "description": "§4.4의 래치 불변식 — 종착에 든 태스크가 비종착으로 돌아가지 않는가. `NO`인 실물에서는 어댑터가 래치 책임을 지고 어긋남을 `TERMINAL_STATE_VIOLATED`로 발행한다.",
+      "enum": ["YES", "NO", "UNKNOWN"]
+    },
+    "coverage": {
+      "description": "§7.2의 항목을 이 실물이 얼마나 채우는가. §2.3의 대조표를 그대로 옮긴 것이며, **`NONE`이 있는 것이 정상이다**(§2.3: *\"어느 실물도 프로파일을 전부 채우지 못하며 그것이 정상이다\"*).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_identity",
+        "supported_skills",
+        "cancel_pause",
+        "parameter_ranges",
+        "protocol_limits",
+        "failure_modes",
+        "publish_interval"
+      ],
+      "properties": {
+        "model_identity": { "$ref": "#/$defs/coverageItem" },
+        "supported_skills": { "$ref": "#/$defs/coverageItem" },
+        "cancel_pause": { "$ref": "#/$defs/coverageItem" },
+        "parameter_ranges": { "$ref": "#/$defs/coverageItem" },
+        "protocol_limits": { "$ref": "#/$defs/coverageItem" },
+        "failure_modes": { "$ref": "#/$defs/coverageItem" },
+        "publish_interval": { "$ref": "#/$defs/coverageItem" }
+      }
+    },
+    "notes": {
+      "description": "계약 설계에 영향을 준 사실. 어느 절이 이것을 근거로 삼았는지 적는다.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "coverageItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "evidence"],
+      "properties": {
+        "level": {
+          "description": "FULL = 벤더가 그 값을 준다. PARTIAL = 일부만 또는 간접적으로. NONE = 아예 없다.",
+          "enum": ["FULL", "PARTIAL", "NONE"]
+        },
+        "evidence": {
+          "description": "**근거를 함께 적는다.** 판정만 남기면 나중에 그것이 조사인지 짐작인지 구분되지 않는다.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

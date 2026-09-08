@@ -33,6 +33,14 @@ data class BindingRow(
     val adapterVersion: String,
     val conformanceStatus: String,
     val active: Boolean,
+    /**
+     * 관측선 상태 — `REPORTING` | `SILENT` | `HIBERNATING` | `DISCONNECTED` | `NEVER`.
+     *
+     * `NEVER`가 §15.47이 말한 그 상태다: 바인딩은 됐는데 한 번도 보고한 적이
+     * 없는 기체. §9.3의 두 조회가 그것 때문에 막히며, **여기 나오지 않으면
+     * 운영자는 축소를 시도할 때에야 안다.**
+     */
+    val liveness: String,
 )
 
 /**
@@ -100,6 +108,8 @@ class DiagnosticsService(
      * 그날 운영자는 화면을 믿는다.
      */
     private val vocabulary: dev.picasso.gate.GateCheck = Check06Vocabulary(),
+    /** 관측선 신선도 판정용. 시험이 고정한다. */
+    private val now: () -> java.time.Instant = java.time.Instant::now,
 ) {
 
     // ── 진단 1: GET /diag/bindings
@@ -110,6 +120,24 @@ class DiagnosticsService(
      *   여기다** — 카탈로그는 "지금 무엇으로 도는가"에 답하고(§9.1), 진단은
      *   "무엇이었는가"에도 답해야 한다.
      */
+    /**
+     * 관측선 판정 한 낱말.
+     *
+     * **§15.47이 인정한 것을 보이게 하는 자리다** — 하트비트를 안 보내는
+     * 어댑터를 붙이면 그 사이트의 축소가 통째로 멈추는데, 지금까지 그 사실이
+     * 축소를 시도해야만 드러났다. 여기 나오면 붙이는 순간 보인다.
+     *
+     * §9.7 ④의 `UNTESTED`와 같은 판단이다 — *"우리는 실물 검증을 아직 안
+     * 했다가 화면에 보여야 정직하다."*
+     */
+    private fun liveness(at: java.time.Instant?, state: String?): String = when {
+        at == null -> "NEVER"
+        state in DEAD_CONNECTION -> "DISCONNECTED"
+        java.time.Duration.between(at, now()) > LIVENESS_WINDOW ->
+            if (state == HIBERNATING) "HIBERNATING" else "SILENT"
+        else -> "REPORTING"
+    }
+
     fun bindings(site: String? = null, includeHistory: Boolean = false): BindingsAnswer {
         val rows = db.open().use { c ->
             c.prepareStatement(
@@ -117,13 +145,15 @@ class DiagnosticsService(
                 SELECT r.robot_id, r.site_id, cp.vendor, cp.model,
                        pr.profile_revision_id, pr.revision,
                        a.name, av.version, av.conformance_status,
-                       (b.unbound_at IS NULL) AS active
+                       (b.unbound_at IS NULL) AS active,
+                       l.last_reported_at, l.connection_state
                 FROM robot_binding b
                 JOIN robot r               ON r.robot_id = b.robot_id
                 JOIN profile_revision pr   ON pr.profile_revision_id = b.profile_revision_id
                 JOIN capability_profile cp ON cp.profile_id = pr.profile_id
                 JOIN adapter_version av    ON av.adapter_version_id = b.adapter_version_id
                 JOIN adapter a             ON a.adapter_id = av.adapter_id
+                LEFT JOIN robot_liveness l ON l.robot_id = r.robot_id
                 WHERE (? OR b.unbound_at IS NULL)
                   AND (? IS NULL OR r.site_id = ?)
                 ORDER BY r.robot_id, b.bound_at DESC, b.robot_binding_id DESC
@@ -146,6 +176,10 @@ class DiagnosticsService(
                                     adapterVersion = rs.getString(8),
                                     conformanceStatus = rs.getString(9),
                                     active = rs.getBoolean(10),
+                                    liveness = liveness(
+                                        rs.getTimestamp(11)?.toInstant(),
+                                        rs.getString(12),
+                                    ),
                                 ),
                             )
                         }
@@ -412,6 +446,22 @@ class DiagnosticsService(
 
         /** 기다린다고 안 풀리는 둘(§4.4). */
         val NEEDS_HUMAN = setOf("TASK_STATE_RETRIABLE", "TASK_STATE_NEEDS_INTERVENTION")
+
+        /**
+         * `RobotObservability`의 기본 창과 **같은 상수를 쓴다.** 두 곳이
+         * 갈라지면 진단이 "REPORTING"이라 적힌 기체 때문에 축소가 막히고,
+         * 운영자는 원장이 아니라 엉뚱한 것을 뒤진다.
+         */
+        val LIVENESS_WINDOW: java.time.Duration =
+            dev.picasso.registry.ledger.RobotObservability.DEFAULT_FRESHNESS
+
+        const val HIBERNATING = "CONNECTION_STATE_HIBERNATING"
+
+        val DEAD_CONNECTION = setOf(
+            "CONNECTION_STATE_OFFLINE",
+            "CONNECTION_STATE_CONNECTION_BROKEN",
+            "CONNECTION_STATE_UNSPECIFIED",
+        )
     }
 }
 

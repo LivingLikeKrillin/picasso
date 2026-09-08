@@ -348,6 +348,73 @@ class DiagnosticsTest {
             Rejection.newBuilder().setCode(code).setDetail(detail).build(),
         )
 
+    // ── 관측선 노출 (§15.47)
+
+    @Test
+    fun `바인딩만 되고 보고한 적 없는 기체가 NEVER 로 보인다`() {
+        // **§15.47이 인정한 것을 보이게 한다.** 하트비트를 안 보내는 어댑터를
+        // 붙이면 그 사이트의 축소가 통째로 멈추는데, 지금까지 그 사실이
+        // 축소를 시도해야만 드러났다.
+        val rev = activate(Fixtures.good())
+        bind(robot("r1"), rev)
+
+        val row = diag.bindings().rows.single { it.robotId == "r1" }
+
+        assertEquals("NEVER", row.liveness, "한 번도 안 보고했는데 그 사실이 안 보인다")
+    }
+
+    @Test
+    fun `보고하는 기체와 조용해진 기체가 갈린다`() {
+        val rev = activate(Fixtures.good())
+        bind(robot("r1"), rev)
+        report("r1", hoursAgo = 0)
+        assertEquals("REPORTING", diag.bindings().rows.single { it.robotId == "r1" }.liveness)
+
+        // **창을 넘긴 것과 안 넘긴 것이 달라야 한다.** 하나만 보면 "언제나
+        // REPORTING"이 통과한다.
+        report("r1", hoursAgo = 48)
+        assertEquals("SILENT", diag.bindings().rows.single { it.robotId == "r1" }.liveness)
+    }
+
+    @Test
+    fun `절전은 조용한 것과 다르게 보인다`() {
+        val rev = activate(Fixtures.good())
+        bind(robot("r1"), rev)
+        // §4.7이 HIBERNATING 을 "침묵하지만 정상"으로 정의했다. SILENT 로
+        // 접으면 운영자가 정상 절전을 고장으로 읽는다.
+        report("r1", hoursAgo = 48, state = "CONNECTION_STATE_HIBERNATING")
+
+        assertEquals(
+            "HIBERNATING",
+            diag.bindings().rows.single { it.robotId == "r1" }.liveness,
+        )
+    }
+
+    @Test
+    fun `연결이 끊긴 기체는 신선해도 DISCONNECTED 다`() {
+        val rev = activate(Fixtures.good())
+        bind(robot("r1"), rev)
+        // 방금 보고했어도 그 기체는 지금 말할 수 없다고 스스로 알렸다.
+        report("r1", hoursAgo = 0, state = "CONNECTION_STATE_OFFLINE")
+
+        assertEquals(
+            "DISCONNECTED",
+            diag.bindings().rows.single { it.robotId == "r1" }.liveness,
+        )
+    }
+
+    private fun report(
+        robotId: String,
+        hoursAgo: Int,
+        state: String = "CONNECTION_STATE_ONLINE",
+    ) = PostgresSupport.execute(
+        "INSERT INTO robot_liveness " +
+            "(robot_id, last_reported_at, connection_state, capability_epoch) VALUES " +
+            "('$robotId', now() - interval '$hoursAgo hours', '$state', 1) " +
+            "ON CONFLICT (robot_id) DO UPDATE SET " +
+            "last_reported_at = now() - interval '$hoursAgo hours', connection_state = '$state'",
+    )
+
     private companion object {
         val CONTRACT_SEMVER: String = dev.picasso.contracts.wire.ContractIdentity.semver
     }

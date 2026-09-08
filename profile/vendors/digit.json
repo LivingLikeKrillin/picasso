@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0.0",
+  "derived_from": {
+    "source": "설계 §2.3의 실물 조사. Agility Robotics Digit JSON API 문서와 매뉴얼.",
+    "observed_at": "2026-09-05"
+  },
+  "vendor": "Agility Robotics",
+  "model": "Digit",
+  "transport": "WEBSOCKET_JSON",
+
+  "exclusive_control_required": "YES",
+  "pause_support": "NO",
+  "cancel_support": "NO",
+  "terminal_latches": "NO",
+
+  "coverage": {
+    "model_identity": {
+      "level": "PARTIAL",
+      "evidence": "robot-info 가 네 필드를 준다"
+    },
+    "supported_skills": {
+      "level": "FULL",
+      "evidence": "액션 어휘가 고정이다"
+    },
+    "cancel_pause": {
+      "level": "NONE",
+      "evidence": "취소·일시정지 프리미티브가 개념 자체로 없다. 중단은 다른 액션으로 덮어쓰기이고 remove-action 은 컨테이너에 성공한 것처럼 보인다"
+    },
+    "parameter_ranges": {
+      "level": "PARTIAL",
+      "evidence": "문서상 5 kg 가반하중. 스킬 파라미터의 선언은 아니다"
+    },
+    "protocol_limits": {
+      "level": "NONE",
+      "evidence": "문자열·배열 최대 길이를 선언하지 않는다"
+    },
+    "failure_modes": {
+      "level": "NONE",
+      "evidence": "실패 사유가 사람이 읽는 자유 문자열 info 뿐이다. error_type 어휘를 어댑터가 합성해야 한다"
+    },
+    "publish_interval": {
+      "level": "FULL",
+      "evidence": "query-group{period} 로 주기를 정한다"
+    }
+  },
+
+  "notes": [
+    "WebSocket JSON API(ws://<ip>:8080, 서브프로토콜 json-v1-agility), 봉투는 [\"type\", {...}, refnum].",
+    "change-action-command 권한을 전 시스템에서 한 클라이언트만 보유하고 빼앗기면 로봇이 즉시 action-idle 로 리셋된다 → §4.9 의 CONTROL_AUTHORITY_LOST 근거.",
+    "terminal_latches 가 NO 인 유일한 기종이다. 매뉴얼이 명시한다 — \"This status does not latch once reached\". success 에서 running 으로 되돌아갈 수 있으며, 그래서 계약이 래치를 요구하고 어긋나면 TERMINAL_STATE_VIOLATED 로 나타난다(§4.4).",
+    "cancel_support 가 NO 인 것과 Spot 의 UNKNOWN 이 다른 답인 것이 §7.2 Support 3값의 이유다. §2.3이 그것을 이렇게 적었다 — \"지원하지 않음과 근거가 없어 모름을 구분하지 못하면 Digit 프로파일 작성자가 거짓말을 하게 된다\"."
+  ]
+}

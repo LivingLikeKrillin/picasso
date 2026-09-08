@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0.0",
+  "derived_from": {
+    "source": "설계 §2.3의 실물 조사. unitree_sdk2 공개 저장소와 unitree_ros2, URDF.",
+    "observed_at": "2026-09-05"
+  },
+  "vendor": "Unitree",
+  "model": "G1",
+  "license": "BSD-3-Clause — 제약 없음",
+  "transport": "DDS",
+
+  "exclusive_control_required": "YES",
+  "pause_support": "NO",
+  "cancel_support": "NO",
+  "terminal_latches": "UNKNOWN",
+
+  "coverage": {
+    "model_identity": {
+      "level": "NONE",
+      "evidence": "로봇 신원 질의가 아예 없다"
+    },
+    "supported_skills": {
+      "level": "PARTIAL",
+      "evidence": "팔만 GetActionList 를 준다. 이동을 포함한 고수준 API 는 전부 int fsm_id 매직 넘버 위의 얇은 래퍼다 — Damp()=SetFsmId(1), Start()=SetFsmId(500)"
+    },
+    "cancel_pause": {
+      "level": "NONE",
+      "evidence": "취소·일시정지 프리미티브가 없다"
+    },
+    "parameter_ranges": {
+      "level": "FULL",
+      "evidence": "조인트 한계가 URDF <limit lower upper effort velocity> 에 있다. 다만 SDK 가 아니라 URDF 에만 있다"
+    },
+    "protocol_limits": {
+      "level": "NONE",
+      "evidence": "문자열·배열 최대 길이를 선언하지 않는다"
+    },
+    "failure_modes": {
+      "level": "NONE",
+      "evidence": "결함 목록을 보고하지 않는다. 클라이언트가 terminations.hpp 로 과열·자세이상을 스스로 판정한다"
+    },
+    "publish_interval": {
+      "level": "NONE",
+      "evidence": "상태 발행 주기를 선언하지 않는다"
+    }
+  },
+
+  "notes": [
+    "양산 휴머노이드 중 SDK 가 공개된 사실상 유일한 것이며 BSD-3-Clause 라 라이선스 제약이 없다. unitree_ros2 는 브리지가 아니라 같은 DDS wire 에 rmw 로 직접 참여한다.",
+    "Spot 과 정확히 반대다 — 라이선스는 열려 있는데 말할 것이 없다. 능력을 선언하지 않고, 자기가 누구인지도 말하지 않고, 결함도 안 알린다.",
+    "exclusive_control_required 를 YES 로 적었으나 강제되지 않는다. lease id 는 있지만 인증이 없어 네트워크 도달이 곧 전권이다(§4.9·§6.3).",
+    "이 기종만 공식 시뮬레이터(unitree_mujoco)가 SDK2 인터페이스를 그대로 노출한다. 실물 없이 어댑터를 돌려 볼 수 있는 유일한 후보이며, 그것은 §15.7 과 C-3 의 전제를 바꾼다."
+  ]
+}

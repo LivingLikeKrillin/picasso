@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0.0",
+  "derived_from": {
+    "source": "설계 §2.3의 실물 조사. Boston Dynamics Spot SDK 공개 문서와 라이선스 원문.",
+    "observed_at": "2026-09-05"
+  },
+  "vendor": "Boston Dynamics",
+  "model": "Spot",
+  "license": "20191101-BDSDK-SL — §2(c) BD 하드웨어 전용, §2(b) 재라이선스 금지",
+  "transport": "GRPC",
+
+  "exclusive_control_required": "YES",
+  "pause_support": "UNKNOWN",
+  "cancel_support": "UNKNOWN",
+  "terminal_latches": "UNKNOWN",
+
+  "coverage": {
+    "model_identity": {
+      "level": "FULL",
+      "evidence": "RobotIdService.GetRobotId 가 serial_number·species·software_release 를 준다"
+    },
+    "supported_skills": {
+      "level": "FULL",
+      "evidence": "DirectoryService.ListServiceEntries 로 런타임 서비스 발견"
+    },
+    "cancel_pause": {
+      "level": "PARTIAL",
+      "evidence": "취소·일시정지 가능 여부를 선언하지 않는다. 되는지 안 되는지가 아니라 말하지 않는다는 뜻이다"
+    },
+    "parameter_ranges": {
+      "level": "PARTIAL",
+      "evidence": "Skeleton 이 형태를 주지만 스킬 파라미터의 값 범위·단위는 아니다"
+    },
+    "protocol_limits": {
+      "level": "NONE",
+      "evidence": "문자열·배열 최대 길이를 선언하지 않는다"
+    },
+    "failure_modes": {
+      "level": "FULL",
+      "evidence": "SystemFault{severity, dtc, attributes} + BehaviorFault{Cause ∈ FALL|HARDWARE|LEASE_TIMEOUT, Status ∈ CLEARABLE|UNCLEARABLE} — 복구 가능성을 로봇이 스스로 판정한다"
+    },
+    "publish_interval": {
+      "level": "PARTIAL",
+      "evidence": "liveness_timeout_secs 가 있으나 상태 발행 주기의 선언은 아니다"
+    }
+  },
+
+  "notes": [
+    "우리 설계의 정본 사례다 — 능력을 선언하고, 결함의 복구 가능성을 로봇이 판정하고, 소유권을 Lease{resource, epoch, sequence[]} 벡터 클럭으로 다룬다.",
+    "그런데 코드를 쓸 수 없다. 라이선스 §2(c)가 BD 하드웨어 전용이고 §2(b)가 재라이선스를 금하므로 Spot proto·생성 스텁을 벤더 중립 공통 계층에 넣으면 위반이다. 개념만 차용하고 코드는 Spot 어댑터 안에 격리한다(ADR 31).",
+    "cancel_support 가 NO 가 아니라 UNKNOWN 인 것이 §7.2의 Support 3값이 필요한 이유다. NO 로 접으면 취소를 못 하는 로봇이 되고, YES 로 접으면 되는 줄 알고 보냈다가 런타임에 안다."
+  ]
+}
