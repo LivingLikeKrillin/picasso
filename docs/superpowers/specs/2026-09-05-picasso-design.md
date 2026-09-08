@@ -63,9 +63,11 @@
 
 ### 1.4 완료 기준
 
-§12.2에 **24행**으로 정리한다. 백로그 15행(A-1 1, A-2 4, A-4 7, C-1 2, C-2 1), D-1 1행, 능력 호환성 1행, 레지스트리·런타임 갱신 2행, 운영 변경 5행이다.
+§12.2에 **23행**으로 정리한다. 백로그 14행(A-1 1, A-2 4, A-4 6, C-1 2, C-2 1), D-1 1행, 능력 호환성 1행, 레지스트리·런타임 갱신 2행, 운영 변경 5행이다.
 
-A-4가 일곱으로 늘어난 것은 실물 조사(§2.3)의 결과다 — 취소가 복구를 동반하고, 실패가 사람 개입 대기일 수 있고, 종착이 래치되지 않는 로봇이 있고, 제어권을 빼앗길 수 있다는 사실이 전부 태스크 생명주기에 걸린다.
+A-4가 여섯으로 늘어난 것은 실물 조사(§2.3)의 결과다 — 취소가 복구를 동반하고, 실패가 사람 개입 대기일 수 있고, 종착이 래치되지 않는 로봇이 있고, 제어권을 빼앗길 수 있다는 사실이 전부 태스크 생명주기에 걸린다. 백로그의 두 행(장기 실행, 취소·일시정지 불가)에 그 넷이 붙어 6·7·8·8b·8c·8d가 됐다.
+
+*(2026-09-09 정정 — 이 절이 24행·A-4 7행이라 적고 있었는데 §12.2의 실제 A-4 행은 여섯이다. 표를 세어 숫자를 맞췄다. 반대로 행 하나가 빠진 것이라면 이 정정이 아니라 표에 행을 더하는 쪽이 맞다.)*
 
 ## 2. 배경과 근거
 
@@ -1653,6 +1655,42 @@ mimic/
     **막지 않고 보이게 한다.** 팔이 없어도 `move_relative`·`navigate_to`는 돈다. 그래서 거절이 아니라 결함이며, **팔이 필요한 스킬이 들어오는 날 그 스킬이 이 답을 보고 거절해야 한다** — 지금은 그런 스킬이 없어 거절 경로를 안 만든다(ADR 9). 그리고 **"없다"와 "못 물어봤다"를 가른다**: 읽기 실패를 팔 없음으로 접으면 관측 실패가 결속 오류로 보이고 운영자가 멀쩡한 기체의 배포를 뒤진다. `X_BOSTONDYNAMICS_ARM_ABSENT`와 `X_BOSTONDYNAMICS_HARDWARE_UNKNOWN`으로 따로 낸다. 전제는 모델 이름을 뜯어 짐작하지 않고 **배포하는 쪽이 명시한다**(`expectsArm`).
 
     **매니페스트도 전수로 바꿨다.** 앞 판은 손으로 고른 proto 12개만 덮어서 `survey_scope`의 *"서비스 54개 전수"*와 앞뒤가 안 맞았고, 실제로 `robot_state.proto`를 안 덮어 이 인용을 못 붙일 뻔했다. 이제 152개 전부에서 8089개 심볼을 뽑는다.
+
+76. **한 로봇이 서비스 54개를 파는데, 그것들은 독립적이지 않다 — 그리고 미션 계층은 그것들을 재정의하지 않고 참조한다.** 2026-09-09 조사의 결과이며, 여기 적는 것은 **사실뿐**이다. 우리 계약을 어떻게 할지는 아래 "열린 질문"이고 아직 안 정했다.
+
+    **① 세 겹의 공통 골격.**
+
+    | 층 | 측정 |
+    |---|---|
+    | 봉투 | 최상위 `*Request` 메시지 **256개 중 250개(98%)**가 `RequestHeader header`를 든다 |
+    | 디렉터리 | 전부 `DirectoryService`에 등록되고 `service_name`으로 찾아진다 |
+    | 구동 권한 | **34개만** `Lease`를 싣는다 |
+
+    마지막 줄이 진짜 경계선이다. **`Lease`를 싣느냐가 "움직이는 것"과 "묻는 것"을 가르는 유일한 선**이며, 배타 제어(§4.9)의 대상은 서비스 54개가 아니라 그 34개 요청이다. 나머지는 질의·등록·저장이다.
+
+    **② 미션 노드 49개 = 서비스 참조 29 + 미션 소유 20.**
+
+    참조 29개는 **전부 같은 모양**이다 — `(string service_name, string host, <그 서비스의 요청 메시지 원본>)`. 예:
+
+    ```proto
+    message BosdynRobotCommand {
+        string service_name = 1;
+        string host = 2;
+        RobotCommand command = 3;   // 벤더 요청을 그대로 싣는다
+    }
+    ```
+
+    **노드가 의미를 하나도 안 더한다.** `RemoteGrpc`도 같은 모양을 일반화한 것이다(`host`·`service_name`·`timeout`·`lease_resources`). 미션 계층이 실제로 소유한 것은 20개뿐이다 — **조합 10**(`Node`·`Sequence`·`Selector`·`Switch`·`Repeat`·`Retry`·`ForDuration`·`SimpleParallel`·`ParallelAnd`·`Condition`), **상태 6**(블랙보드 넷 + `ConstantResult`·`CreateMissionText`), **나머지 4**(`Prompt`=사람 · `Sleep`=시간 · `RestartWhenPaused`·`DataAcquisitionOnInterruption`=정책).
+
+    **③ 명령은 이미 벤더가 합성해 두었다.** `RobotCommand` → `SynchronizedCommand{arm_command, mobility_command, gripper_command}`. 그래서 팔 노드가 따로 없고 `BosdynRobotCommand` 하나가 팔·이동·그리퍼를 다 덮는다.
+
+    **④ 노드를 안 받은 서비스들**(완전 열거에서의 부재이므로 근거가 세다) — `ManipulationApiService`(집기 자체는 노드가 없다. `SetGraspOverride`만 있다) · `WorldObjectService` · `ImageService` · `DoorService` · `InverseKinematicsService` · `ArmSurfaceContactService` · `AutowalkService` · `NetworkComputeBridge`. **BD는 조작을 미션 노드로 만들지 않았다.** 그것들은 `RemoteGrpc`로만 미션에 들어온다.
+
+    **그래서 BD의 답은 이렇게 읽힌다 — 미션 계층은 무엇을 할 수 있는지 열거하지 않는다. 참조하고, 조합하고, 상태를 갖는다.**
+
+    **열린 질문 (아직 안 정함).** 우리 계약은 정반대로 능력을 **열거**한다(`move_relative`·`navigate_to`·`pick_place`·`inspect`). 이 배치로 보면 `inspect`가 실물 셋 어디에도 안 닿는 것이 벤더 결손이 아니라 **그것이 원자가 아니라 조합**(`Element{target, action}`)이기 때문으로 읽히고, `pick_place`도 Digit에서는 벤더가(`action-sequential`) Spot에서는 어댑터가 조합한다.
+
+    **다만 BD 배치를 그대로 베낄 수는 없다.** BD가 `(service_name, host, 벤더 요청 원본)`을 나를 수 있는 것은 **자기 로봇만 상대하기 때문**이다. 같은 것을 우리가 하면 소비자가 벤더 요청 메시지를 알아야 하고 그것은 A-1 정면 위반이며, 벤더 중립이 이 계약의 존재 이유다. 그러므로 질문은 *"베낄까"*가 아니라 **"벤더 중립을 지키면서 열거에서 참조+조합으로 갈 수 있는가"**이다. §15.74의 `pick_place` 1건·`inspect` 0건 문제와 같은 뿌리이며, 카탈로그를 손대기 전에 이것부터 정해야 한다.
 
     **ADR 35는 오히려 강해진다** — 표본 하나가 아니라 독립적인 벤더 둘이 같은 배치(이름은 로봇 안에 산다)를 골랐다. 약해지는 것은 *"Digit이 유일하다"*는 서술뿐이다.
 

@@ -49,7 +49,9 @@
     "**여전히 맞는 것.** `move_relative`·`navigate_to` 의 판정과 근거, 놓기 요청의 부재, `location` 이 사람 이름이고 항법이 생성 id 를 받는다는 정정(2026-09-08).",
     "**닥는 둘이 서로 다른 계층에 올라탄다** — `move_relative` 는 명령, `navigate_to` 는 미션. 미션 서비스가 없는 기체에서 하나만 죽는다. §7.2 가 `Support` 를 스킬 단위로 둔 것이 **한 로봇 안에서** 값을 하는 첫 사례다.",
     "**이름 공간이 둘이다.** 장소는 GraphNav 의 `Waypoint.annotations.name`, 대상은 `WorldObject.name`. 계약의 `is_site_reference` 파라미터도 장소(`location`·`destination`)와 대상(`object_id`·`target`)으로 갈리므로, `GetKnownSiteNames` 가 지금 그래프만 보는 것은 **반만 보는 것**이다(§15.73 의 남는 항목에 더한다).",
-    "**남은 비대칭이 진짜다.** Digit 은 파지 시점에 로봇이 이름을 다시 풀고, Spot 은 질의 시점의 좌표로 굳는다. 움직이는 대상에서 둘의 행동이 갈리며, 그것은 배관이 아니라 의미의 차이다."
+    "**남은 비대칭이 진짜다.** Digit 은 파지 시점에 로봇이 이름을 다시 풀고, Spot 은 질의 시점의 좌표로 굳는다. 움직이는 대상에서 둘의 행동이 갈리며, 그것은 배관이 아니라 의미의 차이다.",
+    "**서비스가 54 개지만 독립적이지 않다.** 최상위 요청 256 개 중 250 개(98%)가 같은 `RequestHeader` 를 들고, 전부 `DirectoryService` 로 찾아지며, **`Lease` 를 싣는 것은 34 개뿐**이다. §4.9 의 배타 제어가 실제로 거는 대상은 서비스가 아니라 **그 34 개 요청**이다. 자세한 것은 §15.76.",
+    "**미션 계층은 명령을 재정의하지 않고 참조한다** — 노드 49 개 중 29 개가 `(service_name, host, 벤더 요청 원본)` 이고 의미를 안 더한다. 미션이 소유한 20 개는 조합·상태·사람·시간뿐이다. 그리고 **조작은 미션 노드가 아니다**(`ManipulationApiService`·`WorldObjectService`·`DoorService` 등은 노드가 없고 `RemoteGrpc` 로만 들어온다). 우리 계약이 능력을 **열거**하는 것과 정반대 배치이며, 그것을 어떻게 할지는 §15.76 의 열린 질문이다."
   ],
-  "survey_scope": "BD 공개 SDK 의 서비스 **54 개 전수**(commit 8577b41, protos 152 개) + 프레임 결속을 확인하기 위한 벤더 예제 코드 셋(`fiducial_follow`·`arm_grasp`·`mutate_world_objects`). 앞 판은 robot_command·mission·graph_nav **3 개**만 보고 판정했다."
+  "survey_scope": "BD 공개 SDK 의 서비스 **54 개 전수**(commit 8577b41, protos 152 개) + 프레임 결속 확인용 벤더 예제 셋(`fiducial_follow`·`arm_grasp`·`mutate_world_objects`) + **조합 모델 분석**(최상위 `*Request` 256 개의 봉투·리스 분포, 미션 노드 49 개의 분류). 앞 판은 robot_command·mission·graph_nav **3 개**만 보고 판정했다."
 }
