@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
 import kotlin.test.Test
@@ -35,8 +36,18 @@ class SpotAdapterTest {
     private fun adapter(
         command: FakeCommand? = FakeCommand(),
         mission: FakeMission? = FakeMission(),
+        graph: FakeGraph? = mapped(),
         identity: AdapterIdentity = this.identity,
-    ) = SpotAdapter(FakeLink(command, mission), identity)
+    ) = SpotAdapter(FakeLink(command, mission, graph), identity)
+
+    /**
+     * 픽스처의 [navigate] 가 갈 수 있는 지도.
+     *
+     * **기본값이 빈 그래프이면 안 된다** — 그러면 이 파일의 `navigate_to`
+     * 시험이 전부 `SITE_NAME_UNKNOWN` 으로 죽고, 죽은 이유가 이름 해석이라는
+     * 것이 다른 시험들의 실패에 묻힌다.
+     */
+    private fun mapped() = FakeGraph("wp-1" to "dock-3")
 
     // ── 층이 스킬을 가른다 (이 파일의 핵심)
 
@@ -83,7 +94,7 @@ class SpotAdapterTest {
         // **계약과 벤더가 어긋나는 유일한 자리다.** 계약은 `duration`, Spot은
         // `end_time`. 어긋나면 로봇이 일찍 서거나 안 선다.
         val command = FakeCommand()
-        SpotAdapter(FakeLink(command, FakeMission()), identity)
+        SpotAdapter(FakeLink(command, FakeMission(), mapped()), identity)
             .accept("move_relative", move, t0)
 
         assertEquals(listOf(t0.plusSeconds(2)), command.velocities.map { it.endTime })
@@ -91,15 +102,98 @@ class SpotAdapterTest {
     }
 
     @Test
-    fun `location 이 그대로 웨이포인트 id 로 간다`() {
-        // 옮기는 표가 **없는 것**이 요점이다. 그 표를 어댑터가 갖게 되는 순간
-        // 시맨틱 결속의 주인이 GraphNav 에서 우리에게 넘어온다(ADR 34).
+    fun `location 은 이름이고 로봇에 물어 id 로 옮긴다`() {
+        // **이 시험이 한 번 정반대였다.** 앞 판은 `location` 이 그대로
+        // 웨이포인트 id 로 간다고 단언했고, 벤더 원문이 그것을 뒤집었다 —
+        // `Waypoint.id` 는 *"Unique across all maps"* 인 생성 id 이고 사람이
+        // 붙인 이름은 `annotations.name` 에 따로 있다. 그대로 넘기면 상위
+        // 시스템이 Spot 이 만든 id 를 알아야 하고, 그것이 A-1 위반이다.
         val mission = FakeMission()
-        SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+        val graph = FakeGraph("wp-88" to "bay-7")
+        SpotAdapter(FakeLink(FakeCommand(), mission, graph), identity)
             .accept("navigate_to", mapOf("location" to "bay-7"), t0)
 
-        assertEquals(listOf("bay-7"), mission.loaded)
+        assertEquals(listOf("wp-88"), mission.loaded, "이름을 그대로 항법에 넘겼다")
         assertEquals(1, mission.played)
+    }
+
+    @Test
+    fun `모르는 이름은 거절하고 미션을 올리지 않는다`() {
+        // **받아 놓고 아무 데도 안 가는 것이 가장 나쁘다.** 그리고 이 거절이
+        // 오타인지 등록 누락인지 어댑터는 모른다 — 알려면 올바른 이름의 표를
+        // 어댑터가 가져야 하고, 그 순간 결속의 주인이 바뀐다(ADR 34).
+        val mission = FakeMission()
+        val refused = assertIs<Acceptance.Refused>(
+            SpotAdapter(FakeLink(FakeCommand(), mission, FakeGraph("wp-1" to "dock-3")), identity)
+                .accept("navigate_to", mapOf("location" to "dock-4"), t0),
+        )
+
+        assertEquals(Refusal.SITE_NAME_UNKNOWN, refused.reason)
+        assertEquals(emptyList(), mission.loaded)
+    }
+
+    @Test
+    fun `동명이 둘이면 하나를 고르지 않고 거절한다`() {
+        // `annotations.name` 은 사람이 적는 문자열이고 유일성을 막는 것이
+        // 없다. **임의로 고르면 로봇이 다른 자리로 가고 로그에는 성공이 남는다.**
+        val mission = FakeMission()
+        val refused = assertIs<Acceptance.Refused>(
+            SpotAdapter(
+                FakeLink(FakeCommand(), mission, FakeGraph("wp-1" to "dock-3", "wp-2" to "dock-3")),
+                identity,
+            ).accept("navigate_to", navigate, t0),
+        )
+
+        assertEquals(Refusal.SITE_NAME_AMBIGUOUS, refused.reason)
+        assertEquals(emptyList(), mission.loaded)
+    }
+
+    @Test
+    fun `지도 계층이 없으면 navigate_to 를 못 든다`() {
+        // 미션 계층이 있어도 갈 곳의 이름을 옮길 데가 없다.
+        val refused = assertIs<Acceptance.Refused>(
+            adapter(graph = null).accept("navigate_to", navigate, t0),
+        )
+        assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
+    }
+
+    // ── 아는 이름을 답한다 (ADR 35)
+
+    @Test
+    fun `그래프의 사람이 붙인 이름만 답한다`() {
+        // **id 를 답하면 안 된다.** 운영자가 등록한 것은 이름이고, 원장이
+        // 세는 것도 이름이다. id 를 답하면 개수는 맞는데 뜻이 다르다.
+        val known = adapter(graph = FakeGraph("wp-1" to "dock-3", "wp-2" to "shelf-b"))
+            .knownSiteNames()
+
+        assertEquals(SiteNames.Known(listOf("dock-3", "shelf-b")), known)
+    }
+
+    @Test
+    fun `이름 없는 웨이포인트는 세지 않는다`() {
+        // 지도 녹화가 이름을 요구하지 않아 대부분의 그래프에 섞여 있다.
+        // **세면 개수가 부풀고 확인이 그대로 통과한다.**
+        val known = adapter(graph = FakeGraph("wp-1" to "dock-3", "wp-2" to "", "wp-3" to "   "))
+            .knownSiteNames()
+
+        assertEquals(SiteNames.Known(listOf("dock-3")), known)
+    }
+
+    @Test
+    fun `그래프를 못 받으면 빈 목록이 아니라 못 물어봤다고 답한다`() {
+        // **이 파일에서 가장 중요한 시험이다.** 0 으로 답하면 관측 실패가
+        // 사람의 태만처럼 보이고, 원장이 `CONTRADICTED` 를 띄운다 — 사실은
+        // 아무것도 관측되지 않았는데.
+        val known = adapter(graph = FakeGraph(fail = IllegalStateException("연결 끊김")))
+            .knownSiteNames()
+
+        assertIs<SiteNames.Unavailable>(known)
+    }
+
+    @Test
+    fun `지도 계층이 없으면 호스팅 못 한다고 답한다`() {
+        // 빈 목록이 아니다 — 없는 자리에 등록하라고 요구하게 된다.
+        assertEquals(SiteNames.Unsupported, adapter(graph = null).knownSiteNames())
     }
 
     // ── 미션 상태 → 계약 상태
@@ -115,7 +209,7 @@ class SpotAdapterTest {
             MissionStatus.RUNNING to TaskState.TASK_STATE_RUNNING,
         ).forEach { (reported, expected) ->
             val mission = FakeMission(MissionState(reported))
-            val a = SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+            val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped()), identity)
             a.accept("navigate_to", navigate, t0)
             assertEquals(expected, a.poll(t0.plusSeconds(1)), "$reported 의 옮김")
         }
@@ -127,7 +221,7 @@ class SpotAdapterTest {
         // 스스로를 RUNNING 이라 답하는데, 사람이 와야 진행되는 것은 계약에서
         // RUNNING 이 아니다. 그대로 옮기면 아무도 사람을 부르지 않는다.
         val mission = FakeMission(MissionState(MissionStatus.RUNNING, question = "문을 열까요?"))
-        val a = SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+        val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped()), identity)
         a.accept("navigate_to", navigate, t0)
 
         assertEquals(TaskState.TASK_STATE_NEEDS_INTERVENTION, a.poll(t0.plusSeconds(1)))
@@ -166,7 +260,7 @@ class SpotAdapterTest {
     @Test
     fun `권한을 잃은 채 취소하면 취소됐다고 적지 않는다`() {
         val mission = FakeMission()
-        val a = SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+        val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped()), identity)
         a.accept("navigate_to", navigate, t0)
         mission.reject = LeaseStatus.STATUS_OLDER
 
@@ -180,7 +274,7 @@ class SpotAdapterTest {
     @Test
     fun `취소가 미션을 멈춘다`() {
         val mission = FakeMission()
-        val a = SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+        val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped()), identity)
         a.accept("navigate_to", navigate, t0)
 
         assertEquals(Applied.Ok, a.cancel())
@@ -288,8 +382,23 @@ class SpotAdapterTest {
         override fun state(): MissionState? = reported
     }
 
+    /**
+     * 페어를 받는 것이 요점이다 — **id 와 이름이 다른 값이라는 것**을 페이크의
+     * 모양이 강제한다. 문자열 목록으로 두면 둘을 접은 앞 판이 그대로 돌아온다.
+     */
+    private class FakeGraph(
+        private vararg val waypoints: Pair<String, String>,
+        private val fail: Throwable? = null,
+    ) : GraphLayer {
+        override fun downloadGraph(): Result<List<GraphWaypoint>> {
+            fail?.let { return Result.failure(it) }
+            return Result.success(waypoints.map { GraphWaypoint(it.first, it.second) })
+        }
+    }
+
     private class FakeLink(
         override val command: CommandLayer?,
         override val mission: MissionLayer?,
+        override val graph: GraphLayer?,
     ) : SpotLink
 }

@@ -20,10 +20,10 @@
 
     "navigate_to": {
       "reachable": "YES",
-      "vendor_primitive": "미션 노드 `BosdynNavigateTo`, `NavigateToRequest.destination_waypoint_id`(string) (미션·항법 계층)",
+      "vendor_primitive": "미션 노드 `BosdynNavigateTo`, `NavigateToRequest.destination_waypoint_id`(string) + `GraphNavService.DownloadGraph` → `Waypoint.annotations.name` (미션·항법·지도 계층)",
       "missing": [],
-      "adapter_must_own": "없다 — `location` 이 그대로 웨이포인트 id 로 간다. **옮기는 표를 어댑터가 갖지 않는 것이 요점이며**, 갖는 순간 시맨틱 결속의 주인이 GraphNav 에서 우리에게 넘어온다. 지도 녹화와 `UploadGraph` 는 사이트 작업이고 계약에도 코드에도 자리가 없다.",
-      "evidence": "**계약의 시맨틱 위치 ID 와 모양이 같은 유일한 벤더 값이다.** §4.3이 *'좌표가 아니다'* 라고 못박은 그 자리에 벤더가 문자열 id 를 준다. 항법이 쉬워서가 아니라 GraphNav 이 이미 시맨틱 결속을 해 두고 그것을 노출하기 때문이다 — 다른 스킬들이 못 닿는 이유가 정확히 이 층의 부재다."
+      "adapter_must_own": "**표는 안 갖는다. 해석은 한다.** 매 호출 로봇의 그래프를 받아 `location`(사람이 붙인 이름)을 `destination_waypoint_id`(로봇이 생성한 id)로 옮긴다. 이름으로 웨이포인트를 찾는 좁은 RPC 가 없어 **그래프 전체**를 받으며, 캐시하면 사이트가 지도를 다시 올렸을 때 옛 이름으로 로봇을 몰게 되므로 안 한다. 어댑터가 아무것도 저장하지 않고 대응을 정한 것도 지도를 녹화한 사이트이므로 결속의 주인은 여전히 로봇이다(ADR 34·35). 동명이 둘이면 하나를 고르지 않고 거절한다.",
+      "evidence": "**정정(2026-09-08). 앞 판은 `location` 이 그대로 웨이포인트 id 로 간다고 적었고 틀렸다.** 벤더 원문이 둘을 나눈다 — `Waypoint.id` 는 *'Identifier of the waypoint. Unique across all maps'* 인 생성 id 이고, 사람이 붙인 이름은 `Waypoint.Annotations.name`(*'Human-friendly name of the waypoint. For example, \"Kitchen Fridge\"'*)에 따로 있다. 항법이 받는 것은 앞의 것이다. 그대로 넘기면 상위 시스템이 Spot 이 생성한 id 를 들어야 하고 그것이 A-1 위반이다. **Digit 을 뒤집었을 때와 같은 종류의 실수** — 원문 대신 요약을 근거로 삼았다(§15.65). 닿는다는 판정 자체는 그대로다: 이름-id 대응이 로봇 안에 있다는 사실이 오히려 ADR 35 의 증거를 강화한다."
     },
 
     "inspect": {
@@ -51,7 +51,7 @@
   },
 
   "notes": [
-    "**셋 중 둘이 닿고 둘이 안 닿는데, 안 닿는 이유가 같다 — 시맨틱 신원이다.** 계약은 사이트 수준의 이름(`location`·`object_id`·`destination`·`target`)으로 말하는데 벤더는 녹화된 웨이포인트 id, 픽셀, 3D 점, 카메라 이름으로 말한다. `navigate_to` 만 맞는 것은 GraphNav 이 그 이름-대응을 이미 갖고 있기 때문이고, 그래서 이것은 **네 스킬의 문제가 아니라 층 하나가 주인 없이 비어 있는 문제**다(ADR 34).",
+    "**셋 중 둘이 닿고 둘이 안 닿는데, 안 닿는 이유가 같다 — 시맨틱 신원이다.** 계약은 사이트 수준의 이름(`location`·`object_id`·`destination`·`target`)으로 말하는데 벤더는 녹화된 웨이포인트 id, 픽셀, 3D 점, 카메라 이름으로 말한다. `navigate_to` 만 맞는 것은 GraphNav 이 그 이름-대응을 **로봇 안에** 이미 갖고 있어 어댑터가 매번 물어볼 수 있기 때문이고, 그래서 이것은 **네 스킬의 문제가 아니라 층 하나가 주인 없이 비어 있는 문제**다(ADR 34).",
     "닿는 둘이 서로 다른 계층에 올라탄다는 것이 어댑터에서 드러났다 — `move_relative` 는 명령, `navigate_to` 는 미션. 그래서 미션 서비스가 없는 기체에서 하나만 죽는다. §7.2가 `Support` 를 스킬 단위로 둔 것이 **한 로봇 안에서** 값을 하는 첫 사례다."
   ]
 }

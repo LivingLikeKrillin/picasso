@@ -81,6 +81,36 @@ interface DigitLink {
     fun removeAction(ref: ActionRef): Result<Unit>
 
     /**
+     * `["notify-objects", {objects: {has_attributes: []}}]` 가 내는 **id 목록**.
+     *
+     * **이름이 아니라 id 가 온다.** 매뉴얼이 그것을 명시한다 —
+     * *"This does not affect the ordering of the list of IDs returned by
+     * notify-objects"*. 그리고 선택자를 통째로 비우면 아무것도 선택되지 않으므로
+     * `has-attributes` 를 **빈 배열**로 준다: *"If the list of attributes is
+     * empty, all objects will be selected."*
+     *
+     * `persistent` 는 끈다. 켜면 세계가 바뀔 때마다 계속 오는데, 우리는 지금
+     * 이 순간의 목록만 필요하다.
+     */
+    fun objectIds(): Result<List<Int>>
+
+    /**
+     * `["get-object", {object: {object_id}}]` 가 내는 그 객체의 `name`.
+     *
+     * **이름이 없을 수 있다** — 매뉴얼의 객체 속성에서 `name` 이
+     * `optional < string >` 이다. 그런 객체는 사이트가 이름을 붙인 것이
+     * 아니므로 답에서 뺀다.
+     *
+     * ## 왜 두 번 물어야 하나
+     *
+     * 매뉴얼이 그 흐름을 직접 적어 두었다 — *"use notify-objects … to narrow
+     * down the set of candidate objects, then use get-object to inspect each
+     * candidate."* **이름만 한 번에 받는 질의가 없다.** Spot 은 그래프 한 번,
+     * 여기는 목록 한 번 + 객체 수만큼. 이 차이가 그대로 비용이 된다.
+     */
+    fun objectName(objectId: Int): Result<String?>
+
+    /**
      * 마지막으로 받은 `["action-status-changed", {status}]`.
      *
      * **이 값이 되돌아갈 수 있다.** 매뉴얼이 *"This status does not latch once

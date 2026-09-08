@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.wire.isTerminal
@@ -240,6 +241,44 @@ class DigitAdapter(
         var lastPolledAt: Instant,
         var state: TaskState,
     )
+
+    /**
+     * 이 기체가 아는 사이트 이름(계약의 `GetKnownSiteNames`).
+     *
+     * ## 어디에 묻는가
+     *
+     * 세계 모델이다. **셋 중 유일하게 두 번 물어야 한다** — `notify-objects`
+     * 가 id 목록을 주고, 이름은 객체마다 `get-object` 로 따로 받는다. 매뉴얼이
+     * 그 흐름을 그대로 적어 두었고, 이름만 받는 질의는 없다.
+     *
+     * ## 하나라도 못 물으면 통째로 못 답한다
+     *
+     * 객체 하나의 `get-object` 가 실패했을 때 나머지로 답하면 **개수가 실제보다
+     * 작게 올라가고**, 원장은 그것을 *"등록이 어긋났다"*(`CONTRADICTED`)로
+     * 읽는다 — 사실은 우리가 다 못 물어본 것이다. **부분 답이 거짓 경보를
+     * 만든다.** 그래서 [SiteNames.Unavailable] 로 통째로 접는다.
+     *
+     * ## 이름이 없는 객체는 뺀다
+     *
+     * `name` 이 선택 필드다. 이름 없는 객체는 사이트가 저작한 것이 아니고,
+     * 로봇이 스스로 인지해 만든 것들이 여기 대부분이다 — 세면 개수가 부풀어
+     * 확인이 통과한다.
+     */
+    fun knownSiteNames(): SiteNames {
+        val ids = link.objectIds().getOrElse {
+            return SiteNames.Unavailable("객체 목록을 못 받았다: ${it.message}")
+        }
+
+        val names = mutableListOf<String>()
+        for (id in ids) {
+            val name = link.objectName(id).getOrElse {
+                return SiteNames.Unavailable("객체 $id 를 못 읽었다: ${it.message}")
+            }
+            if (!name.isNullOrBlank()) names += name
+        }
+
+        return SiteNames.Known(names.distinct().sorted())
+    }
 
     private companion object {
         const val MOVE = "move_relative"

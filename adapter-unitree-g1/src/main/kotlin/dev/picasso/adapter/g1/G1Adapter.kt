@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.wire.isTerminal
@@ -238,6 +239,25 @@ class G1Adapter(
         val durationSeconds: Double,
         var state: TaskState,
     )
+
+    /**
+     * 이 기체가 아는 사이트 이름(계약의 `GetKnownSiteNames`).
+     *
+     * **물어볼 데가 없다.** `sport` 서비스는 `SetFsmId`·`GetFsmId`·
+     * `SetVelocity` 를 주고, 저수준 채널은 관절과 IMU 를 준다. 세계 모델도
+     * 지도도 이름 붙은 무엇도 없다 — 그래서 이 기체는 `navigate_to` 를
+     * 아예 안 들며(`common-set-exemptions.json`), 등록할 자리도 없다.
+     *
+     * ## 왜 빈 목록이 아니라 [SiteNames.Unsupported] 인가
+     *
+     * 빈 목록은 *"등록할 수 있는데 아직 하나도 안 했다"* 는 뜻이고, 그러면
+     * 운영자에게 **없는 자리에 등록하라고 요구하게 된다.** 로봇이 답할 수
+     * 없는 요구를 화면에 띄우면 그 화면 전체를 안 믿게 된다.
+     *
+     * 링크를 보지 않는 유일한 답이다 — [G1Link.sport]가 떠 있든 아니든
+     * 이름을 둘 자리는 생기지 않으므로, **환경이 아니라 기종의 사실이다.**
+     */
+    fun knownSiteNames(): SiteNames = SiteNames.Unsupported
 
     private companion object {
 

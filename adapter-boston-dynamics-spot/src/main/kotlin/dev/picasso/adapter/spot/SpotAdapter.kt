@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.wire.isTerminal
@@ -29,9 +30,12 @@ import java.time.Instant
  * | **대상 시맨틱** | **없음** | **없음** |
  *
  * 마지막 줄이 이 어댑터가 재러 온 것이다. `navigate_to`가 되는 이유는 GraphNav이
- * 이미 시맨틱 결속을 해 두고 `destination_waypoint_id`로 노출하기 때문이고,
- * `pick_place`·`inspect`가 안 되는 이유는 그 층이 없어서 픽셀과 3D 점과 카메라
- * 이름이 그대로 올라오기 때문이다. 자세한 것은 `profile/distance/spot-arm.json`.
+ * **지도 안에 사람이 붙인 이름을 들고 있기** 때문이고, `pick_place`·`inspect`가
+ * 안 되는 이유는 그 층이 없어서 픽셀과 3D 점과 카메라 이름이 그대로 올라오기
+ * 때문이다. 자세한 것은 `profile/distance/spot-arm.json`.
+ *
+ * **그 "된다"의 값이 한 번 틀렸었다.** 이름과 id 를 같은 것으로 보고 `location`
+ * 을 항법에 그대로 넘겼다 — 전말과 정정은 [GraphLayer]에 적혀 있다.
  */
 class SpotAdapter(
     private val link: SpotLink,
@@ -115,10 +119,101 @@ class SpotAdapter(
                     "`move_relative` 는 여전히 받는다",
             )
 
-        // **`location` 이 그대로 웨이포인트 id 로 간다.** 옮기는 표가 없는 것이
-        // 요점이며, 그 표를 우리가 갖게 되는 순간 시맨틱 결속의 주인이 바뀐다.
-        loaded(mission.loadNavigateTo(location))?.let { return it }
+        // **`location` 은 사람이 붙인 이름이고 항법은 로봇이 생성한 id 를
+        // 받는다.** 그래서 여기서 로봇에게 물어 옮긴다 — 어댑터가 표를 드는
+        // 것이 아니라 로봇의 표에 매번 묻는 것이며, 그 차이가 ADR 34 와
+        // ADR 35 를 함께 지킨다. 자세한 것은 [GraphLayer].
+        val waypointId = when (val resolved = resolve(location)) {
+            is Resolved.Ok -> resolved.waypointId
+            is Resolved.Refused -> return resolved.acceptance
+        }
+
+        loaded(mission.loadNavigateTo(waypointId))?.let { return it }
         return start(mission.play(), startedAt, Layer.MISSION, durationSeconds = null)
+    }
+
+    /**
+     * 사이트 이름을 웨이포인트 id 로 옮긴다.
+     *
+     * **거절이 셋으로 갈린다.** 물어볼 층이 없음 / 물어보다 실패 / 이름이
+     * 안 맞음. 셋을 하나로 접으면 사이트가 무엇을 고쳐야 하는지 모른다 —
+     * 지도를 올려야 하는지, 네트워크를 봐야 하는지, 이름을 고쳐야 하는지가
+     * 전부 다른 일이다.
+     */
+    private fun resolve(location: String): Resolved {
+        val graph = link.graph
+            ?: return Resolved.Refused(
+                Acceptance.Refused(
+                    Refusal.VENDOR_SURFACE_ABSENT,
+                    "지도 계층이 없다 — 갈 곳의 이름을 옮길 데가 없다",
+                ),
+            )
+
+        val waypoints = graph.downloadGraph().getOrElse {
+            return Resolved.Refused(
+                Acceptance.Refused(Refusal.LINK_ERROR, "그래프를 못 받았다: ${it.message}"),
+            )
+        }
+
+        val matches = waypoints.filter { it.annotationName == location }
+        return when (matches.size) {
+            1 -> Resolved.Ok(matches.single().id)
+
+            0 -> Resolved.Refused(
+                Acceptance.Refused(
+                    Refusal.SITE_NAME_UNKNOWN,
+                    "이 기체가 아는 이름에 '$location' 이 없다. 지도를 올렸는지 확인하십시오",
+                ),
+            )
+
+            // **하나 고르지 않는다.** 동명이 둘이면 어느 쪽이 맞는지는 사이트만
+            // 안다. 임의로 고르면 로봇이 다른 자리로 가고 로그에는 성공이 남는다.
+            else -> Resolved.Refused(
+                Acceptance.Refused(
+                    Refusal.SITE_NAME_AMBIGUOUS,
+                    "'$location' 을 든 웨이포인트가 ${matches.size} 개다",
+                ),
+            )
+        }
+    }
+
+    /**
+     * 이 기체가 아는 사이트 이름(계약의 `GetKnownSiteNames`).
+     *
+     * ## 어디에 묻는가
+     *
+     * 업로드된 GraphNav 그래프다. **이름은 로봇 안에만 있고**(ADR 35) 그것을
+     * 거기 넣은 것은 지도를 녹화한 사이트다.
+     *
+     * ## 셋이 다르게 답한다
+     *
+     * 지도 계층이 없으면 **이 기체에는 이름을 둘 자리가 없다** — G1 과 같은
+     * 답이 된다. 그래프를 못 받으면 [SiteNames.Unavailable] 이고 **빈 목록이
+     * 아니다**: 0 으로 답하면 관측 실패가 사람의 태만처럼 보인다.
+     *
+     * 이름 없는 웨이포인트는 뺀다. 지도 녹화가 이름을 요구하지 않으므로
+     * 대부분의 그래프에 이것이 섞여 있고, 세면 개수가 부풀어 확인이 통과한다.
+     */
+    fun knownSiteNames(): SiteNames {
+        val graph = link.graph ?: return SiteNames.Unsupported
+
+        return graph.downloadGraph().fold(
+            onSuccess = { waypoints ->
+                SiteNames.Known(
+                    waypoints.map { it.annotationName }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .sorted(),
+                )
+            },
+            onFailure = { SiteNames.Unavailable("그래프를 못 받았다: ${it.message}") },
+        )
+    }
+
+    /** [resolve]의 답. 성공이면 id, 아니면 그대로 낼 거절. */
+    private sealed interface Resolved {
+        data class Ok(val waypointId: String) : Resolved
+        data class Refused(val acceptance: Acceptance.Refused) : Resolved
     }
 
     /** 미션 적재 실패를 거절로 옮긴다. 성공이면 널. */

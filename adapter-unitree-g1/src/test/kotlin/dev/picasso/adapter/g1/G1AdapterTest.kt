@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
 import kotlin.test.Test
@@ -164,6 +165,23 @@ class G1AdapterTest {
         val refused = assertIs<Applied.Refused>(a.pause())
         assertEquals(Refusal.NO_VENDOR_PRIMITIVE, refused.reason)
         assertEquals(TaskState.TASK_STATE_RUNNING, a.state, "거절이 상태를 건드렸다")
+    }
+
+    // ── 아는 이름을 답한다 (ADR 35)
+
+    @Test
+    fun `이름을 호스팅 못 한다고 답한다`() {
+        // 세계 모델도 지도도 없다. **빈 목록으로 답하면** 운영자에게 없는
+        // 자리에 등록하라고 요구하게 되고, 로봇이 답할 수 없는 요구를 띄우면
+        // 그 화면 전체를 안 믿게 된다.
+        assertEquals(SiteNames.Unsupported, adapter().knownSiteNames())
+    }
+
+    @Test
+    fun `sport 가 떠 있어도 답이 같다`() {
+        // **환경이 아니라 기종의 사실이다.** 고수준 서비스가 붙든 말든
+        // 이름을 둘 자리는 생기지 않는다 — Spot 의 지도 계층과 다른 점이다.
+        assertEquals(SiteNames.Unsupported, adapter(sport = null).knownSiteNames())
     }
 
     // ── 결함

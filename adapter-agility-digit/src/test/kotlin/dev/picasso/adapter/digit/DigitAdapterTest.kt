@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
 import kotlin.test.Test
@@ -59,6 +60,37 @@ class DigitAdapterTest {
         val link = FakeLink()
         DigitAdapter(link, identity).accept("pick_place", pickPlace, t0)
         assertEquals(listOf("tote-7" to "shelf-b"), link.pickPlaces)
+    }
+
+    // ── 아는 이름을 답한다 (ADR 35)
+
+    @Test
+    fun `세계 모델의 이름을 답한다`() {
+        val known = adapter(FakeLink(world = mapOf(1 to "dock-3", 2 to "shelf-b"))).knownSiteNames()
+        assertEquals(SiteNames.Known(listOf("dock-3", "shelf-b")), known)
+    }
+
+    @Test
+    fun `이름 없는 객체는 세지 않는다`() {
+        // `name` 이 선택 필드다. 이름 없는 것은 대개 로봇이 스스로 인지해
+        // 만든 객체이고 사이트가 저작한 것이 아니다 — **세면 개수가 부푼다.**
+        val known = adapter(FakeLink(world = mapOf(1 to "dock-3", 2 to null, 3 to " "))).knownSiteNames()
+        assertEquals(SiteNames.Known(listOf("dock-3")), known)
+    }
+
+    @Test
+    fun `객체 목록을 못 받으면 못 물어봤다고 답한다`() {
+        assertIs<SiteNames.Unavailable>(adapter(FakeLink(listFails = true)).knownSiteNames())
+    }
+
+    @Test
+    fun `객체 하나를 못 읽으면 나머지로 답하지 않는다`() {
+        // **이 기종에만 있는 시험이다.** 여기만 질의가 두 단계여서 *일부만
+        // 읽힌* 상태가 존재한다. 나머지로 답하면 개수가 실제보다 작게 올라가고,
+        // 원장은 그것을 *"등록이 어긋났다"* 로 읽는다 — 사실은 우리가 다
+        // 못 물어본 것이다. **부분 답이 거짓 경보를 만든다.**
+        val link = FakeLink(world = mapOf(1 to "dock-3", 2 to "shelf-b"), nameFailsFor = 2)
+        assertIs<SiteNames.Unavailable>(adapter(link).knownSiteNames())
     }
 
     // ── 어댑터가 시계를 안 든다 (앞 판의 결함에 대한 회귀 방어)
@@ -280,6 +312,11 @@ class DigitAdapterTest {
         var reported: ActionStatus? = null,
         private val error: String? = null,
         private val removeFails: Boolean = false,
+        /** 세계 모델. id → 이름이며 **이름은 널일 수 있다**(`name` 이 선택 필드다). */
+        private val world: Map<Int, String?> = emptyMap(),
+        private val listFails: Boolean = false,
+        /** 이 id 의 `get-object` 만 실패한다 — **부분 실패**를 만들기 위한 것. */
+        private val nameFailsFor: Int? = null,
     ) : DigitLink {
         val moves = mutableListOf<Move>()
         val gotos = mutableListOf<String>()
@@ -317,6 +354,16 @@ class DigitAdapterTest {
             removed += 1
             return Result.success(Unit)
         }
+
+        override fun objectIds(): Result<List<Int>> =
+            if (listFails) Result.failure(IllegalStateException("소켓 끊김")) else Result.success(world.keys.toList())
+
+        override fun objectName(objectId: Int): Result<String?> =
+            if (objectId == nameFailsFor) {
+                Result.failure(IllegalStateException("응답 없음"))
+            } else {
+                Result.success(world[objectId])
+            }
 
         override fun status(): ActionStatus? = reported
         override fun error(): String? = error
