@@ -8,4 +8,8 @@ dependencies {
     implementation(project(":contracts"))
     implementation(project(":adapter-core"))
     testImplementation(kotlin("test"))
+
+    // 벤더 원문 대조 검사([VendorManifest]). **원문이 아니라 이름만** 들어온다 —
+    // 매니페스트는 `src/test/resources` 의 텍스트 한 장이고 위 문단이 그대로 유지된다.
+    testImplementation(testFixtures(project(":adapter-core")))
 }

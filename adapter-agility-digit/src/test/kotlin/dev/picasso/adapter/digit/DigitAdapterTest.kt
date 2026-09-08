@@ -62,6 +62,35 @@ class DigitAdapterTest {
         assertEquals(listOf("tote-7" to "shelf-b"), link.pickPlaces)
     }
 
+    // ── 로봇이 신고한 실패 (벤더 원문 대조가 찾아낸 결함)
+
+    @Test
+    fun `액션이 실패하면 태스크가 실패한다`() {
+        // **이것이 안 됐었다.** `ActionStatus` 에 `failure` 가 없어서 어댑터가
+        // 로봇이 신고한 실패에 도달할 수 없었고, 권한을 잃을 때만 태스크가
+        // 죽었다. 액션이 막히면 그 태스크는 **영원히 RUNNING** 이었다.
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("navigate_to", navigate, t0)
+
+        link.reported = ActionStatus.FAILURE
+        assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
+    }
+
+    @Test
+    fun `교체된 액션은 태스크를 죽이지 않는다`() {
+        // `inactive` 는 *"이 액션이 현재 실행 상태의 일부가 아니다"* 이고,
+        // 매뉴얼은 교체될 때 **새 액션과 옛 액션 양쪽**에 메시지가 간다고
+        // 적었다. `status()` 는 마지막 것 하나만 주고 어느 액션의 것인지를
+        // 안 나르므로, **종착으로 옮기면 멀쩡한 태스크를 죽인다.**
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("navigate_to", navigate, t0)
+
+        link.reported = ActionStatus.INACTIVE
+        assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusSeconds(1)))
+    }
+
     // ── 아는 이름을 답한다 (ADR 35)
 
     @Test
@@ -366,6 +395,6 @@ class DigitAdapterTest {
             }
 
         override fun status(): ActionStatus? = reported
-        override fun error(): String? = error
+        override fun statusInfo(): String? = error
     }
 }

@@ -8,4 +8,5 @@ dependencies {
     implementation(project(":contracts"))
     implementation(project(":adapter-core"))
     testImplementation(kotlin("test"))
+    testImplementation(testFixtures(project(":adapter-core")))
 }

@@ -136,8 +136,13 @@ class DigitAdapter(
             return current.state
         }
 
-        if (link.status() == ActionStatus.SUCCESS) {
-            current.state = TaskState.TASK_STATE_SUCCEEDED
+        // **`FAILURE` 가 여기 없어서 로봇이 신고한 실패에 도달할 수 없었다.**
+        // 권한 상실만 태스크를 죽였고, 액션이 막히면 영원히 RUNNING 이었다.
+        // `INACTIVE` 는 일부러 안 옮긴다 — 어느 액션의 것인지 모른다([ActionStatus]).
+        when (link.status()) {
+            ActionStatus.SUCCESS -> current.state = TaskState.TASK_STATE_SUCCEEDED
+            ActionStatus.FAILURE -> current.state = TaskState.TASK_STATE_FAILED
+            ActionStatus.RUNNING, ActionStatus.INACTIVE, null -> Unit
         }
         return current.state
     }
@@ -223,7 +228,7 @@ class DigitAdapter(
                 .build()
         }
 
-        link.error()?.takeIf { it.isNotBlank() }?.let {
+        link.statusInfo()?.takeIf { it.isNotBlank() }?.let {
             faults += Fault.newBuilder()
                 .setErrorType(UNCLASSIFIED)
                 .setCanContinueCurrentTask(false)

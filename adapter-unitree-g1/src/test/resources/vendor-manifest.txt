@@ -1,0 +1,47 @@
+# picasso vendor symbol manifest
+# vendor: unitree
+# release: unitree_sdk2 g1_loco_api.hpp + unitree_hg IDL
+# extractor: tools/vendor-manifest/unitree_symbols.py
+# 이 파일은 손으로 고치지 않는다. tools/vendor-manifest/README.md 참조.
+# source: g1_loco_api.hpp sha256=db7f771fad9ab8d40b3f3bf3651df28ee9cde1a937ae21dcdae2f4165f37e0ce
+# source: hg_lowstate.py sha256=97f746a693aff14a8a1c2ea2bbd7790722bb784554e0402173ed491ad9d957f2
+# source: hg_motorstate.py sha256=cffb489830dbfb7091454279d031224f0968c066fad0b1204e309426a0d82910
+LOCO_API_VERSION
+LOCO_SERVICE_NAME
+ROBOT_API_ID_LOCO_FSM_API
+ROBOT_API_ID_LOCO_GET_BALANCE_MODE
+ROBOT_API_ID_LOCO_GET_FSM_ID
+ROBOT_API_ID_LOCO_GET_FSM_MODE
+ROBOT_API_ID_LOCO_GET_PHASE
+ROBOT_API_ID_LOCO_GET_STAND_HEIGHT
+ROBOT_API_ID_LOCO_GET_SWING_HEIGHT
+ROBOT_API_ID_LOCO_SET_ARM_TASK
+ROBOT_API_ID_LOCO_SET_BALANCE_MODE
+ROBOT_API_ID_LOCO_SET_FSM_ID
+ROBOT_API_ID_LOCO_SET_SPEED_MODE
+ROBOT_API_ID_LOCO_SET_STAND_HEIGHT
+ROBOT_API_ID_LOCO_SET_SWING_HEIGHT
+ROBOT_API_ID_LOCO_SET_VELOCITY
+ROBOT_API_ID_LOCO_SWITCH_TO_INTERNAL_CTRL
+ROBOT_API_ID_LOCO_SWITCH_TO_USER_CTRL
+unitree_hg.LowState_
+unitree_hg.LowState_.crc
+unitree_hg.LowState_.imu_state
+unitree_hg.LowState_.mode_machine
+unitree_hg.LowState_.mode_pr
+unitree_hg.LowState_.motor_state
+unitree_hg.LowState_.reserve
+unitree_hg.LowState_.tick
+unitree_hg.LowState_.version
+unitree_hg.LowState_.wireless_remote
+unitree_hg.MotorState_
+unitree_hg.MotorState_.ddq
+unitree_hg.MotorState_.dq
+unitree_hg.MotorState_.mode
+unitree_hg.MotorState_.motorstate
+unitree_hg.MotorState_.q
+unitree_hg.MotorState_.reserve
+unitree_hg.MotorState_.sensor
+unitree_hg.MotorState_.tau_est
+unitree_hg.MotorState_.temperature
+unitree_hg.MotorState_.vol

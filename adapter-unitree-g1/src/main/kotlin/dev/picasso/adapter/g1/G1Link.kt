@@ -1,5 +1,7 @@
 package dev.picasso.adapter.g1
 
+import dev.picasso.adapter.core.VendorSurface
+
 /**
  * 남쪽 경계 — Unitree G1이 실제로 말하는 것.
  *
@@ -25,9 +27,11 @@ package dev.picasso.adapter.g1
 interface G1Link {
 
     /** 고수준 서비스. **널이면 이 대상이 답하지 않는다**(시뮬레이터). */
+    @get:VendorSurface("LOCO_SERVICE_NAME")
     val sport: SportService?
 
     /** 저수준 채널. 시뮬레이터도 실물도 답한다. */
+    @get:VendorSurface("unitree_hg.LowState_")
     val lowLevel: LowLevelChannel
 }
 
@@ -46,9 +50,11 @@ interface G1Link {
 interface SportService {
 
     /** `ROBOT_API_ID_LOCO_SET_FSM_ID = 7101`. */
+    @VendorSurface("ROBOT_API_ID_LOCO_SET_FSM_ID")
     fun setFsmId(id: Int): Result<Unit>
 
     /** `ROBOT_API_ID_LOCO_GET_FSM_ID = 7001`. */
+    @VendorSurface("ROBOT_API_ID_LOCO_GET_FSM_ID")
     fun getFsmId(): Result<Int>
 
     /**
@@ -59,6 +65,7 @@ interface SportService {
      * `skill_catalog.proto`에 있다) 기본값을 어댑터가 채우면 기종마다 다른
      * 안전 여유를 우리가 덮는다.
      */
+    @VendorSurface("ROBOT_API_ID_LOCO_SET_VELOCITY")
     fun setVelocity(vx: Double, vy: Double, omega: Double, durationSeconds: Double): Result<Unit>
 }
 
@@ -66,6 +73,7 @@ interface SportService {
 interface LowLevelChannel {
 
     /** 마지막으로 받은 상태. 아직 하나도 못 받았으면 널이다. */
+    @VendorSurface("unitree_hg.LowState_")
     fun latestState(): LowState?
 }
 
@@ -80,9 +88,11 @@ interface LowLevelChannel {
 data class LowState(
 
     /** `tick`. 같은 값이 계속 오면 발신이 멈춘 것이다. */
+    @field:VendorSurface("unitree_hg.LowState_.tick")
     val tick: Long,
 
     /** `mode_machine`. 기체 세대를 구분한다. */
+    @field:VendorSurface("unitree_hg.LowState_.mode_machine")
     val modeMachine: Int,
 
     /**
@@ -92,6 +102,10 @@ data class LowState(
      * 스스로 하며(SDK 예제의 `terminations.hpp`가 그렇게 한다), 그래서
      * 판정하는 주체가 로봇이 아니라 **우리**라는 것이 출처 문서에 남아 있다.
      */
+    @field:VendorSurface(
+        "unitree_hg.LowState_.motor_state",
+        "unitree_hg.MotorState_.temperature",
+    )
     val motorTemperaturesCelsius: List<Int>,
 
     /**
@@ -103,5 +117,9 @@ data class LowState(
      * 완료 통지도 없다(조사 문서). 그래서 어댑터가 **관절이 아직 도는지**로
      * 판정한다. 임계값도 판정 주체도 우리 것이며 로봇의 것이 아니다.
      */
+    @field:VendorSurface(
+        "unitree_hg.LowState_.motor_state",
+        "unitree_hg.MotorState_.dq",
+    )
     val motorVelocities: List<Double>,
 )

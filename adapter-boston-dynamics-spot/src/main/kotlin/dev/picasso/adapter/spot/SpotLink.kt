@@ -1,5 +1,6 @@
 package dev.picasso.adapter.spot
 
+import dev.picasso.adapter.core.VendorSurface
 import java.time.Instant
 
 /**
@@ -39,9 +40,11 @@ import java.time.Instant
 interface SpotLink {
 
     /** 명령 계층(`RobotCommandService`). `move_relative`가 여기로 간다. */
+    @get:VendorSurface("bosdyn.api.RobotCommandService")
     val command: CommandLayer?
 
     /** 미션 계층(`MissionService`). `navigate_to`가 여기로 간다. */
+    @get:VendorSurface("bosdyn.api.mission.MissionService")
     val mission: MissionLayer?
 
     /**
@@ -51,6 +54,7 @@ interface SpotLink {
      * 표면이고 이것은 *묻는* 표면이다. 그리고 이 층이 없으면 `navigate_to`도
      * 못 든다: 갈 곳의 이름을 id 로 옮길 데가 없다.
      */
+    @get:VendorSurface("bosdyn.api.graph_nav.GraphNavService")
     val graph: GraphLayer?
 }
 
@@ -92,6 +96,10 @@ interface GraphLayer {
      * 있다. 좁히려면 어댑터가 캐시를 들어야 하고, 그러면 사이트가 지도를
      * 다시 올렸을 때 **어댑터가 옛 이름으로 로봇을 몬다.**
      */
+    @VendorSurface(
+        "bosdyn.api.graph_nav.GraphNavService.DownloadGraph",
+        "bosdyn.api.graph_nav.Graph.waypoints",
+    )
     fun downloadGraph(): Result<List<GraphWaypoint>>
 }
 
@@ -104,6 +112,7 @@ interface GraphLayer {
 data class GraphWaypoint(
 
     /** `Waypoint.id`. 로봇이 생성했고 `destination_waypoint_id` 가 받는다. */
+    @field:VendorSurface("bosdyn.api.graph_nav.Waypoint.id")
     val id: String,
 
     /**
@@ -113,6 +122,10 @@ data class GraphWaypoint(
      * 그렇고, 그것은 사이트 이름이 아니므로 답에서 뺀다 — 빈 문자열을
      * 이름으로 세면 개수가 부풀고 확인이 통과한다.
      */
+    @field:VendorSurface(
+        "bosdyn.api.graph_nav.Waypoint.annotations",
+        "bosdyn.api.graph_nav.Waypoint.Annotations.name",
+    )
     val annotationName: String,
 )
 
@@ -132,9 +145,17 @@ interface CommandLayer {
      * 변환은 어댑터가 하며, 그래서 **시계 어긋남이 어댑터의 문제가 된다** —
      * 벤더도 그것을 알아서 `graph_nav`에 `clock_identifier`를 두었다.
      */
+    @VendorSurface(
+        "bosdyn.api.SE2VelocityCommand.Request",
+        "bosdyn.api.SE2VelocityCommand.Request.velocity",
+        "bosdyn.api.SE2VelocityCommand.Request.end_time",
+        "bosdyn.api.SE2VelocityCommand.Request.se2_frame_name",
+        "bosdyn.api.SE2VelocityCommand.Request.slew_rate_limit",
+    )
     fun se2Velocity(vx: Double, vy: Double, omega: Double, endTime: Instant): LeaseResult
 
     /** `StopCommand`. 인자도 피드백도 없다 — 그래서 멈췄는지는 알 수 없다. */
+    @VendorSurface("bosdyn.api.StopCommand.Request")
     fun stop(): LeaseResult
 }
 
@@ -158,18 +179,30 @@ interface MissionLayer {
      * 처음 판은 `location`을 그대로 여기 넣었다. 그 오독의 전말은
      * [GraphLayer]에 적혀 있다.
      */
+    @VendorSurface(
+        "bosdyn.api.mission.MissionService.LoadMission",
+        "bosdyn.api.mission.BosdynNavigateTo",
+        "bosdyn.api.graph_nav.NavigateToRequest.destination_waypoint_id",
+    )
     fun loadNavigateTo(waypointId: String): LeaseResult
 
     /** `PlayMission`. */
+    @VendorSurface("bosdyn.api.mission.MissionService.PlayMission")
     fun play(): LeaseResult
 
     /** `PauseMission`. **명령 계층에는 대응이 없다.** */
+    @VendorSurface("bosdyn.api.mission.MissionService.PauseMission")
     fun pause(): LeaseResult
 
     /** `StopMission`. 계약의 취소가 여기로 간다. */
+    @VendorSurface("bosdyn.api.mission.MissionService.StopMission")
     fun stop(): LeaseResult
 
     /** `GetState`. 아직 아무것도 안 올렸으면 널이다. */
+    @VendorSurface(
+        "bosdyn.api.mission.MissionService.GetState",
+        "bosdyn.api.mission.GetStateResponse.state",
+    )
     fun state(): MissionState?
 }
 
@@ -180,6 +213,7 @@ interface MissionLayer {
  * 해당하는 것을 가진 유일한 실물이다.**
  */
 data class MissionState(
+    @field:VendorSurface("bosdyn.api.mission.State.status")
     val status: MissionStatus,
 
     /**
@@ -190,11 +224,51 @@ data class MissionState(
      * 어댑터는 이것을 `NEEDS_INTERVENTION` + `error_hint`로만 옮긴다.
      * 답은 사람이 Spot 쪽에서 한다.
      */
+    @field:VendorSurface(
+        "bosdyn.api.mission.State.questions",
+        "bosdyn.api.mission.Question.text",
+        "bosdyn.api.mission.MissionService.AnswerQuestion",
+    )
     val question: String? = null,
 )
 
-/** `GetStateResponse.Status`. */
-enum class MissionStatus { NONE, RUNNING, PAUSED, SUCCESS, FAILURE, STOPPED, ERROR }
+/**
+ * `bosdyn.api.mission.State.Status`.
+ *
+ * **이름이 한 번 틀려 있었다.** 앞 판은 `GetStateResponse.Status` 라고 적었는데
+ * 그런 것은 없다 — 응답은 `GetStateResponse.state` 를 싣고 상태는 그 안의
+ * `State.status` 다. [VendorSurface] 검사를 붙이면서 드러났다.
+ *
+ * **그리고 값 하나가 빠져 있었다.** 벤더에 `STATUS_UNKNOWN` 이 있다. 빠뜨리면
+ * 그 값이 왔을 때 남쪽 구현이 무언가를 지어내야 하고, 지어낸 것은 로봇이
+ * 판정한 것처럼 보인다 — Digit 의 `ActionStatus` 가 같은 이유로 모르는 값을
+ * 안 접는다.
+ */
+enum class MissionStatus {
+    @VendorSurface("bosdyn.api.mission.State.Status.STATUS_UNKNOWN")
+    UNKNOWN,
+
+    @VendorSurface("bosdyn.api.mission.State.Status.STATUS_NONE")
+    NONE,
+
+    @VendorSurface("bosdyn.api.mission.State.Status.STATUS_RUNNING")
+    RUNNING,
+
+    @VendorSurface("bosdyn.api.mission.State.Status.STATUS_PAUSED")
+    PAUSED,
+
+    @VendorSurface("bosdyn.api.mission.State.Status.STATUS_SUCCESS")
+    SUCCESS,
+
+    @VendorSurface("bosdyn.api.mission.State.Status.STATUS_FAILURE")
+    FAILURE,
+
+    @VendorSurface("bosdyn.api.mission.State.Status.STATUS_STOPPED")
+    STOPPED,
+
+    @VendorSurface("bosdyn.api.mission.State.Status.STATUS_ERROR")
+    ERROR,
+}
 
 /**
  * 리스 판정을 실은 호출 결과.
@@ -215,9 +289,18 @@ sealed interface LeaseResult {
 
 /** `lease.proto`의 `LeaseUseResult.Status`. 이름을 그대로 둔다. */
 enum class LeaseStatus {
+    @VendorSurface("bosdyn.api.LeaseUseResult.Status.STATUS_INVALID_LEASE")
     STATUS_INVALID_LEASE,
+
+    @VendorSurface("bosdyn.api.LeaseUseResult.Status.STATUS_OLDER")
     STATUS_OLDER,
+
+    @VendorSurface("bosdyn.api.LeaseUseResult.Status.STATUS_REVOKED")
     STATUS_REVOKED,
+
+    @VendorSurface("bosdyn.api.LeaseUseResult.Status.STATUS_UNMANAGED")
     STATUS_UNMANAGED,
+
+    @VendorSurface("bosdyn.api.LeaseUseResult.Status.STATUS_WRONG_EPOCH")
     STATUS_WRONG_EPOCH,
 }

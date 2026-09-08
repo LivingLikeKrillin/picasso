@@ -283,7 +283,10 @@ class SpotAdapter(
                         MissionStatus.STOPPED -> TaskState.TASK_STATE_CANCELLED
                         MissionStatus.PAUSED -> TaskState.TASK_STATE_PAUSED
                         MissionStatus.RUNNING -> TaskState.TASK_STATE_RUNNING
-                        MissionStatus.NONE -> current.state
+                        // **모르는 값과 '아직 없음' 을 같이 다룬다** — 둘 다
+                        // *"이 폴에서는 새로 알게 된 것이 없다"* 이고, 무엇으로든
+                        // 옮기면 로봇이 말하지 않은 것을 우리가 말하게 된다.
+                        MissionStatus.NONE, MissionStatus.UNKNOWN -> current.state
                     }
                 }
             }

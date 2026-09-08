@@ -15,4 +15,5 @@ dependencies {
 
     // 루트 build.gradle.kts가 junit-jupiter만 넣는다. kotlin.test는 별도다.
     testImplementation(kotlin("test"))
+    testImplementation(testFixtures(project(":adapter-core")))
 }
