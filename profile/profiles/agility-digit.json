@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0.0",
+  "derived_from": {
+    "software_version": "json-v1-agility (2026-09-08 확인)",
+    "observed_at": "2026-09-08",
+    "source": "**근거 등급이 앞의 둘보다 낮다.** 실물도, 그 소프트웨어 버전도, 벤더 문서 원문도 보지 못했다 — `docs.agilityrobotics.com` 이 닿지 않고 `agility-pysdk` 가 공개 저장소에 없다. 원시 JSON 을 그대로 쓰는 제3자 코드(`adubredu/digitinterface`)에서 액션 어휘를 확인했고, 2026-09-05 조사가 매뉴얼을 직접 인용한 것을 함께 썼다. 여기 적은 값은 그 두 근거에서 나온 것이며 `software_version` 은 서브프로토콜 이름이지 펌웨어가 아니다."
+  },
+  "vendor": "agility-robotics",
+  "model": "agility-digit",
+  "revision": 1,
+
+  "skills": [
+    {
+      "skill_type": "move_relative",
+      "major": 1,
+      "minor": 0,
+      "pause_support": "NO",
+      "cancel_support": "YES",
+      "parameters": [
+        { "key": "forward_speed", "value_type": "NUMBER", "optional": false, "unit": "m/s" },
+        { "key": "lateral_speed", "value_type": "NUMBER", "optional": false, "unit": "m/s" },
+        { "key": "yaw_rate", "value_type": "NUMBER", "optional": false, "unit": "rad/s" },
+        { "key": "duration", "value_type": "NUMBER", "optional": false, "unit": "s" }
+      ]
+    }
+  ],
+
+  "publish_interval": { "min_seconds": 1, "max_seconds": 10 },
+  "protocol_limits": { "max_string_length": 256, "max_array_length": 32 },
+  "exclusive_control_required": true,
+
+  "durations": [
+    { "skill_type": "move_relative", "seconds": 1 }
+  ],
+
+  "replay_buffer_size": 128
+}

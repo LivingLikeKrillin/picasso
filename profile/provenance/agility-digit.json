@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0.0",
+  "profile": "agility-digit.json",
+  "survey": "digit.json",
+
+  "coverage": {
+    "model_identity": {
+      "origin": "VENDOR_DOC",
+      "note": "`robot-info` 가 네 필드를 준다(조사). 좌표의 철자(`agility-robotics`·`agility-digit`)는 게이트 7번의 탐색어 제약 때문에 우리가 정한 것이며 벤더 표기 원문이 아니다. 붙이는 날 `robot-info` 와 대조할 수 있다는 점은 Spot 과 같고 G1 과 다르다."
+    },
+    "supported_skills": {
+      "origin": "VENDOR_DOC",
+      "note": "**액션 어휘가 고정이라 목록이 곧 능력이다** — `action-move`·`action-goto`·`action-stand`·`action-end-effector-move` 와 합성 둘(`action-sequential`·`action-concurrent`). `move_relative` 를 선언한 근거는 `action-move{velocity: rpyxyz}` 이고, 나머지 셋을 선언하지 않은 근거는 `profile/distance/agility-digit.json` 에 있다."
+    },
+    "cancel_pause": {
+      "origin": "ADAPTER",
+      "note": "취소·일시정지 프리미티브가 개념 자체로 없다(조사). `cancel_support: YES` 는 **어댑터가 만든 것**이며 다른 액션(`action-stand`)으로 덮어쓰는 것이다 — G1 의 `StopMove` 와 같은 성질이고 벤더가 선언한 취소 의미가 아니다. `pause_support: NO` 는 만들 수단 자체가 없다."
+    },
+    "parameter_ranges": {
+      "origin": "ABSENT",
+      "note": "문서상 5 kg 가반하중이 있으나 그것은 기체 사양이지 스킬 파라미터의 값 범위가 아니다. `action-move` 의 속도 상한을 어디에서도 못 찾았다 — **없는 것인지 공개된 것에 없는 것인지 구분하지 못한다**(근거 등급이 낮다). 지어낸 상한은 소비자에게 안전 여유처럼 읽히므로 비운다."
+    },
+    "protocol_limits": {
+      "origin": "ADAPTER",
+      "note": "문자열·배열 최대 길이를 선언하지 않는다. 어댑터가 자기 wire 의 주인이므로 정하는 것이 정당하며, 값은 어댑터의 것이지 로봇의 것이 아니다. 세 기종 모두 같다 — **프로토콜 한계를 주는 실물이 하나도 없다**는 §2.3의 사실이 셋째에서도 유지된다."
+    },
+    "failure_modes": {
+      "origin": "ABSENT",
+      "note": "실패 사유가 `error{info}` 의 **사람이 읽는 자유 문자열** 뿐이다. 어휘가 없으므로 어댑터가 합성해야 하고, 합성한 것을 프로파일에 적으면 로봇이 분류한 것처럼 보인다. 어댑터는 분류를 포기하고 `X_AGILITYROBOTICS_UNCLASSIFIED` 하나로 내며 원문을 `error_hint` 에 그대로 싣는다 — **분류하지 못한다는 사실 자체가 정보다.**"
+    },
+    "publish_interval": {
+      "origin": "ADAPTER",
+      "note": "`query-group{period}` 로 주기를 **정할 수 있다** — 셋 중 유일하다. 그러나 값을 고르는 것은 클라이언트이므로 프로파일에 적힌 숫자는 어댑터의 것이다. 조사가 처음에 이 항목을 `FULL` 로 적었던 것을 여기서 `PARTIAL` 로 고쳤다: **손잡이를 주는 것과 값을 선언하는 것은 다르다.**"
+    }
+  },
+
+  "notes": [
+    "**종착이 래치되지 않는 유일한 기종이다.** 매뉴얼이 명시한다 — *\"This status does not latch once reached\"*. `action-status-changed{status}` 가 `success` 에서 `running` 으로 되돌아갈 수 있으며, 그래서 §4.4의 래치 불변식과 `TERMINAL_STATE_VIOLATED` 가 **여기서 처음 실전이다**. G1 어댑터에서는 관절 각속도로 추론했고 여기서는 벤더가 그 전이를 직접 보낸다.",
+    "**`action-move` 에 지속시간이 없다.** 같은 어휘의 `action-stand` 에는 `duration` 이 있으므로 개념이 없는 것이 아니라 이 액션에 없다. 그래서 어댑터가 정지 시점을 소유하고, **실패 방향이 다른 둘과 반대가 된다** — G1(`SetVelocity` 의 `duration`)·Spot(`SE2VelocityCommand` 의 `end_time`)은 어댑터가 죽으면 로봇이 스스로 서는데 여기서는 계속 걷는다. 어댑터가 그 의무를 `stopDueAt` 으로 드러내지만 **고칠 수는 없다.**",
+    "**권한을 잃으면 로봇이 즉시 `action-idle` 로 리셋된다**(조사). `CONTROL_AUTHORITY_LOST` 의 근거가 Spot 의 `LeaseUseResult` 에 이어 두 번째로 생겼고, 여기서는 그 결과가 더 세다 — 리스가 거절되는 것이 아니라 **하던 일이 사라진다.**"
+  ]
+}
