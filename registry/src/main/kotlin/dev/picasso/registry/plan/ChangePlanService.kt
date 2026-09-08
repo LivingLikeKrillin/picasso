@@ -172,7 +172,9 @@ class ChangePlanService(
         val skillParams = mapOf("skill" to (skill ?: ""), "major" to (target["major"] ?: ""))
         val consumers = PreconditionCheck(CheckType.NO_ACTIVE_CONSUMERS, skillParams)
         val drained = PreconditionCheck(CheckType.NO_INFLIGHT_TASKS, skillParams)
-        val announced = PreconditionCheck(CheckType.DEPRECATION_PUBLISHED, mapOf("skill" to (skill ?: "")))
+        // **예고도 같은 params 를 쓴다.** 셋 중 하나만 이름으로 남기면 그
+        // 하나가 다른 major 에 낸 예고를 이 major 의 것으로 읽는다.
+        val announced = PreconditionCheck(CheckType.DEPRECATION_PUBLISHED, skillParams)
         // `plan` 은 계획을 만든 뒤에야 알 수 있으므로 create 가 채운다.
         val withdrawn = PreconditionCheck(
             CheckType.CAPABILITY_WITHDRAWN,
