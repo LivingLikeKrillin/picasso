@@ -6,6 +6,11 @@
 # source: g1_loco_api.hpp sha256=db7f771fad9ab8d40b3f3bf3651df28ee9cde1a937ae21dcdae2f4165f37e0ce
 # source: hg_lowstate.py sha256=97f746a693aff14a8a1c2ea2bbd7790722bb784554e0402173ed491ad9d957f2
 # source: hg_motorstate.py sha256=cffb489830dbfb7091454279d031224f0968c066fad0b1204e309426a0d82910
+JsonizeDataVecFloat
+JsonizeDataVecFloat.data
+JsonizeVelocityCommand
+JsonizeVelocityCommand.duration
+JsonizeVelocityCommand.velocity
 LOCO_API_VERSION
 LOCO_SERVICE_NAME
 ROBOT_API_ID_LOCO_FSM_API

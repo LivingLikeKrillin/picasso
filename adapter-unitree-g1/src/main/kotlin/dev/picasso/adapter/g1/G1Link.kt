@@ -65,7 +65,11 @@ interface SportService {
      * `skill_catalog.proto`에 있다) 기본값을 어댑터가 채우면 기종마다 다른
      * 안전 여유를 우리가 덮는다.
      */
-    @VendorSurface("ROBOT_API_ID_LOCO_SET_VELOCITY")
+    @VendorSurface(
+        "ROBOT_API_ID_LOCO_SET_VELOCITY",
+        "JsonizeVelocityCommand.velocity",
+        "JsonizeVelocityCommand.duration",
+    )
     fun setVelocity(vx: Double, vy: Double, omega: Double, durationSeconds: Double): Result<Unit>
 }
 
