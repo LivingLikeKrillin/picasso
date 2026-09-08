@@ -214,7 +214,9 @@ class DiagEndpointTest {
         // 캐시(기본 false)를 낸 것과 재평가한 것이 여기서 갈리지 않으므로
         // 사유 문자열까지 본다.
         assertTrue(
-            "소비자가 pick_place 을 쓴다" in body,
+            // **major 가 사유에 붙는다.** 두 조회가 skill@major 를 짚게 된 뒤로
+            // (§15.50) 무엇의 어느 판이 막고 있는지가 사유에 들어간다.
+            "소비자가 pick_place@1 를 쓴다" in body,
             "지금 재평가한 사유가 안 실렸다: $body",
         )
     }

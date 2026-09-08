@@ -78,8 +78,8 @@ class Preconditions(
     fun evaluate(checks: List<PreconditionCheck>): List<CheckOutcome> = checks.map { evaluate(it) }
 
     fun evaluate(check: PreconditionCheck): CheckOutcome = when (check.type) {
-        CheckType.NO_ACTIVE_CONSUMERS -> noActiveConsumers(check.required("skill"))
-        CheckType.NO_INFLIGHT_TASKS -> noInflightTasks(check.required("skill"))
+        CheckType.NO_ACTIVE_CONSUMERS -> noActiveConsumers(check.required("skill"), check.major())
+        CheckType.NO_INFLIGHT_TASKS -> noInflightTasks(check.required("skill"), check.major())
         CheckType.DEPRECATION_PUBLISHED -> deprecationPublished(check.required("skill"))
         CheckType.NO_ACTIVE_BINDINGS -> noActiveBindings(check)
         CheckType.SUCCESSOR_ACTIVE -> successorActive(check)
@@ -93,8 +93,8 @@ class Preconditions(
      * 제공하는 활성 바인딩이 없으면 볼 기체가 없고, 그때 막으면 아직 아무
      * 기체도 안 붙인 스킬의 축소가 영원히 열리지 않는다.
      */
-    private fun blindOr(type: CheckType, skill: String): CheckOutcome? =
-        when (val seen = robots.of(skill)) {
+    private fun blindOr(type: CheckType, skill: String, major: Int?): CheckOutcome? =
+        when (val seen = robots.of(skill, major)) {
             is Observability.Blind -> CheckOutcome(
                 type,
                 satisfied = false,
@@ -117,7 +117,7 @@ class Preconditions(
                 CheckType.CAPABILITY_WITHDRAWN, false, "plan 파라미터가 숫자가 아니다",
             )
 
-        blindOr(CheckType.CAPABILITY_WITHDRAWN, skill)?.let { return it }
+        blindOr(CheckType.CAPABILITY_WITHDRAWN, skill, check.major())?.let { return it }
 
         val pending = db.open().use { c ->
             c.prepareStatement(
@@ -166,16 +166,20 @@ class Preconditions(
      * §9.3의 조회 1. `source`를 구분하지 않는다 — 등록한 것과 관측된 것 중
      * 하나라도 살아 있으면 "사용 중"이다(§8.3 결정 6).
      */
-    private fun noActiveConsumers(skill: String): CheckOutcome {
+    private fun noActiveConsumers(skill: String, major: Int): CheckOutcome {
         // **세기 전에 볼 수 있는지부터 본다.** 빈 표는 정확히 0을 돌려주고,
         // 그 0을 충족으로 읽으면 아직 쓰는 능력의 제거가 열린다.
-        blindOr(CheckType.NO_ACTIVE_CONSUMERS, skill)?.let { return it }
+        blindOr(CheckType.NO_ACTIVE_CONSUMERS, skill, major)?.let { return it }
 
-        val count = ledger.activeConsumerCount(skill)
+        val count = ledger.activeConsumerCount(skill, major)
         return CheckOutcome(
             CheckType.NO_ACTIVE_CONSUMERS,
             count == 0,
-            if (count == 0) "요구하는 active 소비자 없음" else "아직 $count 소비자가 $skill 을 쓴다",
+            if (count == 0) {
+                "요구하는 active 소비자 없음"
+            } else {
+                "아직 $count 소비자가 $skill@$major 를 쓴다"
+            },
         )
     }
 
@@ -185,21 +189,10 @@ class Preconditions(
      * **`skill_type_id`가 `task`에 있는 이유가 이것이다**(§8.3) — 없으면
      * 드레인을 스킬 단위로 판정할 수 없고, 로봇 전체가 비기를 기다리게 된다.
      */
-    private fun noInflightTasks(skill: String): CheckOutcome {
-        blindOr(CheckType.NO_INFLIGHT_TASKS, skill)?.let { return it }
+    private fun noInflightTasks(skill: String, major: Int): CheckOutcome {
+        blindOr(CheckType.NO_INFLIGHT_TASKS, skill, major)?.let { return it }
 
-        val count = db.open().use { c ->
-            c.prepareStatement(
-                """
-                SELECT count(*) FROM task t
-                JOIN skill_type s ON s.skill_type_id = t.skill_type_id
-                WHERE s.name = ? AND NOT t.terminal
-                """.trimIndent(),
-            ).use { st ->
-                st.setString(1, skill)
-                st.executeQuery().use { rs -> check(rs.next()); rs.getInt(1) }
-            }
-        }
+        val count = ledger.inflightTaskCount(skill, major)
         return CheckOutcome(
             CheckType.NO_INFLIGHT_TASKS,
             count == 0,
@@ -310,6 +303,17 @@ class Preconditions(
             },
         )
     }
+
+    /**
+     * §9.3의 두 조회가 짚는 major.
+     *
+     * **없으면 던진다.** 조용히 "안 가림"으로 접으면 다른 major를 쓰는
+     * 소비자·태스크가 축소를 막고, 그러면 옮기라고 예고해 놓고 옮긴 쪽 때문에
+     * 제거가 안 열리는 모양이 된다 — 그것이 §15.50이었다.
+     */
+    private fun PreconditionCheck.major(): Int =
+        required("major").toIntOrNull()
+            ?: throw IllegalArgumentException("$type 의 major 가 숫자가 아니다: $params")
 
     private fun PreconditionCheck.required(key: String): String =
         params[key] ?: throw IllegalArgumentException("$type 에 $key 가 없다: $params")

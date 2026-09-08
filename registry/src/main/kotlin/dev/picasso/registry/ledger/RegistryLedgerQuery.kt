@@ -55,6 +55,12 @@ class RegistryLedgerQuery(
      */
     private val robots: RobotObservability = RobotObservability(db),
     /**
+     * **개수도 공유한다.** 관측선만 합치고 세는 것을 두 벌로 두면 판정
+     * 범위가 갈린다 — 실제로 그랬다(§15.50): 이 경로는 `skill@major`를
+     * 짚는데 변경 계획 경로는 이름만 봤다.
+     */
+    private val ledger: LedgerService = LedgerService(db),
+    /**
      * 관측선이 살아 있다고 인정하는 최대 침묵.
      *
      * 24시간인 이유는 **가동 중인 라인이 하루 한 번도 협상하지 않거나 태스크
@@ -67,13 +73,13 @@ class RegistryLedgerQuery(
 ) : LedgerQuery {
 
     override fun activeConsumers(skillType: String, major: Int): LedgerAnswer =
-        gated(skillType, major, "consumer_requirement", "MAX(last_seen) FROM consumer_requirement") { c ->
-            countConsumers(c, skillType, major)
+        gated(skillType, major, "consumer_requirement", "MAX(last_seen) FROM consumer_requirement") {
+            ledger.activeConsumerCount(skillType, major)
         }
 
     override fun inflightTasks(skillType: String, major: Int): LedgerAnswer =
-        gated(skillType, major, "task", "MAX(updated_at) FROM task") { c ->
-            countInflight(c, skillType, major)
+        gated(skillType, major, "task", "MAX(updated_at) FROM task") {
+            ledger.inflightTaskCount(skillType, major)
         }
 
     /**
@@ -90,13 +96,13 @@ class RegistryLedgerQuery(
         major: Int,
         stream: String,
         watermarkSql: String,
-        count: (Connection) -> Int,
+        count: () -> Int,
     ): LedgerAnswer = when (val seen = robots.of(skillType, major)) {
         is Observability.Blind -> LedgerAnswer.NotObservable(seen.reason)
 
         // **개수는 세되 근거 시각은 가장 뒤처진 기체의 것을 쓴다.**
         is Observability.Live -> try {
-            db.open().use { c -> LedgerAnswer.Observed(count(c), seen.asOf) }
+            LedgerAnswer.Observed(count(), seen.asOf)
         } catch (e: SQLException) {
             LedgerAnswer.NotObservable("원장에 닿지 못했다: ${e.message}")
         }
@@ -114,7 +120,7 @@ class RegistryLedgerQuery(
     private fun answer(
         stream: String,
         watermarkSql: String,
-        count: (Connection) -> Int,
+        count: () -> Int,
     ): LedgerAnswer = try {
         db.open().use { c ->
             val watermark = watermark(c, watermarkSql)
@@ -131,7 +137,7 @@ class RegistryLedgerQuery(
                             "(허용 ${freshness.toHours()}시간) — 구독이 끊겼을 수 있다",
                     )
 
-                else -> LedgerAnswer.Observed(count(c), watermark)
+                else -> LedgerAnswer.Observed(count(), watermark)
             }
         }
     } catch (e: SQLException) {
@@ -145,57 +151,6 @@ class RegistryLedgerQuery(
                 check(rs.next())
                 rs.getTimestamp(1)?.toInstant()
             }
-        }
-
-    /**
-     * 그 능력을 요구하는 **서로 다른 소비자** 수. `source`를 안 가린다 —
-     * 등록이든 관측이든 하나라도 살아 있으면 사용 중이다(§8.3 결정 6).
-     *
-     * major는 원장이 아니라 **여기서** 푼다. §9.2가 *"원문 그대로
-     * `version_range`에 남긴다 — 해석은 게이트가 하고 원장은 적는다"*고
-     * 정했고, 이 클래스는 원장이 아니라 게이트 쪽 어댑터다.
-     *
-     * **못 읽는 범위는 센다.** 문법이 깨진 요구를 조용히 빼면 그 소비자만
-     * 모르는 채로 능력이 사라진다 — 파싱 실패는 "안 쓴다"의 증거가 아니다.
-     */
-    private fun countConsumers(c: Connection, skillType: String, major: Int): Int =
-        c.prepareStatement(
-            """
-            SELECT consumer_id, version_range FROM consumer_requirement
-            WHERE skill_type_name = ? AND active
-            """.trimIndent(),
-        ).use { s ->
-            s.setString(1, skillType)
-            s.executeQuery().use { rs ->
-                buildSet {
-                    while (rs.next()) {
-                        val range = rs.getString(2)
-                        val wanted = try {
-                            Requirement.parse("$skillType@$range").major == major
-                        } catch (_: IllegalArgumentException) {
-                            true
-                        }
-                        if (wanted) add(rs.getString(1))
-                    }
-                }.size
-            }
-        }
-
-    /**
-     * 비종착 태스크 수. **`skill_type`의 `major`까지 짚는다** — 이름만 보면
-     * 다른 major의 태스크가 축소를 막고, 그러면 아무도 못 옮긴다.
-     */
-    private fun countInflight(c: Connection, skillType: String, major: Int): Int =
-        c.prepareStatement(
-            """
-            SELECT count(*) FROM task t
-            JOIN skill_type s ON s.skill_type_id = t.skill_type_id
-            WHERE s.name = ? AND s.major = ? AND NOT t.terminal
-            """.trimIndent(),
-        ).use { s ->
-            s.setString(1, skillType)
-            s.setInt(2, major)
-            s.executeQuery().use { rs -> check(rs.next()); rs.getInt(1) }
         }
 
     companion object {

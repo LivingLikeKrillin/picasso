@@ -18,6 +18,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -80,8 +81,15 @@ class PreconditionTest {
         assertTrue(bindings.bind("r1", adapterVersionId, revisionId, "op") is BindOutcome.Bound)
     }
 
+    /**
+     * **`major`를 기본으로 채운다.** §9.3의 두 조회가 그것을 요구하고(§15.50을
+     * 닫으면서 필수가 됐다), 안 넣으면 여기 있는 시험 전부가 "major 가 없다"로
+     * 죽어 정작 보려던 것을 못 본다. 호출자가 주면 그것을 쓴다.
+     */
     private fun check(type: CheckType, vararg params: Pair<String, String>) =
-        checks.evaluate(PreconditionCheck(type, params.toMap()))
+        checks.evaluate(
+            PreconditionCheck(type, mapOf("major" to "1") + params.toMap()),
+        )
 
     private fun task(skill: String, terminal: Boolean, revisionId: Long, id: String = "t1") =
         db.transaction { c ->
@@ -350,7 +358,7 @@ class PreconditionTest {
     private fun withdrawn(planId: Long) = checks.evaluate(
         PreconditionCheck(
             CheckType.CAPABILITY_WITHDRAWN,
-            mapOf("skill" to "pick_place", "plan" to planId.toString()),
+            mapOf("skill" to "pick_place", "major" to "1", "plan" to planId.toString()),
         ),
     )
 
@@ -416,5 +424,101 @@ class PreconditionTest {
         val outcome = withdrawn(planId)
 
         assertTrue(outcome.satisfied, "둘 다 자기 baseline 을 넘었는데 막혔다: ${outcome.detail}")
+    }
+
+    // ── major 판정 범위 (§15.50을 닫는다)
+
+    @Test
+    fun `다른 major를 쓰는 소비자는 축소를 막지 않는다`() {
+        // **이것이 §15.50이었다.** 두 조회가 스킬 이름만 보면 `@2`로 옮기라고
+        // 예고해 놓고 `@1`의 제거가 **옮긴 쪽 때문에** 막힌다.
+        activate()
+        ledger.observe("moved-on", "line-a", listOf("pick_place@^2.0"))
+
+        val outcome = checks.evaluate(
+            PreconditionCheck(
+                CheckType.NO_ACTIVE_CONSUMERS,
+                mapOf("skill" to "pick_place", "major" to "1"),
+            ),
+        )
+
+        assertTrue(outcome.satisfied, "@2 소비자가 @1 축소를 막았다: ${outcome.detail}")
+    }
+
+    @Test
+    fun `같은 major를 쓰는 소비자는 막는다`() {
+        // 위 시험만 있으면 "언제나 참"이 통과한다.
+        activate()
+        ledger.observe("still-here", "line-a", listOf("pick_place@^1.2"))
+
+        val outcome = checks.evaluate(
+            PreconditionCheck(
+                CheckType.NO_ACTIVE_CONSUMERS,
+                mapOf("skill" to "pick_place", "major" to "1"),
+            ),
+        )
+
+        assertFalse(outcome.satisfied, outcome.detail)
+        assertTrue("pick_place@1" in outcome.detail, outcome.detail)
+    }
+
+    @Test
+    fun `못 읽는 version_range 는 센다`() {
+        // 파싱 실패는 "안 쓴다"의 증거가 아니다. 조용히 빼면 그 소비자만
+        // 모르는 채로 능력이 사라진다.
+        activate()
+        ledger.observe("broken", "line-a", listOf("pick_place@^1.0"))
+        PostgresSupport.execute(
+            "UPDATE consumer_requirement SET version_range = '??' WHERE consumer_id = 'broken'",
+        )
+
+        val outcome = checks.evaluate(
+            PreconditionCheck(
+                CheckType.NO_ACTIVE_CONSUMERS,
+                mapOf("skill" to "pick_place", "major" to "1"),
+            ),
+        )
+
+        assertFalse(outcome.satisfied, "못 읽는 요구가 조용히 빠졌다: ${outcome.detail}")
+    }
+
+    @Test
+    fun `major가 없으면 조용히 안 가리는 대신 던진다`() {
+        // 접으면 §15.50이 다시 열린다 — 그리고 열린 것이 안 보인다.
+        activate()
+        assertFailsWith<IllegalArgumentException> {
+            checks.evaluate(
+                PreconditionCheck(CheckType.NO_ACTIVE_CONSUMERS, mapOf("skill" to "pick_place")),
+            )
+        }
+    }
+
+    @Test
+    fun `드레인도 major를 짚는다`() {
+        val revisionId = activate()
+        val skillTypeId = PostgresSupport.queryOne(
+            "SELECT skill_type_id FROM skill_type WHERE name = 'pick_place' AND major = 1",
+        ) { it.getLong(1) }
+        PostgresSupport.execute(
+            "INSERT INTO task (task_id, robot_id, profile_revision_id, skill_type_id, " +
+                "revision, state, terminal) VALUES " +
+                "('t1','r1',$revisionId,$skillTypeId,1,'TASK_STATE_RUNNING',false)",
+        )
+
+        val same = checks.evaluate(
+            PreconditionCheck(
+                CheckType.NO_INFLIGHT_TASKS,
+                mapOf("skill" to "pick_place", "major" to "1"),
+            ),
+        )
+        assertFalse(same.satisfied, "같은 major 의 진행 중 태스크가 안 잡혔다: ${same.detail}")
+
+        val other = checks.evaluate(
+            PreconditionCheck(
+                CheckType.NO_INFLIGHT_TASKS,
+                mapOf("skill" to "pick_place", "major" to "9"),
+            ),
+        )
+        assertTrue(other.satisfied, "다른 major 의 태스크가 축소를 막았다: ${other.detail}")
     }
 }

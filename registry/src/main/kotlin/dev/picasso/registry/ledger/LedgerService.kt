@@ -1,5 +1,6 @@
 package dev.picasso.registry.ledger
 
+import dev.picasso.profile.Requirement
 import dev.picasso.registry.store.Db
 import java.sql.Connection
 import java.time.Duration
@@ -206,12 +207,72 @@ class LedgerService(
      * 같은 소비자가 두 source로 있다고 둘로 세면 축소가 더 막히는 쪽으로
      * 틀리지만, 화면의 숫자가 실제 소비자 수와 달라진다.
      */
-    fun activeConsumerCount(skillTypeName: String): Int = db.open().use { c ->
+    fun activeConsumerCount(skillTypeName: String): Int = activeConsumerCount(skillTypeName, null)
+
+    /**
+     * @param major `null`이면 major를 가리지 않는다.
+     *
+     * **major를 짚는 것이 축소 판정에서는 필수다.** 이름만 보면 다른 major를
+     * 쓰는 소비자가 축소를 막고, 그러면 아무도 옮기지 못한다 — `pick_place@2`로
+     * 옮기라고 예고해 놓고 `pick_place@1`의 제거가 `@2` 소비자 때문에 막히는
+     * 모양이 된다.
+     *
+     * **major는 원장이 아니라 여기서 푼다.** §9.2가 *"원문 그대로
+     * `version_range`에 남긴다 — 해석은 게이트가 하고 원장은 적는다"*고 정했고,
+     * 이 메서드는 그 해석을 두 호출 지점(게이트 6번·변경 계획)에 **한 벌로**
+     * 준다. 두 벌이면 CI가 통과시킨 축소를 레지스트리가 거부하는 날이 온다.
+     *
+     * **못 읽는 범위는 센다.** 문법이 깨진 요구를 조용히 빼면 그 소비자만
+     * 모르는 채로 능력이 사라진다 — 파싱 실패는 "안 쓴다"의 증거가 아니다.
+     */
+    fun activeConsumerCount(skillTypeName: String, major: Int?): Int = db.open().use { c ->
         c.prepareStatement(
-            "SELECT count(DISTINCT consumer_id) FROM consumer_requirement " +
+            "SELECT consumer_id, version_range FROM consumer_requirement " +
                 "WHERE skill_type_name = ? AND active",
         ).use { s ->
             s.setString(1, skillTypeName)
+            s.executeQuery().use { rs ->
+                buildSet {
+                    while (rs.next()) {
+                        val consumerId = rs.getString(1)
+                        if (major == null) {
+                            add(consumerId)
+                            continue
+                        }
+                        val range = rs.getString(2)
+                        val wanted = try {
+                            Requirement.parse("$skillTypeName@$range").major == major
+                        } catch (_: IllegalArgumentException) {
+                            true
+                        }
+                        if (wanted) add(consumerId)
+                    }
+                }.size
+            }
+        }
+    }
+
+    /**
+     * §9.3의 조회 2 — 드레인. 그 `skill_type`의 **비종착** 태스크 수.
+     *
+     * [activeConsumerCount]와 같은 이유로 두 호출 지점이 이것을 공유한다.
+     * `major`를 안 짚으면 다른 major의 태스크가 드레인을 영영 0이 안 되게
+     * 만든다.
+     */
+    fun inflightTaskCount(skillTypeName: String, major: Int?): Int = db.open().use { c ->
+        val sql = buildString {
+            append(
+                """
+                SELECT count(*) FROM task t
+                JOIN skill_type s ON s.skill_type_id = t.skill_type_id
+                WHERE s.name = ? AND NOT t.terminal
+                """.trimIndent(),
+            )
+            if (major != null) append(" AND s.major = ?")
+        }
+        c.prepareStatement(sql).use { s ->
+            s.setString(1, skillTypeName)
+            if (major != null) s.setInt(2, major)
             s.executeQuery().use { rs -> check(rs.next()); rs.getInt(1) }
         }
     }

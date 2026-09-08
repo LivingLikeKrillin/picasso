@@ -167,13 +167,16 @@ class ChangePlanService(
         target: Map<String, String>,
     ): List<Pair<StepKind, List<PreconditionCheck>>> {
         val skill = target["skill"]
-        val consumers = PreconditionCheck(CheckType.NO_ACTIVE_CONSUMERS, mapOf("skill" to (skill ?: "")))
-        val drained = PreconditionCheck(CheckType.NO_INFLIGHT_TASKS, mapOf("skill" to (skill ?: "")))
+        // **major 를 함께 넘긴다.** 없으면 두 조회가 이름만 보고, 그러면 다른
+        // major 를 쓰는 소비자·태스크가 축소를 막는다(§15.50이 그 상태였다).
+        val skillParams = mapOf("skill" to (skill ?: ""), "major" to (target["major"] ?: ""))
+        val consumers = PreconditionCheck(CheckType.NO_ACTIVE_CONSUMERS, skillParams)
+        val drained = PreconditionCheck(CheckType.NO_INFLIGHT_TASKS, skillParams)
         val announced = PreconditionCheck(CheckType.DEPRECATION_PUBLISHED, mapOf("skill" to (skill ?: "")))
         // `plan` 은 계획을 만든 뒤에야 알 수 있으므로 create 가 채운다.
         val withdrawn = PreconditionCheck(
             CheckType.CAPABILITY_WITHDRAWN,
-            mapOf("skill" to (skill ?: ""), "plan" to PLAN_ID_PLACEHOLDER),
+            skillParams + ("plan" to PLAN_ID_PLACEHOLDER),
         )
 
         return when (intent) {
