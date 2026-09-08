@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0.0",
+  "profile": "spot-arm.json",
+  "survey": "spot.json",
+
+  "coverage": {
+    "model_identity": {
+      "origin": "VENDOR_DOC",
+      "note": "**신원을 묻는 질의가 있는 첫 기종이다** — `RobotIdService.GetRobotId` 가 `serial_number`·`species`·`software_release` 를 준다. 그래서 이 값은 붙이는 날 기체와 **대조 가능하고**, 그때 출처가 `ROBOT` 으로 바뀐다. 좌표의 철자(`boston-dynamics`·`spot-arm`)는 게이트 7번의 탐색어 제약(8자 이상·구분 기호) 때문에 우리가 정한 것이며 벤더 표기 원문이 아니다."
+    },
+    "supported_skills": {
+      "origin": "VENDOR_DOC",
+      "note": "`DirectoryService.ListServiceEntries` 가 어떤 서비스가 떠 있는지 답한다 — **조사한 셋 중 유일하게 런타임 능력 질의가 있다.** 다만 그것이 답하는 것은 서비스이지 우리 스킬이 아니다. `navigate_to` 를 선언한 근거는 미션 노드 `BosdynNavigateTo` 와 `NavigateToRequest.destination_waypoint_id` 이고, `move_relative` 는 `SE2VelocityCommand` 다."
+    },
+    "cancel_pause": {
+      "origin": "VENDOR_DOC",
+      "note": "**미션 계층에 둘 다 있다** — `PauseMission`·`StopMission`. 그래서 `navigate_to` 는 `pause_support: YES` 다. `move_relative` 가 `NO` 인 것은 그것을 명령 계층(`SE2VelocityCommand`)으로 돌리기 때문이며 거기에는 일시정지가 없다. **한 로봇 안에서 스킬마다 값이 갈리는 첫 사례**이고, §7.2가 `Support` 를 스킬 단위로 둔 것이 여기서 값을 한다. 태스크 하나를 미션 하나로 옮기는 결속은 어댑터가 정한 것이지만 프리미티브 자체는 벤더가 선언한다."
+    },
+    "parameter_ranges": {
+      "origin": "ABSENT",
+      "note": "벤더가 스킬 파라미터의 값 범위를 선언하지 않는다. `Skeleton` 은 형태를 주지 형태별 속도 한계를 주지 않고, `SE2VelocityCommand` 에도 상한이 없다. `location` 의 최대 길이도 마찬가지 — GraphNav 웨이포인트 id 의 길이 한계가 어디에도 없다. 지어낸 상한은 소비자에게 안전 여유처럼 읽힌다."
+    },
+    "protocol_limits": {
+      "origin": "ADAPTER",
+      "note": "문자열·배열 최대 길이를 선언하지 않는다(조사와 같다). 어댑터가 자기 wire 의 주인이므로 정하는 것이 정당하며, 값은 어댑터의 것이지 로봇의 것이 아니다."
+    },
+    "failure_modes": {
+      "origin": "VENDOR_DOC",
+      "note": "**결함 어휘를 벤더가 준다** — `BehaviorFault.Cause ∈ FALL|HARDWARE|LEASE_TIMEOUT` 와 GraphNav 의 측위 상실. 셋 중 둘을 벤더 확장으로, 측위 상실을 코어 `LOCALIZATION_LOST` 로 옮겼다. **`LEASE_TIMEOUT` 은 못 옮긴다** — 그것은 `CONTROL_AUTHORITY_LOST` 이고 어댑터 전용이라 프로파일이 선언할 수 없다(게이트 3번). 그래서 벤더가 주는 셋 중 하나는 이 표에 자리가 없다."
+    },
+    "publish_interval": {
+      "origin": "ADAPTER",
+      "note": "`liveness_timeout_secs` 가 있으나 그것은 클라이언트가 살아 있음을 증명해야 하는 주기이지 로봇이 상태를 내보내는 주기가 아니다. 계약의 `state` 발행은 어댑터가 하므로 주기도 어댑터가 정한다."
+    }
+  },
+
+  "notes": [
+    "`failure_modes` 의 `rate` 를 전부 **0으로 두었다.** 벤더가 주는 것은 *무엇이 실패할 수 있는가*(어휘)이고 *얼마나 자주인가*(비율)는 어디에도 없다. 스키마가 `rate` 를 필수로 요구하므로 비울 수는 없고, 지어낸 비율은 `mimic` 의 추첨을 지나 시험 결과에 직접 들어간다. 0은 \"일어날 수 있으나 빈도를 주장하지 않는다\"이며 `mimic` 이 뽑지 않는다. **출처 문서가 이 갈림을 표현하지 못한다** — 한 항목에 출처가 하나뿐이라 `error_type` 은 `VENDOR_DOC` 이고 `rate` 는 우리 것인 상태를 한 값으로 적을 수 없다.",
+    "`CONTROL_AUTHORITY_LOST` 를 기계적으로 채울 수 있는 첫 기종이다 — `LeaseUseResult.Status` 에 `STATUS_REVOKED`·`STATUS_OLDER`·`STATUS_WRONG_EPOCH` 가 있다. G1 은 lease id 가 있어도 인증이 없어 같은 것을 못 채운다(§4.9·§6.3).",
+    "**이 기종은 하네스의 공통 요구 집합을 만족한다** — `navigate_to@^1.0` 을 선언하므로 면제가 필요 없다. 첫 실물은 못 지났고 둘째는 지난다. 차이는 능력이 아니라 **벤더가 시맨틱 결속 층을 갖고 있는가**이며, GraphNav 이 그 층이다."
+  ]
+}

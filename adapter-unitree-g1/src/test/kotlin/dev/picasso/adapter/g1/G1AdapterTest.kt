@@ -1,5 +1,10 @@
 package dev.picasso.adapter.g1
 
+import dev.picasso.adapter.core.Acceptance
+import dev.picasso.adapter.core.AdapterIdentity
+import dev.picasso.adapter.core.Applied
+import dev.picasso.adapter.core.FaultObservation
+import dev.picasso.adapter.core.Refusal
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
 import kotlin.test.Test
@@ -46,7 +51,7 @@ class G1AdapterTest {
         val result = adapter(sport = null).accept("move_relative", move, t0)
 
         val refused = assertIs<Acceptance.Refused>(result)
-        assertEquals(Refusal.NO_SPORT_SERVICE, refused.reason)
+        assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
     }
 
     @Test

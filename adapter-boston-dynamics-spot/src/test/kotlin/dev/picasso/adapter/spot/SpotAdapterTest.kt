@@ -1,0 +1,295 @@
+package dev.picasso.adapter.spot
+
+import dev.picasso.adapter.core.Acceptance
+import dev.picasso.adapter.core.AdapterIdentity
+import dev.picasso.adapter.core.Applied
+import dev.picasso.adapter.core.FaultObservation
+import dev.picasso.adapter.core.Refusal
+import dev.picasso.contracts.v1.TaskState
+import java.time.Instant
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+
+/**
+ * **두 계층이 서로 다르게 답하는 것**을 붙든다.
+ *
+ * G1 시험은 "없는 것을 만들면서 만든 티를 내는지"를 봤다. 여기서는 벤더가 주는
+ * 것이 훨씬 많고, 그래서 보는 것이 다르다 — **어느 스킬이 어느 층에 올라타고,
+ * 그 층이 없을 때 무엇이 죽는가.**
+ *
+ * 실물 없이 검증되는 범위는 G1과 같다. **"실물 Spot이 이대로 행동하는가"는 안
+ * 본다** — §9.7 ④·C-3이며 열려 있다.
+ */
+class SpotAdapterTest {
+
+    private val t0: Instant = Instant.parse("2026-09-08T00:00:00Z")
+    private val identity = AdapterIdentity("boston-dynamics", "spot-arm", "spot-01")
+
+    private val move = mapOf<String, Any>(
+        "forward_speed" to 0.5, "lateral_speed" to 0.0, "yaw_rate" to 0.0, "duration" to 2.0,
+    )
+    private val navigate = mapOf<String, Any>("location" to "dock-3")
+
+    private fun adapter(
+        command: FakeCommand? = FakeCommand(),
+        mission: FakeMission? = FakeMission(),
+        identity: AdapterIdentity = this.identity,
+    ) = SpotAdapter(FakeLink(command, mission), identity)
+
+    // ── 층이 스킬을 가른다 (이 파일의 핵심)
+
+    @Test
+    fun `미션 계층이 없으면 navigate_to 만 죽고 move_relative 는 산다`() {
+        // **G1과 갈리는 지점이다.** 거기서는 표면 하나가 없으면 전부 죽었다.
+        // 여기서는 스킬마다 다른 층에 올라타므로 하나만 죽는다 — 그리고 그
+        // 사실이 프로파일의 스킬 단위 선언과 맞아떨어진다.
+        val onlyCommand = adapter(mission = null)
+
+        val refused = assertIs<Acceptance.Refused>(onlyCommand.accept("navigate_to", navigate, t0))
+        assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
+
+        assertIs<Acceptance.Accepted>(adapter(mission = null).accept("move_relative", move, t0))
+    }
+
+    @Test
+    fun `명령 계층이 없으면 move_relative 가 죽는다`() {
+        val refused = assertIs<Acceptance.Refused>(adapter(command = null).accept("move_relative", move, t0))
+        assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
+    }
+
+    @Test
+    fun `일시정지의 답이 스킬마다 다르다`() {
+        // §7.2가 `Support` 를 스킬 단위로 둔 것이 **한 로봇 안에서** 값을 하는
+        // 첫 사례다. 프로파일이 `navigate_to: YES` · `move_relative: NO` 라
+        // 선언했고 여기가 그것을 집행한다.
+        val onMission = adapter()
+        onMission.accept("navigate_to", navigate, t0)
+        assertEquals(Applied.Ok, onMission.pause())
+        assertEquals(TaskState.TASK_STATE_PAUSED, onMission.state)
+
+        val onCommand = adapter()
+        onCommand.accept("move_relative", move, t0)
+        val refused = assertIs<Applied.Refused>(onCommand.pause())
+        assertEquals(Refusal.NO_VENDOR_PRIMITIVE, refused.reason)
+        assertEquals(TaskState.TASK_STATE_RUNNING, onCommand.state, "거절이 상태를 건드렸다")
+    }
+
+    // ── 계약 ↔ 벤더 변환
+
+    @Test
+    fun `상대 시간을 절대 시각으로 옮긴다`() {
+        // **계약과 벤더가 어긋나는 유일한 자리다.** 계약은 `duration`, Spot은
+        // `end_time`. 어긋나면 로봇이 일찍 서거나 안 선다.
+        val command = FakeCommand()
+        SpotAdapter(FakeLink(command, FakeMission()), identity)
+            .accept("move_relative", move, t0)
+
+        assertEquals(listOf(t0.plusSeconds(2)), command.velocities.map { it.endTime })
+        assertEquals(0.5, command.velocities.single().vx)
+    }
+
+    @Test
+    fun `location 이 그대로 웨이포인트 id 로 간다`() {
+        // 옮기는 표가 **없는 것**이 요점이다. 그 표를 어댑터가 갖게 되는 순간
+        // 시맨틱 결속의 주인이 GraphNav 에서 우리에게 넘어온다(ADR 34).
+        val mission = FakeMission()
+        SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+            .accept("navigate_to", mapOf("location" to "bay-7"), t0)
+
+        assertEquals(listOf("bay-7"), mission.loaded)
+        assertEquals(1, mission.played)
+    }
+
+    // ── 미션 상태 → 계약 상태
+
+    @Test
+    fun `미션 상태를 계약 상태로 옮긴다`() {
+        listOf(
+            MissionStatus.SUCCESS to TaskState.TASK_STATE_SUCCEEDED,
+            MissionStatus.FAILURE to TaskState.TASK_STATE_FAILED,
+            MissionStatus.ERROR to TaskState.TASK_STATE_FAILED,
+            MissionStatus.STOPPED to TaskState.TASK_STATE_CANCELLED,
+            MissionStatus.PAUSED to TaskState.TASK_STATE_PAUSED,
+            MissionStatus.RUNNING to TaskState.TASK_STATE_RUNNING,
+        ).forEach { (reported, expected) ->
+            val mission = FakeMission(MissionState(reported))
+            val a = SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+            a.accept("navigate_to", navigate, t0)
+            assertEquals(expected, a.poll(t0.plusSeconds(1)), "$reported 의 옮김")
+        }
+    }
+
+    @Test
+    fun `미션이 사람에게 물으면 RUNNING 이 아니라 NEEDS_INTERVENTION 이다`() {
+        // **`AnswerQuestion` 을 가진 유일한 실물이다.** 미션은 물어보는 동안에도
+        // 스스로를 RUNNING 이라 답하는데, 사람이 와야 진행되는 것은 계약에서
+        // RUNNING 이 아니다. 그대로 옮기면 아무도 사람을 부르지 않는다.
+        val mission = FakeMission(MissionState(MissionStatus.RUNNING, question = "문을 열까요?"))
+        val a = SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+        a.accept("navigate_to", navigate, t0)
+
+        assertEquals(TaskState.TASK_STATE_NEEDS_INTERVENTION, a.poll(t0.plusSeconds(1)))
+
+        val observed = assertIs<FaultObservation.Observed>(a.faults())
+        assertEquals(listOf("X_BOSTONDYNAMICS_MISSION_QUESTION"), observed.faults.map { it.errorType })
+        assertTrue("문을 열까요?" in observed.faults.single().errorHint)
+    }
+
+    @Test
+    fun `명령 계층 태스크는 시계로 성공한다`() {
+        // `StopCommand` 조차 "provides no feedback" 이라 물어볼 데가 없다.
+        // G1과 같은 처지이며, **같은 로봇 안에서 층에 따라 갈린다.**
+        val a = adapter()
+        a.accept("move_relative", move, t0)
+
+        assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusMillis(1_999)))
+        assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(t0.plusMillis(2_000)))
+    }
+
+    // ── 리스 = §4.9
+
+    @Test
+    fun `리스가 거절되면 제어 권한 상실이 값으로 온다`() {
+        // **Spot 에서 처음으로 §4.9 가 기계적 근거를 갖는다.** G1 은 lease id 가
+        // 있어도 인증이 없어 이 결함을 낼 근거 자체가 없었다.
+        val a = adapter(command = FakeCommand(reject = LeaseStatus.STATUS_REVOKED))
+
+        val refused = assertIs<Acceptance.Refused>(a.accept("move_relative", move, t0))
+        assertEquals(Refusal.CONTROL_AUTHORITY_LOST, refused.reason)
+
+        val observed = assertIs<FaultObservation.Observed>(a.faults())
+        assertEquals(listOf("CONTROL_AUTHORITY_LOST"), observed.faults.map { it.errorType })
+    }
+
+    @Test
+    fun `권한을 잃은 채 취소하면 취소됐다고 적지 않는다`() {
+        val mission = FakeMission()
+        val a = SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+        a.accept("navigate_to", navigate, t0)
+        mission.reject = LeaseStatus.STATUS_OLDER
+
+        val refused = assertIs<Applied.Refused>(a.cancel())
+        assertEquals(Refusal.CONTROL_AUTHORITY_LOST, refused.reason)
+        assertEquals(TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED, a.state)
+    }
+
+    // ── 계약 규율
+
+    @Test
+    fun `취소가 미션을 멈춘다`() {
+        val mission = FakeMission()
+        val a = SpotAdapter(FakeLink(FakeCommand(), mission), identity)
+        a.accept("navigate_to", navigate, t0)
+
+        assertEquals(Applied.Ok, a.cancel())
+        assertEquals(1, mission.stopped)
+        assertEquals(TaskState.TASK_STATE_CANCELLED, a.state)
+    }
+
+    @Test
+    fun `종착한 태스크는 조작을 거절한다`() {
+        val a = adapter(mission = FakeMission(MissionState(MissionStatus.SUCCESS)))
+        a.accept("navigate_to", navigate, t0)
+        a.poll(t0.plusSeconds(1))
+
+        assertEquals(Refusal.TERMINAL_LATCHED, assertIs<Applied.Refused>(a.cancel()).reason)
+        assertEquals(Refusal.TERMINAL_LATCHED, assertIs<Applied.Refused>(a.pause()).reason)
+        assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.state)
+    }
+
+    @Test
+    fun `이미 도는 태스크가 있으면 받지 않는다`() {
+        val a = adapter()
+        assertIs<Acceptance.Accepted>(a.accept("navigate_to", navigate, t0))
+        assertEquals(Refusal.ALREADY_RUNNING, assertIs<Acceptance.Refused>(a.accept("move_relative", move, t0)).reason)
+    }
+
+    @Test
+    fun `신원이 비어 있으면 받지 않는다`() {
+        val blank = AdapterIdentity("boston-dynamics", "", "spot-01")
+        assertEquals(
+            Refusal.IDENTITY_UNSET,
+            assertIs<Acceptance.Refused>(adapter(identity = blank).accept("move_relative", move, t0)).reason,
+        )
+    }
+
+    @Test
+    fun `드는 스킬이 아니면 받지 않는다`() {
+        // **`pick_place` 와 `inspect` 가 여기로 온다.** 거리 측정이 둘을
+        // NO·PARTIAL 로 적었고, 어댑터가 그 판정과 같은 답을 낸다.
+        listOf("pick_place", "inspect").forEach {
+            assertEquals(
+                Refusal.UNSUPPORTED_SKILL,
+                assertIs<Acceptance.Refused>(adapter().accept(it, emptyMap(), t0)).reason,
+                "$it 의 거절",
+            )
+        }
+    }
+
+    @Test
+    fun `필수 파라미터가 빠지면 값을 지어내지 않는다`() {
+        val refused = assertIs<Acceptance.Refused>(adapter().accept("move_relative", move - "duration", t0))
+        assertEquals(Refusal.PARAMETER_MISSING, refused.reason)
+        assertTrue("duration" in refused.detail)
+
+        val noLocation = assertIs<Acceptance.Refused>(adapter().accept("navigate_to", emptyMap(), t0))
+        assertEquals(Refusal.PARAMETER_MISSING, noLocation.reason)
+    }
+
+    @Test
+    fun `아무것도 안 들었으면 결함이 없다`() {
+        // 위 결함 시험들이 "언제나 무언가 낸다"로 통과하는 것을 막는다.
+        val observed = assertIs<FaultObservation.Observed>(adapter().faults())
+        assertEquals(emptyList(), observed.faults.map { it.errorType })
+    }
+
+    // ── 가짜 남쪽
+
+    private data class Velocity(val vx: Double, val vy: Double, val omega: Double, val endTime: Instant)
+
+    private class FakeCommand(var reject: LeaseStatus? = null) : CommandLayer {
+        val velocities = mutableListOf<Velocity>()
+        var stopped = 0
+
+        override fun se2Velocity(vx: Double, vy: Double, omega: Double, endTime: Instant): LeaseResult {
+            reject?.let { return LeaseResult.Rejected(it) }
+            velocities += Velocity(vx, vy, omega, endTime)
+            return LeaseResult.Ok
+        }
+
+        override fun stop(): LeaseResult {
+            reject?.let { return LeaseResult.Rejected(it) }
+            stopped += 1
+            return LeaseResult.Ok
+        }
+    }
+
+    private class FakeMission(
+        private val reported: MissionState? = null,
+        var reject: LeaseStatus? = null,
+    ) : MissionLayer {
+        val loaded = mutableListOf<String>()
+        var played = 0
+        var paused = 0
+        var stopped = 0
+
+        private fun gate(body: () -> Unit): LeaseResult {
+            reject?.let { return LeaseResult.Rejected(it) }
+            body()
+            return LeaseResult.Ok
+        }
+
+        override fun loadNavigateTo(waypointId: String) = gate { loaded += waypointId }
+        override fun play() = gate { played += 1 }
+        override fun pause() = gate { paused += 1 }
+        override fun stop() = gate { stopped += 1 }
+        override fun state(): MissionState? = reported
+    }
+
+    private class FakeLink(
+        override val command: CommandLayer?,
+        override val mission: MissionLayer?,
+    ) : SpotLink
+}

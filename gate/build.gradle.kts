@@ -70,6 +70,10 @@ tasks.withType<Test>().configureEach {
         rootProject.file("client/src/main"),
         rootProject.file("mimic/src/main"),
         rootProject.file("harness/src/main"),
+        // 검사 7번이 넷째 모듈을 보게 됐다(ADR 33). 이 줄이 없으면 거기에
+        // 기종 문자열을 넣어도 UP-TO-DATE 로 초록이 난다 — 위 주석이 세 번
+        // 물렸다고 적은 그것이다.
+        rootProject.file("adapter-core/src/main"),
         // NegativeSuiteTest가 ci.yml과 디렉터리 목록을 대조한다.
         rootProject.file(".github/workflows/ci.yml"),
         // **VendorSurveyTest·ProfileProvenanceTest가 읽는 것들.** 앞의 것은

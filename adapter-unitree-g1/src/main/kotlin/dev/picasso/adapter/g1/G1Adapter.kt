@@ -1,7 +1,13 @@
 package dev.picasso.adapter.g1
 
+import dev.picasso.adapter.core.Acceptance
+import dev.picasso.adapter.core.AdapterIdentity
+import dev.picasso.adapter.core.Applied
+import dev.picasso.adapter.core.FaultObservation
+import dev.picasso.adapter.core.Refusal
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.TaskState
+import dev.picasso.contracts.wire.isTerminal
 import java.time.Instant
 import kotlin.math.abs
 
@@ -77,12 +83,12 @@ class G1Adapter(
 
         val sport = link.sport
             ?: return Acceptance.Refused(
-                Refusal.NO_SPORT_SERVICE,
+                Refusal.VENDOR_SURFACE_ABSENT,
                 "고수준 서비스가 없다 — 시뮬레이터이거나 ai_sport 가 안 떠 있다. " +
                     "받아 놓고 아무것도 안 하는 것이 가장 나쁘므로 거절한다",
             )
 
-        task?.takeIf { !it.state.terminal }?.let {
+        task?.takeIf { !it.state.isTerminal }?.let {
             return Acceptance.Refused(Refusal.ALREADY_RUNNING, "이미 도는 태스크가 있다: ${it.id}")
         }
 
@@ -143,7 +149,7 @@ class G1Adapter(
     fun cancel(): Applied {
         val current = task ?: return Applied.Refused(Refusal.NO_TASK, "조작할 태스크가 없다")
 
-        if (current.state.terminal) {
+        if (current.state.isTerminal) {
             return Applied.Refused(
                 Refusal.TERMINAL_LATCHED,
                 "${current.id} 은 이미 ${current.state} 다 — 종착은 되돌아가지 않는다(§4.4)",
@@ -151,7 +157,7 @@ class G1Adapter(
         }
 
         val sport = link.sport
-            ?: return Applied.Refused(Refusal.NO_SPORT_SERVICE, "고수준 서비스가 없다")
+            ?: return Applied.Refused(Refusal.VENDOR_SURFACE_ABSENT, "고수준 서비스가 없다")
 
         current.state = TaskState.TASK_STATE_CANCELLING
         val outcome = sport.setVelocity(0.0, 0.0, 0.0, 0.0)
@@ -209,7 +215,7 @@ class G1Adapter(
         // **§4.4의 래치.** 종착했다고 우리가 적었는데 관절이 아직 돈다면 둘
         // 중 하나가 틀렸고, 어느 쪽이든 소비자가 알아야 한다.
         val current = task
-        if (current != null && current.state.terminal &&
+        if (current != null && current.state.isTerminal &&
             low.motorVelocities.any { abs(it) > stillnessThreshold }
         ) {
             faults += Fault.newBuilder()
@@ -264,9 +270,7 @@ class G1Adapter(
     }
 }
 
-/** §4.4의 종착 넷. 나가는 화살표가 없는 상태들이다. */
-private val TaskState.terminal: Boolean
-    get() = this == TaskState.TASK_STATE_SUCCEEDED ||
-        this == TaskState.TASK_STATE_FAILED ||
-        this == TaskState.TASK_STATE_CANCELLED ||
-        this == TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
+// **종착 판정은 계약이 갖는다**(`contracts` 의 `TaskStates`). 여기서 다시
+// 적었던 것이 그 목록의 **세 번째 사본**이었고, `mimic` 이 상태를 하나 더하는
+// 날 이 어댑터만 옛 목록으로 판정하게 된다. 계약 모듈이 프로젝트 내 의존 0
+// 이라 누구나 쓸 수 있고, 그래서 두 번째로 적을 이유가 없었다.

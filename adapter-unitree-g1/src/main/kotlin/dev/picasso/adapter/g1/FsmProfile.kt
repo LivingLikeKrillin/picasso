@@ -39,18 +39,3 @@ data class FsmProfile(
         }
     }
 }
-
-/**
- * 기체의 신원.
- *
- * **G1은 자기가 누구인지 말하지 않는다** — 신원을 묻는 질의가 SDK에 없다
- * (조사 문서의 `model_identity: NONE`). 그래서 어댑터가 설정으로 받고, 잘못
- * 설정된 어댑터는 잘못된 기종으로 등록되며 **아무것도 그것을 막지 못한다.**
- * 그 사실이 출처 문서에 `ADAPTER`로 남아 있다.
- */
-data class AdapterIdentity(val vendor: String, val model: String, val robotId: String) {
-
-    /** 비어 있는 좌표로는 등록도 보고도 의미가 없다. */
-    val complete: Boolean
-        get() = vendor.isNotBlank() && model.isNotBlank() && robotId.isNotBlank()
-}

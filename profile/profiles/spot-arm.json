@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0.0",
+  "derived_from": {
+    "software_version": "spot-sdk master (2026-09-08)",
+    "observed_at": "2026-09-08",
+    "source": "공개 proto 원문에서 파생했다. 실물 기체도 그 `software_release` 도 보지 못했다 — `graph_nav/graph_nav.proto`(NavigateTo.destination_waypoint_id), `basic_command.proto`(SE2VelocityCommand·StopCommand), `mission/mission_service.proto`(Play·Pause·Stop·RestartMission), `mission/nodes.proto`(BosdynNavigateTo), `lease.proto`(LeaseUseResult.STATUS_REVOKED). Spot 은 `RobotIdService.GetRobotId` 로 `software_release` 를 실제로 주므로, 붙이는 날 이 값은 기체가 말하는 것으로 대체되어야 한다 — 그때 진단 7번의 대조가 처음으로 의미를 갖는다."
+  },
+  "vendor": "boston-dynamics",
+  "model": "spot-arm",
+  "revision": 1,
+
+  "skills": [
+    {
+      "skill_type": "move_relative",
+      "major": 1,
+      "minor": 0,
+      "pause_support": "NO",
+      "cancel_support": "YES",
+      "parameters": [
+        { "key": "forward_speed", "value_type": "NUMBER", "optional": false, "unit": "m/s" },
+        { "key": "lateral_speed", "value_type": "NUMBER", "optional": false, "unit": "m/s" },
+        { "key": "yaw_rate", "value_type": "NUMBER", "optional": false, "unit": "rad/s" },
+        { "key": "duration", "value_type": "NUMBER", "optional": false, "unit": "s" }
+      ]
+    },
+    {
+      "skill_type": "navigate_to",
+      "major": 1,
+      "minor": 0,
+      "pause_support": "YES",
+      "cancel_support": "YES",
+      "parameters": [
+        { "key": "location", "value_type": "STRING", "optional": false }
+      ]
+    }
+  ],
+
+  "publish_interval": { "min_seconds": 1, "max_seconds": 10 },
+  "protocol_limits": { "max_string_length": 256, "max_array_length": 32 },
+  "exclusive_control_required": true,
+
+  "durations": [
+    { "skill_type": "move_relative", "seconds": 1 },
+    { "skill_type": "navigate_to", "seconds": 20 }
+  ],
+
+  "failure_modes": [
+    {
+      "error_type": "LOCALIZATION_LOST",
+      "skill_type": "navigate_to",
+      "rate": 0,
+      "can_continue_current_task": false,
+      "can_accept_new_task": true,
+      "resolution": "NEEDS_INTERVENTION",
+      "error_hint": "기체를 알려진 웨이포인트 근처로 옮기고 재측위하십시오.",
+      "active_until": "UNTIL_CLEARED"
+    },
+    {
+      "error_type": "X_BOSTONDYNAMICS_FALL",
+      "rate": 0,
+      "can_continue_current_task": false,
+      "can_accept_new_task": false,
+      "resolution": "NEEDS_INTERVENTION",
+      "error_hint": "넘어졌습니다. 주변을 확인한 뒤 자가기립을 지시하십시오.",
+      "active_until": "UNTIL_CLEARED"
+    },
+    {
+      "error_type": "X_BOSTONDYNAMICS_HARDWARE",
+      "rate": 0,
+      "can_continue_current_task": false,
+      "can_accept_new_task": false,
+      "resolution": "NEEDS_INTERVENTION",
+      "error_hint": "하드웨어 결함입니다. 진단 코드를 확인하십시오.",
+      "active_until": "UNTIL_CLEARED"
+    }
+  ],
+
+  "replay_buffer_size": 256
+}

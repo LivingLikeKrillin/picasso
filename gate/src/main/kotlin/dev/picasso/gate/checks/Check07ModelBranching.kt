@@ -139,9 +139,23 @@ class Check07ModelBranching : GateCheck {
     /** Windows에서 `ProfileDocument.path`가 역슬래시를 담는다. */
     private fun normalize(path: String) = path.replace('\\', '/')
 
-    private companion object {
-        /** §11.2가 지목한 셋. `contracts`·`profile-model`은 기종을 알 수 없다. */
-        val MODULES = listOf("client", "mimic", "harness")
+    /**
+     * **시험이 이 목록을 읽는다.** 공개하지 않으면 시험이 모듈 이름을 두 번째로
+     * 적게 되고, 목록이 느는 날 한쪽만 고쳐진다 — 이 저장소가 막으려는 그것이다
+     * (실제로 `adapter-core`를 더할 때 시험 여섯이 그 이유로 깨졌다).
+     */
+    companion object {
+        /**
+         * §11.2가 지목한 셋에 `adapter-core`를 더한 넷.
+         *
+         * **어댑터 모듈 자체는 여기 없다** — 기종을 아는 것이 그것의 일이다
+         * (ADR 33). 들어온 것은 어댑터들이 **공유하는** 모듈이며, ADR 33이
+         * 대가로 적어 둔 *"그 공통 모듈은 다시 기종을 몰라야 하고 그때 검사
+         * 7번의 목록에 더해야 한다"* 가 두 번째 어댑터에서 실현된 자리다.
+         *
+         * `contracts`·`profile-model`은 기종을 알 수 없다.
+         */
+        val MODULES = listOf("client", "mimic", "harness", "adapter-core")
 
         const val MAIN = "src/main"
 

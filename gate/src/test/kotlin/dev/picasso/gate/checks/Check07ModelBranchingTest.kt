@@ -18,9 +18,15 @@ class Check07ModelBranchingTest {
 
     private fun repo(): Path = Files.createTempDirectory("picasso-check07")
 
-    /** 세 모듈의 `src/main`을 만든다. 없으면 검사가 실패하는 것이 정상이다. */
+    /**
+     * 검사가 보는 모듈들의 `src/main`을 만든다. 없으면 검사가 실패하는 것이 정상이다.
+     *
+     * **목록을 여기 다시 적지 않는다** — 검사의 것을 읽는다. 두 벌로 두면
+     * 모듈이 느는 날 한쪽만 고쳐지고, 그때 이 시험은 "검사가 깨졌다"가 아니라
+     * "시험이 낡았다"인데 증상이 같다.
+     */
     private fun scaffold(root: Path, sources: Map<String, String> = emptyMap()): Path {
-        listOf("client", "mimic", "harness").forEach { module ->
+        Check07ModelBranching.MODULES.forEach { module ->
             val dir = root.resolve("$module/src/main/kotlin").createDirectories()
             dir.resolve("Placeholder.kt").writeText("package x\n")
         }
@@ -77,9 +83,10 @@ class Check07ModelBranchingTest {
     }
 
     @Test
-    fun `세 모듈을 전부 본다`() {
-        // 하나만 보면 나머지 둘이 침묵한다.
-        listOf("client", "mimic", "harness").forEach { module ->
+    fun `대상 모듈을 전부 본다`() {
+        // 하나만 보면 나머지가 침묵한다. **목록은 검사의 것을 쓴다** — 모듈이
+        // 늘면 이 시험도 저절로 는다.
+        Check07ModelBranching.MODULES.forEach { module ->
             val root = scaffold(
                 repo(),
                 mapOf("$module/src/main/kotlin/Bad.kt" to "\"humanoid-a\"\n"),
