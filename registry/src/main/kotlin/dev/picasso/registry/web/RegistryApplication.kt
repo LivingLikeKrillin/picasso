@@ -102,16 +102,40 @@ open class RegistryApplication {
     ): IngestToken = IngestToken(token)
 
     /**
-     * 적재 경로를 **경로로** 지킨다. 엔드포인트마다 확인하는 구조는 새 것을
-     * 더할 때 잊으면 조용히 새는 문이 된다.
+     * **적재 토큰과 다른 토큰이다.** 적재 토큰은 어댑터마다 배포되어 현장에
+     * 나가 있고, 그것으로 §8.5의 조작까지 되면 기체 하나가 운영자 조작을 할
+     * 수 있다. 신뢰 경계가 다르므로 문도 다르다([OperatorToken]).
+     *
+     * 빈 토큰은 여기서도 전부 401이다.
      */
     @Bean
-    open fun ingestGuard(token: IngestToken): WebMvcConfigurer = object : WebMvcConfigurer {
+    open fun operatorToken(
+        @Value("\${picasso.operator.token:}") token: String,
+    ): OperatorToken = OperatorToken(token)
+
+    /**
+     * 적재·조작 경로를 **경로로** 지킨다. 엔드포인트마다 확인하는 구조는 새
+     * 것을 더할 때 잊으면 조용히 새는 문이 된다.
+     *
+     * **둘을 한 배선에 두되 관문은 따로다.** 한 인터셉터가 두 경로를 덮으면
+     * 토큰도 하나가 되고, 그러면 위 주석이 막으려는 승격이 그대로 생긴다.
+     */
+    @Bean
+    open fun writeGuards(
+        ingest: IngestToken,
+        operator: OperatorToken,
+    ): WebMvcConfigurer = object : WebMvcConfigurer {
         override fun addInterceptors(registry: InterceptorRegistry) {
-            registry.addInterceptor(IngestTokenInterceptor(token))
+            registry.addInterceptor(IngestTokenInterceptor(ingest))
                 .addPathPatterns(IngestTokenInterceptor.GUARDED)
+            registry.addInterceptor(OperatorTokenInterceptor(operator))
+                .addPathPatterns(OperatorTokenInterceptor.GUARDED)
         }
     }
+
+    @Bean
+    open fun siteNames(db: Db): dev.picasso.registry.binding.SiteNameRegistration =
+        dev.picasso.registry.binding.SiteNameRegistration(db)
 
     /**
      * **활성화는 `BindingService`를 지난다**(§8.4 ③). 계획이 status를 직접

@@ -5,6 +5,7 @@ import dev.picasso.registry.adapter.RegisterOutcome
 import dev.picasso.registry.binding.ActivateOutcome
 import dev.picasso.registry.binding.BindOutcome
 import dev.picasso.registry.binding.BindingService
+import dev.picasso.registry.binding.RecordOutcome
 import dev.picasso.registry.binding.SiteNameRegistration
 import dev.picasso.registry.binding.SiteNameStatus
 import dev.picasso.registry.diag.DiagnosticsService
@@ -17,6 +18,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
@@ -134,7 +136,7 @@ class SiteNameRegistrationTest {
     fun `등록했다고 기록하면 상태가 바뀐다`() {
         bound("r-both", activate(Fixtures.good()))
 
-        assertTrue(siteNames.record("r-both", "op"))
+        assertIs<RecordOutcome.Recorded>(siteNames.record("r-both", "op"))
         assertEquals(SiteNameStatus.REGISTERED, siteNames.statusOf("r-both"))
     }
 
@@ -143,7 +145,9 @@ class SiteNameRegistrationTest {
         // 적히면 그 기록이 나중에 "이 기종은 이름을 안다" 로 읽힌다.
         bound("r-move", activate(Fixtures.moveOnly()))
 
-        assertFalse(siteNames.record("r-move", "op"))
+        // **결과가 셋으로 갈리는 것이 요점이다.** "등록할 것이 없다" 와
+        // "바인딩이 없다" 는 운영자가 할 일이 완전히 다르다.
+        assertEquals(RecordOutcome.NothingToRegister, siteNames.record("r-move", "op"))
         assertEquals(SiteNameStatus.NOT_REQUIRED, siteNames.statusOf("r-move"))
     }
 
@@ -152,7 +156,7 @@ class SiteNameRegistrationTest {
         PostgresSupport.execute(
             "INSERT INTO robot (robot_id, site_id, serial_number) VALUES ('r-none','line-a','sn-none')",
         )
-        assertFalse(siteNames.record("r-none", "op"))
+        assertEquals(RecordOutcome.NoActiveBinding, siteNames.record("r-none", "op"))
     }
 
     // ── 재바인딩 (주입이 처음에 못 잡은 자리)
@@ -191,7 +195,7 @@ class SiteNameRegistrationTest {
         val second = activate(Fixtures.shrunk(revision = 2, skill = "navigate_to"))
         assertTrue(bindings.bind("r-rebound", adapterVersionId, second, "op") is BindOutcome.Bound)
 
-        assertTrue(siteNames.record("r-rebound", "op"))
+        assertIs<RecordOutcome.Recorded>(siteNames.record("r-rebound", "op"))
 
         val marked = db.transaction { c ->
             c.prepareStatement(

@@ -30,7 +30,30 @@ import java.security.MessageDigest
  * `==`는 첫 다른 바이트에서 끊어 길이와 접두사를 흘린다. 토큰은 짧고
  * 재시도가 싸므로 실제로 캘 수 있다.
  */
-class IngestToken(private val expected: String) {
+/**
+ * 쓰기 표면의 공유 비밀. **[IngestToken]과 [OperatorToken]이 이것을 상속한다.**
+ *
+ * 처음에는 둘이 같은 코드를 한 벌씩 들고 있었다. 주입이 그 대가를 바로
+ * 보여 줬다 — `OperatorToken` 쪽의 빈 토큰 처리와 상수 시간 비교를 망가뜨려도
+ * **아무 시험도 안 빨개졌다.** 단위 시험이 한쪽에만 있었기 때문이고, 두 벌인
+ * 한 그 상태는 언제든 다시 온다. ADR 29(`profile-model`)·ADR 33
+ * (`adapter-core`)와 같은 이유로 하나로 뽑았다.
+ *
+ * **하위 클래스가 둘인 것은 스프링이 타입으로 주입하기 때문이다.** 같은
+ * 타입이면 어느 토큰이 어느 문에 걸렸는지 배선이 말해 주지 않는다.
+ *
+ * ## 설정이 비면 열지 않는다
+ *
+ * **"설정을 안 하면 열려 있다"가 최악의 기본값이다.** 배포에서 토큰을
+ * 빠뜨린 것과 일부러 안 쓰는 것을 구별할 방법이 없고, 전자가 압도적으로
+ * 흔하다. 그래서 빈 토큰은 전부 401이다.
+ *
+ * ## 상수 시간 비교
+ *
+ * `==`나 `startsWith`는 첫 다른 바이트에서 끊어 길이와 접두사를 흘린다.
+ * 토큰은 짧고 재시도가 싸므로 실제로 캘 수 있다.
+ */
+open class BearerToken(private val expected: String, private val role: String) {
 
     init {
         // **설정 실수를 기동에서 잡는다.** HTTP 헤더 값은 ASCII 밖을 싣지
@@ -38,7 +61,7 @@ class IngestToken(private val expected: String) {
         // 사실이 401로만 나타난다** — 관문이 옳게 막는 것과 구별되지 않아
         // 원인을 찾는 데 오래 걸린다. 실측으로 물렸다.
         require(expected.all { it.code in 0x21..0x7E }) {
-            "적재 토큰에 HTTP 헤더가 실을 수 없는 문자가 있다 " +
+            "$role 토큰에 HTTP 헤더가 실을 수 없는 문자가 있다 " +
                 "(ASCII 0x21~0x7E만 가능, 공백 불가)"
         }
     }
@@ -57,6 +80,20 @@ class IngestToken(private val expected: String) {
         const val BEARER = "Bearer "
     }
 }
+
+/**
+ * 적재 표면의 공유 토큰.
+ *
+ * ## 왜 진단과 다르게 다루는가
+ *
+ * §8.5의 승인 경계는 **조작**에 걸린다. 진단 여섯은 read-only라 그 경계
+ * 밖이지만(§15.38), 적재는 원장에 쓰고 그 원장이 §9.3의 축소 판정을
+ * 떠받친다 — **아무나 쓸 수 있으면 아무나 축소를 막거나 열 수 있다.**
+ *
+ * **이 토큰은 어댑터마다 배포되어 현장에 나가 있다.** 그래서 조작은 다른
+ * 토큰이다([OperatorToken]) — 합치면 기체 하나가 운영자 조작을 할 수 있다.
+ */
+class IngestToken(expected: String) : BearerToken(expected, "적재")
 
 /**
  * 적재 경로(`/ingest` 이하)와 `/requirements`를 지키는 관문.

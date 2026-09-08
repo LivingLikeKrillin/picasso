@@ -41,23 +41,7 @@ class SiteNameRegistration(private val db: Db, private val now: () -> Instant = 
      *
      * 활성 바인딩이 없으면 빈 집합이다 — 바인딩이 없으면 등록할 대상도 없다.
      */
-    fun required(robotId: String): Set<String> = db.transaction { c ->
-        c.prepareStatement(
-            """
-            SELECT DISTINCT p.key
-            FROM robot_binding b
-            JOIN profile_skill s ON s.profile_revision_id = b.profile_revision_id
-            JOIN skill_type_param p ON p.skill_type_id = s.skill_type_id
-            WHERE b.robot_id = ? AND b.unbound_at IS NULL AND p.site_reference
-            ORDER BY p.key
-            """.trimIndent(),
-        ).use { st ->
-            st.setString(1, robotId)
-            st.executeQuery().use { rs ->
-                buildSet { while (rs.next()) add(rs.getString(1)) }
-            }
-        }
-    }
+    fun required(robotId: String): Set<String> = db.transaction { c -> requiredIn(c, robotId) }
 
     /** 이 기체의 등록 상태. */
     fun statusOf(robotId: String): SiteNameStatus {
@@ -84,26 +68,81 @@ class SiteNameRegistration(private val db: Db, private val now: () -> Instant = 
      * **`registry`가 등록을 하는 것이 아니다.** 사람이 사이트 작업으로 하고
      * 여기에 그 사실만 적는다 — 이 클래스가 로봇에 무언가 밀면 §3.2가 깨진다.
      *
-     * **요구 집합이 비어 있으면 거절한다.** 등록할 것이 없는데 등록했다고
-     * 적으면 그 기록이 나중에 "이 기종은 이름을 안다"로 읽힌다.
-     *
-     * @return 기록했으면 true. 활성 바인딩이 없거나 요구 집합이 비면 false.
+     * **결과를 셋으로 나눈다.** 불리언이면 *"등록할 것이 없다"* 와 *"바인딩이
+     * 없다"* 가 같은 `false`가 되고, HTTP 표면이 그 둘을 다른 상태 코드로
+     * 답할 수 없다 — 운영자는 왜 안 됐는지 모른 채 재시도한다.
      */
-    fun record(robotId: String, actor: String): Boolean {
-        if (required(robotId).isEmpty()) return false
-
-        return db.transaction { c ->
-            c.prepareStatement(
-                "UPDATE robot_binding SET site_names_registered_at = ?, site_names_registered_by = ? " +
-                    "WHERE robot_id = ? AND unbound_at IS NULL",
+    fun record(robotId: String, actor: String): RecordOutcome = db.transaction { c ->
+        val keys = requiredIn(c, robotId)
+        if (keys.isEmpty()) {
+            // 바인딩이 없어서인지 등록할 것이 없어서인지 가른다.
+            val bound = c.prepareStatement(
+                "SELECT 1 FROM robot_binding WHERE robot_id = ? AND unbound_at IS NULL",
             ).use { st ->
-                st.setTimestamp(1, java.sql.Timestamp.from(now()))
-                st.setString(2, actor)
-                st.setString(3, robotId)
-                st.executeUpdate()
-            } > 0
+                st.setString(1, robotId)
+                st.executeQuery().use { rs -> rs.next() }
+            }
+            return@transaction if (bound) RecordOutcome.NothingToRegister else RecordOutcome.NoActiveBinding
         }
+
+        val updated = c.prepareStatement(
+            "UPDATE robot_binding SET site_names_registered_at = ?, site_names_registered_by = ? " +
+                "WHERE robot_id = ? AND unbound_at IS NULL",
+        ).use { st ->
+            st.setTimestamp(1, java.sql.Timestamp.from(now()))
+            st.setString(2, actor)
+            st.setString(3, robotId)
+            st.executeUpdate()
+        }
+        if (updated == 0) return@transaction RecordOutcome.NoActiveBinding
+
+        // **감사 단서를 남긴다.** 행위자는 요청 헤더에서 온 값이라 위조
+        // 가능하다(§15.3) — 부인방지가 아니라 조사 단서다.
+        c.prepareStatement(
+            "INSERT INTO audit_log (operation, actor, subject, after) VALUES (?, ?, ?, ?::jsonb)",
+        ).use { st ->
+            st.setString(1, "SITE_NAMES_REGISTERED")
+            st.setString(2, actor)
+            st.setString(3, robotId)
+            st.setString(4, """{"keys":[${keys.sorted().joinToString(",") { "\"$it\"" }}]}""")
+            st.executeUpdate()
+        }
+
+        RecordOutcome.Recorded(keys.sorted())
     }
+
+    /** 같은 트랜잭션 안에서 쓰는 유도. [required]가 이것을 감싼다. */
+    private fun requiredIn(c: java.sql.Connection, robotId: String): Set<String> = c.prepareStatement(
+        """
+        SELECT DISTINCT p.key
+        FROM robot_binding b
+        JOIN profile_skill s ON s.profile_revision_id = b.profile_revision_id
+        JOIN skill_type_param p ON p.skill_type_id = s.skill_type_id
+        WHERE b.robot_id = ? AND b.unbound_at IS NULL AND p.site_reference
+        ORDER BY p.key
+        """.trimIndent(),
+    ).use { st ->
+        st.setString(1, robotId)
+        st.executeQuery().use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }
+    }
+}
+
+/**
+ * 기록을 시도한 결과.
+ *
+ * **셋으로 나눈 것이 요점이다.** *"등록할 것이 없다"* 와 *"바인딩이 없다"* 는
+ * 운영자가 해야 할 일이 완전히 다르다 — 앞은 아무것도 안 해도 되고 뒤는
+ * 바인딩부터 해야 한다. 불리언으로 접으면 둘 다 실패로만 보인다.
+ */
+sealed interface RecordOutcome {
+    /** 기록했다. [keys]는 그때 요구되던 이름들이다. */
+    data class Recorded(val keys: List<String>) : RecordOutcome
+
+    /** 활성 바인딩은 있는데 시맨틱 파라미터를 쓰는 스킬이 없다. */
+    data object NothingToRegister : RecordOutcome
+
+    /** 활성 바인딩이 없다. */
+    data object NoActiveBinding : RecordOutcome
 }
 
 /**
