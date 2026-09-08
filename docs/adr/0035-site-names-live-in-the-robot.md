@@ -48,6 +48,8 @@ ADR 34는 후보 셋을 열어 두었다 — `registry`가 데이터로, 상위 
 
 그래서 위 결정 3이 필요하다 — §9.7 ④의 `UNTESTED`와 같은 판단이다: *"우리는 아직 안 했다가 화면에 보여야 정직하다."* 등록 여부를 모르는 상태로 바인딩하는 것은 허용하되 진단에 표시한다.
 
+> **구현됨 (2026-09-08, V10).** `robot_binding.site_names_registered_at`·`_by`와 진단 1번의 `siteNames`·`siteNameKeys`. **등록 대상은 유도한다** — 계약의 `is_site_reference`와 프로파일이 선언한 스킬을 곱한 것이며 기종마다 손으로 적는 목록이 없다. 상태가 셋인 것(`NOT_REQUIRED`/`UNREGISTERED`/`REGISTERED`)은 이름을 쓸 일이 없는 기종이 영원히 빨갛게 보이지 않게 하려는 것이다. 자세한 것은 §15.68.
+
 **셋. Digit이 이 결정의 가장 강한 증거다 (2026-09-08 확인).** 이 문단은 원래 *"성립하는지 아직 모른다"* 였는데, 같은 날 벤더 SDK 원문을 읽고 확인됐다. `ObjectSelector`가 `name`·`has_attributes`·`april_tag_id`·`descendant_of`·`map_name`을 받고 `add-object`·`add-landmarks`·`set-floorplan-map`이 그 모델을 채운다.
 
 **Spot보다 강하다.** 거기서는 이름이 문자열 하나였고 여기서는 선택자다 — *"사이트 이름은 로봇 안에 산다"* 를 벤더가 우리보다 멀리 밀고 간 셈이다. 그 결과로 Digit이 계약의 네 스킬 중 셋을 든다(`inspect`만 못 든다).

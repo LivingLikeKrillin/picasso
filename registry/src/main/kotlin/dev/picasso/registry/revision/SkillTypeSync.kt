@@ -55,11 +55,54 @@ class SkillTypeSync(private val db: Db) {
                     if (rows > 0 && wasInserted(c, def.name, def.major, contractSemver)) {
                         inserted += 1
                     }
+
+                    syncParams(c, def)
                 }
             }
 
             audit(c, actor, inserted)
             inserted
+        }
+
+    /**
+     * 파라미터를 함께 채운다 — **`skill_type_param`도 읽기 전용이다**(§8.1).
+     *
+     * `site_reference`가 여기 실리는 이유는 ADR 35다. `registry`는 사이트
+     * 이름을 갖지 않지만 **바인딩이 그것을 아는지**는 상태로 갖고, 무엇을
+     * 알아야 하는지를 이 표시와 프로파일이 선언한 스킬에서 **유도한다.**
+     * 기종마다 손으로 적는 목록이 없다는 것이 요점이다.
+     *
+     * **지워진 파라미터를 남기지 않는다.** 계약에서 키가 빠지면 여기서도
+     * 빠져야 한다 — 남으면 없어진 이름을 등록하라고 요구하게 되고, 그
+     * 요구는 영원히 충족되지 않아 바인딩이 계속 미등록으로 보인다.
+     */
+    private fun syncParams(c: java.sql.Connection, def: dev.picasso.gate.model.SkillTypeDef) {
+        val id = skillTypeId(c, def.name, def.major) ?: return
+
+        c.prepareStatement("DELETE FROM skill_type_param WHERE skill_type_id = ?").use {
+            it.setLong(1, id)
+            it.executeUpdate()
+        }
+
+        def.parameters.forEach { p ->
+            c.prepareStatement(
+                "INSERT INTO skill_type_param (skill_type_id, key, optional, since_minor, site_reference) " +
+                    "VALUES (?, ?, ?, ?, ?)",
+            ).use {
+                it.setLong(1, id)
+                it.setString(2, p.key)
+                it.setBoolean(3, p.isOptional)
+                it.setInt(4, p.sinceMinor)
+                it.setBoolean(5, p.isSiteReference)
+                it.executeUpdate()
+            }
+        }
+    }
+
+    private fun skillTypeId(c: java.sql.Connection, name: String, major: Int): Long? =
+        c.prepareStatement("SELECT skill_type_id FROM skill_type WHERE name = ? AND major = ?").use { s ->
+            s.setString(1, name); s.setInt(2, major)
+            s.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) else null }
         }
 
     private fun wasInserted(

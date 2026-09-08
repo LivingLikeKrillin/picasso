@@ -7,6 +7,7 @@ import dev.picasso.gate.checks.Check06Vocabulary
 import dev.picasso.gate.input.GateInput
 import dev.picasso.profile.ProfileDocument
 import dev.picasso.profile.ProfileKey
+import dev.picasso.registry.binding.SiteNameRegistration
 import dev.picasso.registry.store.Db
 
 /**
@@ -41,6 +42,19 @@ data class BindingRow(
      * 운영자는 축소를 시도할 때에야 안다.**
      */
     val liveness: String,
+
+    /**
+     * 이 바인딩이 **사이트의 이름들을 아는가**(ADR 35의 결정 3).
+     *
+     * `NOT_REQUIRED` / `UNREGISTERED` / `REGISTERED`. §9.7 ④의
+     * `conformance_status`, §15.47의 `liveness`와 같은 자리다 — **막지 않고
+     * 보이게 한다.** 등록 대상은 프로파일이 선언한 스킬의 시맨틱 파라미터에서
+     * 유도하므로 기종마다 손으로 적는 목록이 없다.
+     */
+    val siteNames: String,
+
+    /** 무엇을 알아야 하는가. 비어 있으면 [siteNames]가 `NOT_REQUIRED`다. */
+    val siteNameKeys: List<String>,
 )
 
 /**
@@ -139,6 +153,10 @@ class DiagnosticsService(
     }
 
     fun bindings(site: String? = null, includeHistory: Boolean = false): BindingsAnswer {
+        // **사이트 이름 상태는 SQL 이 아니라 유도로 채운다.** 질의에 섞으면
+        // 유도 규칙(선언한 스킬 × 계약의 시맨틱 표시)이 SQL 안으로 흩어지고,
+        // 그러면 규칙을 고칠 때 두 곳을 봐야 한다.
+        val siteNames = SiteNameRegistration(db)
         val rows = db.open().use { c ->
             c.prepareStatement(
                 """
@@ -180,6 +198,12 @@ class DiagnosticsService(
                                         rs.getTimestamp(11)?.toInstant(),
                                         rs.getString(12),
                                     ),
+                                    // 아래에서 유도로 채운다. 여기서 비워 두는
+                                    // 것이 아니라 채운 뒤 갈아 끼운다 —
+                                    // 빈 문자열이 화면에 새어 나가면 그것이
+                                    // "모른다"로 읽힌다.
+                                    siteNames = "",
+                                    siteNameKeys = emptyList(),
                                 ),
                             )
                         }
@@ -188,12 +212,22 @@ class DiagnosticsService(
             }
         }
 
+        // **유도는 행마다 한 번씩이다.** 기체 수만큼 질의가 늘지만 진단은
+        // 운영자가 보는 화면이고, 유도 규칙을 한 자리에 두는 값이 그보다 크다.
+        val enriched = rows.map { row ->
+            val keys = siteNames.required(row.robotId)
+            row.copy(
+                siteNames = siteNames.statusOf(row.robotId).name,
+                siteNameKeys = keys.sorted(),
+            )
+        }
+
         // **활성만 센다.** 이력을 함께 세면 "이 개정판을 쓰는 기체 수"가
         // 실제 대수를 넘고, 축소 판단이 그 숫자를 본다.
-        val perRevision = rows.filter { it.active }
+        val perRevision = enriched.filter { it.active }
             .groupingBy { it.profileRevisionId }.eachCount()
 
-        return BindingsAnswer(rows, perRevision)
+        return BindingsAnswer(enriched, perRevision)
     }
 
     // ── 진단 2: GET /diag/diff?from=&to=

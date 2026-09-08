@@ -59,6 +59,36 @@ class ContractIndexTest {
     }
 
     @Test
+    fun `사이트 이름인 파라미터를 계약이 표시한다`() {
+        // **ADR 35의 기계적 근거다.** `registry` 가 바인딩마다 무엇을
+        // 등록해야 하는지를 이 표시와 프로파일이 선언한 스킬에서 유도하며,
+        // 그래서 기종마다 손으로 적는 목록이 없다.
+        //
+        // **값 타입으로 유도할 수 없다.** 아래에서 `move_relative` 의 넷이
+        // 전부 아니라는 것과, 사이트 이름 넷이 `STRING` 이지만 `STRING` 이
+        // 곧 사이트 이름은 아니라는 것을 함께 못박는다.
+        val expected = mapOf(
+            "navigate_to" to setOf("location"),
+            "pick_place" to setOf("object_id", "destination"),
+            "inspect" to setOf("target"),
+            "move_relative" to emptySet(),
+        )
+
+        expected.forEach { (skill, names) ->
+            val def = assertNotNull(index.find(skill, major = 1), skill)
+            assertEquals(
+                names,
+                def.parameters.filter { it.isSiteReference }.map { it.key }.toSet(),
+                "$skill 의 사이트 이름",
+            )
+        }
+
+        // **표시가 하나도 없으면 위 단언이 `move_relative` 빼고 전부 빈 집합을
+        // 기대하는 것과 구별되지 않는다.** 바닥을 못박는다.
+        assertEquals(4, expected.values.sumOf { it.size })
+    }
+
+    @Test
     fun `pick_place의 major와 max_minor를 복구한다`() {
         val s = assertNotNull(index.find("pick_place", major = 1))
         assertEquals(1, s.major)

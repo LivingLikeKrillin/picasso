@@ -15,6 +15,21 @@ extend google.protobuf.FieldOptions {
   // 이 파라미터가 선택인가. 설계 §8.3의 skill_type_param.optional로 동기화된다.
   // since_minor > 0으로 유도할 수 없다 — 처음부터 선택인 파라미터가 있다.
   bool is_optional = 50005;
+
+  // 이 파라미터가 **사이트의 이름**인가. ADR 35 — *"사이트 이름은 로봇 안에
+  // 산다"*. 값이 좌표나 수치가 아니라 사이트가 저작하고 로봇에 등록해 둔
+  // 이름이며, 어댑터는 그것을 번역하지 않고 그대로 실어 보낸다(ADR 34).
+  //
+  // **계약이 이것을 소유해야 한다.** 어느 파라미터가 사이트 이름인지는
+  // 계약의 사실이고, registry가 그 목록을 두 번째로 적으면 스킬을 더하는
+  // 날 갈린다 — `TaskStates`를 계약에 둔 것과 같은 이유다.
+  //
+  // 값 타입으로 유도할 수 없다. `STRING`인 파라미터가 전부 사이트 이름은
+  // 아니고(예: 자유 서술), 사이트 이름이 언제나 `STRING`이라는 보장도 없다.
+  //
+  // 쓰는 곳: registry가 바인딩마다 **무엇을 등록해야 하는지**를 이 표시와
+  // 프로파일이 선언한 스킬에서 유도한다(§15.68).
+  bool is_site_reference = 50006;
 }
 
 // 이 메시지가 어느 스킬 타입의 major 몇인가.
@@ -76,10 +91,10 @@ message PickPlaceV1 {
   option (skill_type_max_minor) = 2;
 
   // 집을 대상의 식별자.
-  string object_id = 1 [(since_minor) = 0, (is_optional) = false];
+  string object_id = 1 [(since_minor) = 0, (is_optional) = false, (is_site_reference) = true];
 
   // 놓을 위치의 시맨틱 ID.
-  string destination = 2 [(since_minor) = 0, (is_optional) = false];
+  string destination = 2 [(since_minor) = 0, (is_optional) = false, (is_site_reference) = true];
 
   // 처음부터 선택이었던 파라미터. since_minor > 0으로 optional을 유도할 수 없다는
   // 것을 이 필드가 보여 준다.
@@ -100,7 +115,7 @@ message NavigateToV1 {
   option (skill_type_max_minor) = 0;
 
   // 목적지의 시맨틱 위치 ID. 좌표가 아니다 — 설계노트 §4.3.
-  string location = 1 [(since_minor) = 0, (is_optional) = false];
+  string location = 1 [(since_minor) = 0, (is_optional) = false, (is_site_reference) = true];
 }
 
 // 대상을 살펴 상태를 보고한다.
@@ -111,7 +126,7 @@ message InspectV1 {
   option (skill_type_max_minor) = 3;
 
   // 살펴볼 대상의 시맨틱 ID.
-  string target = 1 [(since_minor) = 0, (is_optional) = false];
+  string target = 1 [(since_minor) = 0, (is_optional) = false, (is_site_reference) = true];
 
   // minor 3에서 추가된 선택 파라미터.
   //

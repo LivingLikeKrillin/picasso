@@ -23,6 +23,21 @@ object Fixtures {
         Files.readString(repoRoot.resolve("profile/fixtures/minimal.json")).replace("\r\n", "\n")
     }
 
+    /**
+     * **시맨틱 파라미터를 하나도 안 쓰는 기종의 프로파일.**
+     *
+     * `move_relative` 하나만 선언하므로 ADR 35의 등록 대상이 비어 있고,
+     * 그래서 `SiteNameStatus.NOT_REQUIRED`가 되는 유일한 경우다.
+     *
+     * **픽스처를 새로 짓지 않고 실물 프로파일을 가리킨다.** 지어내면 "그런
+     * 기종이 있다"가 시험 안의 가정이 되는데, 실제로 G1이 그 기종이고 그
+     * 사실이 `profile/distance/unitree-g1.json`에 재어져 있다. 언젠가 G1이
+     * 시맨틱 스킬을 선언하면 이 시험이 깨지고, **그 깨짐이 옳다** — 전제가
+     * 바뀐 것이지 시험이 낡은 것이 아니다.
+     */
+    fun moveOnly(): String =
+        Files.readString(repoRoot.resolve("profile/profiles/unitree-g1.json")).replace("\r\n", "\n")
+
     fun good(revision: Int = 1, model: String? = null): String {
         var text = fixtureRaw.replace("\"revision\": 1,", "\"revision\": $revision,")
         check(text != fixtureRaw || revision == 1) { "revision 치환이 안 됐다" }

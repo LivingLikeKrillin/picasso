@@ -16,6 +16,14 @@ data class ParameterDef(
     val valueType: ValueType,
     val sinceMinor: Int,
     val isOptional: Boolean,
+
+    /**
+     * 이 파라미터가 **사이트의 이름**인가(ADR 35).
+     *
+     * `registry`가 바인딩마다 무엇을 등록해야 하는지를 이 표시와 프로파일이
+     * 선언한 스킬에서 유도한다 — 기종마다 손으로 적는 목록이 없다.
+     */
+    val isSiteReference: Boolean = false,
 )
 
 data class SkillTypeDef(
@@ -104,6 +112,7 @@ class ContractIndex private constructor(
         private const val OPT_SKILL_MAX_MINOR = "$PKG.skill_type_max_minor"
         private const val OPT_SINCE_MINOR = "$PKG.since_minor"
         private const val OPT_IS_OPTIONAL = "$PKG.is_optional"
+        private const val OPT_IS_SITE_REFERENCE = "$PKG.is_site_reference"
 
         private const val WKT_DESCRIPTOR = "google/protobuf/descriptor.proto"
 
@@ -240,11 +249,17 @@ class ContractIndex private constructor(
                 ?.let { opts.getField(it) as Boolean }
                 ?: false
 
+            val isSiteReference = ext[OPT_IS_SITE_REFERENCE]
+                ?.takeIf { opts.hasField(it) }
+                ?.let { opts.getField(it) as Boolean }
+                ?: false
+
             return ParameterDef(
                 key = f.name,
                 valueType = valueTypeOf(f),
                 sinceMinor = since,
                 isOptional = isOptional,
+                isSiteReference = isSiteReference,
             )
         }
 
