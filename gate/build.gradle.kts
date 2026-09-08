@@ -72,6 +72,12 @@ tasks.withType<Test>().configureEach {
         rootProject.file("harness/src/main"),
         // NegativeSuiteTest가 ci.yml과 디렉터리 목록을 대조한다.
         rootProject.file(".github/workflows/ci.yml"),
+        // **VendorSurveyTest·ProfileProvenanceTest가 읽는 것들.** 앞의 것은
+        // 이 줄이 없는 채로 먼저 들어왔다(431649f) — 조사 문서를 고쳐도
+        // :gate:test 가 UP-TO-DATE 로 넘어가 초록이 나는 상태였다. 이 파일의
+        // 주석이 같은 구멍에 두 번 물렸다고 적어 둔 바로 그것이며 세 번째다.
+        rootProject.file("profile/vendors"),
+        rootProject.file("profile/provenance"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 

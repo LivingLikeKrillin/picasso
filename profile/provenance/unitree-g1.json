@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "profile": "unitree-g1.json",
+  "survey": "unitree-g1.json",
+
+  "coverage": {
+    "model_identity": {
+      "origin": "ADAPTER",
+      "note": "G1은 자기가 누구인지 말하는 질의가 없다. `vendor`·`model` 은 어댑터가 설정으로 받아 채우며, 그래서 잘못 설정된 어댑터는 잘못된 기종으로 등록되고 아무것도 그것을 막지 못한다."
+    },
+    "supported_skills": {
+      "origin": "VENDOR_DOC",
+      "note": "`g1_loco_api.py` 의 `ROBOT_API_ID_LOCO_SET_VELOCITY = 7105` 와 `g1_loco_client.py` 의 `SetVelocity(vx, vy, omega, duration)` 에서 옮겼다. **선언 목록이 아니라 메서드 목록이다** — 로봇에게 무엇을 할 수 있냐고 묻는 경로가 없으므로 SDK가 가진 것을 우리가 세어 옮긴 것이고, 벤더가 메서드를 지우면 우리는 다음 조사 때까지 모른다."
+    },
+    "cancel_pause": {
+      "origin": "ADAPTER",
+      "note": "취소·일시정지 프리미티브가 없다(조사와 같다). `move_relative` 의 `cancel_support: YES` 는 **어댑터가 만든 것**이다 — `StopMove()`(=`SetVelocity(0,0,0)`)로 속도를 0으로 놓는 것이며 벤더가 선언한 취소 의미가 아니다. 팔 동작(`SetTaskId`)에는 같은 수단이 없어 그 스킬을 선언한다면 `NO` 여야 한다. `pause_support: NO` 는 만들 수단 자체가 없다."
+    },
+    "parameter_ranges": {
+      "origin": "ABSENT",
+      "note": "URDF가 주는 것은 **조인트** 한계이고 `move_relative` 의 파라미터는 **기저 속도**다. 벤더는 기저 속도의 상한을 어디에도 선언하지 않는다. 그래서 `min_value`·`max_value` 를 비웠다 — 지어낸 상한은 소비자에게 안전 여유처럼 읽히고, 그것이 틀리면 로봇이 아니라 우리가 거짓말한 것이 된다."
+    },
+    "protocol_limits": {
+      "origin": "ADAPTER",
+      "note": "문자열·배열 최대 길이를 선언하지 않는다. 어댑터가 자기 wire 의 주인이므로 정하는 것이 정당하며, 값은 어댑터의 것이지 로봇의 것이 아니다."
+    },
+    "failure_modes": {
+      "origin": "ABSENT",
+      "note": "G1은 결함 목록을 보고하지 않는다. 어댑터가 `LowState_.motor_state[].temperature`(`int16[2]`) 에서 과열을 판정할 수는 있으나, 프로파일의 `failure_modes` 는 `rate` 를 필수로 요구하고 **우리는 어떤 비율도 모른다.** 지어낸 비율은 `mimic` 의 추첨을 통해 시험 결과에 직접 들어가므로 비워 두는 쪽이 옳다."
+    },
+    "publish_interval": {
+      "origin": "ADAPTER",
+      "note": "G1은 상태 발행 주기를 선언하지 않는다. 계약의 `state` 발행은 어댑터가 하는 것이므로 주기도 어댑터가 정한다 — 로봇의 `rt/lowstate` 주기와는 다른 층의 값이다."
+    }
+  },
+
+  "notes": [
+    "`durations` 의 `move_relative: 1초` 는 SDK의 `SetVelocity(..., duration: float = 1.0)` 기본값에서 왔지만 **그 자리에 있어야 할 값이 아니다.** 이 스킬의 실제 소요시간은 호출자가 `duration` 파라미터로 준다. 프로파일의 `durations` 는 스킬당 고정값 하나만 담을 수 있어(진행률의 분모) 파라미터로 결정되는 소요시간을 표현하지 못한다. 어댑터는 파라미터를 쓰고, 이 값은 `mimic` 이 이 프로파일을 읽을 때만 쓰인다.",
+    "이 프로파일은 계약의 기존 스킬 셋(`navigate_to`·`pick_place`·`inspect`) 을 **하나도 선언하지 않는다.** 못 하는 것이 아니라 벤더가 그 자리에 해당하는 것을 주지 않는다 — `navigate_to` 는 지도를 요구하는데 SDK는 속도만 주고, 나머지 둘은 대상 시맨틱을 요구하는데 그 자리가 없다. §15.7이 경고한 것의 관측이다."
+  ]
+}

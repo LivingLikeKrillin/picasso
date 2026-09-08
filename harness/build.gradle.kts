@@ -55,6 +55,10 @@ tasks.withType<Test>().configureEach {
         // 것도 그것을 선언하지 않아 픽스처로 돈다. 없으면 픽스처를 고쳐도
         // :harness:test 가 UP-TO-DATE 로 넘어가 낡은 채 초록이다.
         rootProject.file("profile/fixtures"),
+        // **면제 목록이다.** 없으면 면제를 한 줄 더해 기종을 스위트에서
+        // 빼도 :harness:test 가 UP-TO-DATE 로 넘어가 초록으로 남는다 —
+        // 완료 기준 11을 무력화하는 가장 싼 방법이 그것이다.
+        rootProject.file("profile/common-set-exemptions.json"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

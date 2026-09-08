@@ -1,5 +1,6 @@
 package dev.picasso.harness
 
+import com.fasterxml.jackson.databind.ObjectMapper
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.mimic.engine.FailureDraw
 import dev.picasso.mimic.engine.Seeded
@@ -13,6 +14,7 @@ import kotlin.io.path.name
 import kotlin.streams.asSequence
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -46,10 +48,24 @@ import kotlin.test.assertTrue
  *    더 있다.
  *
  * 이 우리가 좁아 보이면 그것이 맞다 — A-1의 주장이 그만큼 좁다.
+ *
+ * ## 그 우리를 첫 실물이 못 넘었다
+ *
+ * `unitree-g1`이 위 여섯 중 1번부터 못 만족한다. `navigate_to`는 이름→자세
+ * 해석을 요구하는데 Unitree SDK가 주는 것은 `SetVelocity(vx, vy, omega,
+ * duration)`뿐이고 지도도 자세도 없다. 억지로 선언해 이 스위트를 초록으로
+ * 만드는 것이 정확히 §15.7이 경고한 것이므로 **면제하고 사실로 남긴다.**
+ *
+ * 면제는 `profile/common-set-exemptions.json`에 **열거한다.** 조건으로
+ * 유도하면 — 예컨대 "`navigate_to`를 선언한 기종만 본다" — `humanoid-a`에서
+ * 그 스킬을 지워도 스위트가 초록으로 남고 완료 기준 11이 조용히 공허해진다.
+ * 아래 [면제된 기종은 정말로 공통 집합을 못 만족한다]가 목록의 반대 방향을
+ * 막는다: 통과할 수 있는 기종을 면제에 넣어 숨기지 못한다.
  */
 class AllModelsTest {
 
     private val profiles = Path.of("..", "profile", "profiles").normalize()
+    private val exemptionFile = Path.of("..", "profile", "common-set-exemptions.json").normalize()
 
     private val requirements: RequirementSet = RequirementSet.parse(
         "common",
@@ -68,6 +84,23 @@ class AllModelsTest {
             .toList()
     }
 
+    /**
+     * 공통 요구 집합을 못 만족해 면제된 기종 → 사유.
+     *
+     * **유도하지 않고 읽는다.** 파일이 없거나 비면 면제가 0이고, 그러면
+     * 아래 시험들이 모든 기종에 그대로 걸린다 — 조용히 느슨해지는 방향이
+     * 아니다.
+     */
+    private fun exemptions(): Map<String, String> {
+        val node = ObjectMapper().readTree(Files.readString(exemptionFile))
+        return node.path("exempt").associate {
+            it.path("profile").asText() to it.path("reason").asText()
+        }
+    }
+
+    /** 공통 집합을 만족해야 하는 기종. 스위트의 실제 대상이다. */
+    private fun included(): List<Path> = models().filter { it.name !in exemptions() }
+
     @Test
     fun `훑기가 실제 기종을 전부 찾는다`() {
         // 훑기가 조용히 빈 목록이나 일부만 내면 아래 시험이 그만큼 적게 돌면서
@@ -84,8 +117,8 @@ class AllModelsTest {
     @Test
     fun `모든 기종이 공통 태스크를 완주한다`() {
         // **이름으로 집지 않는다.** 프로파일 한 장을 더하면 여기가 한 번 더 돈다.
-        val models = models()
-        assertTrue(models.size >= MINIMUM)
+        val models = included()
+        assertTrue(models.size >= MINIMUM, "면제를 빼고 나니 대상이 $MINIMUM 장 미만이다")
 
         models.forEach { path ->
             Harness(mapOf(ROBOT to path)).use { harness ->
@@ -102,7 +135,10 @@ class AllModelsTest {
     @Test
     fun `모든 기종이 공통 요구 집합을 협상에서 받아들인다`() {
         // 위 시험의 전제를 따로 못박는다 — 거절이면 완주 단언까지 못 간다.
-        models().forEach { path ->
+        val models = included()
+        assertTrue(models.size >= MINIMUM, "면제를 빼고 나니 대상이 $MINIMUM 장 미만이다")
+
+        models.forEach { path ->
             Harness(mapOf(ROBOT to path)).use { harness ->
                 val response = harness.client().negotiate(ROBOT, requirements)
                 assertTrue(
@@ -166,6 +202,45 @@ class AllModelsTest {
         )
     }
 
+    @Test
+    fun `면제된 기종은 정말로 공통 집합을 못 만족한다`() {
+        // **면제 목록의 반대 방향을 막는다.** 목록이 사유만 달고 통과하면,
+        // 통과할 수 있는 기종을 거기 넣어 스위트에서 빼는 데 쓸 수 있다 —
+        // 그러면 완료 기준 11이 목록 한 줄로 무력해진다.
+        //
+        // 면제가 하나도 없으면 이 시험이 0번 돈다. 그것은 정상이다(면제가
+        // 없는 상태가 원래 목표다). 공허해지는 것은 면제가 **있는데** 아무도
+        // 확인하지 않는 경우이고 그것을 여기가 막는다.
+        exemptions().forEach { (name, _) ->
+            val path = profiles.resolve(name)
+            Harness(mapOf(ROBOT to path)).use { harness ->
+                val response = harness.client().negotiate(ROBOT, requirements)
+                assertFalse(
+                    response.accepted,
+                    "$name 이 면제 목록에 있는데 공통 요구 집합을 통과한다 " +
+                        "— 면제할 이유가 없으므로 목록에서 빼라",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `면제가 실재하는 기종을 가리키고 사유를 단다`() {
+        // 사유 없는 면제는 다음 사람에게 "왜 빠져 있지"만 남긴다. 없는
+        // 파일을 가리키는 면제는 지워진 기종의 흔적이며, 그 상태로 두면
+        // 이름이 겹치는 새 기종이 조용히 면제를 물려받는다.
+        exemptions().forEach { (name, reason) ->
+            assertTrue(
+                Files.isRegularFile(profiles.resolve(name)),
+                "면제가 없는 프로파일을 가리킨다: $name",
+            )
+            assertTrue(
+                reason.trim().length >= MIN_REASON,
+                "$name 의 면제 사유가 없다시피 하다: '$reason'",
+            )
+        }
+    }
+
     private companion object {
         const val ROBOT = "r1"
 
@@ -190,5 +265,11 @@ class AllModelsTest {
          * 축소이고 §9.3의 두 조회를 요구한다).
          */
         const val MINIMUM = 2
+
+        /**
+         * 면제 사유의 최소 길이. 조사 문서·출처 문서에 건 것과 같은 규율이다
+         * — 판정만 남기면 나중에 그것이 판단인지 게으름인지 구분되지 않는다.
+         */
+        const val MIN_REASON = 30
     }
 }

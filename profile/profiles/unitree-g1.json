@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0.0",
+  "derived_from": {
+    "software_version": "unitree_sdk2_python master (2026-09-08)",
+    "observed_at": "2026-09-08",
+    "source": "SDK 소스에서 파생했다. 실물 기체도 그 펌웨어도 보지 못했다 — `unitree_sdk2_python/g1/loco/g1_loco_api.py`(서비스 이름 `sport`, API 7001~7111), `g1_loco_client.py`(메서드 목록), `idl/unitree_hg/msg/dds_/_LowState_.py`·`_MotorState_.py`(필드 목록). 그래서 이 값은 어느 펌웨어와도 일치하지 않으며, 진단 7번이 대조에서 불일치를 띄우는 것이 옳은 거동이다(§15.51)."
+  },
+  "vendor": "unitree-robotics",
+  "model": "unitree-g1",
+  "revision": 1,
+
+  "skills": [
+    {
+      "skill_type": "move_relative",
+      "major": 1,
+      "minor": 0,
+      "pause_support": "NO",
+      "cancel_support": "YES",
+      "parameters": [
+        { "key": "forward_speed", "value_type": "NUMBER", "optional": false, "unit": "m/s" },
+        { "key": "lateral_speed", "value_type": "NUMBER", "optional": false, "unit": "m/s" },
+        { "key": "yaw_rate", "value_type": "NUMBER", "optional": false, "unit": "rad/s" },
+        { "key": "duration", "value_type": "NUMBER", "optional": false, "unit": "s" }
+      ]
+    }
+  ],
+
+  "publish_interval": { "min_seconds": 1, "max_seconds": 5 },
+  "protocol_limits": { "max_string_length": 256, "max_array_length": 32 },
+  "exclusive_control_required": true,
+
+  "durations": [
+    { "skill_type": "move_relative", "seconds": 1 }
+  ],
+
+  "replay_buffer_size": 128
+}
