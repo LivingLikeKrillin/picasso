@@ -36,8 +36,19 @@ extend google.protobuf.MessageOptions {
 //   - 파라미터 키는 불변이다. 의미나 단위가 바뀌면 새 키를 만들고 옛 키를 폐기한다.
 //   - 선택 파라미터를 더하는 것은 minor 증가다. since_minor로 표시한다.
 //
-// 1단계는 어휘를 늘리는 일이 아니다(설계 §1.3의 A-5는 비목표). 아래 둘은
-// 게이트와 픽스처가 판정 대상으로 삼을 최소한이며, 그 이상은 2단계 이후에 는다.
+// 1단계는 어휘를 늘리는 일이 아니었다(설계 §1.3의 A-5는 비목표). 아래 셋은
+// 게이트와 픽스처가 판정 대상으로 삼을 최소한이었다.
+//
+// **넷째는 실물이 데려왔다.** Unitree G1의 어댑터를 설계하면서 벤더의 `sport`
+// 서비스와 위 셋을 대조했더니 **하나도 맞지 않았다** — `navigate_to`는 지도를
+// 요구하는데 SDK가 주는 것은 `SetVelocity(vx, vy, omega, duration)`이고,
+// `pick_place`와 `inspect`는 대상 시맨틱을 요구하는데 그 자리가 아예 없다.
+// §15.7이 *"`mimic`이 계약을 정의해버릴 위험"*이라 적어 둔 것의 관측이다.
+//
+// `move_relative`가 그 대조의 결과이며 **G1 전용이 아니다** — 속도와 지속시간은
+// Spot·Digit·AMR이 모두 갖는 이동 원시다. 벤더 중립을 지키면서 실물이 실제로
+// 답할 수 있는 첫 스킬이라서 이것을 골랐다. 기종 하나를 위해 어휘를 늘리는
+// 것이었다면 골라서는 안 됐다.
 //
 // proto 타입 → 설계 §4.3의 ValueType 매핑. ContractIndex가 이 표대로 옮긴다.
 //   bool   → VALUE_TYPE_BOOL
@@ -105,4 +116,35 @@ message InspectV1 {
 // 위 주석대로, 계약은 자리만 만들고 값 집합은 프로파일이 정한다.
 enum InspectMode {
   INSPECT_MODE_UNSPECIFIED = 0;
+}
+
+// 지시한 속도로 지시한 시간 동안 움직인다.
+// 성공 판정: 지시한 시간이 지나고 정지했을 때.
+//
+// **도달 위치를 보장하지 않는다.** `navigate_to`와 갈리는 지점이 그것이며,
+// 둘을 한 스킬로 접으면 안 되는 이유이기도 하다 — 이쪽은 지도가 없어도 되고
+// 저쪽은 지도가 있어야 한다. 소비자가 어느 쪽을 받았는지로 자기가 위치를
+// 믿어도 되는지가 갈린다.
+//
+// 속도의 상한은 계약이 정하지 않는다. 기종마다 다르므로 프로파일의
+// `min_value`·`max_value`가 정하고, **벤더가 그 값을 선언하지 않으면 프로파일도
+// 비운다**(§15.7의 파생 규율).
+message MoveRelativeV1 {
+  option (skill_type_name) = "move_relative";
+  option (skill_type_major) = 1;
+  option (skill_type_max_minor) = 0;
+
+  // 전진 속도. m/s. 음수는 후진이다.
+  double forward_speed = 1 [(since_minor) = 0, (is_optional) = false];
+
+  // 횡이동 속도. m/s. 횡이동을 못 하는 기종은 이 스킬을 선언하지 않거나
+  // 프로파일이 범위를 0으로 좁힌다.
+  double lateral_speed = 2 [(since_minor) = 0, (is_optional) = false];
+
+  // 선회 각속도. rad/s.
+  double yaw_rate = 3 [(since_minor) = 0, (is_optional) = false];
+
+  // 지속시간. 초. **필수다** — 기본값을 계약이 정하면 그 값이 기종마다
+  // 다른 안전 여유를 덮는다.
+  double duration = 4 [(since_minor) = 0, (is_optional) = false];
 }

@@ -27,7 +27,35 @@ class ContractIndexTest {
 
     @Test
     fun `카탈로그의 스킬 타입을 전부 찾는다`() {
-        assertEquals(setOf("pick_place", "navigate_to", "inspect"), index.skillTypes().toSet())
+        // **집합을 못박는 것이 이 단언의 일이다.** 스킬을 하나 더하면 여기가
+        // 빨개지고, 그 빨강이 "계약 어휘가 늘었다"를 사람 눈앞에 세운다.
+        // 어휘가 조용히 느는 것은 이 저장소가 막으려는 것 중 하나다.
+        assertEquals(
+            setOf("pick_place", "navigate_to", "inspect", "move_relative"),
+            index.skillTypes().toSet(),
+        )
+    }
+
+    @Test
+    fun `move_relative의 파라미터 넷이 전부 필수다`() {
+        // **넷째 스킬은 실물이 데려왔다**(skill_catalog.proto 상단). G1의
+        // `SetVelocity(vx, vy, omega, duration)`와 자리가 같아야 어댑터가
+        // 지어내지 않고 옮길 수 있다. 하나라도 선택으로 새면 어댑터가 그
+        // 값을 스스로 정하게 되고, 그것은 로봇이 아니라 우리가 정한 값이
+        // 로봇의 선언인 척하는 것이다.
+        val s = assertNotNull(index.find("move_relative", major = 1))
+        assertEquals(0, s.maxMinor)
+        assertTrue(s.maxMinorDeclared)
+
+        assertEquals(
+            listOf("forward_speed", "lateral_speed", "yaw_rate", "duration"),
+            s.parameters.map { it.key },
+        )
+        s.parameters.forEach {
+            assertEquals(ValueType.NUMBER, it.valueType, "${it.key} 의 값 타입")
+            assertFalse(it.isOptional, "${it.key} 이 선택으로 선언됐다")
+            assertEquals(0, it.sinceMinor)
+        }
     }
 
     @Test
