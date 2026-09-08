@@ -82,6 +82,7 @@ tasks.withType<Test>().configureEach {
         // 주석이 같은 구멍에 두 번 물렸다고 적어 둔 바로 그것이며 세 번째다.
         rootProject.file("profile/vendors"),
         rootProject.file("profile/provenance"),
+        rootProject.file("profile/distance"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 
