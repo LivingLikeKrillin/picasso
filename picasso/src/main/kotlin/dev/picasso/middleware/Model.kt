@@ -229,5 +229,10 @@ data class JobResponse(
     val autoResolvesInDoubt: Boolean = true,
     /** 완료 단위가 실어 온 결과 참조(있는 것만). 점검의 측정값·증거 자료 참조가 올 자리 — 지금은 비어 있다. */
     val results: Map<String, String> = emptyMap(),
+    /**
+     * 기체가 *새 태스크를 받을 수 없다*(`can_accept_new_task=false`)고 말하는 활성 결함의 정준 분류 — 그래서 다음 단위를
+     * 시작하지 않고 세워 두었다. 16장 *"자동 복구가 불가능해 운영자 판단이 필요하다는 사실"*. 비어 있으면 막힌 것이 없다.
+     */
+    val blockedBy: List<String> = emptyList(),
     var ack: UpstreamAck = UpstreamAck.SENT_UNACKED,
 )

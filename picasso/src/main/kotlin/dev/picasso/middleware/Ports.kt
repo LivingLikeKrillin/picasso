@@ -3,6 +3,7 @@ package dev.picasso.middleware
 import dev.picasso.client.PicassoClient
 import dev.picasso.client.TaskFollower
 import dev.picasso.contracts.v1.CancelTaskResponse
+import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
@@ -26,6 +27,12 @@ interface RobotPort {
     fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse
     fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse>
     fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse
+
+    /**
+     * 기체가 지금 안고 있는 활성 결함(계약 §4.6, `GetSnapshot.faults`). **`null` 은 못 물어봤다는 뜻**이지 결함이
+     * 없다는 뜻이 아니다 — 둘을 접으면 관측 실패가 정상으로 읽힌다(원장의 `Observed`/`NotObservable` 과 같은 이유).
+     */
+    fun faults(robotId: String): List<Fault>?
 }
 
 /** [PicassoClient] 위의 [RobotPort]. 핸들마다 팔로워 하나를 붙여 두고 그것을 읽는다. */
@@ -43,6 +50,12 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
         followers.getOrPut(handle.taskId) { client.follow(robotId, handle, from = 0) }.updates
 
     override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = client.cancel(robotId, handle)
+
+    override fun faults(robotId: String): List<Fault>? = try {
+        client.snapshot(robotId).faultsList
+    } catch (_: RuntimeException) {
+        null
+    }
 }
 
 // ── 하류(플릿) 포트 — D 수준 위임. 프로젝트용 계약이다.

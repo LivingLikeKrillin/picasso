@@ -4,7 +4,10 @@ import dev.picasso.contracts.v1.CancelTaskRequest
 import dev.picasso.contracts.v1.CancelTaskResponse
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.CapabilityRequirement
+import dev.picasso.contracts.v1.EventServiceGrpc
 import dev.picasso.contracts.v1.GetCapabilitiesRequest
+import dev.picasso.contracts.v1.GetSnapshotRequest
+import dev.picasso.contracts.v1.GetSnapshotResponse
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
@@ -58,6 +61,7 @@ class PicassoClient(
     private val skills = SkillServiceGrpc.newBlockingStub(channel)
     private val tasks = TaskServiceGrpc.newBlockingStub(channel)
     private val tasksAsync = TaskServiceGrpc.newStub(channel)
+    private val events = EventServiceGrpc.newBlockingStub(channel)
 
     /** 능력 캐시와 그때 본 세대. §5.5의 `capability_epoch`가 ETag다. */
     private val cache = mutableMapOf<String, Capability>()
@@ -126,6 +130,16 @@ class PicassoClient(
 
     /** 시험이 세대 변화를 흉내 내는 문. 실제로는 응답 헤더가 부른다. */
     internal fun observeEpoch(robotId: String, epoch: Long) = note(robotId, epoch)
+
+    // ── 상태 (§4.8)
+
+    /** `GetSnapshot` — 현재값. 활성 결함·태스크·스킬 스냅샷과 다음 이벤트 번호. 판단은 하지 않는다. */
+    fun snapshot(robotId: String): GetSnapshotResponse = events.withDeadlineAfter(deadlineSeconds, TimeUnit.SECONDS).getSnapshot(
+        GetSnapshotRequest.newBuilder()
+            .setHeader(header("picasso.v1.GetSnapshotRequest", robotId))
+            .setRobotId(robotId)
+            .build(),
+    ).also { note(robotId, it.header.capabilityEpoch) }
 
     // ── 태스크 (§4.4)
 

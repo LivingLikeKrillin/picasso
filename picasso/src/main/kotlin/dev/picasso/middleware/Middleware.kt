@@ -1,6 +1,7 @@
 package dev.picasso.middleware
 
 import dev.picasso.contracts.v1.FailureClass
+import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.RejectionCode
@@ -71,6 +72,14 @@ class Middleware(
         internal var notedDelay: String? = null
         internal var notedHold: String? = null
         internal var notedDoubt: String? = null
+        internal var notedBlock: String? = null
+
+        /** 지금 다음 단위를 막고 있는 기체 수준 결함. 비어 있으면 막힌 것이 없다. */
+        var blockedBy: List<Fault> = emptyList()
+            internal set
+
+        /** 운영자가 [release] 로 감수한 결함의 열쇠 — 같은 결함은 다시 막지 않는다. 새 결함은 막는다. 감사 기록이다. */
+        val acknowledgedFaults: MutableSet<String> = linkedSetOf()
 
         /** 지연 이벤트(15.1) — 옛 버전의 종착. 폐기하지 않는다. */
         val lateEvents: MutableList<LateEvent> = mutableListOf()
@@ -264,7 +273,52 @@ class Middleware(
             settleExecution(execution)
             return
         }
+
+        // **기체가 새 태스크를 못 받는다고 말하면 보내지 않는다.** 계약은 막지 않는다 — 결함은 인터록이 아니고
+        // "판단은 밖으로"(§4.6·§15.87)이며, 그 밖이 여기다. 자동으로 넘어가지 않는다: 사람이 [release] 로 감수하거나
+        // 결함이 사라져야 다음 단위가 나간다. 못 물어봤으면(null) 막지 않고 그 사실만 남긴다 — 관측 실패로 현장을
+        // 세우지는 않되, 없다고도 하지 않는다.
+        val blocking = blockingFaults(execution, next)
+        if (blocking.isNotEmpty()) {
+            execution.blockedBy = blocking
+            execution.physicalState = PhysicalState.OPERATOR_HOLD
+            val key = blocking.joinToString { faultKey(it) }
+            if (execution.notedBlock != key) {
+                execution.notedBlock = key
+                notify(execution)
+            }
+            return
+        }
+        execution.blockedBy = emptyList()
         startUnit(execution, next)
+    }
+
+    private fun blockingFaults(execution: Execution, next: ExecutionUnit): List<Fault> {
+        if (next.route != Route.ROBOT) return emptyList()
+        val faults = robots.faults(execution.robotId)
+        if (faults == null) {
+            next.annotate("robot faults not observable before start — proceeding without the gate")
+            return emptyList()
+        }
+        return faults.filter { !it.canAcceptNewTask && faultKey(it) !in execution.acknowledgedFaults }
+    }
+
+    /** 결함의 정체 — 모드 이름과 참조. 미믹의 `FaultRegistry` 가 같은 열쇠로 중복을 막는다. */
+    private fun faultKey(fault: Fault): String =
+        fault.errorType + fault.referencesList.joinToString(prefix = "[", postfix = "]") { "${it.key}=${it.value}" }
+
+    /**
+     * 운영자의 해제 — *지금 막고 있는* 결함을 감수하고 다음 단위로 간다. 결함을 지우지 않는다(그것은 기체 쪽 일이고
+     * 계약에 그 표면이 없다). 감수한 열쇠가 남으므로 같은 결함은 다시 막지 않고, **새 결함은 다시 막는다.**
+     */
+    fun release(executionId: String): Boolean {
+        val execution = executions[executionId] ?: return false
+        if (execution.blockedBy.isEmpty()) return false
+        execution.blockedBy.forEach { execution.acknowledgedFaults += faultKey(it) }
+        execution.blockedBy = emptyList()
+        execution.notedBlock = null
+        execution.physicalState = PhysicalState.RUNNING
+        return true
     }
 
     /** @return 단위가 이 펌프에서 종착(또는 검증 대기로 이행)해 active 에서 내려와도 되는가. */
@@ -720,10 +774,11 @@ class Middleware(
             operatorRequired = units.any {
                 it.state == UnitState.UNVERIFIED || it.state == UnitState.OPERATOR_HOLD ||
                     it.verification == Verification.MISMATCH || it.failureClass == SOURCE_MISMATCH
-            } || execution.lastCancel?.cleanup == "failed",
+            } || execution.lastCancel?.cleanup == "failed" || execution.blockedBy.isNotEmpty(),
             residualHold = units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold ?: HoldState.getDefaultInstance(),
             inDoubtUnits = units.filter { it.state == UnitState.IN_DOUBT }.map { it.unitId },
             results = units.filter { it.state == UnitState.DONE && !it.result.isNullOrBlank() }.associate { it.unitId to it.result!! },
+            blockedBy = execution.blockedBy.map { canonicalClassOf(it) },
             autoResolvesInDoubt = units.all {
                 (if (it.route == Route.ROBOT) robots.executionLookup else fleet.executionLookup) == ExecutionLookup.CLIENT_REFERENCE
             },
@@ -747,8 +802,11 @@ class Middleware(
 
     /** 계약의 정준 분류 이름(접두사 없이). 결함이 없거나 분류가 비어 있으면 [UNCLASSIFIED]. */
     private fun canonicalClass(update: WatchTaskResponse): String =
-        update.fault.failureClass
-            .takeIf { update.hasFault() && it != FailureClass.FAILURE_CLASS_UNSPECIFIED && it != FailureClass.UNRECOGNIZED }
+        if (update.hasFault()) canonicalClassOf(update.fault) else UNCLASSIFIED
+
+    private fun canonicalClassOf(fault: Fault): String =
+        fault.failureClass
+            .takeIf { it != FailureClass.FAILURE_CLASS_UNSPECIFIED && it != FailureClass.UNRECOGNIZED }
             ?.name?.removePrefix("FAILURE_CLASS_")
             ?: UNCLASSIFIED
 

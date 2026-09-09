@@ -44,9 +44,9 @@ class InspectAssetTest {
         },
     )
 
-    private class World : AutoCloseable {
+    private class World(port: (RobotPort) -> RobotPort = { it }) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to Path.of("..", "profile", "profiles", "quadruped-b.json").normalize()))
-        val mw = Middleware(ClientRobotPort(harness.client()), now = { harness.clock.now() })
+        val mw = Middleware(port(ClientRobotPort(harness.client())), now = { harness.clock.now() })
 
         fun tasks() = harness.oracle.dumpInternalState(DumpInternalStateRequest.newBuilder().setRobotId(ROBOT).build()).tasksList
         fun state(taskId: String) = tasks().firstOrNull { it.taskId == taskId }?.taskState
@@ -120,24 +120,53 @@ class InspectAssetTest {
     }
 
     @Test
-    fun `점검 중 위치를 잃으면 그 항목은 LOCALIZATION_LOST 이고 순회는 PARTIAL 로 끝난다`() {
+    fun `점검 중 위치를 잃으면 그 항목은 LOCALIZATION_LOST 이고, 기체가 새 태스크를 못 받는다 하니 다음 지점으로 가지 않는다`() {
         World().use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
             w.drive { w.state(taskOf("PUMP-01")) == "RUNNING" }
 
             assertEquals("NEEDS_INTERVENTION", w.forceFault("LOCALIZATION_LOST", taskOf("PUMP-01")))
-            w.drive { exec.settled() }
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
 
             val pump = exec.units.single { it.unitId == "PUMP-01" }
             assertEquals(UnitState.FAILED, pump.state)
             // 정준 분류가 프로파일 모드에서 유도된다 — 벤더 이름도 상태 이름도 상류에는 없다.
             assertEquals("LOCALIZATION_LOST", pump.failureClass)
+
+            // 계약은 다음 태스크를 막지 않는다(결함은 인터록이 아니다). 판단은 이 층의 것이고 — 기체가 can_accept_new_task=false
+            // 라 말하는 동안 다음 단위를 보내지 않는다. 자동으로 넘어가지도 않는다.
+            assertEquals(2, w.tasks().size, "기체가 못 받는다는데 다음 지점을 보냈다")
+            val held = w.mw.pending().last()
+            assertEquals(PhysicalState.OPERATOR_HOLD, held.physicalState)
+            assertEquals(listOf("LOCALIZATION_LOST"), held.blockedBy)
+            assertTrue(held.operatorRequired)
+            assertEquals(mapOf("PUMP-01" to "LOCALIZATION_LOST"), held.incompleteUnits.filterKeys { it == "PUMP-01" })
+
+            // 사람이 조치하고 감수한다 — 결함은 기체에 그대로 있어도(계약에 지우는 표면이 없다) 같은 결함은 다시 막지 않는다.
+            assertTrue(w.mw.release(exec.executionId))
+            w.drive { exec.settled() }
             assertEquals(PhysicalState.PARTIAL, exec.physicalState)
-            val response = w.mw.pending().single()
-            assertEquals(mapOf("PUMP-01" to "LOCALIZATION_LOST"), response.incompleteUnits)
-            assertTrue(response.operatorRequired.not(), "위치 상실은 정준 분류로 올라간다 — 운영자 필요 여부는 상류의 판단이다")
-            // 정직: 공통 엔진은 다음 단위로 간다 — 기체 수준 결함(can_accept_new_task=false)을 이 층이 아직 안 읽는다(§15.93).
             assertEquals(5, exec.completedUnits.size)
+            assertEquals(6, w.tasks().size)
+            assertEquals(setOf("LOCALIZATION_LOST[]"), exec.acknowledgedFaults, "감수한 결함이 기록에 남는다")
+            assertTrue(w.mw.pending().last().blockedBy.isEmpty())
+        }
+    }
+
+    @Test
+    fun `결함을 못 물어보면 막지 않는다 — 없다고도 하지 않고 그 사실을 남긴다`() {
+        World(port = { FaultBlindRobotPort(it) }).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { w.state(taskOf("PUMP-01")) == "RUNNING" }
+            w.forceFault("LOCALIZATION_LOST", taskOf("PUMP-01"))
+            w.drive { exec.settled() }
+
+            // 관측 실패로 현장을 세우지는 않는다 — 다음 단위가 나간다. 그러나 그 단위에 "못 물어봤다" 가 남는다.
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState)
+            assertEquals(6, w.tasks().size)
+            val next = exec.units.single { it.unitId == "PANEL-3${InspectAsset.TRAVEL_SUFFIX}" }
+            assertTrue(next.note!!.contains("not observable"), next.note)
+            assertTrue(w.mw.pending().last().blockedBy.isEmpty())
         }
     }
 
