@@ -1,4 +1,4 @@
-package dev.picasso.mimic.profile
+package dev.picasso.profile.projection
 
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.OptionalFieldDeclaration

@@ -154,6 +154,7 @@ picasso/
     profiles/         기종 프로파일 문서들 (*.json)
     fixtures/         게이트·시험 전용 픽스처 (프로파일·요구 집합)
   profile-model/      프로파일 문서의 읽기 전용 모델 — gate·mimic 공유 (ADR 29)
+  profile-projection/ 프로파일 → 계약 Capability 투영 — mimic·어댑터 호스트 공유 (§15.98)
   registry/           개정판·어댑터·원장·변경 계획·카탈로그    8·9절
   mimic/              프로파일 주도 에뮬레이터 + 제어 채널      C-2
   client/             계약 소비자 — 완료 기준 증명용
@@ -183,6 +184,8 @@ mimic         → profile-model, contracts
 client        → contracts, profile-model   ※ 아래 단서
 harness       → mimic, client, contracts
 adapter-core  → contracts
+profile-projection → contracts, profile-model
+mimic         → profile-model, profile-projection, contracts   ※ 투영은 2026-09-10 에 profile-projection 으로 나갔다
 adapter-<v>-<m> → contracts, adapter-core    ※ 아래 단서
 ```
 

@@ -6,6 +6,9 @@ plugins {
 
 include("contracts", "profile-model", "gate", "mimic", "client", "harness", "registry")
 
+// 프로파일 → Capability 투영. mimic 과 어댑터 호스트가 공유한다(ADR 29 의 이유 그대로).
+include("profile-projection")
+
 // 미들웨어의 가운데 — 정준 모델과 공통 실행 구조(ADR 38). 이름이 picasso 인 것은
 // 이것이 곧 이 저장소가 만드는 것이기 때문이다. 나머지는 그 부품이다.
 include("picasso")

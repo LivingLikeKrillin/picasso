@@ -26,6 +26,7 @@ dependencies {
     // `Publisher`가 인터페이스이고 구현 하나가 이것을 쓴다.
     implementation(libs.paho.mqttv5)
     implementation(project(":profile-model"))
+    implementation(project(":profile-projection"))
     implementation(project(":contracts"))
     implementation(libs.jackson.databind)
     implementation(libs.jsonschema.validator)

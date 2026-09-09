@@ -6,6 +6,7 @@ import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.adapter.core.classifiedFault
 import dev.picasso.contracts.v1.FailureClass
@@ -56,7 +57,7 @@ class SpotAdapter(
      * 유추는 프로파일이 바뀌어도 안 따라온다. 배포하는 쪽이 명시한다.
      */
     private val expectsArm: Boolean = false,
-) {
+) : RobotAdapter {
 
     private var task: RunningTask? = null
     private var issued = 0
@@ -75,7 +76,7 @@ class SpotAdapter(
     private var armAttached: Result<Boolean>? = null
 
     /** 지금 든 태스크의 상태. 아무것도 안 들었으면 `UNSPECIFIED`. */
-    val state: TaskState
+    override val state: TaskState
         get() = task?.state ?: TaskState.TASK_STATE_UNSPECIFIED
 
     /**
@@ -85,7 +86,7 @@ class SpotAdapter(
      * `navigate_to`는 미션 계층이다. 그래서 미션 서비스가 없는 기체에서도
      * `move_relative`는 돌고 `navigate_to`만 거절된다 — G1처럼 전부 죽지 않는다.
      */
-    fun accept(skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
+    override fun accept(skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         if (!identity.complete) {
             return Acceptance.Refused(Refusal.IDENTITY_UNSET, "기체 신원이 비어 있다")
         }
@@ -282,7 +283,7 @@ class SpotAdapter(
      * 이름 없는 웨이포인트는 뺀다. 지도 녹화가 이름을 요구하지 않으므로
      * 대부분의 그래프에 이것이 섞여 있고, 세면 개수가 부풀어 확인이 통과한다.
      */
-    fun knownSiteNames(): SiteNames {
+    override fun knownSiteNames(): SiteNames {
         val graph = link.graph ?: return SiteNames.Unsupported
 
         return graph.downloadGraph().fold(
@@ -344,7 +345,7 @@ class SpotAdapter(
      * 말해 주므로 그것을 옮기면 되고, 명령 계층은 `StopCommand`조차
      * *"provides no feedback"* 이라 **시계로 판정할 수밖에 없다** — G1과 같다.
      */
-    fun poll(now: Instant): TaskState {
+    override fun poll(now: Instant): TaskState {
         val current = task ?: return TaskState.TASK_STATE_UNSPECIFIED
         if (current.state.isTerminal) return current.state
 
@@ -390,14 +391,14 @@ class SpotAdapter(
     }
 
     /** 종착이 실패인 태스크의 계약 `Fault` — 정준 분류와 벤더 원문. 실패가 아니면 널. */
-    fun failure(): Fault? = task?.failure
+    override fun failure(): Fault? = task?.failure
 
     /**
      * 종착이 성공인 태스크의 **결과 참조** — 계약의 `partial_result` 로 갈 것. 취득이면 저장된 `DataIdentifier` 들이다:
      * `channel/data_name#id@action_name/group_name` 을 `;` 로 잇는다. 시나리오 ③의 *측정값 또는 증거 자료 참조*가
      * 실물에서 처음 생기는 자리다 — 미믹은 이 자리를 안 채운다(§15.76).
      */
-    fun result(): String? = task?.result
+    override fun result(): String? = task?.result
 
     /**
      * 취득의 상태를 옮긴다(`GetStatus`).
@@ -534,7 +535,7 @@ class SpotAdapter(
      * 스킬 단위로 든 것(§7.2)이 **한 로봇 안에서** 값을 하는 첫 사례이며,
      * 여기가 그 선언을 집행한다.
      */
-    fun pause(): Applied {
+    override fun pause(): Applied {
         val current = task ?: return Applied.Refused(Refusal.NO_TASK, "조작할 태스크가 없다")
         if (current.state.isTerminal) {
             return Applied.Refused(Refusal.TERMINAL_LATCHED, "${current.id} 은 이미 ${current.state} 다")
@@ -565,7 +566,7 @@ class SpotAdapter(
      * **다만 명령 쪽은 피드백이 없어 멈췄는지 알 수 없다.** 그래서 성공을
      * 적되 그것이 관측이 아니라 가정이라는 것을 여기 남긴다.
      */
-    fun cancel(): Applied {
+    override fun cancel(): Applied {
         val current = task ?: return Applied.Refused(Refusal.NO_TASK, "조작할 태스크가 없다")
         if (current.state.isTerminal) {
             return Applied.Refused(
@@ -634,7 +635,7 @@ class SpotAdapter(
      * 계약의 이름으로 말할 근거가 없다. 짐작해 넣지 않는다. 팔이 없으면
      * (`manipulator_state` 비어 있음) 쥘 것이 없으니 빈손이다.
      */
-    fun hold(): HoldObservation = link.gripperHoldingItem().fold(
+    override fun hold(): HoldObservation = link.gripperHoldingItem().fold(
         onSuccess = { holding ->
             when (holding) {
                 true -> HoldObservation.Holding(objectRef = null)
@@ -673,7 +674,7 @@ class SpotAdapter(
      * `LeaseUseResult.Status`가 값으로 오므로 추측이 필요 없다(§4.9).
      * G1에서는 이 결함을 낼 근거 자체가 없었다.
      */
-    fun faults(): FaultObservation {
+    override fun faults(): FaultObservation {
         val faults = mutableListOf<Fault>()
 
         hardwareFault()?.let { faults += it }

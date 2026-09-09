@@ -3,7 +3,7 @@ package dev.picasso.mimic.engine
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.SkillDeclaration
 import dev.picasso.contracts.v1.Support
-import dev.picasso.mimic.profile.CapabilityProjection
+import dev.picasso.profile.projection.CapabilityProjection
 import dev.picasso.profile.ProfileDocument
 import java.nio.file.Files
 import java.nio.file.Path

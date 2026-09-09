@@ -6,6 +6,7 @@ import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
@@ -45,13 +46,13 @@ class G1Adapter(
 
     /** 이보다 큰 관절 각속도는 "아직 움직인다"로 본다. 역시 우리 값이다. */
     private val stillnessThreshold: Double = DEFAULT_STILLNESS,
-) {
+) : RobotAdapter {
 
     private var task: RunningTask? = null
     private var issued = 0
 
     /** 지금 든 태스크의 상태. 아무것도 안 들었으면 `UNSPECIFIED`. */
-    val state: TaskState
+    override val state: TaskState
         get() = task?.state ?: TaskState.TASK_STATE_UNSPECIFIED
 
     /**
@@ -62,7 +63,7 @@ class G1Adapter(
      * 환경 사실보다 먼저 말해 줘야 하기 때문이다. 환경 탓을 먼저 하면 잘못
      * 배선된 어댑터가 시뮬레이터 탓으로 읽힌다.
      */
-    fun accept(skillType: String, parameters: Map<String, Double>, startedAt: Instant): Acceptance {
+    override fun accept(skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         if (!identity.complete) {
             return Acceptance.Refused(
                 Refusal.IDENTITY_UNSET,
@@ -95,11 +96,16 @@ class G1Adapter(
             return Acceptance.Refused(Refusal.ALREADY_RUNNING, "이미 도는 태스크가 있다: ${it.id}")
         }
 
-        val duration = parameters.getValue(P_DURATION)
+        // 계약의 파라미터는 타입이 선언돼 있고(NUMBER) 호스트가 그것을 검사하지만, 수가 아닌 값이 오면 지어내지 않고 거절한다.
+        val numbers = REQUIRED.associateWith { (parameters[it] as? Number)?.toDouble() }
+        numbers.filterValues { it == null }.keys.takeIf { it.isNotEmpty() }?.let {
+            return Acceptance.Refused(Refusal.PARAMETER_MISSING, "수가 아닌 파라미터: $it")
+        }
+        val duration = numbers.getValue(P_DURATION)!!
         val outcome = sport.setVelocity(
-            vx = parameters.getValue(P_FORWARD),
-            vy = parameters.getValue(P_LATERAL),
-            omega = parameters.getValue(P_YAW),
+            vx = numbers.getValue(P_FORWARD)!!,
+            vy = numbers.getValue(P_LATERAL)!!,
+            omega = numbers.getValue(P_YAW)!!,
             durationSeconds = duration,
         )
         outcome.exceptionOrNull()?.let {
@@ -159,7 +165,7 @@ class G1Adapter(
      * `X_UNITREE_FSM_UNEXPECTED`가 그 자리이며 **여기서 막지는 않는다** —
      * 판정을 바꾸면 어느 FSM 에서 속도가 듣는지를 우리가 안다고 주장하게 된다.
      */
-    fun poll(now: Instant): TaskState {
+    override fun poll(now: Instant): TaskState {
         val current = task ?: return TaskState.TASK_STATE_UNSPECIFIED
         if (current.state != TaskState.TASK_STATE_RUNNING) return current.state
 
@@ -183,7 +189,7 @@ class G1Adapter(
      * (`task.proto`) `move_relative`는 아무것도 들고 있지 않다. 무언가를 드는
      * 스킬이 이 어댑터에 들어오는 날 이 한 걸음이 실제 구간이 된다.
      */
-    fun cancel(): Applied {
+    override fun cancel(): Applied {
         val current = task ?: return Applied.Refused(Refusal.NO_TASK, "조작할 태스크가 없다")
 
         if (current.state.isTerminal) {
@@ -219,7 +225,7 @@ class G1Adapter(
      * 않는다. 프로파일의 `pause_support: NO`가 그 사실이며 여기가 그것을
      * 집행한다 — 선언과 거동이 갈리면 선언이 거짓말이 된다.
      */
-    fun pause(): Applied = Applied.Refused(
+    override fun pause(): Applied = Applied.Refused(
         Refusal.NO_VENDOR_PRIMITIVE,
         "G1에 일시정지 프리미티브가 없다. damp(${fsm.damp}) 는 자세를 무너뜨리므로 재개가 아니다",
     )
@@ -231,7 +237,7 @@ class G1Adapter(
      * 여덟에 없고, 없는 것이 맞다. `TERMINAL_STATE_VIOLATED`는 코어이며
      * 어댑터만 발행한다(프로파일에 쓰면 게이트 3번이 막는다).
      */
-    fun faults(): FaultObservation {
+    override fun faults(): FaultObservation {
         val low = link.lowLevel.latestState()
             ?: return FaultObservation.NotObservable(
                 "rt/lowstate 를 한 번도 못 받았다 — 결함 없음이 아니라 모른다",
@@ -323,7 +329,7 @@ class G1Adapter(
      * 만들지도 않지만, 그것이 빈손이라는 뜻은 아니다 — 사람이 쥐여 줬을 수 있다.
      * 그래서 취소는 `CANCELLED`로 적히고 이 답이 "모른다"를 함께 나른다.
      */
-    fun hold(): HoldObservation = HoldObservation.NotObservable(
+    override fun hold(): HoldObservation = HoldObservation.NotObservable(
         "벤더가 파지 판정을 주지 않는다 — HandState_.press_sensor_state 는 원시 압력값이다",
     )
 
@@ -344,7 +350,7 @@ class G1Adapter(
      * 링크를 보지 않는 유일한 답이다 — [G1Link.sport]가 떠 있든 아니든
      * 이름을 둘 자리는 생기지 않으므로, **환경이 아니라 기종의 사실이다.**
      */
-    fun knownSiteNames(): SiteNames = SiteNames.Unsupported
+    override fun knownSiteNames(): SiteNames = SiteNames.Unsupported
 
     private companion object {
 

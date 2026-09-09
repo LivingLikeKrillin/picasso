@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.Lifetime
 import dev.picasso.contracts.v1.Reference
-import dev.picasso.mimic.profile.CapabilityProjection
+import dev.picasso.profile.projection.CapabilityProjection
 import dev.picasso.profile.ProfileDocument
 import java.nio.file.Files
 import java.nio.file.Path

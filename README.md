@@ -23,6 +23,7 @@ profile/
   distance/               계약 어휘와 벤더 표면의 거리 측정 (survey_scope 필수)
   provenance/             프로파일의 각 값이 어느 원문에서 왔는가
 profile-model/            프로파일 문서의 읽기 전용 모델 — gate·mimic 공유
+profile-projection/       프로파일 → 계약 Capability 투영 — mimic·어댑터 호스트 공유
 gate/                     검증 규칙의 단일 구현. CI 와 registry 가 같은 코드를 호출
 mimic/                    프로파일 주도 에뮬레이터 — "어댑터 + 로봇" 한 쌍을 대신
 client/                   계약을 두드려 완료 기준을 증명하는 얇은 소비자

@@ -6,6 +6,7 @@ import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.adapter.core.classifiedFault
 import dev.picasso.contracts.v1.FailureClass
@@ -43,14 +44,14 @@ import java.time.Instant
 class DigitAdapter(
     private val link: DigitLink,
     private val identity: AdapterIdentity,
-) {
+) : RobotAdapter {
 
     private var task: RunningTask? = null
     private var issued = 0
     private var latchViolated = false
 
     /** 지금 든 태스크의 상태. 아무것도 안 들었으면 `UNSPECIFIED`. */
-    val state: TaskState
+    override val state: TaskState
         get() = task?.state ?: TaskState.TASK_STATE_UNSPECIFIED
 
     /**
@@ -59,7 +60,7 @@ class DigitAdapter(
      * 권한 검사가 스킬·파라미터 **뒤**에 온다 — 앞의 것들은 설정 실수이고
      * 권한은 환경 사실이다(G1·Spot 어댑터와 같은 순서).
      */
-    fun accept(skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
+    override fun accept(skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         if (!identity.complete) {
             return Acceptance.Refused(Refusal.IDENTITY_UNSET, "기체 신원이 비어 있다")
         }
@@ -127,7 +128,7 @@ class DigitAdapter(
      * 종착 뒤에도 계속 본다 — **`success`가 `running`으로 되돌아갈 수 있는
      * 유일한 기종**이고 그것이 §4.4의 래치 위반이다.
      */
-    fun poll(now: Instant): TaskState {
+    override fun poll(now: Instant): TaskState {
         val current = task ?: return TaskState.TASK_STATE_UNSPECIFIED
         current.lastPolledAt = now
 
@@ -159,7 +160,7 @@ class DigitAdapter(
     }
 
     /** 종착이 실패인 태스크의 계약 `Fault` — 정준 분류와 벤더 원문. 실패가 아니면 널. */
-    fun failure(): Fault? = task?.failure
+    override fun failure(): Fault? = task?.failure
 
     /**
      * `failure` 를 정준 분류로 옮긴다 — **액션 종류로 가를 수 있는 데까지만**(미들웨어 중앙 설계 §1.4).
@@ -217,7 +218,7 @@ class DigitAdapter(
      * 것처럼 보인다*고 적었으므로 응답만으로 멈췄다고 적을 수 없다 —
      * `pick_place`가 바로 그 컨테이너(`action-sequential`)다.
      */
-    fun cancel(): Applied {
+    override fun cancel(): Applied {
         val current = task ?: return Applied.Refused(Refusal.NO_TASK, "조작할 태스크가 없다")
         if (current.state.isTerminal) {
             return Applied.Refused(
@@ -270,7 +271,7 @@ class DigitAdapter(
      * 든 것의 이름은 지금 태스크가 `pick_place` 일 때만 안다 — 그 태스크의
      * `object_id` 다. 다른 태스크 중에 든 채면 무엇인지 말하지 않는다.
      */
-    fun hold(): HoldObservation {
+    override fun hold(): HoldObservation {
         val tree = link.executionTree().getOrElse {
             return HoldObservation.NotObservable("get-execution-state 실패: ${it.message}")
         }
@@ -296,7 +297,7 @@ class DigitAdapter(
      * 해당하는 것이 없다. 앞 판의 `cancel_support: NO`가 근거 없이 적혔던 것과
      * 대비된다 — 같은 `NO`라도 값어치가 다르다.
      */
-    fun pause(): Applied = Applied.Refused(
+    override fun pause(): Applied = Applied.Refused(
         Refusal.NO_VENDOR_PRIMITIVE,
         "SDK 메시지 전수에 일시정지가 없다. remove-action 은 지우기이지 재개가 아니다",
     )
@@ -307,7 +308,7 @@ class DigitAdapter(
      * **분류를 포기하는 것이 여기서는 정직한 처리다.** 벤더가 주는 실패 정보가
      * 사람이 읽는 자유 문자열 하나뿐이며 **이것은 SDK 전수를 읽고도 그대로였다.**
      */
-    fun faults(): FaultObservation {
+    override fun faults(): FaultObservation {
         val faults = mutableListOf<Fault>()
 
         if (link.privilege != PrivilegeState.HELD) {
@@ -372,7 +373,7 @@ class DigitAdapter(
      * 로봇이 스스로 인지해 만든 것들이 여기 대부분이다 — 세면 개수가 부풀어
      * 확인이 통과한다.
      */
-    fun knownSiteNames(): SiteNames {
+    override fun knownSiteNames(): SiteNames {
         val ids = link.objectIds().getOrElse {
             return SiteNames.Unavailable("객체 목록을 못 받았다: ${it.message}")
         }
