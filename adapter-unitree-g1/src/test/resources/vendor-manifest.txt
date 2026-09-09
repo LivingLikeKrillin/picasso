@@ -1,11 +1,34 @@
 # picasso vendor symbol manifest
 # vendor: unitree
-# release: unitree_sdk2 g1_loco_api.hpp + unitree_hg IDL
+# release: unitree_sdk2@9754cd153af3 (g1 서비스 4 + terminations) + unitree_sdk2_python@65691c8a8bc5 (unitree_hg IDL 11)
 # extractor: tools/vendor-manifest/unitree_symbols.py
 # 이 파일은 손으로 고치지 않는다. tools/vendor-manifest/README.md 참조.
+# source: g1_agv_api.hpp sha256=185d5063a282a4223331bb8471e89bb0e6dbc2259a43d54995be6cf5de150de0
+# source: g1_agv_error.hpp sha256=3ab35d248d3efe846413c3c223bade2595a2e098e62f33c25a27d7e28f16a520
+# source: g1_arm_action_api.hpp sha256=d7610da8a620a7ce640edfe7cdbba803763321c0cfe0b362b7f2016545205d26
+# source: g1_arm_action_error.hpp sha256=71da4d4932e15c168f82f123902d52ce0074a7f2dcf7ae43cb3e34ee2a5a40f8
+# source: g1_audio_api.hpp sha256=40d83bda7cf52a0bbffb8dc53f73c42efce9c91d23435eb4c55ab0fa14ffcae9
+# source: g1_audio_error.hpp sha256=edb776ce3e8928be0c8e238afef0e326cc98da1a98f87134e0bdf122bc10fc84
 # source: g1_loco_api.hpp sha256=db7f771fad9ab8d40b3f3bf3651df28ee9cde1a937ae21dcdae2f4165f37e0ce
+# source: g1_loco_error.hpp sha256=8b33d73f9857d1581c11b362d2705f031020a084db12b00cadfaac0255f46579
+# source: hg_bmscmd.py sha256=042984eba84a6082e7f08eabd078599aaf7645e51c4f1a95a1b78429d343c87b
+# source: hg_bmsstate.py sha256=115f2d1b43e993ccda8ad7572ec4e6213474fb4536a6a17a5413eb144ca52423
+# source: hg_handcmd.py sha256=c7b4fb827507d9d8028c3d6a1ae1706240c16cc8e05ec4e4f1193b58e6561f3f
+# source: hg_handstate.py sha256=f9cd6aeb3e10f8c2c59f65c4c1cd39ba2d515b7d4e6d8138c0ba80f52812455c
+# source: hg_imustate.py sha256=f41533674e588ed3c4613f95a553bb5ee99b6356084208d7d25ee90897871497
+# source: hg_lowcmd.py sha256=a23cec88e4bf782263ac2bea29d3908c9d21a44a14361ffc0bf3424cd36597ae
 # source: hg_lowstate.py sha256=97f746a693aff14a8a1c2ea2bbd7790722bb784554e0402173ed491ad9d957f2
+# source: hg_mainboardstate.py sha256=6c181057c869c9bef8daa53ab2e396c2f48226e9a8be4e7e6da2b88747d122fd
+# source: hg_motorcmd.py sha256=710a8321be4d6731093b6f8328c70ab11606372561ed01a7af9a187143f54c4d
 # source: hg_motorstate.py sha256=cffb489830dbfb7091454279d031224f0968c066fad0b1204e309426a0d82910
+# source: hg_presssensorstate.py sha256=1920e21f70df982a4b0cd1e3ae7ed7a80a8389541e52c43e815df2bf7147bddc
+# source: terminations.hpp sha256=ab5ea5b76d3cccef8c6a06ddd28cd163d76007bcc42305a5aed666f6884634f9
+AGV_API_VERSION
+AGV_SERVICE_NAME
+ARM_ACTION_API_VERSION
+ARM_ACTION_SERVICE_NAME
+AUDIO_API_VERSION
+AUDIO_SERVICE_NAME
 JsonizeDataVecFloat
 JsonizeDataVecFloat.data
 JsonizeVelocityCommand
@@ -13,6 +36,19 @@ JsonizeVelocityCommand.duration
 JsonizeVelocityCommand.velocity
 LOCO_API_VERSION
 LOCO_SERVICE_NAME
+ROBOT_API_ID_AGV_HEIGHT_ADJUST
+ROBOT_API_ID_AGV_MOVE
+ROBOT_API_ID_ARM_ACTION_EXECUTE_ACTION
+ROBOT_API_ID_ARM_ACTION_EXECUTE_CUSTOM_ACTION
+ROBOT_API_ID_ARM_ACTION_GET_ACTION_LIST
+ROBOT_API_ID_ARM_ACTION_STOP_CUSTOM_ACTION
+ROBOT_API_ID_AUDIO_ASR
+ROBOT_API_ID_AUDIO_GET_VOLUME
+ROBOT_API_ID_AUDIO_SET_RGB_LED
+ROBOT_API_ID_AUDIO_SET_VOLUME
+ROBOT_API_ID_AUDIO_START_PLAY
+ROBOT_API_ID_AUDIO_STOP_PLAY
+ROBOT_API_ID_AUDIO_TTS
 ROBOT_API_ID_LOCO_FSM_API
 ROBOT_API_ID_LOCO_GET_BALANCE_MODE
 ROBOT_API_ID_LOCO_GET_FSM_ID
@@ -29,6 +65,66 @@ ROBOT_API_ID_LOCO_SET_SWING_HEIGHT
 ROBOT_API_ID_LOCO_SET_VELOCITY
 ROBOT_API_ID_LOCO_SWITCH_TO_INTERNAL_CTRL
 ROBOT_API_ID_LOCO_SWITCH_TO_USER_CTRL
+UT_ROBOT_ARM_ACTION_ERR_ARMSDK
+UT_ROBOT_ARM_ACTION_ERR_HOLDING
+UT_ROBOT_ARM_ACTION_ERR_INVALID_ACTION_ID
+UT_ROBOT_ARM_ACTION_ERR_INVALID_FSM_ID
+UT_ROBOT_AUDIO_ERR_COMM
+UT_ROBOT_G1_AGV_ERR_EXEC_HEIGHT_ADJUST
+UT_ROBOT_G1_AGV_ERR_EXEC_MOVE
+UT_ROBOT_G1_AGV_ERR_NOT_INIT
+UT_ROBOT_LOCO_ERR_INVALID_FSM_ID
+UT_ROBOT_LOCO_ERR_INVALID_TASK_ID
+UT_ROBOT_LOCO_ERR_LOCOSTATE_NOT_AVAILABLE
+ang_vel_out_of_limit
+bad_orientation
+joint_vel_out_of_limit
+lost_connection
+low_battery
+motor_casing_overheat
+motor_winding_overheat
+unitree_hg.BmsCmd_
+unitree_hg.BmsCmd_.cmd
+unitree_hg.BmsCmd_.reserve
+unitree_hg.BmsState_
+unitree_hg.BmsState_.bmsstate
+unitree_hg.BmsState_.bmsvoltage
+unitree_hg.BmsState_.cell_vol
+unitree_hg.BmsState_.current
+unitree_hg.BmsState_.cycle
+unitree_hg.BmsState_.fn
+unitree_hg.BmsState_.manufacturer_date
+unitree_hg.BmsState_.reserve
+unitree_hg.BmsState_.soc
+unitree_hg.BmsState_.soh
+unitree_hg.BmsState_.temperature
+unitree_hg.BmsState_.version_high
+unitree_hg.BmsState_.version_low
+unitree_hg.HandCmd_
+unitree_hg.HandCmd_.motor_cmd
+unitree_hg.HandCmd_.reserve
+unitree_hg.HandState_
+unitree_hg.HandState_.device_v
+unitree_hg.HandState_.error
+unitree_hg.HandState_.imu_state
+unitree_hg.HandState_.motor_state
+unitree_hg.HandState_.power_a
+unitree_hg.HandState_.power_v
+unitree_hg.HandState_.press_sensor_state
+unitree_hg.HandState_.reserve
+unitree_hg.HandState_.system_v
+unitree_hg.IMUState_
+unitree_hg.IMUState_.accelerometer
+unitree_hg.IMUState_.gyroscope
+unitree_hg.IMUState_.quaternion
+unitree_hg.IMUState_.rpy
+unitree_hg.IMUState_.temperature
+unitree_hg.LowCmd_
+unitree_hg.LowCmd_.crc
+unitree_hg.LowCmd_.mode_machine
+unitree_hg.LowCmd_.mode_pr
+unitree_hg.LowCmd_.motor_cmd
+unitree_hg.LowCmd_.reserve
 unitree_hg.LowState_
 unitree_hg.LowState_.crc
 unitree_hg.LowState_.imu_state
@@ -39,6 +135,19 @@ unitree_hg.LowState_.reserve
 unitree_hg.LowState_.tick
 unitree_hg.LowState_.version
 unitree_hg.LowState_.wireless_remote
+unitree_hg.MainBoardState_
+unitree_hg.MainBoardState_.fan_state
+unitree_hg.MainBoardState_.state
+unitree_hg.MainBoardState_.temperature
+unitree_hg.MainBoardState_.value
+unitree_hg.MotorCmd_
+unitree_hg.MotorCmd_.dq
+unitree_hg.MotorCmd_.kd
+unitree_hg.MotorCmd_.kp
+unitree_hg.MotorCmd_.mode
+unitree_hg.MotorCmd_.q
+unitree_hg.MotorCmd_.reserve
+unitree_hg.MotorCmd_.tau
 unitree_hg.MotorState_
 unitree_hg.MotorState_.ddq
 unitree_hg.MotorState_.dq
@@ -50,3 +159,8 @@ unitree_hg.MotorState_.sensor
 unitree_hg.MotorState_.tau_est
 unitree_hg.MotorState_.temperature
 unitree_hg.MotorState_.vol
+unitree_hg.PressSensorState_
+unitree_hg.PressSensorState_.lost
+unitree_hg.PressSensorState_.pressure
+unitree_hg.PressSensorState_.reserve
+unitree_hg.PressSensorState_.temperature

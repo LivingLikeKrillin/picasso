@@ -120,7 +120,7 @@
 
 ## 대비표 — 이것이 이 문서의 요점이다
 
-| | Spot (8089심볼) | Digit (416심볼) | G1 (**44심볼**) |
+| | Spot (8089심볼) | Digit (416심볼) | G1 (141심볼) |
 |---|---|---|---|
 | **지도를 어떻게 얻나** | **로봇을 몰고 다녀 녹화** | **평면도 이미지를 올린다** | **없다** |
 | 정렬 | `Anchoring`(선택) | **랜드마크 자세를 실측해 등록** | 없다 |
@@ -130,7 +130,9 @@
 | 금지구역 | `NoGoRegionProperties` | `object-attribute.keep-out` | 없다 |
 | 문·계단 | `DoorCommand`·`Staircase` | 공개 표면에 없음 | 없다 |
 | 배타 제어 | `Lease`(epoch·`STATUS_OLDER`) | `request-privilege{**priority**}` | `SWITCH_TO_USER_CTRL` / `SWITCH_TO_INTERNAL_CTRL` |
-| **지형 전제를 어떻게 다루나** | `ground_mu_est`·`Staircase` | `step-clearance`·`steppable` | **`SET_SWING_HEIGHT`·`SET_STAND_HEIGHT`** — 값으로만 |
+| **지형 전제를 어떻게 다루나** | `ground_mu_est`·`Staircase` | `step-clearance`·`steppable` | `SET_SWING_HEIGHT` — 값으로만 |
+| 능력을 열거해 주나 | `ModelLabels.available_labels` | `object-attribute` | **`ARM_ACTION_GET_ACTION_LIST`** |
+| 종료 조건을 주나 | 산문(*"continuously resend"*) | — | **`terminations.hpp` 함수 7개** |
 
 ## A′. 지도 — 커미셔닝이 정반대다
 
@@ -195,48 +197,55 @@ mobility-parameters{ avoid-obstacles, obstacle-threshold,
 
 ---
 
-# G1 — 전제가 거의 없다, 그리고 그것이 좋은 소식이 아니다
+# G1 — 범위를 넓히니 전제가 셋에서 여덟로 늘었다
 
-> **범위 경고가 먼저다.** 이 측정은 공개된 `g1_loco_api.hpp`(API ID 상수 + `Jsonize*` 요청 키)와 `unitree_hg` IDL(`LowState_`·`MotorState_`)뿐이며 **44심볼**이다. Spot 8089·Digit 416과 나란히 놓으면 오해가 난다 — **좁게 봐서 없는 것과 실제로 없는 것을 구별할 수 없다.** `profile/distance/unitree-g1.json`의 `survey_scope`가 *"공개된 것만 봤고 구매 시 딸려오는 문서가 있는지는 확인 못 했다"*라고 적어 두었다.
-
-## 이 표면이 아는 것
-
-```
-이동      SET_VELOCITY{velocity, duration} · SET_SPEED_MODE
-자세      SET_STAND_HEIGHT · SET_SWING_HEIGHT · SET_BALANCE_MODE
-상태기계  SET_FSM_ID · GET_FSM_ID · GET_FSM_MODE · GET_PHASE
-팔        SET_ARM_TASK
-제어권    SWITCH_TO_USER_CTRL · SWITCH_TO_INTERNAL_CTRL
-저수준    LowState_{imu_state, motor_state, mode_machine, tick, wireless_remote}
-          MotorState_{q, dq, ddq, tau_est, temperature, vol, mode}
-```
-
-**지도·이름·객체·도크·인지·문·계단이 하나도 없다.** 저작된 환경이라는 개념 자체가 이 표면에 없다.
-
-## 그래서 전제가 셋뿐이다
-
-| 전제 | 근거 | 확인 |
-|---|---|---|
-| 바닥의 단차가 스윙 높이 안이다 | `SET_SWING_HEIGHT`·`SET_STAND_HEIGHT` — **지형을 값으로만 다룬다** | **보증** |
-| 사람이 제어권을 안 뺏고 있다 | `SWITCH_TO_USER_CTRL`/`SWITCH_TO_INTERNAL_CTRL` · `LowState_.wireless_remote` | 관측 가능 |
-| 연속 운전이 열을 넘지 않는다 | `MotorState_.temperature` (모터마다) | 관측 가능(사후) |
-
-`LowState_.wireless_remote`가 눈에 띈다 — **리모컨 상태가 로봇 상태에 섞여 올라온다.** 사람이 리모컨으로 개입할 수 있고 그것이 관측된다는 뜻이며, 배타 제어를 리스가 아니라 **모드 전환**으로 푸는 것과 짝이다.
-
-## 뒤집어 읽어야 한다
-
-**전제가 적은 것은 요구가 적다는 뜻이 아니라, 환경을 아는 일감을 아예 못 받는다는 뜻이다.**
-
-| | 전제의 수 | 받을 수 있는 일감 |
-|---|---|---|
-| Spot·Digit | 많다 | 자리·대상을 지시하는 일감 |
-| **G1** | **셋** | **`move_relative`만** |
-
-`vendor_layer`가 `NONE`인 것과 같은 사실이다 — 진행률을 내는 메서드도 진행 중 동작을 취소하는 메서드도 없어서 태스크 생명주기가 올라탈 곳이 없다.
-
-> **§15.79의 관찰이 여기서 극단으로 확인된다.** *"환경 참조를 가진 것들만 기종마다 갈린다"*고 적었는데, G1은 **환경 참조가 있는 스킬을 하나도 못 든다.** `move_relative`가 3/3인 것과 G1의 전제가 셋인 것은 같은 사실의 양면이다.
+> **앞 판이 44심볼로 재고 *"전제가 셋"*이라 적었다. 틀렸다.** 그것은 G1 서비스 넷 중 `loco` 하나만 본 것이었다. 넷 전부와 `terminations.hpp`, `unitree_hg` IDL 열하나를 넣어 **141심볼**로 다시 쟀다. **Spot을 54개 중 3개만 보고 쟀던 것(§15.75)과 같은 실수였고, 하루 만에 두 번째다.**
 >
-> 그러므로 이 문서가 고객에게 하는 말은 **"전제를 만들지 않으면 로봇은 저수준 명령만 받는다"**이다. 전제는 비용이 아니라 **능력의 입력**이다.
+> 추출기도 함께 고쳤다 — `const` 줄만 읽어서 `*_error.hpp` 넷과 `terminations.hpp`에서 **심볼을 하나도 못 냈다.** 에러는 `UT_DECL_ERR(NAME, 7303, "…")` 매크로였고 종료 조건은 `inline bool` 함수였다. **그 침묵을 벤더의 부재로 읽을 뻔했다.**
+
+## 서비스가 넷이다
+
+```
+loco        SET_VELOCITY · SET_FSM_ID · SET_STAND_HEIGHT · SET_SWING_HEIGHT · SET_BALANCE_MODE
+arm_action  EXECUTE_ACTION · EXECUTE_CUSTOM_ACTION · GET_ACTION_LIST · STOP_CUSTOM_ACTION
+agv         AGV_MOVE · AGV_HEIGHT_ADJUST
+audio       TTS · ASR · START_PLAY · SET_VOLUME · SET_RGB_LED
+```
+
+**`GET_ACTION_LIST`가 있다** — 이 기체가 할 수 있는 팔 동작을 **열거해 준다.** `ModelLabels.available_labels`(Spot)·`ListAvailableModels`와 같은 종류이며, ADR 36 층 ②의 어휘 출처가 세 기종 중 둘에 있다는 뜻이다.
+
+## 그리고 벤더가 종료 조건을 코드로 준다
+
+`common/terminations.hpp`가 *"이 함수가 참이면 모터를 수동 모드로 내리라"*고 적고 일곱을 준다.
+
+| 함수 | 전제 | 확인 |
+|---|---|---|
+| `bad_orientation` | 자세가 한계 안이다 | 관측 가능 |
+| `joint_vel_out_of_limit` · `ang_vel_out_of_limit` | 관절·각속도가 한계 안이다 | 관측 가능 |
+| **`lost_connection`** | **명령 경로가 끊기지 않는다** | 관측 가능 |
+| **`low_battery`** | **배터리가 남아 있다** | 관측 가능 |
+| **`motor_casing_overheat` · `motor_winding_overheat`** | **연속 운전이 열을 안 넘는다** — 케이싱과 권선을 **따로** 본다 | 관측 가능 |
+
+> **J(무선)와 열 전제의 가장 단단한 벤더 근거가 여기다.** Spot은 *"continuously resend"*라는 산문이었는데 G1은 **판정 함수**를 준다. 그리고 과열을 두 종류로 가른다 — 케이싱이 뜨거운 것과 권선이 뜨거운 것은 다른 사건이다.
+
+## 에러 어휘도 있다 — 있는 줄 몰랐을 뿐이다
+
+```
+UT_ROBOT_LOCO_ERR_{ LOCOSTATE_NOT_AVAILABLE, INVALID_FSM_ID, INVALID_TASK_ID }
+UT_ROBOT_ARM_ACTION_ERR_{ INVALID_ACTION_ID, HOLDING, ARMSDK, INVALID_FSM_ID }
+UT_ROBOT_G1_AGV_ERR_{ NOT_INIT, EXEC_MOVE, EXEC_HEIGHT_ADJUST }
+UT_ROBOT_AUDIO_ERR_COMM
+```
+
+## 손에 압력 센서가 있다
+
+`HandState_{motor_state, press_sensor_state, imu_state, error, power_v, power_a}` + `PressSensorState_{pressure, temperature, lost}`. **파지 확인의 물리적 근거가 이 기종에 있다**(계약의 `verify_grasp`). `PressSensorState_.lost`가 센서 자체의 결손을 따로 나른다.
+
+## 그래도 저작된 환경은 없다
+
+지도·이름·객체·도크·인지가 여전히 **이 표면에 없다.** 그러므로 앞 절의 결론은 살아남는다 — **G1은 환경을 아는 일감을 못 받는다.** 다만 그 이유가 *"기체가 단순해서"*가 아니라 **"그 표면이 저작된 환경을 안 다뤄서"**이고, 우리는 아직 `go2` 네임스페이스(`HeightMap_`·`VoxelMapCompressed_`·`LidarState_`·`UwbState_`)와 ROS2 nav 메시지(`OccupancyGrid_`·`Odometry_`)를 **안 봤다.** 그것들이 이 기종의 것인지 확인하지 못했다.
+
+> **이 절이 두 번 고쳐졌다는 사실 자체가 이 문서의 가장 큰 위험을 보여 준다.** 전제 목록은 **우리가 본 범위의 그림자**다. 범위를 넓힐 때마다 전제가 늘고, 늘어난 전제는 앞 판을 *"틀렸다"*로 만든다. **목록의 각 항목보다 각 기종의 `survey_scope`가 먼저 읽혀야 한다.**
 
 ---
 

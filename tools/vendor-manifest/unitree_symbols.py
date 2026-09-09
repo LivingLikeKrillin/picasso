@@ -33,6 +33,17 @@ from proto_symbols import write  # noqa: E402
 NL = chr(10)
 
 _CONST = re.compile(r"^\s*const\s+(?:int32_t|std::string)\s+(\w+)\s*=", re.M)
+
+# **에러 코드는 상수가 아니라 매크로다.** `UT_DECL_ERR(NAME, 7303, "Invalid task id.")`
+# 꼴이며, `const` 줄만 읽던 앞 판은 `*_error.hpp` 넷에서 심볼을 **하나도** 못
+# 냈다. 그 침묵이 "이 벤더는 에러 어휘가 없다" 로 읽혔을 것이고, 그것이 이
+# 파일 머리말에 이미 한 번 적힌 실수(§15.65)의 두 번째 사례다.
+_DECL_ERR = re.compile(r"UT_DECL_ERR\(\s*(\w+)\s*,")
+
+# **종료 조건은 함수다.** `terminations.hpp` 가 `inline bool bad_orientation(...)`
+# 꼴로 "언제 수동 모드로 내려야 하는가" 를 준다. 상수도 클래스도 아니라
+# 앞 판이 3374 바이트짜리 파일에서 0 개를 냈다.
+_INLINE_BOOL = re.compile(r"^\s*inline\s+bool\s+(\w+)\s*\(", re.M)
 _PY_CLASS = re.compile(r"^class\s+(\w+)")
 _JSONIZE = re.compile(r"^\s*class\s+(Jsonize\w+)")
 _JSON_KEY = re.compile(r'json\["(\w+)"\]')
@@ -40,7 +51,7 @@ _PY_FIELD = re.compile(r"^\s*(?:self\._)?(\w+)\s*:\s*[\w\[\]'\".,\- ]+\s*(?:=|$)
 
 
 def header_symbols(text):
-    u"""API ID 상수와 **요청 본문의 JSON 키**를 함께 낸다.
+    u"""API ID 상수 · **에러 코드 매크로** · **종료 조건 함수** · 요청 본문의 JSON 키.
 
     키는 `Jsonize*` 클래스 안의 `json["velocity"]` 로 나타나므로, 지금 어느
     클래스 안인지를 따라가며 `JsonizeVelocityCommand.velocity` 로 낸다.
@@ -48,6 +59,8 @@ def header_symbols(text):
     쪽이 조용히 검사를 약하게 하는 쪽이다.
     """
     found = set(_CONST.findall(text))
+    found |= set(_DECL_ERR.findall(text))
+    found |= set(_INLINE_BOOL.findall(text))
 
     current = None
     for line in text.splitlines():
