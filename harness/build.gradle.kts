@@ -4,6 +4,7 @@ import org.gradle.api.tasks.PathSensitivity
 // **계약 스위트의 주인이며** CI와 §8.4 ②가 같은 스위트를 실행한다(§12.1).
 dependencies {
     implementation(project(":mimic"))
+    implementation(project(":uplink"))
     api(project(":client"))
 
     // client가 api로 노출하지만 명시한다 — 여기서 계약 타입을 직접 쓴다.
@@ -25,6 +26,9 @@ dependencies {
     // 폴링·결과 보고). 시험에서만 in-process 로 세운다 — main 이 의존하면
     // 레지스트리 없이는 하네스가 안 도는 것이 되어 그 규칙이 깨진다.
     testImplementation(project(":registry"))
+    // 어댑터 호스트가 미믹과 같은 적재 경로를 타는지 — 기종 없는 어댑터로 본다(HostIngestEndToEndTest).
+    testImplementation(project(":adapter-host"))
+    testImplementation(project(":adapter-core"))
 
     // 완료 기준 20(카나리)은 **레지스트리에서 바인딩하고 `mimic`이 당겨
     // 헤더로 관측되는 것까지** 한 줄로 봐야 성립한다. 반으로 쪼개 한쪽은

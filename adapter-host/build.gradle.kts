@@ -5,11 +5,13 @@
 // 올라가지 못했고, 미들웨어는 미믹 위에서만 돌았다. 이 모듈이 `RobotAdapter` 하나를 계약 뒤에 세운다.
 //
 // 의존: contracts(계약) · adapter-core(RobotAdapter) · profile-model + profile-projection(프로파일을 Capability 로,
-// 파라미터 검사). 어댑터 모듈은 모른다 — 기종은 `RobotAdapter` 구현 뒤에 있고, 조립은 배치 쪽(시험·런처)이 한다.
+// 파라미터 검사) · uplink(발행·적재). 어댑터 모듈은 모른다 — 기종은 `RobotAdapter` 구현 뒤에 있고, 조립은 배치 쪽(시험·런처)이 한다.
 // 게이트 7번의 대상이다.
 dependencies {
     api(project(":contracts"))
     api(project(":adapter-core"))
+    // 발행(§3.5)과 레지스트리 적재(§3.2) — 미믹과 같은 결선을 같은 코드로. `HostedRobot` 이 `Publisher` 를 생성자에 드러낸다.
+    api(project(":uplink"))
     implementation(project(":profile-model"))
     implementation(project(":profile-projection"))
 

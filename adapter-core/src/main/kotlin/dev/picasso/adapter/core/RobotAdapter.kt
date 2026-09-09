@@ -54,4 +54,10 @@ interface RobotAdapter {
 
     /** ADR 35 의 확인 질의. */
     fun knownSiteNames(): SiteNames
+
+    /**
+     * 기체가 보고하는 로봇 소프트웨어 식별자 — 생존 보고에 실려 레지스트리가 프로파일의 `derived_from` 과 대조한다(§15.55).
+     * **`null` 은 못 읽는다이지 빈 문자열이 아니다.** 셋 중 아직 아무도 안 읽는다(Spot 은 `GetRobotId` 가 있으나 링크에 없다).
+     */
+    fun robotSoftware(): String? = null
 }

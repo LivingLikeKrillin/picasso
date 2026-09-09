@@ -9,6 +9,9 @@ import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.adapter.core.classifiedFault
 import dev.picasso.contracts.v1.CancelTaskRequest
+import dev.picasso.contracts.v1.ConnectionMessage
+import dev.picasso.contracts.v1.ConnectionState
+import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.EventServiceGrpc
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
@@ -23,6 +26,7 @@ import dev.picasso.contracts.v1.ReplayEventsRequest
 import dev.picasso.contracts.v1.SkillServiceGrpc
 import dev.picasso.contracts.v1.StartTaskRequest
 import dev.picasso.contracts.v1.StartTaskResponse
+import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskServiceGrpc
 import dev.picasso.contracts.v1.TaskState
@@ -30,6 +34,10 @@ import dev.picasso.contracts.v1.WatchTaskRequest
 import dev.picasso.contracts.v1.WatchTaskResponse
 import dev.picasso.contracts.wire.RequestHeaders
 import dev.picasso.profile.ProfileDocument
+import dev.picasso.uplink.Publication
+import dev.picasso.uplink.Publisher
+import dev.picasso.uplink.RecordingPublisher
+import dev.picasso.uplink.Topics
 import io.grpc.ManagedChannel
 import io.grpc.Status
 import io.grpc.StatusRuntimeException
@@ -41,11 +49,13 @@ import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
  * 계약 뒤에 선 어댑터 — 소비자가 보는 것은 미믹과 같은 모양이어야 한다. 가짜 어댑터로 계약 면을 하나씩 본다:
- * 접수와 로그, `WatchTask` 의 되짚기와 밀기, 조작 넷의 거절 어휘, 스냅샷과 재생, 축출.
+ * 접수와 로그, `WatchTask` 의 되짚기와 밀기, 조작 넷의 거절 어휘, 스냅샷과 재생, 축출, 그리고 발행 셋(§4.7).
  */
 class AdapterHostTest {
 
@@ -80,10 +90,21 @@ class AdapterHostTest {
         override fun knownSiteNames(): SiteNames = siteNames
     }
 
+    /** 브로커가 막힌 것을 흉내낸다 — 막힌 동안 받은 것은 던지고 기록하지 않는다. */
+    private class FlakyPublisher(private val delegate: RecordingPublisher) : Publisher {
+        var broken = false
+        override fun publish(publication: Publication) {
+            if (broken) throw IllegalStateException("브로커 없음")
+            delegate.publish(publication)
+        }
+    }
+
     private class World(profileJson: String = Files.readString(PROFILE)) : AutoCloseable {
         var now: Instant = Instant.parse("2026-09-10T00:00:00Z")
         val adapter = ScriptedAdapter()
-        val robot = HostedRobot(ROBOT, ProfileDocument.parse("test", profileJson).getOrThrow(), adapter) { now }
+        val published = RecordingPublisher()
+        val flaky = FlakyPublisher(published)
+        val robot = HostedRobot(ROBOT, ProfileDocument.parse("test", profileJson).getOrThrow(), adapter, publisher = flaky, site = "line-a") { now }
         private val name = InProcessServerBuilder.generateName()
         val host = AdapterHost(robot, InProcessServerBuilder.forName(name).directExecutor()).start()
         val channel: ManagedChannel = InProcessChannelBuilder.forName(name).directExecutor().build()
@@ -103,6 +124,14 @@ class AdapterHostTest {
 
         fun watch(handle: TaskHandle, from: Long = 0): List<WatchTaskResponse> =
             tasks.watchTask(WatchTaskRequest.newBuilder().setHeader(header("picasso.v1.WatchTaskRequest")).setHandle(handle).setFromUpdateIndex(from).build()).asSequence().toList()
+
+        /** 아무 RPC 하나 — 펌프를 지나게 하려고 부른다. */
+        fun snapshot() = events.getSnapshot(GetSnapshotRequest.newBuilder().setHeader(header("picasso.v1.GetSnapshotRequest")).setRobotId(ROBOT).build())
+
+        fun topic(stream: Topics.Stream) = Topics.robot(dev.picasso.contracts.wire.ContractIdentity.major, "line-a", ROBOT, stream)
+        fun connections() = published.topic(topic(Topics.Stream.connection)).map { it.message as ConnectionMessage }
+        fun states() = published.topic(topic(Topics.Stream.state)).map { it.message as StateMessage }
+        fun eventsOut() = published.topic(topic(Topics.Stream.event)).map { it.message as Event }
 
         override fun close() { channel.shutdownNow(); host.shutdown() }
 
@@ -230,11 +259,14 @@ class AdapterHostTest {
         World(small).use { w ->
             val handle = w.start().handle // ACCEPTED, RUNNING → 둘
             w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
-            w.watch(handle) // SUCCEEDED → 셋째. 버퍼 2 라 0 번이 버려진다
-            val evicted = w.events.replayEvents(ReplayEventsRequest.newBuilder().setHeader(w.header("picasso.v1.ReplayEventsRequest")).setRobotId(ROBOT).setFromSequence(0).build()).asSequence().toList()
+            w.watch(handle) // SUCCEEDED → 셋째. 버퍼 2 라 첫 이벤트가 버려진다
+            // **번호를 가정하지 않는다** — `sequence` 축은 연결·상태 발행과 공유라(§5.5) 이벤트가 0 번이 아니다. 버린 번호는 호스트가 안다.
+            val dropped = w.robot.evictedUpTo ?: error("아무것도 안 버렸다")
+            val evicted = w.events.replayEvents(ReplayEventsRequest.newBuilder().setHeader(w.header("picasso.v1.ReplayEventsRequest")).setRobotId(ROBOT).setFromSequence(dropped).build()).asSequence().toList()
             assertEquals(RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED, evicted.single().rejection.code)
-            val fine = w.events.replayEvents(ReplayEventsRequest.newBuilder().setHeader(w.header("picasso.v1.ReplayEventsRequest")).setRobotId(ROBOT).setFromSequence(1).build()).asSequence().toList()
+            val fine = w.events.replayEvents(ReplayEventsRequest.newBuilder().setHeader(w.header("picasso.v1.ReplayEventsRequest")).setRobotId(ROBOT).setFromSequence(dropped + 1).build()).asSequence().toList()
             assertEquals(2, fine.size)
+            assertEquals(listOf(TaskState.TASK_STATE_RUNNING, TaskState.TASK_STATE_SUCCEEDED), fine.map { it.event.taskTransition.to })
         }
     }
 
@@ -252,6 +284,103 @@ class AdapterHostTest {
             w.adapter.siteNames = SiteNames.Unavailable("graph 못 받음")
             assertEquals(Status.Code.UNAVAILABLE, assertFailsWith<StatusRuntimeException> { w.skills.getKnownSiteNames(req) }.status.code)
         }
+    }
+
+    // ── 발행 (§4.7) — 미믹과 같은 토픽·같은 축
+
+    @Test
+    fun `기동하면 ONLINE 이 retain 으로 나가고, 세 스트림이 sequence 축 하나를 쓴다`() {
+        World().use { w ->
+            // 기동 발행 — 포트가 열린 뒤 하나, retain.
+            val online = w.published.topic(w.topic(Topics.Stream.connection)).single()
+            assertTrue(online.retained, "connection 은 retain 이어야 새 구독자가 지금 상태를 안다")
+            assertEquals(ConnectionState.CONNECTION_STATE_ONLINE, (online.message as ConnectionMessage).state)
+            assertEquals(0L, online.sequence)
+
+            val handle = w.start().handle
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            w.watch(handle)
+
+            // 이벤트 스트림 = 재생 버퍼. 같은 객체가 같은 순서로 나갔다.
+            assertEquals(w.robot.events, w.eventsOut(), "발행된 이벤트가 재생 버퍼와 다르다")
+            assertEquals(listOf(TaskState.TASK_STATE_ACCEPTED, TaskState.TASK_STATE_RUNNING, TaskState.TASK_STATE_SUCCEEDED), w.eventsOut().map { it.taskTransition.to })
+
+            // 축 하나 — 세 토픽을 합쳐 번호가 빈틈 없이 오르고, 헤더의 번호와 Publication 의 번호가 같다.
+            val all = w.published.publications
+            assertEquals((0L until all.size).toList(), all.map { it.sequence }, "sequence 에 빈틈이나 중복이 있다")
+            all.forEach { p ->
+                val header = when (val m = p.message) { is Event -> m.header; is StateMessage -> m.header; is ConnectionMessage -> m.header; else -> error(m) }
+                assertEquals(p.sequence, header.sequence)
+                assertEquals(ROBOT, header.robotId)
+                assertEquals(w.robot.sessionId, header.sessionId)
+            }
+            assertEquals(setOf(w.topic(Topics.Stream.connection), w.topic(Topics.Stream.state), w.topic(Topics.Stream.event)), all.map { it.topic }.toSet())
+        }
+    }
+
+    @Test
+    fun `상태는 프로파일의 최대 발행 간격마다 나가고 현재값을 싣는다`() {
+        World().use { w ->
+            val handle = w.start().handle
+            val first = w.states()
+            assertEquals(1, first.size, "첫 펌프가 상태를 한 번 낸다")
+            // 첫 펌프는 접수 RPC 의 **진입**에서 돌았다(모든 RPC 가 펌프를 먼저 지난다) — 그때는 아직 태스크가 없다.
+            // 전이는 이벤트가 나른다; 상태는 현재값이라 다음 간격에 잡힌다(§3.5).
+            assertEquals(emptyList(), first.single().tasksList)
+
+            // 간격(30초) 안 — 펌프가 지나도 안 나간다.
+            w.now = w.now.plusSeconds(10); w.snapshot()
+            assertEquals(1, w.states().size, "간격 안에 상태가 또 나갔다")
+
+            // 간격을 넘기면 현재값 — 그 사이 종착했으면 종착으로.
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            w.watch(handle)
+            w.now = w.now.plusSeconds(25); w.snapshot()
+            assertEquals(2, w.states().size, "간격을 넘겼는데 상태가 안 나갔다")
+            assertEquals(TaskState.TASK_STATE_SUCCEEDED, w.states().last().tasksList.single().state)
+            assertTrue(w.states().last().header.sequence > first.single().header.sequence)
+        }
+    }
+
+    @Test
+    fun `발행이 막히면 이벤트는 재생 버퍼에 남고 다음 발행 때 순서대로 밀린다`() {
+        World().use { w ->
+            w.flaky.broken = true
+            val handle = w.start().handle // ACCEPTED·RUNNING 이 못 나간다. 상태 발행도 막히지만 그것은 버린다.
+            assertEquals(emptyList(), w.eventsOut())
+            assertEquals(2, w.robot.events.size, "발행이 막혀도 재생 버퍼에는 남아야 한다")
+            val stuck = w.robot.unsentFrom ?: error("못 보낸 경계가 안 적혔다")
+            assertEquals(w.robot.events.first().header.sequence, stuck)
+
+            w.flaky.broken = false
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            w.watch(handle) // SUCCEEDED 가 적히며 밀린 것부터 순서대로 나간다
+            assertEquals(listOf(TaskState.TASK_STATE_ACCEPTED, TaskState.TASK_STATE_RUNNING, TaskState.TASK_STATE_SUCCEEDED), w.eventsOut().map { it.taskTransition.to })
+            assertEquals(w.eventsOut().map { it.header.sequence }, w.eventsOut().map { it.header.sequence }.sorted())
+            assertNull(w.robot.unsentFrom)
+        }
+    }
+
+    @Test
+    fun `닫으면 OFFLINE 을 retain 으로 남긴다`() {
+        val w = World()
+        w.close()
+        val last = w.published.topic(w.topic(Topics.Stream.connection)).last()
+        assertEquals(ConnectionState.CONNECTION_STATE_OFFLINE, (last.message as ConnectionMessage).state)
+        assertTrue(last.retained)
+        assertFalse(w.robot.publishStateIfDue(), "OFFLINE 뒤에는 상태가 안 나간다 — 그 침묵이 §4.7 이다")
+    }
+
+    @Test
+    fun `생존 보고의 사이트 이름 요약은 어댑터의 세 답을 접지 않는다`() {
+        val adapter = ScriptedAdapter()
+        adapter.siteNames = SiteNames.Known(listOf("dock-3", "bay-7"))
+        assertEquals(dev.picasso.uplink.report.SiteNameSummary(unsupported = false, count = 2), HostUplink.siteNames(adapter))
+        adapter.siteNames = SiteNames.Unsupported
+        assertEquals(dev.picasso.uplink.report.SiteNameSummary(unsupported = true, count = 0), HostUplink.siteNames(adapter))
+        // 못 물어봤다 — 0 개도 못 함도 아니다. 레지스트리는 널을 "이미 받은 답을 지우지 않는다" 로 다룬다.
+        adapter.siteNames = SiteNames.Unavailable("graph 못 받음")
+        assertNull(HostUplink.siteNames(adapter))
     }
 
     @Test

@@ -5,7 +5,6 @@ import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.CancelTaskRequest
 import dev.picasso.contracts.v1.CancelTaskResponse
-import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.EventServiceGrpc
 import dev.picasso.contracts.v1.GetCapabilitiesRequest
 import dev.picasso.contracts.v1.GetCapabilitiesResponse
@@ -290,8 +289,8 @@ internal class HostEventService(private val robot: HostedRobot) : EventServiceGr
                 },
             )
             .addAllFaults(robot.faults.values)
-            // 호스트가 떠 있고 어댑터가 답하면 ONLINE 이다. 남쪽 링크의 단절은 어댑터가 결함·거절로 말한다 — 이 값의 다른 상태는 아직 안 낸다.
-            .setConnectionState(ConnectionState.CONNECTION_STATE_ONLINE)
+            // MQTT connection 스트림과 같은 값이다(미믹의 §15.95 정정과 같은 자리).
+            .setConnectionState(robot.connectionState)
             .build()
     }
 

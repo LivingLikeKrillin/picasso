@@ -155,6 +155,7 @@ picasso/
     fixtures/         게이트·시험 전용 픽스처 (프로파일·요구 집합)
   profile-model/      프로파일 문서의 읽기 전용 모델 — gate·mimic 공유 (ADR 29)
   profile-projection/ 프로파일 → 계약 Capability 투영 — mimic·어댑터 호스트 공유 (§15.98)
+  uplink/             발신자의 위쪽 결선 — 브로커 발행(§3.5)과 레지스트리 적재(핸드셰이크·태스크·생존·폴백). mimic·어댑터 호스트 공유 (§15.99)
   registry/           개정판·어댑터·원장·변경 계획·카탈로그    8·9절
   mimic/              프로파일 주도 에뮬레이터 + 제어 채널      C-2
   client/             계약 소비자 — 완료 기준 증명용
@@ -183,11 +184,12 @@ gate          → profile-model   ※ 아래 단서
 registry      → gate, contracts
 mimic         → profile-model, contracts
 client        → contracts, profile-model   ※ 아래 단서
-harness       → mimic, client, contracts
+harness       → mimic, client, contracts, uplink
 adapter-core  → contracts
 profile-projection → contracts, profile-model
-adapter-host  → contracts, adapter-core, profile-model, profile-projection   ※ 어댑터 모듈은 모른다 — 조립은 기종을 아는 쪽(ADR 39)
-mimic         → profile-model, profile-projection, contracts   ※ 투영은 2026-09-10 에 profile-projection 으로 나갔다
+uplink        → contracts   ※ registry 는 모른다 — 그 방향은 HTTP 다(아래 표)
+adapter-host  → contracts, adapter-core, profile-model, profile-projection, uplink   ※ 어댑터 모듈은 모른다 — 조립은 기종을 아는 쪽(ADR 39)
+mimic         → profile-model, profile-projection, contracts, uplink   ※ 투영은 2026-09-10 에 profile-projection 으로, 발행·적재는 같은 날 uplink 로 나갔다
 adapter-<v>-<m> → contracts, adapter-core    ※ 아래 단서
 ```
 
@@ -215,6 +217,8 @@ adapter-<v>-<m> → contracts, adapter-core    ※ 아래 단서
 | `mimic` ⇢ `registry` | 프로파일 로드·폴링(§10.2·§10.3) | 파일 모드로 동작 |
 | `mimic` ⇢ `registry` | 핸드셰이크 결과 보고(§5.4) | 로컬 파일에 기록 |
 | `mimic` ⇢ 브로커 | 상태·이벤트·연결 발행 | — |
+| `adapter-host` ⇢ `registry` | 생존 보고·태스크 관측 적재 — 미믹과 **같은 `uplink` 결선**(§15.99). 핸드셰이크 보고는 `Negotiate` 가 없어 아직 없다 | 발행만 하고 적재 없이 동작 |
+| `adapter-host` ⇢ 브로커 | 상태·이벤트·연결 발행 — 토픽·헤더 열·`sequence` 축이 미믹과 같다 | — |
 | `registry` ⇠ 브로커 | 이벤트 **구독** — 능력 변경, **태스크 전이**(§8.3의 `task` 적재), 결함 | 해당 테이블이 비고 §9.3의 드레인 판정이 불가 |
 | `registry` ⇢ 브로커 | **사이트 카탈로그 스트림 발행**(§9.6) | 상위가 폴링으로 대체 |
 | `harness` ⇢ `registry` | 시험 요청 폴링·결과 보고(§8.4 ②) | 직접 실행 모드 |
@@ -2294,8 +2298,37 @@ mimic/
 
     ### 정직하게 적어 둘 것
 
-    - **MQTT 발행·레지스트리 적재·`Negotiate` 가 없다.** 계약의 gRPC 면만 세웠다. 레지스트리가 호스트의 기체를 보는 결선(§3.2 `registry ⇠ 브로커`)과 ADR 37 의 등록 절차는 열려 있다.
+    - ~~**MQTT 발행·레지스트리 적재·`Negotiate` 가 없다.** 계약의 gRPC 면만 세웠다.~~ → 발행과 적재는 §15.99 에서 닫혔다. `Negotiate` 와 ADR 37 의 등록 절차는 열려 있다.
     - **도는 태스크의 갱신을 안 한다** — 어댑터 셋 중 아무도 Halt→Reset→Start 를 안 들어 `INVALID_TRANSITION` 에 사정을 붙여 거절한다. 미들웨어는 그 코드를 *이미 종착* 으로 읽고 지연 이벤트를 기다리므로(§15.92), 호스트 위에서 버전 갱신을 쓰면 그 단위는 원래 버전으로 끝나고 새 기대에 대고 검증된다. 시험은 없다.
     - 어댑터의 거절 중 *로봇이 지금 못 받는다*(`VENDOR_REJECTED`·`CONTROL_AUTHORITY_LOST`·`ALREADY_RUNNING`)는 계약에 자리가 없어 `INVALID_TRANSITION` 에 분류와 원문을 붙인다 — 거절 코드 하나가 후보다(ADR 9: 발신자가 이제 있다).
     - 진행률은 종착 전 0, 성공 1 이다. 어댑터가 진행률을 안 낸다.
     - 결함 주입 일곱(결과 참조 누락 · 멱등 재수신을 새 요청으로 · 못 본 결함을 없음으로 · 축출 망각 · 취소 거절 코드 뒤바꿈 · 종착 래치 제거 · 실패에 fault 미부착) 전부 겨냥한 시험이 잡았다. 첫 실행에서 하나가 *"모든 겨냥 시험이 잡지는 않음"* 으로 나왔는데 — e2e 시험이 컴파일되지 않은 채였고 러너가 *시험 0건* 을 초록으로 읽었다. 러너의 초록 판정에 *시험이 하나라도 돌았는가* 를 더했다.
+
+99. **호스트의 위쪽 결선 — 레지스트리가 어댑터 호스트의 기체를 본다.**
+
+    §15.98 이 *없다* 고 적은 셋 중 둘(발행·적재)을 닫았다. 방법은 새로 짓는 것이 아니라 **미믹의 것을 빼서 같이 쓰는 것**이었다: `Publisher`·`Publication`·`Topics`·`MqttPublisher` 와 `report/*`(핸드셰이크 보고·태스크 관측·생존 보고·파일 폴백·재적재·`RegistryLink`)가 새 모듈 **`uplink`** 로 나갔다. `profile-projection` 을 뺀 이유와 같다(ADR 29) — 토픽 형식·발행 열 헤더·적재 경로가 두 벌이면 미믹과 실물이 *같은 모양* 이라는 주장이 발행 쪽에서 깨진다. 기종을 모르므로 게이트 7번 목록에 들어갔다(이제 여덟).
+
+    ### 호스트가 내는 것
+
+    | 스트림 | 언제 | 무엇 |
+    |---|---|---|
+    | `connection` | 포트가 열린 뒤 `ONLINE`, 정상 종료 때 `OFFLINE` — 둘 다 retain | 끊기면 브로커의 Last Will 이 `CONNECTION_BROKEN` 을 대신 낸다(그것은 `MqttPublisher` 의 일이고 호스트는 모른다) |
+    | `event` | 전이·결함이 적힐 때마다 | 재생 버퍼의 것과 같은 객체 — 발행이 막히면 버퍼에 남았다가 다음 발행 때 **순서대로** 밀린다(§10.6 과 같은 규칙, 따로 큐 없음) |
+    | `state` | 프로파일의 최대 발행 간격마다, **펌프가 판정**(스케줄러 없음) | 태스크 스냅샷과 활성 결함. 스킬 상태기계가 없어 `skills` 는 비운다 |
+
+    **`sequence` 축은 기체 단위 하나이고 셋이 함께 쓴다**(§5.5 의 발행 열). 그래서 앞 판의 축출 시험이 가정한 *"이벤트가 0 번"* 이 틀렸다 — 0 번은 기동 발행 `ONLINE` 이다. 시험은 번호를 가정하지 않고 호스트가 *실제로 버린 번호* 로 다시 물었다. `GetSnapshot.connection_state` 도 이 값이다(§15.95 의 미믹 정정과 같은 자리).
+
+    ### 레지스트리가 보는 것
+
+    적재는 호스트가 모른다 — 발행자를 `IngestBridge` 로 감싼 쪽(조립하는 쪽)의 일이고, 그것이 미믹 CLI 의 `RegistryLink.wrap` 과 같은 자리다. 생존 보고에 실리는 둘은 **어댑터가 답한다**: 로봇 소프트웨어(`RobotAdapter.robotSoftware()`, 기본 `null` = 못 읽는다 — 셋 중 아직 아무도 안 읽는다)와 사이트 이름 요약(`HostUplink.siteNames` — `Known`=개수 · `Unsupported`=못 함 · `Unavailable`=**널**, 셋을 접지 않는다; 레지스트리가 널을 *이미 받은 답을 지우지 않는다* 로 다루므로 못 물어본 펌프가 앞의 답을 되돌리지 않는다).
+
+    `HostIngestEndToEndTest`(harness, Postgres): 바인딩된 기체를 원장이 *한 번도 보고한 적 없다* 로 보다가 → 호스트가 뜨자 `Live`(소프트웨어·이름 개수 2 가 `robot_liveness` 에 앉음) → 태스크가 돌자 `task` 표에 비종착 → 종착하자 드레인 → 호스트가 닫히자 `OFFLINE` 이 남고 원장이 *연결이 끊긴 기체* 로 판정한다. `LedgerIngestEndToEndTest` 가 미믹으로 본 것과 같은 판정이 실물 어댑터 경로에서 난다 — 갈리는 것은 발행의 출처뿐이다.
+
+    ### 정직하게 적어 둘 것
+
+    - **등록 절차(ADR 37)는 여전히 없다.** 이 시험도 기체 행을 SQL 로 넣는다. 증명한 것은 *등록된* 기체의 관측이 호스트에서 흘러온다는 것까지다.
+    - **배치 런처가 없다.** 실 포트·프로파일 파일·어댑터 조립·펌프 스케줄러·MQTT 접속을 한 자리에서 엮는 CLI 는 만들 수 있으나, **띄울 실물 링크가 저장소에 없다** — 어댑터 셋의 남쪽(`SpotLink`·`DigitLink`·`G1Link`)은 인터페이스이고 구현은 시험의 가짜뿐이다(벤더 원문을 저장소에 안 들이는 규칙, §15.55). 아무것도 못 띄우는 런처를 만들지 않았다. 런처는 첫 실물 링크와 함께 온다.
+    - **못 보낸 구간이 버퍼에서 밀려나도 세션을 새로 안 낸다.** 미믹은 그때 세션을 바꿔 소비자를 스냅샷부터 다시 세우게 하는데(§10.6), 호스트의 세션은 불변이다. 축출 경계는 `ReplayEvents` 가 말하므로 gRPC 소비자는 안전하고, MQTT 소비자만 그 구간을 결손으로 본다.
+    - `HIBERNATING`·`CONNECTION_BROKEN` 은 호스트가 안 낸다. 남쪽 링크의 단절은 어댑터가 결함·거절로 말한다.
+    - 핸드셰이크 보고는 `Negotiate` 가 없어 없다. `RegistryLink.reporter` 를 호스트에 붙일 자리가 아직 없다.
+    - 결함 주입 여섯(드레인 뒤 이중 발행 · 발행 간격 무시 · 기동 발행 누락 · 이벤트 발행 누락 · 종료 OFFLINE 누락 · 사이트 이름 요약의 셋 접기) 중 **첫째는 주입이 아니라 구현에서 나왔다** — 드레인이 이미 민 이벤트를 `send` 가 또 냈고, 새 시험이 잡았다. 미믹의 `EventStream.send` 주석이 *"둘 다 하면 마지막 하나가 두 번 나간다 — 실측으로 걸렸다"* 고 적어 둔 바로 그것을 같은 자리에서 다시 밟았다. 같은 규칙을 두 벌로 갖는 대가가 이렇게 나타나므로, 이 부분도 다음에 `uplink` 로 올릴 후보다(§10.6 의 단절 중 버퍼링을 미믹과 호스트가 각자 든다).

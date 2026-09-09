@@ -6,6 +6,8 @@ import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.contracts.v1.Capability
+import dev.picasso.contracts.v1.ConnectionMessage
+import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.FaultEvent
@@ -13,12 +15,17 @@ import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.ProfileRef
 import dev.picasso.contracts.v1.RejectionCode
+import dev.picasso.contracts.v1.StateMessage
+import dev.picasso.contracts.v1.TaskSnapshot
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.TaskTransition
 import dev.picasso.contracts.wire.ContractIdentity
 import dev.picasso.contracts.wire.TaskStates
 import dev.picasso.profile.ProfileDocument
 import dev.picasso.profile.projection.CapabilityProjection
+import dev.picasso.uplink.Publication
+import dev.picasso.uplink.Publisher
+import dev.picasso.uplink.Topics
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicLong
@@ -39,6 +46,14 @@ import java.util.concurrent.atomic.AtomicLong
  * 스레드가 없다. 모든 RPC 가 [pump] 를 먼저 부르고(미믹의 `settle` 과 같은 이유 — 그러지 않으면 열린 `WatchTask` 가
  * 다른 RPC 가 만든 전이를 놓친다), 운영 배치에서는 스케줄러가 부른다. 시각은 [clock] 로만 읽는다.
  *
+ * ## 발행 (§3.5 · §4.7)
+ *
+ * 세 스트림이 미믹과 같은 토픽·같은 헤더 열로 나간다 — `event` 는 전이와 결함(적힐 때마다), `state` 는 현재값(프로파일의
+ * 최대 발행 간격마다, 펌프가 판정), `connection` 은 retain 으로 기동 때 `ONLINE`·정상 종료 때 `OFFLINE`(끊기면 브로커의
+ * Last Will 이 `CONNECTION_BROKEN` 을 대신 낸다 — 그것은 [Publisher] 구현의 일이다). **`sequence` 축은 기체 단위 하나**이고
+ * 셋이 함께 쓴다(§5.5 의 발행 열). 발행이 막히면 이벤트는 재생 버퍼에 남고 다음 발행 때 순서대로 밀린다(§10.6 과 같은 규칙).
+ * 레지스트리 적재는 이 발행을 감싼 `IngestBridge` 가 한다 — 이 클래스는 그것을 모른다.
+ *
  * ## 이 층이 하지 않는 것
  *
  * 판단. 어댑터가 거절하면 거절이고 로봇이 실패라 하면 실패다. 무엇을 할지는 계약 소비자(미들웨어)의 일이다.
@@ -47,6 +62,11 @@ class HostedRobot(
     val robotId: String,
     val document: ProfileDocument,
     val adapter: RobotAdapter,
+    /** 발행이 나갈 곳. 붙이지 않으면 아무 데도 안 나간다 — 미믹과 같은 기본값(§15.30). */
+    private val publisher: Publisher = Publisher.NONE,
+    /** §5.5 토픽의 두 번째 레벨. 헤더에는 없다. */
+    val site: String = "default",
+    /** 마지막 인자다 — 시험이 후행 람다로 시계를 준다. */
     private val clock: () -> Instant = { Instant.now() },
 ) {
     val capability: Capability = CapabilityProjection.of(document)
@@ -77,6 +97,19 @@ class HostedRobot(
 
     /** 갱신이 적힐 때마다 부른다 — `WatchTask` 스트림이 여기 매달린다. */
     internal val onUpdate = mutableListOf<(HostedTask, TaskUpdate) -> Unit>()
+
+    /**
+     * §4.7 의 연결 상태. 호스트가 떠 있고 어댑터가 답하면 `ONLINE` 이다 — 남쪽 링크의 단절은 어댑터가 결함·거절로 말하고,
+     * 이 값의 `HIBERNATING`·`CONNECTION_BROKEN` 은 이 호스트가 아직 안 낸다(앞은 낼 이유가 없고 뒤는 브로커의 몫이다).
+     */
+    var connectionState: ConnectionState = ConnectionState.CONNECTION_STATE_ONLINE
+        private set
+
+    /** 아직 브로커에 못 보낸 첫 `sequence`. 없으면 전부 나갔다 — 미믹의 `EventStream.unsentFrom` 과 같은 표현이다. */
+    var unsentFrom: Long? = null
+        private set
+
+    private var lastStateAt: Instant? = null
 
     /** 태스크 하나의 기록 — 계약의 `WatchTask` 로그. 종착은 래치된다(§4.4). */
     class HostedTask internal constructor(val taskId: String, val revision: Int, val skillType: String) {
@@ -212,7 +245,7 @@ class HostedRobot(
 
     // ── 펌프
 
-    /** 어댑터에 묻고 달라진 것을 적는다. 몇 번 불러도 같다. */
+    /** 어댑터에 묻고 달라진 것을 적는다. 몇 번 불러도 같다 — 상태 발행만 시계가 정한다. */
     fun pump() {
         current?.takeIf { !it.terminal }?.let { task ->
             val state = adapter.poll(clock())
@@ -228,7 +261,100 @@ class HostedRobot(
             }
             is FaultObservation.NotObservable -> faultsObservable = false
         }
+        publishStateIfDue()
     }
+
+    // ── 발행 (§4.7 — 상태·이벤트·연결)
+
+    /**
+     * §7.2 의 최대 발행 간격을 넘겼으면 현재값을 발행한다. **스케줄러가 아니라 펌프가 판정한다** — 시각은 [clock] 하나다.
+     * `ONLINE` 이 아니면 안 나간다: 그 침묵이 §4.7 이 연결 스트림으로 가르라고 한 바로 그것이다.
+     *
+     * @return 실제로 발행했으면 참.
+     */
+    fun publishStateIfDue(): Boolean {
+        if (connectionState != ConnectionState.CONNECTION_STATE_ONLINE) return false
+        val now = clock()
+        val due = lastStateAt?.plusSeconds(document.publishIntervalMaxSeconds.toLong())
+        if (due != null && now.isBefore(due)) return false
+        publishState()
+        return true
+    }
+
+    /** 현재값 — 태스크 스냅샷과 활성 결함. 스킬 상태기계가 없으므로 `skills` 는 비운다(어댑터는 스킬 상태를 안 낸다). */
+    fun publishState() {
+        lastStateAt = clock()
+        val sequence = nextSequence.getAndIncrement()
+        val message = StateMessage.newBuilder()
+            .setHeader(publishHeader(StateMessage.getDescriptor(), sequence))
+            .addAllTasks(taskSnapshots())
+            .addAllFaults(faults.values)
+            .build()
+        send(Publication(topic(Topics.Stream.state), message, sequence))
+    }
+
+    fun taskSnapshots(): List<TaskSnapshot> = book.values.map {
+        TaskSnapshot.newBuilder().setTaskId(it.taskId).setSkillType(it.skillType).setState(it.last.state).setRevision(it.revision).setAttempt(0).build()
+    }
+
+    /**
+     * 기동 발행 — **포트가 열린 뒤** [AdapterHost.start] 가 부른다. 포트가 안 열렸는데 온라인이라 알리면 소비자가 붙을 수
+     * 없는 기체를 살아 있다고 읽는다(미믹의 `MimicServer.start` 와 같은 순서).
+     */
+    fun announceOnline() = publishConnection(connectionState)
+
+    /**
+     * 정상 종료 — `OFFLINE` 을 retain 으로 남기고 침묵한다. Last Will 은 **끊겼을 때만** 브로커가 내므로, 여기서 안 내면
+     * 정상 종료가 `ONLINE` 을 retain 에 남긴 채 사라진다.
+     */
+    fun goOffline() {
+        if (connectionState == ConnectionState.CONNECTION_STATE_OFFLINE) return
+        connectionState = ConnectionState.CONNECTION_STATE_OFFLINE
+        publishConnection(connectionState)
+    }
+
+    private fun publishConnection(state: ConnectionState) {
+        val sequence = nextSequence.getAndIncrement()
+        val message = ConnectionMessage.newBuilder().setHeader(publishHeader(ConnectionMessage.getDescriptor(), sequence)).setState(state).build()
+        send(Publication(topic(Topics.Stream.connection), message, sequence, retained = true))
+    }
+
+    /**
+     * 발행한다. 못 보내고 있던 이벤트가 있으면 **그것부터 순서대로** 민다. 이벤트는 재생 버퍼가 들고 있으므로 따로 큐가 없다
+     * (§10.6 — 미믹과 같은 규칙); 상태·연결은 현재값이라 못 보내면 버리고 다음 것이 대신한다.
+     */
+    private fun send(publication: Publication) {
+        if (unsentFrom != null) {
+            val drained = drain()
+            // **이벤트는 여기서 또 내지 않는다.** 이미 버퍼에 있어 드레인이 함께 밀었다 — 둘 다 하면 마지막 하나가 두 번
+            // 나간다. 미믹이 실측으로 걸렸고(EventStream.send) 여기서도 시험이 같은 것을 잡았다.
+            if (publication.message is Event || !drained) return
+        }
+        try {
+            publisher.publish(publication)
+        } catch (e: Exception) {
+            if (publication.message is Event && unsentFrom == null) unsentFrom = publication.sequence
+        }
+    }
+
+    private fun drain(): Boolean {
+        val from = unsentFrom ?: return true
+        buffer.filter { it.header.sequence >= from }.forEach { pending ->
+            try {
+                publisher.publish(Publication(topic(Topics.Stream.event), pending, pending.header.sequence))
+            } catch (e: Exception) {
+                unsentFrom = pending.header.sequence
+                return false
+            }
+        }
+        unsentFrom = null
+        return true
+    }
+
+    private fun topic(stream: Topics.Stream): String = Topics.robot(ContractIdentity.major, site, robotId, stream)
+
+    private fun publishHeader(schema: Descriptors.Descriptor, sequence: Long): MessageHeader =
+        header(schema).toBuilder().setSequence(sequence).build()
 
     /** 조작 뒤 — 시간을 안 흘리고 어댑터가 지금 말하는 상태만 적는다. */
     internal fun syncCurrent() {
@@ -271,11 +397,15 @@ class HostedRobot(
 
     private fun emit(builder: Event.Builder) {
         val sequence = nextSequence.getAndIncrement()
-        val event = builder.setHeader(header(Event.getDescriptor()).toBuilder().setSequence(sequence)).build()
+        val event = builder.setHeader(publishHeader(Event.getDescriptor(), sequence)).build()
+        // **버퍼에 먼저 넣고 발행한다.** 발행이 막혀도 재생 버퍼에는 남아야 한다(§10.6).
         buffer.addLast(event)
         while (buffer.size > document.replayBufferSize) {
             evictedUpTo = buffer.removeFirst().header.sequence
         }
+        // 못 보낸 구간이 버퍼에서 밀려나면 그 구간은 소비자에게 영영 안 간다. 미믹은 그때 세션을 새로 낸다 — 여기는 세션이
+        // 불변이라 아직 못 한다(§15.99). 축출 경계는 `ReplayEvents` 가 말한다.
+        send(Publication(topic(Topics.Stream.event), event, sequence))
     }
 
     /** `ReplayEvents(from)` — 벗어났으면 널(축출), 아니면 그 번호부터. */
