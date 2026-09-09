@@ -5,9 +5,9 @@ import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskSnapshot
-import dev.picasso.mimic.transport.MqttPublisher
-import dev.picasso.mimic.transport.Publication
-import dev.picasso.mimic.transport.Topics
+import dev.picasso.uplink.MqttPublisher
+import dev.picasso.uplink.Publication
+import dev.picasso.uplink.Topics
 import org.eclipse.paho.mqttv5.client.MqttCallback
 import org.eclipse.paho.mqttv5.client.MqttClient
 import org.eclipse.paho.mqttv5.client.MqttDisconnectResponse

@@ -1,7 +1,7 @@
 package dev.picasso.harness
 
-import dev.picasso.mimic.report.TaskObservations
-import dev.picasso.mimic.report.IngestBridge
+import dev.picasso.uplink.report.TaskObservations
+import dev.picasso.uplink.report.IngestBridge
 import com.google.protobuf.Descriptors
 import com.google.protobuf.Message
 import dev.picasso.client.PicassoClient
@@ -51,8 +51,8 @@ class Harness(
      * §5.4의 핸드셰이크 결과 보고. **기본은 없음이다** — 레지스트리가 안 떠
      * 있어도 하네스는 돈다(§3.2의 "없을 때").
      */
-    reporter: dev.picasso.mimic.report.HandshakeReporter =
-        dev.picasso.mimic.report.HandshakeReporter.NONE,
+    reporter: dev.picasso.uplink.report.HandshakeReporter =
+        dev.picasso.uplink.report.HandshakeReporter.NONE,
 ) : AutoCloseable {
 
     val clock = VirtualClock(start)
@@ -61,7 +61,7 @@ class Harness(
     val recorder = RequestRecorder()
 
     /** 발행을 받는 구독자 노릇. 브로커는 §15.30의 이유로 붙이지 않는다. */
-    val publisher = dev.picasso.mimic.transport.RecordingPublisher()
+    val publisher = dev.picasso.uplink.RecordingPublisher()
 
     private val source = FileProfileSource(schema)
 
@@ -70,7 +70,7 @@ class Harness(
      *
      * **감싸되 가로채지 않는다** — [publisher]는 그대로 다 받는다.
      */
-    private val outbound: dev.picasso.mimic.transport.Publisher =
+    private val outbound: dev.picasso.uplink.Publisher =
         taskSink?.let { IngestBridge(publisher, it) } ?: publisher
 
     val registry = RobotRegistry(

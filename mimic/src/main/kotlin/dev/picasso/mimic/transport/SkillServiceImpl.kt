@@ -7,8 +7,8 @@ import dev.picasso.contracts.v1.GetKnownSiteNamesResponse
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.SkillServiceGrpc
-import dev.picasso.mimic.report.HandshakeReport
-import dev.picasso.mimic.report.HandshakeReporter
+import dev.picasso.uplink.report.HandshakeReport
+import dev.picasso.uplink.report.HandshakeReporter
 import io.grpc.Status
 import io.grpc.stub.StreamObserver
 

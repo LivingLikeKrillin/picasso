@@ -1,6 +1,6 @@
 package dev.picasso.harness
 
-import dev.picasso.mimic.report.TaskObservations
+import dev.picasso.uplink.report.TaskObservations
 import dev.picasso.gate.CheckResult
 import dev.picasso.gate.GateRunner
 import dev.picasso.gate.checks.Check06Vocabulary

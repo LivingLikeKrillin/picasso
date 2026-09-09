@@ -1,4 +1,4 @@
-package dev.picasso.mimic.transport
+package dev.picasso.uplink
 
 import dev.picasso.contracts.v1.ConnectionMessage
 import dev.picasso.contracts.v1.ConnectionState

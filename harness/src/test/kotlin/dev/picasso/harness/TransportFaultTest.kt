@@ -9,7 +9,7 @@ import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
 import dev.picasso.mimic.control.v1.InjectTransportFaultRequest
-import dev.picasso.mimic.transport.Publication
+import dev.picasso.uplink.Publication
 import dev.picasso.mimic.transport.TransportFaults
 import io.grpc.Status
 import io.grpc.StatusRuntimeException

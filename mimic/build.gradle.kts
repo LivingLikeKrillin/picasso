@@ -18,13 +18,9 @@ application {
 
 // 프로파일 주도 에뮬레이터. 거동은 프로파일에서 오고 코드는 해석기다(§10.1).
 dependencies {
-    // 보고자가 계약 메시지를 protobuf JSON으로 적고 보낸다. 적재 표면이
-    // 같은 규약으로 읽으므로 여기서 다른 규약을 쓰면 밀어 넣는 날 갈린다.
-    implementation(libs.protobuf.java.util)
-
-    // §3.5의 MQTT 발행. **추상은 이 라이브러리를 모른다** —
-    // `Publisher`가 인터페이스이고 구현 하나가 이것을 쓴다.
-    implementation(libs.paho.mqttv5)
+    // 발행(§3.5)과 레지스트리 적재(§3.2)는 `uplink` 의 것이다 — 2026-09-10 에 뺐다. **api 인 것은**
+    // `RobotInstance`·`MimicServer` 가 그 타입(`Publisher`·`HandshakeReporter`)을 생성자에 드러내기 때문이다.
+    api(project(":uplink"))
     implementation(project(":profile-model"))
     implementation(project(":profile-projection"))
     implementation(project(":contracts"))

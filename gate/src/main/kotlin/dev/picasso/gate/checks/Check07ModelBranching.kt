@@ -159,7 +159,7 @@ class Check07ModelBranching : GateCheck {
          * 분류로 옮기는 일은 어댑터의 것이고, 그 위의 실행 구조에 `if robot == …`
          * 가 생기면 정준 모델이 아니다.
          */
-        val MODULES = listOf("client", "mimic", "harness", "adapter-core", "picasso", "profile-projection", "adapter-host")
+        val MODULES = listOf("client", "mimic", "harness", "adapter-core", "picasso", "profile-projection", "adapter-host", "uplink")
 
         const val MAIN = "src/main"
 

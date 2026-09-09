@@ -1,4 +1,4 @@
-package dev.picasso.mimic.report
+package dev.picasso.uplink.report
 
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
@@ -46,7 +46,7 @@ fun interface HandshakeReporter {
 
 /**
  * 받은 것을 모은다. 시험과 `harness`가 보고 수신자 노릇을 한다.
- * [dev.picasso.mimic.transport.RecordingPublisher]와 같은 자리다.
+ * [dev.picasso.uplink.RecordingPublisher]와 같은 자리다.
  */
 class RecordingHandshakeReporter : HandshakeReporter {
 

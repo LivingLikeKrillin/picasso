@@ -1,4 +1,4 @@
-package dev.picasso.mimic.transport
+package dev.picasso.uplink
 
 import com.google.protobuf.Message
 

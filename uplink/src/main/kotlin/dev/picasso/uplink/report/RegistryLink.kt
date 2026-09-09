@@ -1,6 +1,6 @@
-package dev.picasso.mimic.report
+package dev.picasso.uplink.report
 
-import dev.picasso.mimic.transport.Publisher
+import dev.picasso.uplink.Publisher
 import java.nio.file.Path
 
 /**

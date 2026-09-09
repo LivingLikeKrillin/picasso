@@ -22,6 +22,9 @@ import dev.picasso.mimic.engine.TaskState
 import dev.picasso.mimic.engine.toProto
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicLong
+import dev.picasso.uplink.Publication
+import dev.picasso.uplink.Publisher
+import dev.picasso.uplink.Topics
 
 /**
  * 엔진이 보고한 전이에 **발행 축**을 입힌다(§4.7·§4.8).

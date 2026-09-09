@@ -14,8 +14,8 @@ class MimicServer(
     private val registry: RobotRegistry,
     builder: ServerBuilder<*>,
     /** §5.4의 핸드셰이크 결과 보고. 붙이지 않으면 아무 데도 안 나간다. */
-    reporter: dev.picasso.mimic.report.HandshakeReporter =
-        dev.picasso.mimic.report.HandshakeReporter.NONE,
+    reporter: dev.picasso.uplink.report.HandshakeReporter =
+        dev.picasso.uplink.report.HandshakeReporter.NONE,
 ) {
 
     private val taskService = TaskServiceImpl(registry)

@@ -13,6 +13,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import dev.picasso.uplink.report.FileHandshakeReporter
+import dev.picasso.uplink.report.HandshakeReport
+import dev.picasso.uplink.report.RecordingHandshakeReporter
+import dev.picasso.uplink.report.FallbackHandshakeReporter
 
 /**
  * §5.4 — *"결과는 성공·실패 모두 `registry`에 보고된다. **보고 실패는

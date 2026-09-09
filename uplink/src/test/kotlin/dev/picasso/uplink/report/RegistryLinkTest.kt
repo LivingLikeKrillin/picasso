@@ -1,4 +1,4 @@
-package dev.picasso.mimic.report
+package dev.picasso.uplink.report
 
 import dev.picasso.contracts.v1.CapabilityRequirement
 import dev.picasso.contracts.v1.MessageHeader
@@ -6,8 +6,8 @@ import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskSnapshot
-import dev.picasso.mimic.transport.Publication
-import dev.picasso.mimic.transport.RecordingPublisher
+import dev.picasso.uplink.Publication
+import dev.picasso.uplink.RecordingPublisher
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test

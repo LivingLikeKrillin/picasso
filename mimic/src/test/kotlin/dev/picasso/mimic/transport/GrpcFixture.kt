@@ -15,6 +15,7 @@ import io.grpc.ManagedChannel
 import io.grpc.inprocess.InProcessChannelBuilder
 import io.grpc.inprocess.InProcessServerBuilder
 import java.time.Instant
+import dev.picasso.uplink.RecordingPublisher
 
 /**
  * in-process 전송으로 표면을 세운다. **[MimicServer]를 그대로 쓴다** — 시험이
@@ -25,8 +26,8 @@ class GrpcFixture(
     val clock: Clock = VirtualClock(Instant.parse("2026-09-06T00:00:00Z")),
     val publisher: RecordingPublisher = RecordingPublisher(),
     site: String = "default",
-    reporter: dev.picasso.mimic.report.HandshakeReporter =
-        dev.picasso.mimic.report.HandshakeReporter.NONE,
+    reporter: dev.picasso.uplink.report.HandshakeReporter =
+        dev.picasso.uplink.report.HandshakeReporter.NONE,
 ) : AutoCloseable {
 
     val registry = RobotRegistry(

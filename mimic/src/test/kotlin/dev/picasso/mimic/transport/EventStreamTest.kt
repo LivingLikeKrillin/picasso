@@ -18,6 +18,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import dev.picasso.uplink.Publication
+import dev.picasso.uplink.Publisher
+import dev.picasso.uplink.RecordingPublisher
+import dev.picasso.uplink.Topics
 
 class EventStreamTest {
 

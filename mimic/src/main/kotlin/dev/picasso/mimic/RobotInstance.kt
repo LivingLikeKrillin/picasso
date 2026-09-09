@@ -6,7 +6,7 @@ import dev.picasso.mimic.engine.FaultRegistry
 import dev.picasso.mimic.engine.Seeded
 import dev.picasso.mimic.engine.TaskHost
 import dev.picasso.mimic.transport.EventStream
-import dev.picasso.mimic.transport.Publisher
+import dev.picasso.uplink.Publisher
 import dev.picasso.mimic.transport.TransportFaults
 import dev.picasso.profile.projection.CapabilityProjection
 import dev.picasso.profile.ProfileDocument

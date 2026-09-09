@@ -14,6 +14,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import dev.picasso.uplink.report.HandshakeReport
+import dev.picasso.uplink.report.HttpHandshakeReporter
 
 /**
  * `mimic ⇢ registry`의 와이어(§3.2).

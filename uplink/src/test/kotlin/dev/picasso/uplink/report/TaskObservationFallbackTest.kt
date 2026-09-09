@@ -1,4 +1,4 @@
-package dev.picasso.mimic.report
+package dev.picasso.uplink.report
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.picasso.contracts.v1.Event

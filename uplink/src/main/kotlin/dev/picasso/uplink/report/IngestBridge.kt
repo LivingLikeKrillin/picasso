@@ -1,11 +1,11 @@
-package dev.picasso.mimic.report
+package dev.picasso.uplink.report
 
 import dev.picasso.contracts.v1.ConnectionMessage
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.StateMessage
-import dev.picasso.mimic.transport.Publication
-import dev.picasso.mimic.transport.Publisher
+import dev.picasso.uplink.Publication
+import dev.picasso.uplink.Publisher
 
 /**
  * §3.2가 `registry ⇠ 브로커` **구독**으로 규정한 자리를 대신한다.

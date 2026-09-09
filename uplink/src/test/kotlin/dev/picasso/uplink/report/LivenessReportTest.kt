@@ -1,10 +1,10 @@
-package dev.picasso.mimic.report
+package dev.picasso.uplink.report
 
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.MessageHeader
-import dev.picasso.mimic.transport.Publication
-import dev.picasso.mimic.transport.Publisher
-import dev.picasso.mimic.transport.RecordingPublisher
+import dev.picasso.uplink.Publication
+import dev.picasso.uplink.Publisher
+import dev.picasso.uplink.RecordingPublisher
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

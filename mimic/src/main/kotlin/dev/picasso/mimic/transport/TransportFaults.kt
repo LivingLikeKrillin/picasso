@@ -1,5 +1,8 @@
 package dev.picasso.mimic.transport
 
+
+import dev.picasso.uplink.Publication
+import dev.picasso.uplink.Publisher
 /**
  * §10.5의 `InjectTransportFault`. 발행 축에 장애를 입힌다.
  *

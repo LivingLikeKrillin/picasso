@@ -1,4 +1,4 @@
-package dev.picasso.mimic.report
+package dev.picasso.uplink.report
 
 import com.google.protobuf.Message
 import com.google.protobuf.util.JsonFormat

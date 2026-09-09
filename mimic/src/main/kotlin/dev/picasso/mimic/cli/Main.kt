@@ -6,12 +6,12 @@ import dev.picasso.mimic.engine.RealClock
 import dev.picasso.mimic.engine.VirtualClock
 import dev.picasso.mimic.profile.FileProfileSource
 import dev.picasso.mimic.profile.ProfileRejected
-import dev.picasso.mimic.report.RegistryLink
-import dev.picasso.mimic.report.SiteNameSummary
+import dev.picasso.uplink.report.RegistryLink
+import dev.picasso.uplink.report.SiteNameSummary
 import dev.picasso.mimic.transport.MimicServer
-import dev.picasso.mimic.transport.MqttPublisher
-import dev.picasso.mimic.transport.Publisher
-import dev.picasso.mimic.transport.Topics
+import dev.picasso.uplink.MqttPublisher
+import dev.picasso.uplink.Publisher
+import dev.picasso.uplink.Topics
 import dev.picasso.mimic.transport.RobotRegistry
 import io.grpc.ServerBuilder
 import java.nio.file.Path

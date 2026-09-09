@@ -9,6 +9,9 @@ include("contracts", "profile-model", "gate", "mimic", "client", "harness", "reg
 // 프로파일 → Capability 투영. mimic 과 어댑터 호스트가 공유한다(ADR 29 의 이유 그대로).
 include("profile-projection")
 
+// 발신자의 위쪽 결선 — 브로커 발행과 레지스트리 적재. mimic 과 어댑터 호스트가 공유한다.
+include("uplink")
+
 // 어댑터의 북쪽 — RobotAdapter 하나를 계약의 gRPC 서비스 뒤에 세운다. 기종을 모른다.
 include("adapter-host")
 

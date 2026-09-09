@@ -17,7 +17,7 @@ import dev.picasso.mimic.engine.TaskRuntime
 import dev.picasso.mimic.engine.TaskState
 import dev.picasso.mimic.engine.VirtualClock
 import dev.picasso.mimic.transport.MimicServer
-import dev.picasso.mimic.transport.RecordingPublisher
+import dev.picasso.uplink.RecordingPublisher
 import dev.picasso.mimic.transport.GrpcFixture
 import dev.picasso.mimic.transport.RobotRegistry
 import io.grpc.ManagedChannel
