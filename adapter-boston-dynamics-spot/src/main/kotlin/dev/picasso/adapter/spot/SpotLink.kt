@@ -105,6 +105,22 @@ interface SpotLink {
      */
     @get:VendorSurface("bosdyn.api.graph_nav.GraphNavService")
     val graph: GraphLayer?
+
+    /**
+     * 기체가 지금 안고 있는 **행동 결함**의 원인들.
+     *
+     * `RobotState.behavior_fault_state.faults[].cause` — 벤더가 넘어짐(`CAUSE_FALL`)·
+     * 하드웨어(`CAUSE_HARDWARE`)·리스 만료(`CAUSE_LEASE_TIMEOUT`)를 **원인으로** 가른다.
+     * 정준 분류의 `ROBOT_FELL`·`HARDWARE_FAULT` 가 이 기종에서 나오는 자리는 여기뿐이다 —
+     * 미션 상태도 항법 피드백도 넘어졌다고는 말하지 않는다.
+     */
+    @VendorSurface(
+        "bosdyn.api.RobotStateService.GetRobotState",
+        "bosdyn.api.RobotState.behavior_fault_state",
+        "bosdyn.api.BehaviorFaultState.faults",
+        "bosdyn.api.BehaviorFault.cause",
+    )
+    fun behaviorFaults(): Result<List<BehaviorFaultCause>>
 }
 
 /**
@@ -150,6 +166,89 @@ interface GraphLayer {
         "bosdyn.api.graph_nav.Graph.waypoints",
     )
     fun downloadGraph(): Result<List<GraphWaypoint>>
+
+    /**
+     * `NavigationFeedback` → `NavigationFeedbackResponse.status`. **항법이 왜 멈췄는지를
+     * 벤더가 열거로 말하는 자리다.**
+     *
+     * 미션 `State.status` 는 `FAILURE`/`ERROR` 까지만 말하고 이유를 안 싣는다 — `BosdynNavigateTo`
+     * 노드가 부른 항법의 결과는 항법 서비스 쪽에 남는다. 그래서 미션이 실패라 하면 어댑터가
+     * 여기에 한 번 더 묻고, 그 답으로 정준 분류(`ROUTE_BLOCKED`·`NO_ROUTE`·`LOCALIZATION_LOST`…)를
+     * 정한다. 못 물으면 분류하지 않는다(`UNCLASSIFIED`).
+     *
+     * `command_id` 를 비워 보낸다 — 비우면 가장 최근 항법 명령의 것이라는 것이 벤더 proto
+     * 주석의 진술이며, **실물에서 확인한 바 없다**(§9.7 ④·C-3). 아직 항법 명령이 없었으면 널.
+     */
+    @VendorSurface(
+        "bosdyn.api.graph_nav.GraphNavService.NavigationFeedback",
+        "bosdyn.api.graph_nav.NavigationFeedbackRequest.command_id",
+        "bosdyn.api.graph_nav.NavigationFeedbackResponse.status",
+    )
+    fun navigationFeedback(): Result<NavigationStatus?>
+}
+
+/**
+ * `bosdyn.api.graph_nav.NavigationFeedbackResponse.Status` 열넷 전부. 이름을 그대로 둔다.
+ *
+ * 정준 분류로 옮기는 표는 [SpotAdapter] 에 있다 — 여기는 벤더가 말하는 것만 있다.
+ */
+enum class NavigationStatus {
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_UNKNOWN")
+    STATUS_UNKNOWN,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_FOLLOWING_ROUTE")
+    STATUS_FOLLOWING_ROUTE,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_REACHED_GOAL")
+    STATUS_REACHED_GOAL,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_NO_ROUTE")
+    STATUS_NO_ROUTE,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_NO_LOCALIZATION")
+    STATUS_NO_LOCALIZATION,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_LOST")
+    STATUS_LOST,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_STUCK")
+    STATUS_STUCK,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_COMMAND_TIMED_OUT")
+    STATUS_COMMAND_TIMED_OUT,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_ROBOT_IMPAIRED")
+    STATUS_ROBOT_IMPAIRED,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_CONSTRAINT_FAULT")
+    STATUS_CONSTRAINT_FAULT,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_COMMAND_OVERRIDDEN")
+    STATUS_COMMAND_OVERRIDDEN,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_NOT_LOCALIZED_TO_ROUTE")
+    STATUS_NOT_LOCALIZED_TO_ROUTE,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_LEASE_ERROR")
+    STATUS_LEASE_ERROR,
+
+    @VendorSurface("bosdyn.api.graph_nav.NavigationFeedbackResponse.Status.STATUS_AREA_CALLBACK_ERROR")
+    STATUS_AREA_CALLBACK_ERROR,
+}
+
+/** `bosdyn.api.BehaviorFault.Cause` 넷 전부. 이름을 그대로 둔다. */
+enum class BehaviorFaultCause {
+    @VendorSurface("bosdyn.api.BehaviorFault.Cause.CAUSE_UNKNOWN")
+    CAUSE_UNKNOWN,
+
+    @VendorSurface("bosdyn.api.BehaviorFault.Cause.CAUSE_FALL")
+    CAUSE_FALL,
+
+    @VendorSurface("bosdyn.api.BehaviorFault.Cause.CAUSE_HARDWARE")
+    CAUSE_HARDWARE,
+
+    @VendorSurface("bosdyn.api.BehaviorFault.Cause.CAUSE_LEASE_TIMEOUT")
+    CAUSE_LEASE_TIMEOUT,
 }
 
 /**

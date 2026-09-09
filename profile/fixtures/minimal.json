@@ -53,6 +53,7 @@
   "failure_modes": [
     {
       "error_type": "SKILL_EXECUTION_FAILED",
+      "failure_class": "GRASP_FAILED",
       "skill_type": "pick_place",
       "rate": 0.05,
       "can_continue_current_task": false,

@@ -164,8 +164,10 @@ class EvidenceWindowTest {
             w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
 
             assertEquals(UnitState.OPERATOR_HOLD, exec.unit().state)
-            // 계약의 `fault` 를 미믹이 아직 안 실어 상태 이름으로 남는다 — 단계 5 가 정준 분류(15개)로 바꾼다.
-            assertEquals("TASK_STATE_RETRIABLE", exec.unit().failureClass)
+            // 계약의 `fault.failure_class` — 프로파일이 그 모드를 GRASP_FAILED 로 선언했다. 상류에는 이것만 간다.
+            assertEquals("GRASP_FAILED", exec.unit().failureClass)
+            // 하류 상태 이름과 모드 이름은 note(로그)에만 동반한다.
+            assertTrue(exec.unit().note!!.contains("downstream=TASK_STATE_RETRIABLE error_type=SKILL_EXECUTION_FAILED"), exec.unit().note)
             assertEquals(Verification.MATCHED, exec.unit().verification)
             val hold = w.mw.pending().single()
             assertEquals(PhysicalState.OPERATOR_HOLD, hold.physicalState)

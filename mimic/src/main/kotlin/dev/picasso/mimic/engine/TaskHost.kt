@@ -1,6 +1,7 @@
 package dev.picasso.mimic.engine
 
 import dev.picasso.contracts.v1.Capability
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.HoldState
@@ -41,6 +42,13 @@ class TaskRuntime(
      * 물건이 내려놓아지지는 않는다. 놓친 것은 [payloadLost]가 따로 말한다.
      */
     var hold: HoldState = HoldState.getDefaultInstance()
+        internal set
+
+    /**
+     * 이 태스크를 실패 종착으로 보낸 결함. [TaskHost.halt]가 정하고 [TaskHost.record]가
+     * 실패 상태의 갱신에만 싣는다 — 재시도로 `RUNNING` 에 돌아가면 안 실린다.
+     */
+    var failure: Fault? = null
         internal set
 
     /** `PAYLOAD_LOST`가 섰다 — 들고 있던 것을 놓쳤으므로 그 뒤로는 빈손이다. */
@@ -358,11 +366,12 @@ class TaskHost(
                         // **결함을 먼저 올리고 알린 뒤에 태스크를 보낸다.**
                         // 원인이 결과보다 먼저 나가야 이벤트를 접는 소비자가
                         // 원인 없는 실패를 보지 않는다.
-                        faults.raise(FailureDraw.faultOf(failure, task.skillType, task.taskId))
-                            ?.let { listener.onFault(it, cleared = false) }
+                        val fault = FailureDraw.faultOf(failure, task.skillType, task.taskId)
+                        faults.raise(fault)?.let { listener.onFault(it, cleared = false) }
                         halt(
                             task, FailureDraw.resolutionOf(failure.resolution),
                             payloadLost = failure.errorType == PAYLOAD_LOST,
+                            fault = fault,
                         )
                     }
                     record(task)
@@ -457,7 +466,7 @@ class TaskHost(
         val raised = faults.raise(fault)?.also { listener.onFault(it, cleared = false) } != null
 
         if (task != null) {
-            halt(task, FailureDraw.resolutionOf(mode.resolution), payloadLost = mode.errorType == PAYLOAD_LOST)
+            halt(task, FailureDraw.resolutionOf(mode.resolution), payloadLost = mode.errorType == PAYLOAD_LOST, fault = fault)
             record(task)
         }
         return ForceOutcome.Raised(raised, task?.machine?.state)
@@ -482,10 +491,13 @@ class TaskHost(
      * 결함이고, 이것은 **복구가 실패했다는 사실의 결과**라 종착보다 먼저
      * 낼 수가 없다.
      */
-    private fun halt(task: TaskRuntime, resolution: Resolution, payloadLost: Boolean = false) {
+    private fun halt(task: TaskRuntime, resolution: Resolution, payloadLost: Boolean = false, fault: Fault? = null) {
         // 놓친 것은 되돌아오지 않는다 — 재시도로 다시 집기 전까지는 빈손이다.
         if (payloadLost) task.payloadLost = true
         task.machine.onSkillHalted(resolution)
+        // **실패 종착이면 원인을 태스크에 붙인다.** 그래야 `WatchTaskResponse.fault` 가
+        // 정준 분류를 싣고 상류에 닿는다 — 결함 이벤트(기체 수준)와 별개의 경로다.
+        if (task.machine.state in FAILURE_STATES) task.failure = fault
         if (task.machine.state != TaskState.CANCELLED_RECOVERY_FAILED) return
         faults.raise(recoveryFailed())?.let { listener.onFault(it, cleared = false) }
     }
@@ -528,7 +540,7 @@ class TaskHost(
         val terminated = tasks.values
             .filter { it.machine.state in FAULTABLE }
             .onEach {
-                halt(it, Resolution.TERMINAL)
+                halt(it, Resolution.TERMINAL, fault = fault)
                 record(it)
             }
             .map { it.taskId }
@@ -577,6 +589,7 @@ class TaskHost(
             progress = task.machine.progress(),
             occurredAt = clock.now(),
             hold = task.hold,
+            fault = task.failure.takeIf { task.machine.state in FAILURE_STATES },
         )
     }
 
@@ -641,6 +654,7 @@ class TaskHost(
          */
         fun controlAuthorityLost(): Fault = Fault.newBuilder()
             .setErrorType("CONTROL_AUTHORITY_LOST")
+            .setFailureClass(FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST)
             .setCanContinueCurrentTask(false)
             .setCanAcceptNewTask(false)
             .setErrorHint(
@@ -705,6 +719,9 @@ class TaskHost(
          * 인스턴스가 아직 없으며, `RETRIABLE`·`NEEDS_INTERVENTION`은 스킬이
          * `READY`라 정지시킬 것이 없다.
          */
+        /** 실패 종착 셋 — `WatchTaskResponse.fault` 가 채워지는 상태. 계약 주석 *"종착이 실패인 경우에만"*. */
+        private val FAILURE_STATES = setOf(TaskState.FAILED, TaskState.RETRIABLE, TaskState.NEEDS_INTERVENTION)
+
         val FAULTABLE = setOf(TaskState.RUNNING, TaskState.PAUSED, TaskState.CANCELLING)
 
         /** §4.6의 코어 결함 — 들고 있던 것을 놓쳤다. 잔여 물리 상태가 이것만 본다. */

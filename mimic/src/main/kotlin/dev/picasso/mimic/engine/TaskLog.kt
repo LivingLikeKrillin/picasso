@@ -1,5 +1,6 @@
 package dev.picasso.mimic.engine
 
+import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldState
 import java.time.Instant
 
@@ -20,6 +21,12 @@ data class TaskUpdate(
     val occurredAt: Instant,
     /** §4.4의 잔여 물리 상태. 기본값(`UNSPECIFIED`)은 "엔진이 정하지 않았다"이며 [TaskHost.record]는 언제나 정한다. */
     val hold: HoldState = HoldState.getDefaultInstance(),
+    /**
+     * 종착이 실패(`FAILED`·`RETRIABLE`·`NEEDS_INTERVENTION`)일 때 그 태스크를 보낸
+     * 결함 — 계약의 `WatchTaskResponse.fault`(*"종착이 실패인 경우에만 채워진다"*).
+     * 정준 분류(`failure_class`)가 여기 실려 상류에 닿는다. 다른 상태에서는 `null`.
+     */
+    val fault: Fault? = null,
 )
 
 /**
@@ -48,6 +55,7 @@ class TaskLog {
         occurredAt: Instant,
         partialResult: String = "",
         hold: HoldState = HoldState.getDefaultInstance(),
+        fault: Fault? = null,
     ): TaskUpdate {
         val update = TaskUpdate(
             updateIndex = entries.size.toLong(),
@@ -58,6 +66,7 @@ class TaskLog {
             partialResult = partialResult,
             occurredAt = occurredAt,
             hold = hold,
+            fault = fault,
         )
         entries += update
         return update

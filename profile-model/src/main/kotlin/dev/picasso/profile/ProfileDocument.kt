@@ -107,6 +107,7 @@ class ProfileDocument private constructor(
                 canAcceptNewTask = f.path("can_accept_new_task").asBoolean(),
                 errorHint = f.field("error_hint")?.asText().orEmpty(),
                 activeUntil = f.field("active_until")?.asText(),
+                failureClass = f.field("failure_class")?.asText(),
             )
         }
     }
@@ -190,6 +191,13 @@ class ProfileDocument private constructor(
          * 아직 유효한가"를 추측하게 된다(§4.3이 없애려는 그 추측이다).
          */
         val activeUntil: String?,
+        /**
+         * 이 모드의 정준 분류(계약 `FailureClass` 의 이름, 접두사 없이). **선택이다** —
+         * 없으면 미믹이 `error_type` 에서 유도할 수 있는 것만 유도하고 나머지는
+         * `UNCLASSIFIED` 다. 프로파일이 *"이 스킬의 실패는 잡기 실패다"* 를 말하는 자리이며,
+         * 미믹이 스킬 이름을 보고 추측하지 않게 하는 것이 이 필드의 이유다.
+         */
+        val failureClass: String? = null,
     )
 
     companion object {

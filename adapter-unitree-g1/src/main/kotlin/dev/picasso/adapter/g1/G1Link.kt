@@ -85,6 +85,59 @@ interface SportService {
 }
 
 /**
+ * 벤더 API 가 돌려주는 **에러 코드** — `UT_DECL_ERR` 로 선언된 열하나 전부(서비스 넷: loco·
+ * arm_action·g1_agv·audio). 이름을 그대로 둔다.
+ *
+ * **정수 값은 여기 없다.** 매니페스트는 이름만 들이고(원문은 저장소 밖), 정수 → 이름은 SDK
+ * 헤더를 가진 남쪽 구현이 한다. 모르는 정수는 [UnitreeApiException.error] 가 널이다 — 접지 않는다.
+ *
+ * 정준 분류로 옮기는 표는 [G1Adapter] 에 있다. 이 기종은 태스크가 시계로 성공하므로 코드가
+ * 나오는 자리는 **보낼 때**뿐이고, 그래서 분류는 종착이 아니라 거절에 붙는다.
+ */
+enum class UnitreeError {
+    @VendorSurface("UT_ROBOT_LOCO_ERR_INVALID_FSM_ID")
+    UT_ROBOT_LOCO_ERR_INVALID_FSM_ID,
+
+    @VendorSurface("UT_ROBOT_LOCO_ERR_INVALID_TASK_ID")
+    UT_ROBOT_LOCO_ERR_INVALID_TASK_ID,
+
+    @VendorSurface("UT_ROBOT_LOCO_ERR_LOCOSTATE_NOT_AVAILABLE")
+    UT_ROBOT_LOCO_ERR_LOCOSTATE_NOT_AVAILABLE,
+
+    @VendorSurface("UT_ROBOT_ARM_ACTION_ERR_ARMSDK")
+    UT_ROBOT_ARM_ACTION_ERR_ARMSDK,
+
+    @VendorSurface("UT_ROBOT_ARM_ACTION_ERR_HOLDING")
+    UT_ROBOT_ARM_ACTION_ERR_HOLDING,
+
+    @VendorSurface("UT_ROBOT_ARM_ACTION_ERR_INVALID_ACTION_ID")
+    UT_ROBOT_ARM_ACTION_ERR_INVALID_ACTION_ID,
+
+    @VendorSurface("UT_ROBOT_ARM_ACTION_ERR_INVALID_FSM_ID")
+    UT_ROBOT_ARM_ACTION_ERR_INVALID_FSM_ID,
+
+    @VendorSurface("UT_ROBOT_G1_AGV_ERR_NOT_INIT")
+    UT_ROBOT_G1_AGV_ERR_NOT_INIT,
+
+    @VendorSurface("UT_ROBOT_G1_AGV_ERR_EXEC_MOVE")
+    UT_ROBOT_G1_AGV_ERR_EXEC_MOVE,
+
+    @VendorSurface("UT_ROBOT_G1_AGV_ERR_EXEC_HEIGHT_ADJUST")
+    UT_ROBOT_G1_AGV_ERR_EXEC_HEIGHT_ADJUST,
+
+    @VendorSurface("UT_ROBOT_AUDIO_ERR_COMM")
+    UT_ROBOT_AUDIO_ERR_COMM,
+}
+
+/**
+ * API 호출은 됐고 **로봇이 에러 코드로 답했다.** 전송 실패와 다르다 — 그쪽은 다른 예외다.
+ *
+ * @param error SDK 헤더가 이름을 붙인 코드. 널이면 헤더에 없는 정수다 — [rawCode] 가 전부다.
+ */
+class UnitreeApiException(val error: UnitreeError?, val rawCode: Int) :
+    RuntimeException("Unitree API error ${error?.name ?: "(unnamed)"} code=$rawCode")
+
+/**
  * 운동 상태 채널. 읽기만 한다.
  *
  * **여기 있는 것이 앞 판의 진술을 반쯤 뒤집는다.** `SportService` 의 주석은

@@ -1,5 +1,6 @@
 package dev.picasso.adapter.core
 
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 
 /**
@@ -24,7 +25,18 @@ import dev.picasso.contracts.v1.Fault
  */
 sealed interface Acceptance {
     data class Accepted(val taskId: String) : Acceptance
-    data class Refused(val reason: Refusal, val detail: String) : Acceptance
+
+    /**
+     * @param failureClass 거절이 **로봇의 답**이었을 때([Refusal.VENDOR_REJECTED]) 그 답의 정준
+     *   분류. 우리 쪽 사정(신원·파라미터·표면 부재)으로 거절한 것은 `UNSPECIFIED` 다.
+     * @param vendorDetail 벤더 원문 — 코드 이름과 정수. 로그의 것이지 분기의 것이 아니다.
+     */
+    data class Refused(
+        val reason: Refusal,
+        val detail: String,
+        val failureClass: FailureClass = FailureClass.FAILURE_CLASS_UNSPECIFIED,
+        val vendorDetail: String = "",
+    ) : Acceptance
 }
 
 /** 조작을 받았는가. 취소·일시정지가 공유한다. */
@@ -69,8 +81,18 @@ enum class Refusal {
     /** 이미 종착한 태스크다(§4.4의 래치). */
     TERMINAL_LATCHED,
 
-    /** 남쪽 호출이 실패했다. */
+    /** 남쪽 호출이 실패했다 — 전송이 안 됐다. 로봇이 답한 것이 아니다. */
     LINK_ERROR,
+
+    /**
+     * 남쪽 호출은 됐고 **로봇이 에러 코드로 거절했다.**
+     *
+     * [LINK_ERROR] 와 가르는 이유는 다음 행동이 다르기 때문이다 — 저쪽은 네트워크를,
+     * 이쪽은 로봇의 상태를 본다. 코드의 뜻은 [Acceptance.Refused.failureClass] 가 정준
+     * 분류로 나르고(G1 의 `LOCOSTATE_NOT_AVAILABLE` → `PRECONDITION_FAILED`), 코드 자체는
+     * [Acceptance.Refused.vendorDetail] 에 동반한다.
+     */
+    VENDOR_REJECTED,
 
     /**
      * 제어 권한을 잃었다(§4.9).

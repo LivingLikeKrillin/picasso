@@ -7,6 +7,7 @@ import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
 import kotlin.test.Test
@@ -90,6 +91,84 @@ class DigitAdapterTest {
 
         link.reported = ActionStatus.INACTIVE
         assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusSeconds(1)))
+    }
+
+    // ── 정준 실패 분류 (미들웨어 중앙 설계 §1.4) — 액션 종류로 가를 수 있는 데까지만
+
+    @Test
+    fun `집기가 실패하면 GRASP_FAILED 다 — 실행 트리가 어느 액션인지 말한다`() {
+        val link = FakeLink(error = "grasp slipped")
+        val a = DigitAdapter(link, identity)
+        a.accept("pick_place", pickPlace, t0)
+        link.tree = listOf(
+            ExecutionNode(
+                "action-sequential", ActionStatus.FAILURE,
+                children = listOf(ExecutionNode("action-pick", ActionStatus.FAILURE), ExecutionNode("action-place", null)),
+            ),
+        )
+        link.reported = ActionStatus.FAILURE
+
+        assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
+        val failure = a.failure()!!
+        assertEquals(FailureClass.FAILURE_CLASS_GRASP_FAILED, failure.failureClass)
+        assertTrue(failure.vendorDetail.contains("execution-state-node.action-type=action-pick"), failure.vendorDetail)
+        assertTrue(failure.vendorDetail.contains("info=grasp slipped"), failure.vendorDetail)
+        assertEquals("X_AGILITYROBOTICS_ACTION_FAILED", failure.errorType)
+    }
+
+    @Test
+    fun `놓기가 실패하면 PLACE_FAILED 다`() {
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("pick_place", pickPlace, t0)
+        link.tree = listOf(
+            ExecutionNode(
+                "action-sequential", ActionStatus.FAILURE,
+                children = listOf(ExecutionNode("action-pick", ActionStatus.SUCCESS), ExecutionNode("action-place", ActionStatus.FAILURE)),
+            ),
+        )
+        link.reported = ActionStatus.FAILURE
+
+        a.poll(t0.plusSeconds(1))
+        assertEquals(FailureClass.FAILURE_CLASS_PLACE_FAILED, a.failure()!!.failureClass)
+    }
+
+    @Test
+    fun `이동이 막히면 ROUTE_BLOCKED 이고 info 는 원문으로만 동반한다`() {
+        // 벤더의 failure 정의가 *"blocked from making progress towards its goal"* 이다 — 이동에서는 그 말 그대로다.
+        val link = FakeLink(error = "path obstructed by pallet")
+        val a = DigitAdapter(link, identity)
+        a.accept("navigate_to", navigate, t0)
+        link.reported = ActionStatus.FAILURE
+
+        a.poll(t0.plusSeconds(1))
+        val failure = a.failure()!!
+        assertEquals(FailureClass.FAILURE_CLASS_ROUTE_BLOCKED, failure.failureClass)
+        assertTrue(failure.vendorDetail.contains("info=path obstructed by pallet"), failure.vendorDetail)
+    }
+
+    @Test
+    fun `트리를 못 읽으면 집기인지 놓기인지 가르지 않는다`() {
+        val link = FakeLink(treeFails = true)
+        val a = DigitAdapter(link, identity)
+        a.accept("pick_place", pickPlace, t0)
+        link.reported = ActionStatus.FAILURE
+
+        a.poll(t0.plusSeconds(1))
+        val failure = a.failure()!!
+        assertEquals(FailureClass.FAILURE_CLASS_UNCLASSIFIED, failure.failureClass)
+        assertTrue(failure.vendorDetail.contains("get-execution-state failed"), failure.vendorDetail)
+    }
+
+    @Test
+    fun `권한을 잃어 죽은 태스크는 CONTROL_AUTHORITY_LOST 다`() {
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("navigate_to", navigate, t0)
+        link.privilege = PrivilegeState.LOST
+
+        assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
+        assertEquals(FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST, a.failure()!!.failureClass)
     }
 
     // ── 아는 이름을 답한다 (ADR 35)

@@ -7,6 +7,50 @@ option java_package = "dev.picasso.contracts.v1";
 
 import "picasso/v1/common.proto";
 
+// 정준 실패 분류 — 미들웨어 중앙 설계 §1.4 의 열다섯(2026-09-09 결정, 그대로).
+//
+// `error_type` 이 실패 **모드**의 이름(프로파일이 선언하고, 수명과 두 불리언을
+// 가지며, 벤더 확장 `X_` 이름공간이 있는 것)이라면, 이것은 그 실패가 **상류의
+// 판단에 무슨 뜻인가**의 분류다. 상류·실행 층(`picasso` 모듈)은 이것으로만
+// 분기한다. 벤더 코드에서 여기로 옮기는 것은 **어댑터**(기종을 아는 유일한 자리,
+// ADR 33)이고, 벤더 원문은 `Fault.vendor_detail` 에 동반한다 — 로그·사후
+// 분석용이지 분기의 입력이 아니다(보고서 16장 — 하류 상태 이름은 감춘다).
+//
+// 셋(`LOCALIZATION_LOST`·`PAYLOAD_LOST`·`CONTROL_AUTHORITY_LOST`)이 `error_type`
+// 코어와 이름이 같다 — 같은 뜻이라 같은 이름이며, 미믹은 그 모드에서 이 분류를
+// 유도한다. 나머지 모드(`SKILL_EXECUTION_FAILED` 같은 것)는 프로파일이
+// `failure_class` 를 따로 선언하지 않으면 `UNCLASSIFIED` 다.
+//
+// ADR 9(발신자 없는 선언 금지): 발신자 = 어댑터 셋(Spot 항법 피드백·행동 결함,
+// Digit 액션 종류, G1 에러 코드)과 미믹(프로파일 모드) · 소비자 = `picasso`
+// 미들웨어의 실행 단위(`ExecutionUnit.failureClass`).
+enum FailureClass {
+  FAILURE_CLASS_UNSPECIFIED = 0;
+  // 대상을 못 찾음·못 봄
+  FAILURE_CLASS_PERCEPTION_FAILED = 1;
+  // 잡을 방법이 없음 — 재시도해도 소용없고 대상을 바꿔야 한다
+  FAILURE_CLASS_GRASP_PLANNING_FAILED = 2;
+  FAILURE_CLASS_GRASP_FAILED = 3;
+  FAILURE_CLASS_PLACE_FAILED = 4;
+  // 들고 있던 것을 놓침
+  FAILURE_CLASS_PAYLOAD_LOST = 5;
+  // 갈 길이 막힘
+  FAILURE_CLASS_ROUTE_BLOCKED = 6;
+  // 갈 길이 없음
+  FAILURE_CLASS_NO_ROUTE = 7;
+  FAILURE_CLASS_LOCALIZATION_LOST = 8;
+  FAILURE_CLASS_CONTROL_AUTHORITY_LOST = 9;
+  FAILURE_CLASS_COMMAND_TIMED_OUT = 10;
+  // 다른 명령이 덮음
+  FAILURE_CLASS_COMMAND_OVERRIDDEN = 11;
+  FAILURE_CLASS_HARDWARE_FAULT = 12;
+  FAILURE_CLASS_ROBOT_FELL = 13;
+  // 시작 조건 미충족 — FSM·초기화·권한
+  FAILURE_CLASS_PRECONDITION_FAILED = 14;
+  // 벤더가 분류 불가한 정보만 줌. 어댑터가 지어내지 않았다는 뜻이다
+  FAILURE_CLASS_UNCLASSIFIED = 15;
+}
+
 // 설계 §4.6.
 // 설계노트 A-4는 재시도가능/이관가능/사람개입 3분류를 계약에 담자고 했으나
 // 이 계약은 3분류를 담지 않는다. 3분류는 처방이고 처방은 판단이며,
@@ -39,4 +83,12 @@ message Fault {
   string error_hint = 5;
 
   Lifetime active_until = 6;
+
+  // 정준 실패 분류(위). 종착이 실패인 태스크의 `WatchTaskResponse.fault` 는
+  // 이것을 든다 — 상류는 이것으로 분기한다.
+  FailureClass failure_class = 7;
+
+  // 벤더 원문 — 코드·메시지·상태 이름. 진단에 동반할 뿐 분기의 입력이 아니다.
+  // 비어 있을 수 있다(미믹의 코어 모드처럼 벤더가 없는 경우).
+  string vendor_detail = 8;
 }

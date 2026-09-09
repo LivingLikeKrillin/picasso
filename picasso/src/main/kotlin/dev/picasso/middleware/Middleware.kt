@@ -1,5 +1,6 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.RejectionCode
@@ -228,10 +229,10 @@ class Middleware(
             TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> unit.state = UnitState.ABORTED
 
             else -> {
-                // 계약이 실은 정준 분류(어댑터가 벤더 코드에서 옮긴 것). 안 실렸으면 상태 이름으로 남긴다 —
-                // 지어내지 않는다.
-                val failureClass = last.fault.errorType.takeIf { it.isNotBlank() } ?: last.state.name
-                failWithEvidenceCheck(execution, unit, failureClass, at = stateTime(last))
+                // 계약이 실은 **정준 분류**로만 분기한다(어댑터가 벤더 코드에서 옮긴 것, 미믹은 프로파일
+                // 모드에서). 하류 상태 이름·모드 이름·벤더 원문은 note 에 동반할 뿐이다 — 상류에는 분류만
+                // 간다(보고서 16장). 분류가 없으면 UNCLASSIFIED 이지 지어낸 분류가 아니다.
+                failWithEvidenceCheck(execution, unit, canonicalClass(last), detail = downstreamDetail(last), at = stateTime(last))
             }
         }
         if (execution.cancelRequested) {
@@ -283,7 +284,10 @@ class Middleware(
 
             TransportState.CANCELLED -> unit.state = UnitState.ABORTED
 
-            TransportState.FAILED -> failWithEvidenceCheck(execution, unit, status.detail ?: TransportState.FAILED.name, at = now())
+            // 플릿 계약은 분류를 안 싣는다 — 프로젝트용 계약의 남은 자리이며 여기서는 UNCLASSIFIED 다.
+            TransportState.FAILED -> failWithEvidenceCheck(
+                execution, unit, UNCLASSIFIED, detail = "fleet=${TransportState.FAILED.name} ${status.detail.orEmpty()}".trim(), at = now(),
+            )
         }
         if (execution.cancelRequested) {
             abort(
@@ -420,8 +424,9 @@ class Middleware(
      * 요구 등급이 설비 확인을 포함하면 지금 묻고, 시간창 안에 기대한 것이 있으면 `FAILED` 로
      * 적지 않고 [UnitState.OPERATOR_HOLD] 로 세운다 — 운영자가 [resolve] 로 판단한다.
      */
-    private fun failWithEvidenceCheck(execution: Execution, unit: ExecutionUnit, failureClass: String, at: Instant) {
+    private fun failWithEvidenceCheck(execution: Execution, unit: ExecutionUnit, failureClass: String, detail: String, at: Instant) {
         unit.failureClass = failureClass
+        unit.note = detail
         unit.downstreamDoneAt = at
         if (execution.order.requiredEvidence > Evidence.E1) {
             val window = execution.capability.evidenceWindow
@@ -434,7 +439,7 @@ class Middleware(
                 unit.verification = Verification.MATCHED
                 unit.evidenceAt = observedAt
                 unit.state = UnitState.OPERATOR_HOLD
-                unit.note = "downstream reported $failureClass but evidence present at ${unit.destination}"
+                unit.note = "downstream reported $failureClass ($detail) but evidence present at ${unit.destination}"
                 return
             }
         }
@@ -549,6 +554,22 @@ class Middleware(
         return true
     }
 
+    /** 계약의 정준 분류 이름(접두사 없이). 결함이 없거나 분류가 비어 있으면 [UNCLASSIFIED]. */
+    private fun canonicalClass(update: WatchTaskResponse): String =
+        update.fault.failureClass
+            .takeIf { update.hasFault() && it != FailureClass.FAILURE_CLASS_UNSPECIFIED && it != FailureClass.UNRECOGNIZED }
+            ?.name?.removePrefix("FAILURE_CLASS_")
+            ?: UNCLASSIFIED
+
+    /** 하류가 말한 그대로 — 상태 이름, 모드 이름, 벤더 원문. 로그의 것이지 분기의 것이 아니다. */
+    private fun downstreamDetail(update: WatchTaskResponse): String = buildString {
+        append("downstream=").append(update.state.name)
+        if (update.hasFault()) {
+            if (update.fault.errorType.isNotBlank()) append(" error_type=").append(update.fault.errorType)
+            if (update.fault.vendorDetail.isNotBlank()) append(" vendor=").append(update.fault.vendorDetail)
+        }
+    }
+
     /** 하류 갱신의 시각 — 헤더의 `state_as_of`(§5.5). 없거나 못 읽으면 지금. */
     private fun stateTime(update: WatchTaskResponse): Instant = try {
         update.header.stateAsOf.takeIf { it.isNotBlank() }?.let { Instant.parse(it) } ?: now()
@@ -573,5 +594,8 @@ class Middleware(
         const val WAITING_HANDOVER = "WAITING_HANDOVER"
 
         const val FLEET_REJECTED = "FLEET_REJECTED"
+
+        /** 계약 `FailureClass.UNCLASSIFIED` 의 이름 — 하류가 분류를 안 실었을 때의 값. 지어낸 분류가 아니다. */
+        const val UNCLASSIFIED = "UNCLASSIFIED"
     }
 }

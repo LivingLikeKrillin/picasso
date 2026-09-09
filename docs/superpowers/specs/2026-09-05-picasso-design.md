@@ -470,6 +470,8 @@ Fault {
   repeated Reference references
   string   error_hint                 사람이 취할 조치
   Lifetime active_until
+  FailureClass failure_class          정준 실패 분류 — 상류는 이것으로만 분기한다 (0.6.0, §15.91)
+  string   vendor_detail              벤더 원문 — 진단 동반, 분기 입력 아님 (0.6.0)
 }
 ```
 
@@ -2082,3 +2084,34 @@ mimic/
     - 실패 시 설비 확인은 **요구 등급이 E2 이상일 때만** 묻는다. E0·E1 요구에서 로봇이 실패라 하면 설비가 무엇을 보든 `FAILED` 다 — 상류가 설비를 안 믿기로 한 것이니 우리가 대신 믿지 않는다.
     - 시간창 안에서 폴링을 잘게 하려고 시험의 걸음이 5초다(앞 판 30초). 플릿 시험은 틱 하나를 10초로 친다. 둘 다 시험의 약속이지 설비의 값이 아니다.
     - `t_r` 을 헤더의 `state_as_of` 에서 읽는 것은 미믹이 그 자리에 응답 시각을 넣기 때문에 성립한다. 실물 어댑터가 무엇을 넣는지는 어댑터마다 확인할 일이다(§5.5).
+
+91. **정준 실패 분류가 계약을 탄다 — 어댑터가 벤더 코드를 옮기고, 상류는 분류로만 분기한다(계약 0.6.0).**
+
+    정준 모델의 넷(태스크·상태·**실패 분류**·능력 표현) 중 실패 분류가 마지막까지 비어 있었다. `Fault.error_type` 은 실패 *모드*의 이름(프로파일이 선언, 수명과 두 불리언, `X_` 벤더 이름공간)이지 *상류에 무슨 뜻인가* 가 아니었고, README 가 *"가장 큰 남은 공백은 결과 어휘다"* 라고 적고 있었다. 미들웨어 중앙 설계 §1.4 의 열다섯(2026-09-09 결정, 그대로)을 계약에 넣었다(계획 단계 5).
+
+    ### 계약 — 두 필드, 한 열거
+
+    `FailureClass` 열다섯 + `UNSPECIFIED`, `Fault.failure_class`, `Fault.vendor_detail`. **모드와 분류는 다른 것이라 두 필드다** — `LOCALIZATION_LOST`·`PAYLOAD_LOST`·`CONTROL_AUTHORITY_LOST` 셋은 이름이 같고 같은 뜻이며 미믹은 그 모드에서 분류를 유도한다. 원문(코드·상태 이름·메시지)은 `vendor_detail` 에 **동반**한다 — 로그와 사후 분석의 것이지 분기의 입력이 아니다(보고서 16장). ADR 9: 발신자 = 어댑터 셋 + 미믹, 소비자 = `picasso` 의 `ExecutionUnit.failureClass`. buf 파괴 검사는 추가라 통과.
+
+    ### 옮기는 자리는 어댑터다 — 기종마다 코드가 **나오는 자리**가 달랐다
+
+    | 기종 | 코드가 나오는 자리 | 새 남쪽 표면 | 옮김 |
+    |---|---|---|---|
+    | Spot | 미션 `State.status` 는 `FAILURE` 까지만 — **이유는 항법 서비스에 있다** | `GraphLayer.navigationFeedback()`(`NavigationFeedbackResponse.Status` 열넷) · `SpotLink.behaviorFaults()`(`BehaviorFault.Cause` 넷) | `STUCK`·`AREA_CALLBACK_ERROR`·`CONSTRAINT_FAULT` → `ROUTE_BLOCKED` · `NO_ROUTE` · `LOST`·`NO_LOCALIZATION`·`NOT_LOCALIZED_TO_ROUTE` → `LOCALIZATION_LOST` · `LEASE_ERROR` → `CONTROL_AUTHORITY_LOST` · `COMMAND_TIMED_OUT`/`OVERRIDDEN` · `ROBOT_IMPAIRED` → `HARDWARE_FAULT` · `CAUSE_FALL` → `ROBOT_FELL` · `CAUSE_HARDWARE` → `HARDWARE_FAULT` |
+    | Digit | `action-status.failure` 하나 — 이유는 사람이 읽는 `info` 뿐 | (기존) 실행 트리 | **액션 종류로 가를 수 있는 데까지만** — `pick_place` 는 실패한 마디가 `action-pick` 이면 `GRASP_FAILED`, `action-place` 면 `PLACE_FAILED`; 이동은 벤더의 정의(*blocked from making progress*) 그대로 `ROUTE_BLOCKED`; 트리를 못 읽으면 `UNCLASSIFIED` |
+    | G1 | 태스크는 시계로 성공한다 — 코드는 **보낼 때**만 나온다 | `UnitreeError`(`UT_DECL_ERR` 열하나) · `UnitreeApiException` | 종착이 아니라 **거절**에 붙는다: `Refusal.VENDOR_REJECTED` + `Refused.failureClass`. `LOCO_ERR_INVALID_FSM_ID`·`LOCOSTATE_NOT_AVAILABLE`·`ARM_ACTION_ERR_INVALID_FSM_ID`·`ARM_ACTION_ERR_HOLDING`·`G1_AGV_ERR_NOT_INIT` → `PRECONDITION_FAILED`, 그 밖 → `UNCLASSIFIED`. 기체 결함은 과열 → `HARDWARE_FAULT`, FSM 불일치 → `PRECONDITION_FAILED` |
+    | 미믹 | 프로파일 모드 | 스키마에 `failure_class` 선택 필드 | 선언이 이긴다 · 이름이 같은 코어 셋만 유도 · 나머지 `UNCLASSIFIED`(스킬 이름으로 추측하지 않는다). 태스크를 실패로 보낸 결함을 `TaskRuntime.failure` 에 붙여 **실패 상태의 갱신에만** 실으므로 `WatchTaskResponse.fault` 가 채워진다 |
+
+    새 남쪽 타입 셋(`NavigationStatus`·`BehaviorFaultCause`·`UnitreeError`)은 매니페스트 시험 목록에 들어갔다 — 짚은 이름 전부 원문에 있고 멤버마다 짚은 것이 있다.
+
+    ### 미들웨어
+
+    `Middleware` 는 `fault.failure_class` 로만 분기한다. 없으면 `UNCLASSIFIED` 이지 상태 이름이 아니다 — 앞 판(§15.90 정직 항목)이 새고 있던 `TASK_STATE_RETRIABLE` 이 상류 통보에서 사라졌다. 하류 상태 이름·모드 이름·벤더 원문은 단위의 `note` 에만 남는다(`downstream=TASK_STATE_RETRIABLE error_type=SKILL_EXECUTION_FAILED`). `EvidenceWindowTest` 가 그 둘을 나눠 단언한다.
+
+    ### 정직하게 적어 둘 것
+
+    - **거동은 여전히 안 봤다.** 매니페스트가 보증하는 것은 이름의 실재뿐이다(C-3). 특히 Spot `NavigationFeedback` 의 `command_id` 를 비우면 최근 명령의 것이라는 진술은 벤더 proto 주석에서 온 것이고 실물에서 확인한 바 없다.
+    - Spot 명령 계층(`move_relative`)의 실패는 여전히 관측하지 않는다 — 시계로 성공한다. `RobotCommandFeedbackStatus` 가 있으니 자리는 있고, 소비하는 스킬이 그 표면을 요구하는 날 연다(ADR 9).
+    - `PERCEPTION_FAILED`·`GRASP_PLANNING_FAILED` 는 열거에 있으나 **지금 발신자가 없다** — Spot 의 `ManipulationFeedbackState` 는 `pick_place` 를 이 어댑터가 아직 안 들어 읽을 자리가 없고, Digit 은 대상 부재를 보낼 때 오류 봉투로 답한다(모양이 어디에도 안 적혀 있다). 열거에 둔 근거는 §1.4 의 측정(벤더가 그 값을 낸다)이지 우리 어댑터가 낸다는 것이 아니다. ADR 9 의 발신자는 벤더이고 소비자는 미들웨어이며, 어댑터 경로가 비어 있음을 여기 적는다.
+    - 플릿 계약(`AmrFleetPort`)은 분류를 안 싣는다 — 프로젝트용 계약에 남은 자리이고 지금은 `UNCLASSIFIED` 다.
+    - 결함 주입 아홉(분류 무시 · 로그 미부착 · 선언 무시 · Spot 둘 · Digit 둘 · G1 둘) 전부 겨냥한 시험이 잡았다 — 처음 두 번은 주입 자체가 안 돌았다(CRLF 를 가로지른 앵커, 컴파일 안 되는 주입). **못 잡음이면 주입부터 의심**이 이번에도 맞았다.

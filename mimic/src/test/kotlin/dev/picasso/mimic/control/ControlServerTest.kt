@@ -310,7 +310,7 @@ class ControlServerTest {
                 "can_accept_new_task",
                 "references",
                 "error_hint",
-                "active_until",
+                "active_until", "failure_class", "vendor_detail",
             ),
             Fault.getDescriptor().fields.map { it.name },
             "계약의 Fault가 바뀌었다 — InternalFault와 flatten()을 함께 고쳐라",

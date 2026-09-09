@@ -604,6 +604,8 @@ class ControlServer(
             .setSkillId(reference(fault, Reference.Key.KEY_SKILL_ID))
             .setTaskId(reference(fault, Reference.Key.KEY_TASK_ID))
             .setErrorHint(fault.errorHint)
+            .setFailureClass(fault.failureClass.name)
+            .setVendorDetail(fault.vendorDetail)
             .build()
 
         private fun reference(fault: Fault, key: Reference.Key): String =

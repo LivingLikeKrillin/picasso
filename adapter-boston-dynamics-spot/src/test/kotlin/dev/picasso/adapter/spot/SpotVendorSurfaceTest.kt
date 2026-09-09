@@ -43,6 +43,8 @@ class SpotVendorSurfaceTest {
             MissionState::class.java,
             MissionStatus::class.java,
             LeaseStatus::class.java,
+            NavigationStatus::class.java,
+            BehaviorFaultCause::class.java,
         )
     }
 }

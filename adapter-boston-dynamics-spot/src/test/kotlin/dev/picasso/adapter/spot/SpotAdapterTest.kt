@@ -7,6 +7,7 @@ import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
 import kotlin.test.Test
@@ -450,10 +451,89 @@ class SpotAdapterTest {
         private vararg val waypoints: Pair<String, String>,
         private val fail: Throwable? = null,
     ) : GraphLayer {
+        /** `NavigationFeedbackResponse.status` 의 답. 널이면 항법 명령이 없었던 것. */
+        var feedback: NavigationStatus? = null
+        var feedbackFails = false
+
         override fun downloadGraph(): Result<List<GraphWaypoint>> {
             fail?.let { return Result.failure(it) }
             return Result.success(waypoints.map { GraphWaypoint(it.first, it.second) })
         }
+
+        override fun navigationFeedback(): Result<NavigationStatus?> =
+            if (feedbackFails) Result.failure(IllegalStateException("피드백을 못 받았다")) else Result.success(feedback)
+    }
+
+    // ── 정준 실패 분류 (미들웨어 중앙 설계 §1.4) — 벤더 코드를 옮기는 자리는 어댑터다
+
+    private fun failedNavigation(feedback: NavigationStatus?, feedbackFails: Boolean = false): SpotAdapter {
+        val graph = mapped().also { it.feedback = feedback; it.feedbackFails = feedbackFails }
+        val a = adapter(mission = FakeMission(MissionState(MissionStatus.FAILURE)), graph = graph)
+        assertIs<Acceptance.Accepted>(a.accept("navigate_to", navigate, t0))
+        assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
+        return a
+    }
+
+    @Test
+    fun `항법이 막히면 ROUTE_BLOCKED 다 — 미션은 실패만 말하고 이유는 항법 피드백에 있다`() {
+        val failure = failedNavigation(NavigationStatus.STATUS_STUCK).failure()!!
+        assertEquals(FailureClass.FAILURE_CLASS_ROUTE_BLOCKED, failure.failureClass)
+        // 벤더 원문은 동반한다 — 미션 상태와 항법 상태 둘 다, 이름 그대로.
+        assertTrue(failure.vendorDetail.contains("State.status=FAILURE"), failure.vendorDetail)
+        assertTrue(failure.vendorDetail.contains("NavigationFeedbackResponse.status=STATUS_STUCK"), failure.vendorDetail)
+        assertEquals("X_BOSTONDYNAMICS_NAVIGATION_STUCK", failure.errorType)
+    }
+
+    @Test
+    fun `위치를 잃으면 LOCALIZATION_LOST 이고 모드 이름은 코어다`() {
+        val failure = failedNavigation(NavigationStatus.STATUS_LOST).failure()!!
+        assertEquals(FailureClass.FAILURE_CLASS_LOCALIZATION_LOST, failure.failureClass)
+        assertEquals("LOCALIZATION_LOST", failure.errorType)
+    }
+
+    @Test
+    fun `길이 없는 것과 막힌 것은 다른 분류다`() {
+        assertEquals(FailureClass.FAILURE_CLASS_NO_ROUTE, failedNavigation(NavigationStatus.STATUS_NO_ROUTE).failure()!!.failureClass)
+        assertEquals(FailureClass.FAILURE_CLASS_ROUTE_BLOCKED, failedNavigation(NavigationStatus.STATUS_AREA_CALLBACK_ERROR).failure()!!.failureClass)
+    }
+
+    @Test
+    fun `피드백을 못 읽으면 분류하지 않는다 — UNCLASSIFIED 에 원문만`() {
+        val failure = failedNavigation(feedback = null, feedbackFails = true).failure()!!
+        assertEquals(FailureClass.FAILURE_CLASS_UNCLASSIFIED, failure.failureClass)
+        assertTrue(failure.vendorDetail.contains("NavigationFeedback failed"), failure.vendorDetail)
+    }
+
+    @Test
+    fun `성공한 태스크에는 실패가 없다`() {
+        val a = adapter(mission = FakeMission(MissionState(MissionStatus.SUCCESS)))
+        a.accept("navigate_to", navigate, t0)
+        assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(t0.plusSeconds(1)))
+        assertEquals(null, a.failure())
+    }
+
+    @Test
+    fun `넘어짐은 ROBOT_FELL 로 온다 — 행동 결함의 원인을 벤더가 가른다`() {
+        val a = SpotAdapter(
+            FakeLink(FakeCommand(), FakeMission(), mapped(), behavior = listOf(BehaviorFaultCause.CAUSE_FALL, BehaviorFaultCause.CAUSE_HARDWARE)),
+            identity,
+        )
+        val observed = assertIs<FaultObservation.Observed>(a.faults())
+        val classes = observed.faults.filter { it.errorType == "X_BOSTONDYNAMICS_BEHAVIOR_FAULT" }.map { it.failureClass to it.vendorDetail }
+        assertEquals(
+            listOf(
+                FailureClass.FAILURE_CLASS_ROBOT_FELL to "BehaviorFault.cause=CAUSE_FALL",
+                FailureClass.FAILURE_CLASS_HARDWARE_FAULT to "BehaviorFault.cause=CAUSE_HARDWARE",
+            ),
+            classes,
+        )
+    }
+
+    @Test
+    fun `행동 결함을 못 읽으면 없다고 하지 않는다`() {
+        val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), behaviorFails = true), identity)
+        val observed = assertIs<FaultObservation.Observed>(a.faults())
+        assertTrue(observed.faults.any { it.errorType == "X_BOSTONDYNAMICS_BEHAVIOR_FAULTS_UNKNOWN" })
     }
 
     // ── 잔여 물리 상태 (§4.4) — 벤더가 불리언을 준다
@@ -514,8 +594,14 @@ class SpotAdapterTest {
         /** 그리퍼 — `true`/`false`, 팔 없음은 `null`. [gripperFails]면 읽기 실패. */
         private val gripper: Boolean? = false,
         private val gripperFails: Boolean = false,
+        /** `BehaviorFaultState.faults[].cause`. 기본은 결함 없음. */
+        private val behavior: List<BehaviorFaultCause> = emptyList(),
+        private val behaviorFails: Boolean = false,
     ) : SpotLink {
         var armAsks = 0
+
+        override fun behaviorFaults(): Result<List<BehaviorFaultCause>> =
+            if (behaviorFails) Result.failure(IllegalStateException("상태를 못 받았다")) else Result.success(behavior)
 
         override fun gripperHoldingItem(): Result<Boolean?> =
             if (gripperFails) Result.failure(IllegalStateException("상태를 못 받았다")) else Result.success(gripper)

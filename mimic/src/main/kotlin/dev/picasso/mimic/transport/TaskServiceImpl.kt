@@ -346,6 +346,8 @@ class TaskServiceImpl(
         .setProgress(update.progress)
         .setPartialResult(update.partialResult)
         .setHold(update.hold)
+        // 종착이 실패인 경우에만 채워진다(계약 주석). 정준 분류가 상류에 닿는 자리다.
+        .also { builder -> update.fault?.let { builder.setFault(it) } }
         .build()
 
     private fun handleOf(task: TaskRuntime, hosted: RobotRegistry.Hosted): TaskHandle =

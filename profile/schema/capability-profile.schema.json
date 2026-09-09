@@ -328,6 +328,16 @@
       ],
       "properties": {
         "error_type": { "$ref": "#/$defs/errorType" },
+        "failure_class": {
+          "description": "이 모드가 상류에 무슨 뜻인가 — 계약 fault.proto 의 FailureClass(접두사 없이). 없으면 미믹이 error_type 에서 유도한다: LOCALIZATION_LOST·PAYLOAD_LOST 는 같은 이름, 그 밖은 UNCLASSIFIED.",
+          "type": "string",
+          "enum": [
+            "PERCEPTION_FAILED", "GRASP_PLANNING_FAILED", "GRASP_FAILED", "PLACE_FAILED",
+            "PAYLOAD_LOST", "ROUTE_BLOCKED", "NO_ROUTE", "LOCALIZATION_LOST",
+            "CONTROL_AUTHORITY_LOST", "COMMAND_TIMED_OUT", "COMMAND_OVERRIDDEN",
+            "HARDWARE_FAULT", "ROBOT_FELL", "PRECONDITION_FAILED", "UNCLASSIFIED"
+          ]
+        },
         "skill_type": {
           "description": "있으면 스킬 수준 결함, 없으면 로봇 수준 결함이다. 설계 §4.6.",
           "type": "string",

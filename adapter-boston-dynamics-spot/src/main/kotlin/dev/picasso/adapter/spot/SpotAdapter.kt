@@ -7,6 +7,8 @@ import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.adapter.core.classifiedFault
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.wire.isTerminal
@@ -310,9 +312,73 @@ class SpotAdapter(
                         MissionStatus.NONE, MissionStatus.UNKNOWN -> current.state
                     }
                 }
+                // **실패의 이유는 미션이 아니라 항법이 안다.** 미션 상태는 FAILURE 까지이고, 정준
+                // 분류는 항법 피드백에서 온다 — 한 번, 종착하는 그 폴에서 묻는다.
+                if (current.state == TaskState.TASK_STATE_FAILED && current.failure == null && reported != null) {
+                    current.failure = navigationFailure(reported.status)
+                }
             }
         }
         return current.state
+    }
+
+    /** 종착이 실패인 태스크의 계약 `Fault` — 정준 분류와 벤더 원문. 실패가 아니면 널. */
+    fun failure(): Fault? = task?.failure
+
+    /**
+     * 항법 실패를 정준 분류로 옮긴다(미들웨어 중앙 설계 §1.4 의 표).
+     *
+     * | 항법 피드백 | 분류 |
+     * |---|---|
+     * | `STUCK`·`AREA_CALLBACK_ERROR`·`CONSTRAINT_FAULT` | `ROUTE_BLOCKED` |
+     * | `NO_ROUTE` | `NO_ROUTE` |
+     * | `LOST`·`NO_LOCALIZATION`·`NOT_LOCALIZED_TO_ROUTE` | `LOCALIZATION_LOST` |
+     * | `LEASE_ERROR` | `CONTROL_AUTHORITY_LOST` |
+     * | `COMMAND_TIMED_OUT` / `COMMAND_OVERRIDDEN` | 같은 이름 |
+     * | `ROBOT_IMPAIRED` | `HARDWARE_FAULT` |
+     * | `UNKNOWN`·`FOLLOWING_ROUTE`·`REACHED_GOAL`·못 물음 | `UNCLASSIFIED` — 지어내지 않는다 |
+     *
+     * `error_type` 은 분류가 코어와 같은 이름이면 코어를, 아니면 벤더 이름공간에 항법 상태
+     * 이름을 붙여 쓴다(`X_BOSTONDYNAMICS_NAVIGATION_STUCK`) — 모드의 이름에도 벤더의 낱말이 남는다.
+     */
+    private fun navigationFailure(missionStatus: MissionStatus): Fault {
+        val feedback = link.graph?.navigationFeedback()
+        val status = feedback?.getOrNull()
+        val failureClass = when (status) {
+            NavigationStatus.STATUS_STUCK, NavigationStatus.STATUS_AREA_CALLBACK_ERROR,
+            NavigationStatus.STATUS_CONSTRAINT_FAULT -> FailureClass.FAILURE_CLASS_ROUTE_BLOCKED
+            NavigationStatus.STATUS_NO_ROUTE -> FailureClass.FAILURE_CLASS_NO_ROUTE
+            NavigationStatus.STATUS_LOST, NavigationStatus.STATUS_NO_LOCALIZATION,
+            NavigationStatus.STATUS_NOT_LOCALIZED_TO_ROUTE -> FailureClass.FAILURE_CLASS_LOCALIZATION_LOST
+            NavigationStatus.STATUS_LEASE_ERROR -> FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST
+            NavigationStatus.STATUS_COMMAND_TIMED_OUT -> FailureClass.FAILURE_CLASS_COMMAND_TIMED_OUT
+            NavigationStatus.STATUS_COMMAND_OVERRIDDEN -> FailureClass.FAILURE_CLASS_COMMAND_OVERRIDDEN
+            NavigationStatus.STATUS_ROBOT_IMPAIRED -> FailureClass.FAILURE_CLASS_HARDWARE_FAULT
+            NavigationStatus.STATUS_UNKNOWN, NavigationStatus.STATUS_FOLLOWING_ROUTE,
+            NavigationStatus.STATUS_REACHED_GOAL, null -> FailureClass.FAILURE_CLASS_UNCLASSIFIED
+        }
+        val detail = buildString {
+            append("mission State.status=").append(missionStatus.name)
+            when {
+                feedback == null -> append("; graph layer absent")
+                feedback.isFailure -> append("; NavigationFeedback failed: ").append(feedback.exceptionOrNull()?.message)
+                status == null -> append("; NavigationFeedback: no navigation command")
+                else -> append("; NavigationFeedbackResponse.status=").append(status.name)
+            }
+        }
+        val errorType = when (failureClass) {
+            FailureClass.FAILURE_CLASS_LOCALIZATION_LOST -> "LOCALIZATION_LOST"
+            FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST -> "CONTROL_AUTHORITY_LOST"
+            else -> "X_BOSTONDYNAMICS_NAVIGATION_" + (status?.name?.removePrefix("STATUS_") ?: "FAILED")
+        }
+        return classifiedFault(
+            errorType = errorType,
+            failureClass = failureClass,
+            vendorDetail = detail,
+            errorHint = "항법이 실패했습니다($detail). 경로와 측위 상태를 확인한 뒤 재시도하십시오.",
+            canContinueCurrentTask = false,
+            canAcceptNewTask = failureClass != FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST,
+        )
     }
 
     /**
@@ -436,11 +502,29 @@ class SpotAdapter(
         authorityLost?.let {
             faults += Fault.newBuilder()
                 .setErrorType("CONTROL_AUTHORITY_LOST")
+                .setFailureClass(FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST)
+                .setVendorDetail("LeaseUseResult.Status=$it")
                 .setCanContinueCurrentTask(false)
                 .setCanAcceptNewTask(false)
                 .setErrorHint("리스를 잃었습니다($it). 다른 클라이언트가 기체를 쥐었는지 확인하십시오.")
                 .build()
         }
+
+        // **행동 결함은 원인이 붙어서 온다** — 넘어짐·하드웨어·리스 만료. 정준 분류의 ROBOT_FELL 과
+        // HARDWARE_FAULT 가 이 기종에서 나오는 자리다. 못 읽었으면 없다고 하지 않는다.
+        link.behaviorFaults().fold(
+            onSuccess = { causes -> causes.forEach { faults += behaviorFault(it) } },
+            onFailure = {
+                faults += classifiedFault(
+                    errorType = "X_BOSTONDYNAMICS_BEHAVIOR_FAULTS_UNKNOWN",
+                    failureClass = FailureClass.FAILURE_CLASS_UNSPECIFIED,
+                    vendorDetail = "GetRobotState failed: ${it.message}",
+                    errorHint = "행동 결함을 못 읽었습니다(${it.message}). 없다는 뜻이 아닙니다.",
+                    canContinueCurrentTask = true,
+                    canAcceptNewTask = true,
+                )
+            },
+        )
 
         task?.question?.let {
             faults += Fault.newBuilder()
@@ -503,6 +587,24 @@ class SpotAdapter(
         )
     }
 
+    /** `BehaviorFault.cause` → 정준 분류. `CAUSE_UNKNOWN` 은 벤더도 모르는 것이라 `UNCLASSIFIED` 다. */
+    private fun behaviorFault(cause: BehaviorFaultCause): Fault {
+        val (failureClass, hint) = when (cause) {
+            BehaviorFaultCause.CAUSE_FALL -> FailureClass.FAILURE_CLASS_ROBOT_FELL to "기체가 넘어졌습니다. 현장에서 자세를 복구하고 결함을 해소하십시오."
+            BehaviorFaultCause.CAUSE_HARDWARE -> FailureClass.FAILURE_CLASS_HARDWARE_FAULT to "하드웨어 행동 결함입니다. 벤더 진단을 확인하십시오."
+            BehaviorFaultCause.CAUSE_LEASE_TIMEOUT -> FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST to "리스가 만료됐습니다. 제어 권한을 다시 잡으십시오."
+            BehaviorFaultCause.CAUSE_UNKNOWN -> FailureClass.FAILURE_CLASS_UNCLASSIFIED to "원인 미상의 행동 결함입니다. 벤더 진단을 확인하십시오."
+        }
+        return classifiedFault(
+            errorType = "X_BOSTONDYNAMICS_BEHAVIOR_FAULT",
+            failureClass = failureClass,
+            vendorDetail = "BehaviorFault.cause=${cause.name}",
+            errorHint = hint,
+            canContinueCurrentTask = false,
+            canAcceptNewTask = false,
+        )
+    }
+
     /** 태스크가 올라탄 벤더 계층. **어느 층이냐가 조작의 답을 바꾼다.** */
     private enum class Layer { COMMAND, MISSION }
 
@@ -513,6 +615,8 @@ class SpotAdapter(
         val durationSeconds: Double?,
         var state: TaskState,
         var question: String? = null,
+        /** 종착이 실패일 때의 계약 `Fault` — 정준 분류 + 벤더 원문. */
+        var failure: Fault? = null,
     )
 
     private companion object {

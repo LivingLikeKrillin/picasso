@@ -184,7 +184,7 @@ ISA-95 Job Control 의 `JobOrder`/`JobResponse` 모양(`scenarios.md` §4.1 의 
 2. **`middleware` 최소 + 시나리오 ②** — 접수·조합(슬롯마다 `pick_place`)·실행 상태기계·JobResponse. mimic 위에서. 셀 검증은 PLC/WCS Mimic 으로 E2.
 3. ~~PLC/WCS Mimic + 근거 결합~~ **됐다(2026-09-10, §15.90)** — 시간창 δ · `VERIFYING` 재확인 · 래치 · 12.3 의 셋(무응답 행은 6 에서).
 4. **AMR Fleet Mock + 시나리오 ①** — D 수준 위임, 인계 신호 결합, 응답 유실 후 재전송(통보 재시도 ≠ 명령 재시도).
-5. **정준 실패 분류 → 어댑터 매핑** — Spot·Digit·G1 이 벤더 코드를 분류로 옮기고 원문을 동반. 매니페스트 시험 대조.
+5. ~~정준 실패 분류 → 어댑터 매핑~~ **됐다(2026-09-10, §15.91, 계약 0.6.0)** — `FailureClass` 가 계약을 타고, Spot·Digit·G1·미믹이 옮기며, 원문은 `vendor_detail` 에 동반. 발신자 없는 값 둘(`PERCEPTION_FAILED`·`GRASP_PLANNING_FAILED`)은 §15.91 정직 항목.
 6. **IN_DOUBT 해소·지연 이벤트·`OPERATOR_HOLD`** — 17장 3·6.
 7. **③ 회귀** — `InspectAsset` 추가로 공통 엔진 무변경 확인.
 

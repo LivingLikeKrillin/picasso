@@ -1,5 +1,6 @@
 package dev.picasso.mimic.engine
 
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.Lifetime
 import dev.picasso.contracts.v1.Reference
@@ -66,12 +67,33 @@ class FailureDraw(private val document: ProfileDocument) {
          * 소비자가 "이 결함이 아직 유효한가"를 추측하게 되는데, §4.3의
          * `Lifetime`이 그 추측을 없애려고 있는 필드다.
          */
+        /**
+         * 모드의 정준 분류(계약 `FailureClass`, 미들웨어 중앙 설계 §1.4).
+         *
+         * 프로파일이 `failure_class` 를 선언했으면 그것이다. 아니면 `error_type` 에서
+         * **유도할 수 있는 것만** 유도한다 — 이름이 같은 셋. `SKILL_EXECUTION_FAILED`
+         * 는 "스킬이 실패했다" 이상을 말하지 않으므로 `UNCLASSIFIED` 다. 여기서
+         * 스킬 이름을 보고 잡기 실패라 추측하지 않는다 — 그것은 프로파일이 선언할 일이다.
+         */
+        fun failureClassOf(mode: ProfileDocument.FailureModeEntry): FailureClass =
+            mode.failureClass?.let { FailureClass.valueOf("FAILURE_CLASS_$it") }
+                ?: when (mode.errorType) {
+                    "LOCALIZATION_LOST" -> FailureClass.FAILURE_CLASS_LOCALIZATION_LOST
+                    "PAYLOAD_LOST" -> FailureClass.FAILURE_CLASS_PAYLOAD_LOST
+                    "CONTROL_AUTHORITY_LOST" -> FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST
+                    else -> FailureClass.FAILURE_CLASS_UNCLASSIFIED
+                }
+
         fun faultOf(
             mode: ProfileDocument.FailureModeEntry,
             skillType: String,
             taskId: String,
         ): Fault = Fault.newBuilder()
             .setErrorType(mode.errorType)
+            .setFailureClass(failureClassOf(mode))
+            // 벤더 원문의 자리다. 미믹에 벤더는 없으니 벤더 이름공간(`X_`)의 모드만
+            // 그 이름을 실어 — 어댑터가 실물 코드를 싣는 자리와 같은 자리다.
+            .setVendorDetail(if (mode.errorType.startsWith("X_")) mode.errorType else "")
             .setCanContinueCurrentTask(mode.canContinueCurrentTask)
             .setCanAcceptNewTask(mode.canAcceptNewTask)
             .setErrorHint(mode.errorHint)

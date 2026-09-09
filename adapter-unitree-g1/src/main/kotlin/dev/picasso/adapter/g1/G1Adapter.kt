@@ -7,6 +7,7 @@ import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.wire.isTerminal
@@ -102,6 +103,9 @@ class G1Adapter(
             durationSeconds = duration,
         )
         outcome.exceptionOrNull()?.let {
+            // **전송 실패와 로봇의 거절은 다르다.** 코드가 왔으면 로봇이 답한 것이고 그 뜻을
+            // 정준 분류로 옮긴다 — 이 기종은 태스크가 시계로 성공하므로 코드가 나올 자리가 여기뿐이다.
+            if (it is UnitreeApiException) return vendorRejected(it)
             return Acceptance.Refused(Refusal.LINK_ERROR, "SetVelocity 가 실패했다: ${it.message}")
         }
 
@@ -112,6 +116,31 @@ class G1Adapter(
         val id = "${identity.robotId}-$issued"
         task = RunningTask(id, startedAt, duration, TaskState.TASK_STATE_RUNNING)
         return Acceptance.Accepted(id)
+    }
+
+    /**
+     * 벤더 에러 코드 → 정준 분류(미들웨어 중앙 설계 §1.4).
+     *
+     * | 코드 | 분류 |
+     * |---|---|
+     * | `LOCO_ERR_INVALID_FSM_ID`·`LOCOSTATE_NOT_AVAILABLE`·`ARM_ACTION_ERR_INVALID_FSM_ID`·`G1_AGV_ERR_NOT_INIT`·`ARM_ACTION_ERR_HOLDING` | `PRECONDITION_FAILED` — 로봇이 그 명령을 받을 상태가 아니다 |
+     * | 그 밖(잘못된 id·SDK·통신·실행 실패)과 이름 없는 정수 | `UNCLASSIFIED` — 뜻을 지어내지 않는다 |
+     */
+    private fun vendorRejected(e: UnitreeApiException): Acceptance.Refused {
+        val failureClass = when (e.error) {
+            UnitreeError.UT_ROBOT_LOCO_ERR_INVALID_FSM_ID,
+            UnitreeError.UT_ROBOT_LOCO_ERR_LOCOSTATE_NOT_AVAILABLE,
+            UnitreeError.UT_ROBOT_ARM_ACTION_ERR_INVALID_FSM_ID,
+            UnitreeError.UT_ROBOT_ARM_ACTION_ERR_HOLDING,
+            UnitreeError.UT_ROBOT_G1_AGV_ERR_NOT_INIT -> FailureClass.FAILURE_CLASS_PRECONDITION_FAILED
+            else -> FailureClass.FAILURE_CLASS_UNCLASSIFIED
+        }
+        return Acceptance.Refused(
+            Refusal.VENDOR_REJECTED,
+            "SetVelocity 를 로봇이 거절했다: ${e.message}",
+            failureClass = failureClass,
+            vendorDetail = "${e.error?.name ?: "unnamed"} code=${e.rawCode}",
+        )
     }
 
     /**
@@ -214,6 +243,9 @@ class G1Adapter(
         if (hottest != null && hottest >= overheatCelsius) {
             faults += Fault.newBuilder()
                 .setErrorType(OVERHEAT)
+                // 과열은 기체 결함이다 — 판정 주체는 우리이지만(임계값) 분류의 뜻은 벤더 종료 조건과 같다.
+                .setFailureClass(FailureClass.FAILURE_CLASS_HARDWARE_FAULT)
+                .setVendorDetail("MotorState_.temperature=$hottest")
                 .setCanContinueCurrentTask(false)
                 .setCanAcceptNewTask(false)
                 .setErrorHint("모터 온도가 ${hottest}도다. 식을 때까지 기다린 뒤 재시도하십시오.")
@@ -242,6 +274,9 @@ class G1Adapter(
         ) {
             faults += Fault.newBuilder()
                 .setErrorType(FSM_UNEXPECTED)
+                // 명령은 받아들여졌는데 로봇이 그 모드에 없다 — 시작 조건 미충족이다.
+                .setFailureClass(FailureClass.FAILURE_CLASS_PRECONDITION_FAILED)
+                .setVendorDetail("SportModeState_.fsm_id=${mode.fsmId} expected=${fsm.start}")
                 .setCanContinueCurrentTask(false)
                 .setCanAcceptNewTask(false)
                 .setErrorHint(

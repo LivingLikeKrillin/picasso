@@ -7,6 +7,7 @@ import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
 import kotlin.test.Test
@@ -340,7 +341,11 @@ class G1AdapterTest {
 
     private data class Velocity(val vx: Double, val vy: Double, val omega: Double, val duration: Double)
 
-    private class FakeSport(private val failFrom: Int = Int.MAX_VALUE) : SportService {
+    private class FakeSport(
+        private val failFrom: Int = Int.MAX_VALUE,
+        /** 널이 아니면 로봇이 이 코드로 거절한다 — 전송 실패([failFrom])와 다른 것. 정수는 시험이 모른다(0). */
+        private val apiError: UnitreeError? = null,
+    ) : SportService {
         val velocities = mutableListOf<Velocity>()
         var fsmId = 0
 
@@ -352,6 +357,7 @@ class G1AdapterTest {
         override fun getFsmId(): Result<Int> = Result.success(fsmId)
 
         override fun setVelocity(vx: Double, vy: Double, omega: Double, durationSeconds: Double): Result<Unit> {
+            apiError?.let { return Result.failure(UnitreeApiException(it, rawCode = 0)) }
             if (velocities.size >= failFrom) return Result.failure(IllegalStateException("링크 끊김"))
             velocities += Velocity(vx, vy, omega, durationSeconds)
             return Result.success(Unit)
@@ -364,6 +370,45 @@ class G1AdapterTest {
 
     private class FakeMode(var mode: SportModeState? = null) : SportModeChannel {
         override fun latestSportMode(): SportModeState? = mode
+    }
+
+    // ── 정준 실패 분류 (미들웨어 중앙 설계 §1.4) — 이 기종은 코드가 보낼 때만 나온다
+
+    @Test
+    fun `로봇이 에러 코드로 거절하면 링크 오류가 아니라 벤더 거절이고 분류가 붙는다`() {
+        val refused = assertIs<Acceptance.Refused>(
+            adapter(sport = FakeSport(apiError = UnitreeError.UT_ROBOT_LOCO_ERR_LOCOSTATE_NOT_AVAILABLE)).accept("move_relative", move, t0),
+        )
+        assertEquals(Refusal.VENDOR_REJECTED, refused.reason)
+        assertEquals(FailureClass.FAILURE_CLASS_PRECONDITION_FAILED, refused.failureClass)
+        // 벤더 원문은 벤더의 이름 그대로 동반한다.
+        assertTrue(refused.vendorDetail.startsWith("UT_ROBOT_LOCO_ERR_LOCOSTATE_NOT_AVAILABLE"), refused.vendorDetail)
+    }
+
+    @Test
+    fun `뜻을 모르는 코드는 UNCLASSIFIED 다 — 지어내지 않는다`() {
+        val refused = assertIs<Acceptance.Refused>(
+            adapter(sport = FakeSport(apiError = UnitreeError.UT_ROBOT_LOCO_ERR_INVALID_TASK_ID)).accept("move_relative", move, t0),
+        )
+        assertEquals(Refusal.VENDOR_REJECTED, refused.reason)
+        assertEquals(FailureClass.FAILURE_CLASS_UNCLASSIFIED, refused.failureClass)
+    }
+
+    @Test
+    fun `전송 실패는 여전히 링크 오류이고 분류가 없다`() {
+        val refused = assertIs<Acceptance.Refused>(adapter(sport = FakeSport(failFrom = 0)).accept("move_relative", move, t0))
+        assertEquals(Refusal.LINK_ERROR, refused.reason)
+        assertEquals(FailureClass.FAILURE_CLASS_UNSPECIFIED, refused.failureClass)
+    }
+
+    @Test
+    fun `과열은 HARDWARE_FAULT 로 분류되고 온도가 원문으로 동반한다`() {
+        val observed = assertIs<FaultObservation.Observed>(
+            adapter(low = FakeLowLevel(lowState(temperatures = listOf(40, 91)))).faults(),
+        )
+        val overheat = observed.faults.single { it.errorType == "X_UNITREE_MOTOR_OVERHEAT" }
+        assertEquals(FailureClass.FAILURE_CLASS_HARDWARE_FAULT, overheat.failureClass)
+        assertEquals("MotorState_.temperature=91", overheat.vendorDetail)
     }
 
     @Test

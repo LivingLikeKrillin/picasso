@@ -38,6 +38,7 @@ class G1VendorSurfaceTest {
             SportService::class.java,
             LowLevelChannel::class.java,
             LowState::class.java,
+            UnitreeError::class.java,
         )
     }
 }

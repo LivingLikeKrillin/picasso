@@ -93,6 +93,10 @@ message InternalFault {
   string task_id = 7;
 
   string error_hint = 8;
+
+  // FailureClass 의 이름(접두사 포함). UNSPECIFIED 도 이름이 있다.
+  string failure_class = 9;
+  string vendor_detail = 10;
 }
 
 message DumpInternalStateResponse {

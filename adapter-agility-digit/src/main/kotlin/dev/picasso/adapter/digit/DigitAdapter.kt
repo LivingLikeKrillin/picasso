@@ -7,6 +7,8 @@ import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.adapter.core.classifiedFault
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.wire.isTerminal
@@ -110,6 +112,7 @@ class DigitAdapter(
         val id = "${identity.robotId}-$issued"
         task = RunningTask(
             id, ref, startedAt, TaskState.TASK_STATE_RUNNING,
+            skillType = skillType,
             objectName = if (skillType == PICK_PLACE) text(parameters, P_OBJECT) else null,
         )
         return Acceptance.Accepted(id)
@@ -132,6 +135,7 @@ class DigitAdapter(
         // 하던 일이 사라진다.
         if (link.privilege != PrivilegeState.HELD && !current.state.isTerminal) {
             current.state = TaskState.TASK_STATE_FAILED
+            current.failure = authorityLostFault()
             return current.state
         }
 
@@ -145,11 +149,63 @@ class DigitAdapter(
         // `INACTIVE` 는 일부러 안 옮긴다 — 어느 액션의 것인지 모른다([ActionStatus]).
         when (link.status()) {
             ActionStatus.SUCCESS -> current.state = TaskState.TASK_STATE_SUCCEEDED
-            ActionStatus.FAILURE -> current.state = TaskState.TASK_STATE_FAILED
+            ActionStatus.FAILURE -> {
+                current.state = TaskState.TASK_STATE_FAILED
+                current.failure = actionFailure(current)
+            }
             ActionStatus.RUNNING, ActionStatus.INACTIVE, null -> Unit
         }
         return current.state
     }
+
+    /** 종착이 실패인 태스크의 계약 `Fault` — 정준 분류와 벤더 원문. 실패가 아니면 널. */
+    fun failure(): Fault? = task?.failure
+
+    /**
+     * `failure` 를 정준 분류로 옮긴다 — **액션 종류로 가를 수 있는 데까지만**(미들웨어 중앙 설계 §1.4).
+     *
+     * 벤더의 `failure` 는 *"the action is blocked from making progress towards its goal"* 하나이고
+     * 이유는 사람이 읽는 `info` 뿐이다. 그래서 `pick_place` 는 실행 트리에서 **어느 액션이**
+     * 실패했는지를 읽어 `GRASP_FAILED`/`PLACE_FAILED` 로, 이동(`action-goto`·`action-move`)은
+     * 그 정의 그대로 `ROUTE_BLOCKED` 로 옮긴다. 트리를 못 읽거나 실패한 마디가 pick 도 place 도
+     * 아니면 `UNCLASSIFIED` 다 — `info` 를 보고 추측하지 않는다.
+     */
+    private fun actionFailure(current: RunningTask): Fault {
+        val info = link.statusInfo().orEmpty()
+        val tree = link.executionTree()
+        val failedNode = tree.getOrNull()?.let { nodes -> flatten(nodes).lastOrNull { it.status == ActionStatus.FAILURE } }
+        val failureClass = when (current.skillType) {
+            PICK_PLACE -> when (failedNode?.actionType) {
+                ACTION_PICK -> FailureClass.FAILURE_CLASS_GRASP_FAILED
+                ACTION_PLACE -> FailureClass.FAILURE_CLASS_PLACE_FAILED
+                else -> FailureClass.FAILURE_CLASS_UNCLASSIFIED
+            }
+            else -> FailureClass.FAILURE_CLASS_ROUTE_BLOCKED
+        }
+        val detail = buildString {
+            append("action-status=failure")
+            failedNode?.let { append("; execution-state-node.action-type=").append(it.actionType) }
+            tree.exceptionOrNull()?.let { append("; get-execution-state failed: ").append(it.message) }
+            if (info.isNotBlank()) append("; info=").append(info)
+        }
+        return classifiedFault(
+            errorType = "X_AGILITYROBOTICS_ACTION_FAILED",
+            failureClass = failureClass,
+            vendorDetail = detail,
+            errorHint = if (info.isNotBlank()) info else "액션이 목표를 향해 진행하지 못했습니다. 현장을 확인한 뒤 재시도하십시오.",
+            canContinueCurrentTask = false,
+            canAcceptNewTask = true,
+        )
+    }
+
+    private fun authorityLostFault(): Fault = classifiedFault(
+        errorType = "CONTROL_AUTHORITY_LOST",
+        failureClass = FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST,
+        vendorDetail = "privilege.change-action-command lost; robot reset to action-idle",
+        errorHint = "change-action-command 권한을 잃었습니다. 로봇이 action-idle 로 리셋됐습니다.",
+        canContinueCurrentTask = false,
+        canAcceptNewTask = false,
+    )
 
     /**
      * 취소 — `remove-action`.
@@ -171,6 +227,7 @@ class DigitAdapter(
         }
         if (link.privilege != PrivilegeState.HELD) {
             current.state = TaskState.TASK_STATE_FAILED
+            current.failure = authorityLostFault()
             return Applied.Refused(Refusal.CONTROL_AUTHORITY_LOST, "권한이 없어 지울 수도 없다")
         }
 
@@ -254,12 +311,7 @@ class DigitAdapter(
         val faults = mutableListOf<Fault>()
 
         if (link.privilege != PrivilegeState.HELD) {
-            faults += Fault.newBuilder()
-                .setErrorType("CONTROL_AUTHORITY_LOST")
-                .setCanContinueCurrentTask(false)
-                .setCanAcceptNewTask(false)
-                .setErrorHint("change-action-command 권한을 잃었습니다. 로봇이 action-idle 로 리셋됐습니다.")
-                .build()
+            faults += authorityLostFault()
         }
 
         if (latchViolated) {
@@ -274,6 +326,8 @@ class DigitAdapter(
         link.statusInfo()?.takeIf { it.isNotBlank() }?.let {
             faults += Fault.newBuilder()
                 .setErrorType(UNCLASSIFIED)
+                .setFailureClass(FailureClass.FAILURE_CLASS_UNCLASSIFIED)
+                .setVendorDetail("action-status-changed.info=$it")
                 .setCanContinueCurrentTask(false)
                 .setCanAcceptNewTask(true)
                 .setErrorHint(it)
@@ -288,8 +342,12 @@ class DigitAdapter(
         val ref: ActionRef,
         var lastPolledAt: Instant,
         var state: TaskState,
+        /** 실패를 액션 종류로 가를 때 본다 — 계약의 스킬 이름이지 벤더의 것이 아니다. */
+        val skillType: String,
         /** `pick_place` 면 그 `object_id` — 든 것의 이름을 말할 유일한 근거다. */
         val objectName: String? = null,
+        /** 종착이 실패일 때의 계약 `Fault` — 정준 분류 + 벤더 원문. */
+        var failure: Fault? = null,
     )
 
     /**
