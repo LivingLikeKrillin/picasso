@@ -19,7 +19,7 @@
 | 11~21 | 레지스트리·원장·변경 계획·카탈로그 | 3a·3b에서 |
 | **22** | **`gate`를 라이브러리로 두고 호출 지점을 둘로** | [`0022`](0022-gate-as-library.md) |
 | **36** | **일감이 먼저다 — 배정 어휘와 실행 계약을 가른다** | [`0036`](0036-work-first-assignment-vs-execution.md) |
-| **37** | **등록이 두 갈래다 — 발견과 선언** | [`0037`](0037-registration-is-discovery-or-declaration.md) |
+| **37** | **등록이 두 갈래다 — 발견과 선언** | [`0037`](0037-registration-is-discovery-or-declaration.md) — 문 둘이 2026-09-10 에 생겼다(§15.101) |
 | **38** | **미션 계층의 스키마와 PoC 엔진은 우리 범위다** | [`0038`](0038-mission-layer-schema-is-ours.md) — 미들웨어 중앙 설계와 함께 |
 | 39 | [어댑터의 북쪽은 기종을 모르는 호스트 하나다](0039-adapter-host.md) | 결정됨 | `RobotAdapter` 를 `adapter-core` 에, 계약 서버는 `adapter-host` 하나, 조립은 기종을 아는 쪽. 미믹과 나눠 쓰는 것은 `capability`(투영·협상 판정)와 `uplink`(발행·적재) |
 | **23** | **게이트의 구조 검사를 문자열 검사로 둔 것** | [`0023`](0023-string-checks-over-ast.md), 한계 §15.6·§15.11 |

@@ -33,6 +33,7 @@ import org.springframework.web.bind.annotation.RestController
  */
 @RestController
 class DiagController(
+    private val robots: dev.picasso.registry.binding.RobotRegistration,
     private val diagnostics: DiagnosticsService,
     private val ledger: LedgerService,
     private val changePlans: ChangePlanService,
@@ -65,6 +66,17 @@ class DiagController(
     /** 진단 8번 — 오래 비종착으로 남아 축소를 막고 있는 태스크. */
     @GetMapping("/diag/stalled")
     fun stalled(): List<StalledRow> = diagnostics.stalled()
+
+    /**
+     * 진단 9번 — **이 기체가 왜 여기 있는가**(ADR 37).
+     *
+     * 사람이 선언했는데 기체가 한 번도 답하지 않은 줄(`CLAIMED`)이 여기 남는다. 오타 난 `robot_id` 로 선언한
+     * 기체가 그 상태이며, **그것이 보이지 않으면 화면은 초록인데 기체가 안 붙는다**(ADR 37 의 대가 마지막 줄).
+     */
+    @GetMapping("/diag/robots")
+    fun robots(
+        @RequestParam(name = "site", required = false) site: String?,
+    ): List<dev.picasso.registry.binding.RegisteredRobot> = robots.list(site)
 
     @GetMapping("/diag/epochs")
     fun epochs(

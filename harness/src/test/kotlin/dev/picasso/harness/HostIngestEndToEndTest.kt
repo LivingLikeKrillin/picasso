@@ -27,6 +27,9 @@ import dev.picasso.registry.adapter.RegisterOutcome
 import dev.picasso.registry.binding.ActivateOutcome
 import dev.picasso.registry.binding.BindOutcome
 import dev.picasso.registry.binding.BindingService
+import dev.picasso.registry.binding.RobotRegistration
+import dev.picasso.registry.binding.RobotRegistrationOutcome
+import dev.picasso.registry.binding.RobotStatus
 import dev.picasso.registry.ingest.HandshakeIngestOutcome
 import dev.picasso.registry.ingest.HandshakeIngestService
 import dev.picasso.registry.ingest.LivenessOutcome
@@ -82,6 +85,7 @@ class HostIngestEndToEndTest {
     private lateinit var liveness: LivenessService
     private lateinit var ledger: LedgerService
     private lateinit var handshakes: HandshakeIngestService
+    private lateinit var robots: RobotRegistration
 
     @BeforeTest
     fun reset() {
@@ -92,7 +96,12 @@ class HostIngestEndToEndTest {
         ledger = LedgerService(db)
         handshakes = HandshakeIngestService(ledger, ObservationService(db))
         SkillTypeSync(db).sync(Fixtures.descriptor(), dev.picasso.contracts.wire.ContractIdentity.semver, "sync")
-        PostgresSupport.execute("INSERT INTO robot (robot_id, site_id, serial_number) VALUES ('$ROBOT','line-a','sn')")
+
+        // **기체를 문으로 들인다**(ADR 37 의 선언). 앞 판은 여기서 `INSERT INTO robot` 을 썼고, 그것이 ADR 37 이
+        // *"우리 하네스가 스스로 결정 5의 비싼 사분면에 앉아 있다"* 고 적어 둔 상태였다. `endpoint` 는 안 준다 —
+        // 이 호스트는 in-process 라 주소가 없다.
+        robots = RobotRegistration(db)
+        assertIs<RobotRegistrationOutcome.Registered>(robots.declare(ROBOT, "line-a", "sn", actor = "operator-1"))
         val stored = RevisionService(db, Fixtures.validator()).submit(Fixtures.good(), "op")
         assertTrue(stored is SubmitOutcome.Stored, "$stored")
         val bindings = BindingService(db)
@@ -168,10 +177,14 @@ class HostIngestEndToEndTest {
         // ── 0. 바인딩은 됐는데 아직 아무도 안 떴다 — 원장은 이 기체를 못 본다.
         val blind = assertIs<Observability.Blind>(RobotObservability(db).of("navigate_to"))
         assertTrue("한 번도 보고한 적 없는" in blind.reason, blind.reason)
+        // 등록도 아직 **사람의 말뿐이다**(ADR 37) — 오타 난 robot_id 로 선언했다면 영영 이 상태다.
+        assertEquals(RobotStatus.CLAIMED, robots.statusOf(ROBOT))
 
         World().use { w ->
             // ── 1. 기동 발행 `ONLINE` 이 생존 보고가 됐다 — 어댑터가 답한 것(소프트웨어·사이트 이름 개수)이 함께 실렸다.
             assertIs<Observability.Live>(RobotObservability(db).of("navigate_to"), "호스트가 떴는데 원장이 못 본다")
+            // **사람의 말이 기체의 답으로 올라간다**(ADR 37). 선언과 확인을 접으면 오타를 아무도 못 잡는다.
+            assertEquals(RobotStatus.CONFIRMED, robots.statusOf(ROBOT))
             assertEquals(
                 listOf("CONNECTION_STATE_ONLINE", "host-fw 1.2.3", "2"),
                 PostgresSupport.queryAll("SELECT connection_state, robot_software, site_names_count::text FROM robot_liveness WHERE robot_id = '$ROBOT'") {

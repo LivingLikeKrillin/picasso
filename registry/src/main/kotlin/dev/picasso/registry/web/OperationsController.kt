@@ -1,11 +1,14 @@
 package dev.picasso.registry.web
 
 import dev.picasso.registry.binding.RecordOutcome
+import dev.picasso.registry.binding.RobotRegistration
+import dev.picasso.registry.binding.RobotRegistrationOutcome
 import dev.picasso.registry.binding.SiteNameRegistration
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -37,7 +40,48 @@ import org.springframework.web.bind.annotation.RestController
  * 이름이 없는 것보다 낫다.
  */
 @RestController
-class OperationsController(private val siteNames: SiteNameRegistration) {
+class OperationsController(
+    private val siteNames: SiteNameRegistration,
+    private val robots: RobotRegistration,
+) {
+
+    /**
+     * ADR 37 의 **선언** — 사람이 기체를 원장에 들인다.
+     *
+     * 설계 §8.5의 조작 목록에 *기체 등록* 이 처음부터 있었는데 엔드포인트가 없었다. 그래서 기체 행은 시험이 SQL 로
+     * 직접 넣었고, 그 상태가 ADR 37 이 적어 둔 *"우리 하네스가 스스로 결정 5의 비싼 사분면에 앉아 있다"* 였다.
+     *
+     * **여기로 들어오면 `DECLARED` 다.** 본문이 출처를 정하지 않는다(결정 3) — `origin` 을 실어 보내도 아무 일도
+     * 일어나지 않는다.
+     *
+     * 답이 넷으로 갈린다. 등록됨(201)·갱신됨(200)·다른 문으로 이미 들어옴(409)·본문이 틀림(400). **`WrongDoor` 를
+     * 400 과 접으면 안 된다** — 앞은 운영자가 고칠 것이 없고(이미 발견된 기체다) 뒤는 고쳐서 다시 보내야 한다.
+     */
+    @PostMapping("/operations/robots")
+    fun declareRobot(
+        @RequestBody request: DeclareRobotRequest,
+        @RequestHeader("X-Actor") actor: String,
+    ): ResponseEntity<Map<String, Any>> = when (
+        val outcome = robots.declare(
+            robotId = request.robot_id,
+            siteId = request.site,
+            serialNumber = request.serial_number,
+            displayName = request.display_name,
+            endpoint = request.endpoint,
+            actor = actor,
+        )
+    ) {
+        // **등록한 뒤의 실제 상태를 낸다.** "REGISTERED" 를 박아 두면 기체가 아직 답한 적 없는 것(CLAIMED)이
+        // 성공으로만 보이고, 오타 난 robot_id 로 선언한 화면이 초록이다(ADR 35와 같은 규율).
+        is RobotRegistrationOutcome.Registered ->
+            ResponseEntity.status(HttpStatus.CREATED).body(mapOf("robot" to request.robot_id, "status" to outcome.status.name))
+        is RobotRegistrationOutcome.Updated ->
+            ResponseEntity.ok(mapOf("robot" to request.robot_id, "status" to outcome.status.name))
+        is RobotRegistrationOutcome.WrongDoor ->
+            ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to outcome.detail, "origin" to outcome.origin.name))
+        is RobotRegistrationOutcome.Rejected ->
+            ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to outcome.detail))
+    }
 
     /**
      * 사이트 이름을 이 기체에 등록했다고 **기록한다**(ADR 35의 결정 3).
@@ -96,3 +140,17 @@ class OperationsController(private val siteNames: SiteNameRegistration) {
         "keys" to siteNames.required(robot).sorted(),
     )
 }
+
+/**
+ * `POST /operations/robots` 의 본문(ADR 37 의 **선언**).
+ *
+ * **`origin` 이 없다** — 출처는 문이 정한다(결정 3). [endpoint] 는 직결에서만 우리가 갖는 로봇의 주소이며
+ * **자격증명이 아니다**(§6.3 — 비밀을 어디 둘지는 정한 적 없다).
+ */
+data class DeclareRobotRequest(
+    val robot_id: String,
+    val site: String,
+    val serial_number: String,
+    val display_name: String? = null,
+    val endpoint: String? = null,
+)

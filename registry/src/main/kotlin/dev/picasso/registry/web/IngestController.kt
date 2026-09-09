@@ -6,6 +6,8 @@ import dev.picasso.contracts.v1.ConnectionMessage
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.StateMessage
+import dev.picasso.registry.binding.DiscoveredRobot
+import dev.picasso.registry.binding.RobotRegistration
 import dev.picasso.registry.ingest.HandshakeIngestOutcome
 import dev.picasso.registry.ingest.HandshakeIngestService
 import dev.picasso.registry.ingest.LivenessOutcome
@@ -32,6 +34,22 @@ data class DeclareRequest(
 )
 
 /**
+ * `POST /ingest/robots` 의 본문 한 줄(ADR 37 의 **발견**).
+ *
+ * **`origin` 이 없다.** 출처는 이 요청이 어느 문으로 들어왔는가이지 본문이 정하는 것이 아니다 — 본문이 정하면
+ * 적재 토큰을 든 현장의 기체가 스스로 *"사람이 선언했다"* 고 적을 수 있다.
+ *
+ * [endpoint] 는 **받아서 거절하기 위해** 있다. 발견된 기체의 접속 정보는 플릿이 갖고 우리는 안 갖는다
+ * (ADR 37 결정 4). 필드를 아예 두지 않으면 보낸 쪽은 우리가 그것을 저장했다고 믿는다.
+ */
+data class DiscoveredRobotRequest(
+    val robot_id: String,
+    val serial_number: String,
+    val display_name: String? = null,
+    val endpoint: String? = null,
+)
+
+/**
  * §5.4·§9.2의 적재 표면. **`DiagController`와 다른 클래스인 것이 요점이다.**
  *
  * 진단 컨트롤러는 스스로 *"여기 `POST`를 하나 더하는 순간 그 경계가 조용히
@@ -51,6 +69,7 @@ data class DeclareRequest(
 @RestController
 class IngestController(
     private val handshakes: HandshakeIngestService,
+    private val robots: RobotRegistration,
     private val tasks: TaskIngestService,
     private val liveness: LivenessService,
     private val ledger: LedgerService,
@@ -150,6 +169,34 @@ class IngestController(
             is LivenessOutcome.Recorded -> ResponseEntity.ok(mapOf("recorded" to true))
             is LivenessOutcome.Rejected -> badRequest(outcome.reason)
         }
+    }
+
+    /**
+     * ADR 37 의 **발견** — 어댑터가 플릿에 물어 얻은 기체 목록을 올린다.
+     *
+     * **여기가 적재 문인 것이 이 엔드포인트의 절반이다**(결정 3). 같은 사실을 조작 문(`POST /operations/robots`)으로
+     * 보내면 그것은 *선언* 이고, 둘의 차이는 페이로드가 아니라 **어느 문으로 들어왔는가**다.
+     *
+     * `site` 는 **어댑터가 배포된 사이트**다 — 플릿은 우리 `site_id` 를 모른다. `/ingest/handshake` 의 `site` 와 같은
+     * 자리이며 같은 성질(어댑터의 신고)이다.
+     *
+     * **부분 성공을 그대로 낸다.** 하나가 거절돼도 나머지는 들이고, 거절된 것은 사유와 함께 돌려준다 — 목록 하나가
+     * 통째로 실패하면 플릿에 기체를 더한 날 발견 전체가 멈추고, 그 멈춤은 *"플릿에서 사라졌다"* 와 구별되지 않는다.
+     */
+    @PostMapping("/ingest/robots")
+    fun robots(
+        @RequestParam(name = "site") site: String,
+        @RequestBody body: List<DiscoveredRobotRequest>,
+    ): ResponseEntity<Map<String, Any>> {
+        if (site.isBlank()) return badRequest("site가 없다")
+        if (body.isEmpty()) return badRequest("기체 목록이 비었다")
+
+        val outcome = robots.discover(
+            site,
+            body.map { DiscoveredRobot(it.robot_id, it.serial_number, it.display_name, it.endpoint) },
+        )
+        // **거절이 있어도 200 이다.** 부분 성공이고, 무엇이 들어가고 무엇이 안 들어갔는지는 본문이 말한다.
+        return ResponseEntity.ok(mapOf("recorded" to outcome.recorded, "refused" to outcome.refused))
     }
 
     /** §9.2의 요구 등록. `source=DECLARED`. */

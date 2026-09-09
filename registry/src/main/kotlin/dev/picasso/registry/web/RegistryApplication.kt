@@ -69,6 +69,11 @@ open class RegistryApplication {
     @Bean
     open fun bindings(db: Db): BindingService = BindingService(db)
 
+    /** ADR 37 의 두 문. **서비스는 하나이고 문이 둘인 것이 요점이다** — 출처는 컨트롤러가 정한다. */
+    @Bean
+    open fun robotRegistration(db: Db): dev.picasso.registry.binding.RobotRegistration =
+        dev.picasso.registry.binding.RobotRegistration(db)
+
     /**
      * §9.3의 두 조회를 게이트에 물린다. **이 빈이 없으면 검사 6번은 축소를
      * 분류만 하고**, 레지스트리는 소비자가 남아 있는 능력의 제거를 통과시킨다.
