@@ -1,0 +1,258 @@
+# picasso vendor symbol manifest
+# vendor: boston-dynamics
+# release: Orbit Web API 5.0.0 (게시본) + bosdyn-orbit@b1a9fa9a6da7
+# extractor: tools/vendor-manifest/openapi_symbols.py
+# 이 파일은 손으로 고치지 않는다. tools/vendor-manifest/README.md 참조.
+# source: client.py sha256=19c7f980dd4e1b9585f0805f58f999a2effd265c7b636780e90142a4f4e88b0c
+# source: orbit-docs.html sha256=7563e16e836f3c7829e5258f45ef0e0a2a484b8a93bce8f2bed0ed3a2e086e80
+Anomaly
+Anomaly.assetId
+Anomaly.createdAt
+Anomaly.elementId
+Anomaly.name
+Anomaly.runEventUuid
+Anomaly.runUuid
+Anomaly.severity
+Anomaly.source
+Anomaly.status
+Anomaly.status=closed
+Anomaly.status=open
+Anomaly.statusModifiedAt
+Anomaly.statusModifiedBy
+Anomaly.time
+Anomaly.title
+Anomaly.uuid
+BackupParameters
+BackupParameters.includeCaptures
+BackupParameters.includeMissions
+BackupTask
+BackupTask.error
+BackupTask.filename
+BackupTask.params
+BackupTask.size
+BackupTask.startedAt
+BackupTask.status
+BackupTask.status=Cancelled
+BackupTask.status=Completed
+BackupTask.status=Creating database dump
+BackupTask.status=Creating zip file
+BackupTask.status=Error
+BackupTask.status=Starting
+BackupTask.taskId
+DELETE /backups/{taskId}
+DELETE /calendar/schedule/{eventid}
+DELETE /missions/{missionId}
+DELETE /robots/{robotHostname}
+DELETE /site_walks/{uuid}
+DELETE /webhooks/{uuid}
+DashboardBarQuery
+DashboardBarQuery.booleanParam
+DashboardBarQuery.type
+DashboardFooQuery
+DashboardFooQuery.booleanParam
+DashboardFooQuery.type
+DashboardFooSectionBarResults
+DashboardFooSectionBarResults.results
+DashboardFooSectionBarResults.type
+DashboardQuery
+DashboardQueryHandles
+DashboardResultSet
+DashboardSecret
+GET /anomalies
+GET /api_token/authenticate
+GET /backup_tasks
+GET /backups/{taskId}
+GET /calendar/schedule
+GET /missions
+GET /missions/{missionId}
+GET /robots
+GET /robots/{robotHostname}
+GET /run_archives/{runId}
+GET /run_captures/
+GET /run_captures/{runCaptureUuid}
+GET /run_events/
+GET /run_events/{runEventUuid}
+GET /run_statistics/sessions
+GET /run_statistics/sessions_summary
+GET /runs/
+GET /runs/facets/actions
+GET /runs/facets/missions
+GET /runs/facets/robots
+GET /runs/{runUuid}
+GET /runs/{runUuid}/log
+GET /site_docks/{uuid}
+GET /site_elements/{uuid}
+GET /site_walks/
+GET /site_walks/{uuid}
+GET /webhooks
+GET /webhooks/{uuid}
+Mission
+Mission.mission_id
+Mission.name
+Mission.saved_at
+Mission.uuid
+PATCH /anomalies
+PATCH /anomalies/{anomalyId}
+POST /backup_tasks
+POST /calendar/disable-enable
+POST /calendar/schedule
+POST /login
+POST /robots
+POST /site_docks
+POST /site_elements
+POST /site_walks
+POST /webhooks
+POST /webhooks/{uuid}
+Robot
+Robot.hostname
+Robot.nickname
+Robot.robotIndex
+Robot.username
+Run
+Run.actionCount
+Run.endTime
+Run.missionName
+Run.missionStatus
+Run.operatorId
+Run.pendingActionCount
+Run.robotHostname
+Run.robotNickname
+Run.robotSerial
+Run.robotSoftwareGitHash
+Run.robotSoftwareMajorVersion
+Run.robotSoftwareMinorVersion
+Run.robotSoftwarePatchVersion
+Run.runType
+Run.runType=mission
+Run.runType=teleop
+Run.startTime
+Run.uuid
+RunCapture
+RunCapture.actionChannelRunFlagUuid
+RunCapture.channelName
+RunCapture.createdAt
+RunCapture.dataUrl
+RunCapture.keyResults
+RunCapture.runEventUuid
+RunCapture.time
+RunCapture.uuid
+RunEvent
+RunEvent.actionName
+RunEvent.actionRunArchiveFileUrl
+RunEvent.actionUuid
+RunEvent.createdAt
+RunEvent.dataCaptures
+RunEvent.error
+RunEvent.eventType
+RunEvent.eventType=daq
+RunEvent.eventType=screenshot
+RunEvent.metadataFileUrl
+RunEvent.missionName
+RunEvent.runUuid
+RunEvent.time
+RunEvent.uuid
+Schedule
+Schedule.agent
+Schedule.agent.nickname
+Schedule.eventMetadata
+Schedule.eventMetadata.modificationTimeMs
+Schedule.eventMetadata.modificationUser
+Schedule.eventMetadata.name
+Schedule.schedule
+Schedule.schedule.blackouts
+Schedule.schedule.blackouts[].endMs
+Schedule.schedule.blackouts[].startMs
+Schedule.schedule.repeatMs
+Schedule.schedule.timeMs
+Schedule.task
+Schedule.task.forceAcquireEstop
+Schedule.task.missionId
+SiteDock
+SiteDock.createdAt
+SiteDock.dockedWaypointId
+SiteDock.modifiedAt
+SiteDock.name
+SiteDock.targetPrepPose
+SiteDock.uuid
+SiteElement
+SiteElement.action
+SiteElement.actionDuration
+SiteElement.actionFailureBehavior
+SiteElement.actionWrapper
+SiteElement.createdAt
+SiteElement.modifiedAt
+SiteElement.name
+SiteElement.relocalize
+SiteElement.targetFailureBehavior
+SiteElement.uuid
+SiteElement.waypointId
+SiteElement.waypointMaxDistance
+SiteElement.waypointMaxYaw
+SiteWalk
+SiteWalk.actionFailureBehavior
+SiteWalk.batteryMonitor
+SiteWalk.createdAt
+SiteWalk.entityParams
+SiteWalk.globalParameters
+SiteWalk.modifiedAt
+SiteWalk.name
+SiteWalk.preferRecordedRoutes
+SiteWalk.siteDockIds
+SiteWalk.siteElementIds
+SiteWalk.siteElementMetadata
+SiteWalk.skipDockingAfterCompletion
+SiteWalk.targetFailureBehavior
+SiteWalk.travelParams
+SiteWalk.uuid
+SnowflakeSecrets
+SnowflakeSecrets.accountId
+SnowflakeSecrets.backend
+SnowflakeSecrets.passphrase
+SnowflakeSecrets.privateKey
+SnowflakeSecrets.username
+Webhook
+Webhook.archived
+Webhook.enabled
+Webhook.events
+Webhook.secret
+Webhook.url
+Webhook.uuid
+Webhook.validateTlsCert
+bosdyn-orbit:anomalies
+bosdyn-orbit:anomalies/{anomaly_uuid}
+bosdyn-orbit:api_token/authenticate
+bosdyn-orbit:backup_tasks/
+bosdyn-orbit:backup_tasks/{task_id}
+bosdyn-orbit:backups/{task_id}
+bosdyn-orbit:calendar/disable-enable
+bosdyn-orbit:calendar/mission/dispatch/{robot_nickname}?currentDriverId={driver_id}
+bosdyn-orbit:calendar/schedule
+bosdyn-orbit:calendar/schedule/{event_id}
+bosdyn-orbit:graph/send-robot
+bosdyn-orbit:robot-session/{robot_nickname}/session
+bosdyn-orbit:robots
+bosdyn-orbit:robots/{hostname}
+bosdyn-orbit:robots/{robot_hostname}
+bosdyn-orbit:run_archives/{uuid}
+bosdyn-orbit:run_captures
+bosdyn-orbit:run_captures/{uuid}
+bosdyn-orbit:run_events
+bosdyn-orbit:run_events/{uuid}
+bosdyn-orbit:run_statistics/sessions
+bosdyn-orbit:run_statistics/sessions_summary
+bosdyn-orbit:runs
+bosdyn-orbit:runs/{uuid}
+bosdyn-orbit:runs/{uuid}/log
+bosdyn-orbit:settings/system-time
+bosdyn-orbit:site_docks
+bosdyn-orbit:site_docks/{uuid}
+bosdyn-orbit:site_elements
+bosdyn-orbit:site_elements/{uuid}
+bosdyn-orbit:site_walks
+bosdyn-orbit:site_walks/archive
+bosdyn-orbit:site_walks/export_as_walk
+bosdyn-orbit:site_walks/import_from_walk
+bosdyn-orbit:site_walks/{uuid}
+bosdyn-orbit:version
+bosdyn-orbit:webhooks
+bosdyn-orbit:webhooks/{uuid}

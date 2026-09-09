@@ -28,4 +28,6 @@ include(
     "adapter-unitree-g1",
     "adapter-boston-dynamics-spot",
     "adapter-agility-digit",
+    // 기체가 아니라 **플릿**에 붙는 첫 어댑터 — ADR 37 의 발견 경로가 여기서만 실증된다.
+    "adapter-boston-dynamics-orbit",
 )

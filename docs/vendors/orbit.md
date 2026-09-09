@@ -7,6 +7,12 @@
 
 **원문은 이 저장소에 안 들인다.** `@VendorSurface` + `vendor-manifest.txt` 와 같은 규율이며, 여기 적는 것은 심볼 이름과 해시뿐이다.
 
+> **2026-09-10 — 매니페스트가 됐다.** 위 두 원본을 다시 받아 **해시가 같음을 확인**하고(페이지 `7563e16e…`, 클라이언트 `19c7f980…`) 심볼 **251 개**를 뽑아 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt` 에 고정했다. 추출기는 `tools/vendor-manifest/openapi_symbols.py` 이고, 이제 남쪽 포트의 인용이 이 목록에 대고 검사받는다(`OrbitVendorSurfaceTest`). 조사의 기계 판독본은 `profile/vendors/orbit.json`.
+>
+> 그때 **산문으로 적혀 있던 것 하나가 숫자가 됐다** — 아래 "스펙 밖 경로" 는 하나(파견)로 적혀 있었으나, 클라이언트가 치는 경로 40 개를 전부 세니 **아홉**이 게시 스펙에 없다: 파견 · `graph/send-robot` · `robot-session/{nickname}/session` · `site_walks/archive` · `site_walks/export_as_walk` · `site_walks/import_from_walk` · `settings/system-time` · `version` · `backup_tasks/{id}`. 게시본이 불완전하다는 판정이 사례 하나가 아니라 **아홉 분의 하나** 위에 선다.
+>
+> 그리고 **새로 나온 사실 둘**. ① `Robot` 스키마에 **일련번호가 없다**(hostname·nickname·robotIndex·username 뿐). Orbit 이 모르는 것은 아니다 — `Run.robotSerial` 에 있다. 발견으로 들인 기체의 신원이 주소와 별명뿐이라는 뜻이고, 우리 원장의 `robot.serial_number` 가 필수라 거기서 부딪친다. ② `Run.missionStatus` 가 **값 집합 없는 자유 문자열**이다(같은 스키마의 `Run.runType` 에는 `enum` 이 있으므로 추출기가 열거를 못 읽는 것이 아니다). Spot 에 직결하면 `MissionStatus` 열거를 받는 것과 대비된다 — **층이 하나 늘 때 결과 어휘가 얇아진다.**
+
 스펙이 JSON 파일로 배포되지 않는다 — Swagger UI 페이지에 **JS 객체 리터럴로 인라인**돼 있어(키에 따옴표가 없어 `json.loads` 가 안 된다) 중괄호 짝을 맞춰 잘라냈다. 재현하려면 페이지에서 `openapi: "3.0.1"` 을 찾아 그것을 감싸는 `{` 부터 짝까지 자르면 된다.
 
 ---

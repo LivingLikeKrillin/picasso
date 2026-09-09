@@ -45,10 +45,28 @@ python tools/vendor-manifest/agility_symbols.py <원문디렉터리> \
 python tools/vendor-manifest/unitree_symbols.py <원문디렉터리> \
   unitree "unitree_sdk2 <릴리스>" \
   adapter-unitree-g1/src/test/resources/vendor-manifest.txt
+
+# Orbit — 게시 스펙이 **파일로 배포되지 않는다.** 문서 페이지를 그대로 받고(스펙이 JS 객체로
+#         인라인돼 있다) 벤더의 파이썬 클라이언트를 한 디렉터리에 둔다. 확장자가 원본의 종류다
+#         (.html = 스펙, .py = 클라이언트).
+#   curl -o <원문디렉터리>/orbit-docs.html https://dev.bostondynamics.com/docs/orbit/docs
+#   curl -o <원문디렉터리>/client.py \
+#     https://raw.githubusercontent.com/boston-dynamics/spot-sdk/<커밋>/python/bosdyn-orbit/src/bosdyn/orbit/client.py
+python tools/vendor-manifest/openapi_symbols.py <원문디렉터리> \
+  boston-dynamics "Orbit Web API <판> (게시본) + bosdyn-orbit@<커밋>" \
+  adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt
 ```
 
 돌린 뒤 `git diff` 로 **무엇이 사라졌는지**를 본다. 사라진 이름은 벤더가 개명했거나
 없앤 것이고, 그것이 이 도구가 잡으라고 있는 그것이다.
+
+## 이름 공간이 근거 등급을 나르기도 한다 (Orbit)
+
+원본 하나가 벤더의 **약속**이고 다른 하나가 벤더의 **관행**일 때가 있다. Orbit 이 그렇다 —
+게시 스펙은 공개 API 이고, 파이썬 클라이언트가 치는 경로 중 아홉은 **그 스펙에 없다.**
+없는 쪽을 있는 쪽과 같은 이름으로 적으면 *"벤더가 공개 API 로 약속했다"* 가 거짓이 되므로,
+클라이언트 쪽 이름에만 `bosdyn-orbit:` 접두사를 붙여 갈라 둔다. **벤더의 표기를 그대로 쓰는
+원칙의 유일한 예외이고, 이유가 근거 등급이라 그렇다.**
 
 ## 원본이 기종마다 다르고, 그 차이가 곧 측정 결과다
 
@@ -57,6 +75,7 @@ python tools/vendor-manifest/unitree_symbols.py <원문디렉터리> \
 | Spot | `.proto` 152 개(전수) | 메시지·필드·열거값·RPC | — |
 | Digit | SDK `json.py` + 매뉴얼 본문 | 보내는 것(SDK) + 받는 것(매뉴얼) | 일반 오류 봉투의 모양(어디에도 없다) |
 | G1 | C++ API ID 상수 + `UT_DECL_ERR` 에러 코드 + `terminations.hpp` 의 `inline bool` 종료 조건 + `Jsonize*` 의 JSON 키 + IDL(파이썬 생성본과 Cyclone DDS C++ 생성본 둘) | 무엇이 있는지, 요청 본문의 키, 에러 코드, 종료 조건, 상태 토픽의 필드 | **응답의 모양** — 어디에도 없다. 키에 타입·필수 여부가 안 딸려 온다 |
+| Orbit | 게시 OpenAPI(문서 페이지에 **인라인된 JS 객체**) + 벤더의 파이썬 클라이언트 | 경로·메서드·스키마·필드·열거값, 그리고 **클라이언트만 아는 경로** | 응답 처리(클라이언트는 경로만 읽는다) · `type: object` 로 열린 자리 · **배포 인스턴스**(게시본보다 넓을 수 있다) |
 
 ## 이 검사가 못 하는 것
 
@@ -78,6 +97,12 @@ python tools/vendor-manifest/unitree_symbols.py <원문디렉터리> \
 | **추출기가 못 읽는다** | G1 의 요청 키(`json["velocity"]`)를 `const` 줄만 읽느라 놓쳤다 | **고쳤다.** 도구를 고치면 된다 |
 | **벤더가 타입으로 안 적었다** | Digit 의 일반 오류 봉투 — 매뉴얼이 *"an error message"* 가 온다고 산문으로만 말하고 모양을 어디에도 안 적었다 | 못 고친다. 실물/시뮬레이터에서 받아 봐야 안다 |
 | **검사의 성질** | 있는 이름이면 통과한다 · **인용이 빠진 것은 못 본다** · 거동을 안 본다 · 낡은 매니페스트 | 이 도구로는 못 고친다 |
+
+`openapi_symbols.py` 가 그 셋을 한 번에 다 보여 줬다(2026-09-10). ① **정규식이 못 읽었다** —
+클라이언트가 쿼리까지 한 문자열에 담아 쓰는 파견 경로를 놓쳤고, 동시에 `application/json` 을
+경로로 읽었다(못 읽음과 만들어 냄이 한 정규식에서 같이 났다). AST 로 바꿔 닫았다.
+② **벤더가 안 적은 것**은 `Run.missionStatus` 의 값 집합이다 — `enum` 이 없어 자유 문자열이다.
+③ **검사의 성질**은 그대로다.
 
 **첫째를 둘째로 적는 것이 이 저장소가 반복해 물린 실수다.** G1 문단이 한 번
 *"스키마가 없어 인자 이름을 못 덮는다"* 고 적혀 있었는데, 벤더는 주고 있었고
@@ -109,3 +134,16 @@ Digit 에서 `nogo`·`no-go` 가 0 건이라 *출입 금지 구역이 없다* �
 그것을 `keep-out` 이라 부른다. 부재를 적으려면 벤더 문서의 용어로 한 번 더 찾고,
 그 낱말을 근거에 함께 적는다 — 다음 사람이 같은 검색을 다시 하지 않도록.
 
+## 추출기의 시험은 **다시 뽑아 대조하는 것**이다
+
+Gradle 이 추출기를 안 돌린다 — 원문이 저장소 밖이다. 그래서 추출기를 고칠 때의 시험은
+*원본을 손에 놓고 다시 뽑아 체크인된 매니페스트와 diff 하는 것* 이고, 주입도 그렇게 잰다.
+
+2026-09-10 에 `openapi_symbols.py` 로 일곱을 주입했다. 중첩 필드 상실 · 열거값 상실 ·
+클라이언트 POST 경로 누락 · 호스트 접두사 잔류 · 자리표시자만인 경로 · 스펙 검색 실패 ·
+문자열을 문자열로 안 봄. **일곱 다 잡혔고**, 그중 셋은 남쪽 시험(`OrbitVendorSurfaceTest`)이
+함께 빨개졌으며 둘은 매니페스트 diff 로만 보였다 — *아무도 안 짚는 이름* 이라 그렇다.
+
+★ 그 라운드가 **죽은 가지 하나**를 드러냈다. 열거값을 두 곳에서 모으고 있었는데 재귀가 이미
+같은 이름을 만들고 있어, 한쪽을 지워도 매니페스트가 그대로였다. **주입이 안 잡히면 주입을
+의심하되, 코드가 죽었을 수도 있다** — 검사가 검사하는 척하는 자리다.

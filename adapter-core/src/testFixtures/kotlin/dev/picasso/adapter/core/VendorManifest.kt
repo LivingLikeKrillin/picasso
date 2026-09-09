@@ -87,6 +87,22 @@ class VendorManifest private constructor(
     }
 
     /**
+     * 이 이름이 원문에 있는가.
+     *
+     * **부재를 단언하는 시험이 이것을 쓴다.** README 가 정한 규율 — *"매니페스트에서 우리 낱말을 찾아 0 건이면
+     * 그것은 부재가 아니라 검색 실패다"* — 를 지키려면 부재의 단언에 **대조군**이 함께 있어야 한다: 벤더의 다른
+     * 낱말로도 없는지, 그리고 있어야 할 것은 있는지. 이 함수는 그 단언을 쓸 수 있게 할 뿐이고, 대조군을 두는 것은
+     * 시험의 몫이다.
+     */
+    fun has(symbol: String): Boolean = symbol in symbols
+
+    /**
+     * 접두사로 시작하는 이름들. **집합의 성질**을 보는 데 쓴다 — 열거값이 하나도 없다는 것은 벤더가 값 집합을
+     * 안 줬다는 뜻이고, 그 사실이 결과 어휘의 거리다.
+     */
+    fun symbolsStartingWith(prefix: String): List<String> = symbols.filter { it.startsWith(prefix) }.sorted()
+
+    /**
      * 타입의 모양마다 멤버를 다르게 센다.
      *
      * **합성 멤버를 빼는 것이 중요하다.** 코틀린이 만든 `component1`·`copy`·

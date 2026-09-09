@@ -43,7 +43,7 @@
     },
     "transport": {
       "description": "로봇측이 말하는 프로토콜. §3.5의 경계가 이것을 어댑터 안으로 흡수한다.",
-      "enum": ["GRPC", "DDS", "WEBSOCKET_JSON"]
+      "enum": ["GRPC", "DDS", "WEBSOCKET_JSON", "HTTP_REST"]
     },
     "exclusive_control_required": {
       "description": "§4.9 — 배타적 제어 소유권 모델인가. **강제되는가는 별개다**: 모델이 있어도 인증이 없으면 네트워크 도달이 곧 전권이며, 그 사실은 `notes`에 적는다.",
