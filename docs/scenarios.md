@@ -198,9 +198,10 @@ picasso 의 `(task_id, revision)` 이 그 짝이다. 요청 쪽 규칙은 §4.4 
 | 경로 | 실행 단위 | 완료 | 취소 | 등급 |
 |---|---|---|---|---|
 | ① 로봇 직결 — `MissionService` (`adapter-boston-dynamics-spot` 이 붙은 층) | 미션 트리(`Sequence`·`Retry`·`BosdynNavigateTo`·`DataAcquisition`·`RemoteGrpc`·`Prompt`) | `State.status STATUS_SUCCESS`; 노드별 `Result` | `PauseMission`·`StopMission`(완료 직후 Stop 은 `STATUS_SUCCESS` 로 남는다) | E0 |
+| ① 로봇 직결 — `DataAcquisitionService` **(어댑터가 지금 든 경로, §15.97)** | 취득 하나 — `AcquireData{CaptureActionId{action_name=target, group_name=태스크}, image_captures=광고된 원천 전부}`; 대상은 `WorldObject.name` 에 묻는다 | `GetStatus STATUS_COMPLETE` + `data_saved[]`(`DataIdentifier` — 증거 자료 참조) | `CancelAcquisition`(답이 온다; `FAILED_TO_CANCEL` 이면 취득 계속). 일시정지 없음 | E0 |
 | ③ 플릿 경유 — Orbit | `SiteWalk`(= Autowalk `Walk` 의 REST 전송, [`vendors/orbit.md`](vendors/orbit.md)) | `Run.missionStatus`(자유 문자열), 웹훅 `ACTION_COMPLETED` | **없다** — 스펙 35 경로에도, 벤더 클라이언트에도 | E1 |
 
-- 취득 결과의 결속 자리는 `DataAcquisition` 의 `CaptureActionId{action_name, group_name}` 이다 — 우리가 잰 Spot 표면에서 클라이언트가 이름을 정해 넣을 수 있는 **유일한** 자리다(§15.75).
+- 취득 결과의 결속 자리는 `DataAcquisition` 의 `CaptureActionId{action_name, group_name}` 이다 — 우리가 잰 Spot 표면에서 클라이언트가 이름을 정해 넣을 수 있는 **유일한** 자리다(§15.75). **어댑터가 이제 거기에 `target` 을 넣는다**(§15.97) — 그래서 결과 참조가 대상의 이름을 달고 돌아온다. 어느 카메라가 대상을 보느냐는 환경 전제다(`environment-preconditions.md` B).
 - Orbit 경유는 `RunEvent.error` 가 정수 하나라 ① 이 갖는 `ManipulationFeedbackState` 류 어휘를 잃는다. 어댑터가 어느 층에 붙었는지는 계약에 새지 않아야 하므로(§15.77), 이 차이는 **결과 어휘의 해상도 차이**로만 나타난다.
 
 **어댑터 가용성이 곧 로봇 거동이다 — Spot 1 차 자료.** `KeepaliveService.Policy` 의 `ActionAfter` 가 `AutoReturn`·`ControlledMotorsOff`·`ImmediateRobotOff`·`LeaseStale` 을 두고, E-Stop 엔드포인트의 `timeout` 초과는 `SETTLE_THEN_CUT`, `cut_power_timeout` 초과는 CUT 이다. 팔에 든 것은 `CarryState` 가 가른다. **어댑터 프로세스가 죽으면 로봇이 앉고 전원이 끊기는 것이 벤더의 기본 거동**이다. ADR 32 는 계약이 안전 기능을 나르지 않는다고 정했고 그것은 유지되지만, 어댑터의 가동률이 물리적 결과를 갖는다는 사실은 배치의 전제로 적어 둔다.

@@ -45,6 +45,15 @@ class SpotVendorSurfaceTest {
             LeaseStatus::class.java,
             NavigationStatus::class.java,
             BehaviorFaultCause::class.java,
+            WorldLayer::class.java,
+            WorldObjectRef::class.java,
+            AcquisitionLayer::class.java,
+            ImageSourceRef::class.java,
+            AcquireStatus::class.java,
+            AcquisitionStatus::class.java,
+            AcquisitionState::class.java,
+            CancelAcquisitionStatus::class.java,
+            DataRef::class.java,
         )
     }
 }

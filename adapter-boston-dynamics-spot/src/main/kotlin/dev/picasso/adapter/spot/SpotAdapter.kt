@@ -30,12 +30,17 @@ import java.time.Instant
  * | `NEEDS_INTERVENTION` | 없음 | `AnswerQuestion`·`Prompt` |
  * | 제어 권한 상실 | 못 채움 | `LeaseUseResult.STATUS_REVOKED` |
  * | 신원 | 질의 없음 | `GetRobotId` (아직 안 읽는다) |
- * | **대상 시맨틱** | **없음** | **없음** |
+ * | **대상 시맨틱** | **없음** | 장소는 `Waypoint.annotations.name`, 대상은 `WorldObject.name` — **둘 다 사이트가 등록한다** |
  *
  * 마지막 줄이 이 어댑터가 재러 온 것이다. `navigate_to`가 되는 이유는 GraphNav이
- * **지도 안에 사람이 붙인 이름을 들고 있기** 때문이고, `pick_place`·`inspect`가
- * 안 되는 이유는 그 층이 없어서 픽셀과 3D 점과 카메라 이름이 그대로 올라오기
- * 때문이다. 자세한 것은 `profile/distance/spot-arm.json`.
+ * **지도 안에 사람이 붙인 이름을 들고 있기** 때문이고, `inspect` 가 되는 이유는
+ * 세계 모델이 **사람이 붙인 대상의 이름**을 들고 있고 취득이 그 이름으로 묶이기
+ * 때문이다(`CaptureActionId.action_name`). `pick_place` 가 PARTIAL 인 이유는 놓기
+ * 요청의 자리가 없어서다. 자세한 것은 `profile/distance/spot-arm.json`.
+ *
+ * **스킬 셋이 서로 다른 세 층에 올라탄다** — `move_relative` 명령, `navigate_to` 미션,
+ * `inspect` 취득. 층마다 일시정지·취소·피드백이 다르고 그 차이가 프로파일의 스킬 단위
+ * 선언으로 올라간다.
  *
  * **그 "된다"의 값이 한 번 틀렸었다.** 이름과 id 를 같은 것으로 보고 `location`
  * 을 항법에 그대로 넘겼다 — 전말과 정정은 [GraphLayer]에 적혀 있다.
@@ -92,10 +97,70 @@ class SpotAdapter(
         return when (skillType) {
             MOVE -> acceptMove(parameters, startedAt)
             NAVIGATE -> acceptNavigate(parameters, startedAt)
+            INSPECT -> acceptInspect(parameters, startedAt)
             else -> Acceptance.Refused(
                 Refusal.UNSUPPORTED_SKILL,
-                "이 어댑터가 드는 스킬은 '$MOVE'·'$NAVIGATE' 둘이다: '$skillType'",
+                "이 어댑터가 드는 스킬은 '$MOVE'·'$NAVIGATE'·'$INSPECT' 셋이다: '$skillType'",
             )
+        }
+    }
+
+    /**
+     * `inspect(target)` → 취득 계층.
+     *
+     * **`target` 은 대상의 이름이고 로봇의 세계 모델에 물어 있는지 본다** — 항법이 `location` 을 지도에 묻는 것과 같은
+     * 규율이다(ADR 34·35). 없으면 거절하고 취득하지 않는다: 받아 놓고 아무거나 찍어 성공으로 적는 것이 가장 나쁘다.
+     * 있으면 로봇이 광고하는 영상 원천 **전부**로 찍고 `CaptureActionId{action_name = target, group_name = 태스크}` 로
+     * 묶는다 — 취득이 대상을 겨냥하는 자리가 없으므로(`AcquisitionRequestList` 는 센서를 받지 대상을 안 받는다)
+     * *그 자리에 서면 카메라가 대상을 본다* 는 것은 환경 전제다(`environment-preconditions.md` B).
+     */
+    private fun acceptInspect(parameters: Map<String, Any>, startedAt: Instant): Acceptance {
+        val target = parameters[P_TARGET] as? String
+            ?: return Acceptance.Refused(Refusal.PARAMETER_MISSING, "필수 파라미터가 없다: [$P_TARGET]")
+
+        val world = link.world
+            ?: return Acceptance.Refused(Refusal.VENDOR_SURFACE_ABSENT, "세계 모델이 없다 — 대상의 이름을 찾을 데가 없다")
+        val acquisition = link.acquisition
+            ?: return Acceptance.Refused(
+                Refusal.VENDOR_SURFACE_ABSENT,
+                "취득 계층이 없다 — 살필 수단이 없다. `navigate_to`·`move_relative` 는 여전히 받는다",
+            )
+
+        val objects = world.listObjects().getOrElse {
+            return Acceptance.Refused(Refusal.LINK_ERROR, "세계 모델을 못 받았다: ${it.message}")
+        }
+        when (objects.count { it.name == target }) {
+            1 -> Unit
+            0 -> return Acceptance.Refused(
+                Refusal.SITE_NAME_UNKNOWN,
+                "이 기체의 세계 모델에 '$target' 이 없다. 등록했는지 확인하십시오 — 오타인지 누락인지 어댑터는 모른다",
+            )
+            else -> return Acceptance.Refused(Refusal.SITE_NAME_AMBIGUOUS, "'$target' 을 든 객체가 둘 이상이다")
+        }
+
+        val sources = acquisition.imageSources().getOrElse {
+            return Acceptance.Refused(Refusal.LINK_ERROR, "취득 능력을 못 받았다: ${it.message}")
+        }
+        if (sources.isEmpty()) {
+            return Acceptance.Refused(Refusal.VENDOR_SURFACE_ABSENT, "취득할 영상 원천이 하나도 없다 — 찍을 것이 없다")
+        }
+
+        val id = "${identity.robotId}-${issued + 1}"
+        return when (val result = acquisition.acquire(actionName = target, groupName = id, captures = sources)) {
+            is AcquireResult.Accepted -> {
+                issued += 1
+                task = RunningTask(id, startedAt, Layer.ACQUISITION, durationSeconds = null, state = TaskState.TASK_STATE_RUNNING, requestId = result.requestId)
+                Acceptance.Accepted(id)
+            }
+
+            is AcquireResult.Rejected -> Acceptance.Refused(
+                Refusal.VENDOR_REJECTED,
+                "AcquireData 를 로봇이 거절했다: ${result.status}",
+                failureClass = FailureClass.FAILURE_CLASS_UNCLASSIFIED,
+                vendorDetail = "AcquireDataResponse.status=${result.status.name}",
+            )
+
+            is AcquireResult.Failed -> Acceptance.Refused(Refusal.LINK_ERROR, "AcquireData 가 실패했다: ${result.cause.message}")
         }
     }
 
@@ -291,6 +356,8 @@ class SpotAdapter(
                 }
             }
 
+            Layer.ACQUISITION -> pollAcquisition(current)
+
             Layer.MISSION -> {
                 val reported = link.mission?.state()
                 current.question = reported?.question
@@ -324,6 +391,84 @@ class SpotAdapter(
 
     /** 종착이 실패인 태스크의 계약 `Fault` — 정준 분류와 벤더 원문. 실패가 아니면 널. */
     fun failure(): Fault? = task?.failure
+
+    /**
+     * 종착이 성공인 태스크의 **결과 참조** — 계약의 `partial_result` 로 갈 것. 취득이면 저장된 `DataIdentifier` 들이다:
+     * `channel/data_name#id@action_name/group_name` 을 `;` 로 잇는다. 시나리오 ③의 *측정값 또는 증거 자료 참조*가
+     * 실물에서 처음 생기는 자리다 — 미믹은 이 자리를 안 채운다(§15.76).
+     */
+    fun result(): String? = task?.result
+
+    /**
+     * 취득의 상태를 옮긴다(`GetStatus`).
+     *
+     * | `GetStatusResponse.Status` | 계약 |
+     * |---|---|
+     * | `ACQUIRING`·`SAVING` | `RUNNING`(취소 중이면 그대로 `CANCELLING`) |
+     * | `CANCEL_IN_PROGRESS` | `CANCELLING` |
+     * | `COMPLETE` | `SUCCEEDED` + 결과 참조 |
+     * | `ACQUISITION_CANCELLED` | `CANCELLED` — 쥔 것이 없으니 복구할 것도 없다 |
+     * | `CANCEL_ACQUISITION_FAILED` | `CANCELLED_RECOVERY_FAILED` — 취소가 안 먹었다 |
+     * | `TIMEDOUT` | `FAILED` `COMMAND_TIMED_OUT` |
+     * | `DATA_ERROR`·`INTERNAL_ERROR`·`REQUEST_ID_DOES_NOT_EXIST` | `FAILED` `UNCLASSIFIED` + 원문 — 벤더가 원인을 분류 가능하게 주지 않는다 |
+     * | `UNKNOWN` · 못 물음 | 이 폴에서는 새로 알게 된 것이 없다 |
+     */
+    private fun pollAcquisition(current: RunningTask) {
+        val acquisition = link.acquisition ?: return
+        val status = acquisition.status(current.requestId!!).getOrNull() ?: return
+        fun failed(failureClass: FailureClass, errorType: String, hint: String) {
+            current.state = TaskState.TASK_STATE_FAILED
+            current.failure = classifiedFault(
+                errorType = errorType,
+                failureClass = failureClass,
+                vendorDetail = "GetStatusResponse.status=${status.state.name}" +
+                    (if (status.errors.isEmpty()) "" else "; errors=${status.errors}"),
+                errorHint = hint,
+            )
+        }
+        when (status.state) {
+            AcquisitionState.STATUS_ACQUIRING, AcquisitionState.STATUS_SAVING ->
+                if (current.state != TaskState.TASK_STATE_CANCELLING) current.state = TaskState.TASK_STATE_RUNNING
+
+            AcquisitionState.STATUS_CANCEL_IN_PROGRESS -> current.state = TaskState.TASK_STATE_CANCELLING
+
+            AcquisitionState.STATUS_COMPLETE -> {
+                current.state = TaskState.TASK_STATE_SUCCEEDED
+                current.result = status.saved.joinToString(";") { "${it.channel}/${it.dataName}#${it.id}@${it.actionName}/${it.groupName}" }
+                    .ifBlank { null }
+            }
+
+            AcquisitionState.STATUS_ACQUISITION_CANCELLED -> current.state = TaskState.TASK_STATE_CANCELLED
+
+            AcquisitionState.STATUS_CANCEL_ACQUISITION_FAILED -> {
+                current.state = TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
+                current.failure = classifiedFault(
+                    errorType = "X_BOSTONDYNAMICS_ACQUISITION_CANCEL_FAILED",
+                    failureClass = FailureClass.FAILURE_CLASS_UNCLASSIFIED,
+                    vendorDetail = "GetStatusResponse.status=${status.state.name}",
+                    errorHint = "취득 취소가 실패했습니다. 저장소에서 그 요청의 산출물을 확인하십시오.",
+                )
+            }
+
+            AcquisitionState.STATUS_TIMEDOUT -> failed(
+                FailureClass.FAILURE_CLASS_COMMAND_TIMED_OUT, "X_BOSTONDYNAMICS_ACQUISITION_TIMEDOUT",
+                "취득이 시간 안에 끝나지 않았습니다. 영상 서비스 상태를 확인한 뒤 재시도하십시오.",
+            )
+
+            AcquisitionState.STATUS_DATA_ERROR, AcquisitionState.STATUS_INTERNAL_ERROR ->
+                failed(
+                    FailureClass.FAILURE_CLASS_UNCLASSIFIED, "X_BOSTONDYNAMICS_ACQUISITION_${status.state.name.removePrefix("STATUS_")}",
+                    "취득에 오류가 있었습니다(${status.errors}). 벤더 진단을 확인하십시오.",
+                )
+
+            AcquisitionState.STATUS_REQUEST_ID_DOES_NOT_EXIST -> failed(
+                FailureClass.FAILURE_CLASS_UNCLASSIFIED, "X_BOSTONDYNAMICS_ACQUISITION_REQUEST_LOST",
+                "로봇이 이 취득 요청을 모릅니다. 서비스가 재시작됐을 수 있습니다.",
+            )
+
+            AcquisitionState.STATUS_UNKNOWN -> Unit
+        }
+    }
 
     /**
      * 항법 실패를 정준 분류로 옮긴다(미들웨어 중앙 설계 §1.4 의 표).
@@ -400,6 +545,12 @@ class SpotAdapter(
                 "명령 계층에는 일시정지가 없다. StopCommand 는 멈추기이지 재개가 아니다",
             )
         }
+        if (current.layer == Layer.ACQUISITION) {
+            return Applied.Refused(
+                Refusal.NO_VENDOR_PRIMITIVE,
+                "취득에는 일시정지가 없다 — DataAcquisitionService 에는 CancelAcquisition 뿐이다",
+            )
+        }
 
         val mission = link.mission
             ?: return Applied.Refused(Refusal.VENDOR_SURFACE_ABSENT, "미션 계층이 없다")
@@ -423,16 +574,44 @@ class SpotAdapter(
             )
         }
 
+        if (current.layer == Layer.ACQUISITION) return cancelAcquisition(current)
+
         current.state = TaskState.TASK_STATE_CANCELLING
         val result = when (current.layer) {
             Layer.MISSION -> link.mission?.stop()
             Layer.COMMAND -> link.command?.stop()
+            Layer.ACQUISITION -> null
         } ?: return Applied.Refused(Refusal.VENDOR_SURFACE_ABSENT, "멈출 표면이 사라졌다")
 
         return applied(result, onReject = {
             // 멈추라고 시켰는데 권한이 없다. 로봇이 아직 움직이고 있을 수 있다.
             current.state = TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
         }) { current.state = settledAfterStop() }
+    }
+
+    /**
+     * 취득의 취소 — `CancelAcquisition`. **답이 온다.** `STATUS_OK` 면 `CANCELLING` 이고 종착은 `GetStatus` 가
+     * (`ACQUISITION_CANCELLED` / `CANCEL_ACQUISITION_FAILED`) 말한다. `FAILED_TO_CANCEL` 이면 거절이고 취득은 계속된다 —
+     * 상태를 건드리지 않는다. 로봇이 요청을 모른다고 하면 조작할 것이 없다.
+     */
+    private fun cancelAcquisition(current: RunningTask): Applied {
+        val acquisition = link.acquisition
+            ?: return Applied.Refused(Refusal.VENDOR_SURFACE_ABSENT, "취득 계층이 사라졌다")
+        val answer = acquisition.cancel(current.requestId!!).getOrElse {
+            return Applied.Refused(Refusal.LINK_ERROR, "CancelAcquisition 이 실패했다: ${it.message}")
+        }
+        return when (answer) {
+            CancelAcquisitionStatus.STATUS_OK -> {
+                current.state = TaskState.TASK_STATE_CANCELLING
+                Applied.Ok
+            }
+            CancelAcquisitionStatus.STATUS_FAILED_TO_CANCEL ->
+                Applied.Refused(Refusal.VENDOR_REJECTED, "로봇이 취득 취소를 거절했다 — 취득은 계속된다(CancelAcquisitionResponse.status=${answer.name})")
+            CancelAcquisitionStatus.STATUS_REQUEST_ID_DOES_NOT_EXIST ->
+                Applied.Refused(Refusal.NO_TASK, "로봇이 이 취득 요청을 모른다(CancelAcquisitionResponse.status=${answer.name})")
+            CancelAcquisitionStatus.STATUS_UNKNOWN ->
+                Applied.Refused(Refusal.VENDOR_REJECTED, "취소의 답을 알 수 없다(CancelAcquisitionResponse.status=${answer.name})")
+        }
     }
 
     /**
@@ -606,7 +785,7 @@ class SpotAdapter(
     }
 
     /** 태스크가 올라탄 벤더 계층. **어느 층이냐가 조작의 답을 바꾼다.** */
-    private enum class Layer { COMMAND, MISSION }
+    private enum class Layer { COMMAND, MISSION, ACQUISITION }
 
     private class RunningTask(
         val id: String,
@@ -617,17 +796,23 @@ class SpotAdapter(
         var question: String? = null,
         /** 종착이 실패일 때의 계약 `Fault` — 정준 분류 + 벤더 원문. */
         var failure: Fault? = null,
+        /** 취득 계층의 `request_id`. 그 층의 태스크만 든다. */
+        val requestId: Int? = null,
+        /** 종착이 성공일 때의 결과 참조 — 취득이 저장한 것들의 식별자. */
+        var result: String? = null,
     )
 
     private companion object {
         const val MOVE = "move_relative"
         const val NAVIGATE = "navigate_to"
+        const val INSPECT = "inspect"
 
         const val P_FORWARD = "forward_speed"
         const val P_LATERAL = "lateral_speed"
         const val P_YAW = "yaw_rate"
         const val P_DURATION = "duration"
         const val P_LOCATION = "location"
+        const val P_TARGET = "target"
 
         val MOVE_PARAMS = listOf(P_FORWARD, P_LATERAL, P_YAW, P_DURATION)
 

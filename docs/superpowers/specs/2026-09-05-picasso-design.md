@@ -2236,3 +2236,34 @@ mimic/
 
     - `bufDescriptor` 는 Docker 가 있어야 돈다. 없으면 실패하고 게이트 시험이 만드는 법을 찍는다 — 앞과 같다. Docker 없는 대안(protoc 가 이미 만드는 `contract-descriptor/picasso.desc` 를 쓰는 것)은 게이트의 입력을 바꾸는 일이라 여기서 안 했다.
     - `KnownSiteNamesTest` 의 잘림 시험은 `protocol_limits.max_array_length` 가 40 보다 클 수도 있어 조건부 단언이다 — 잘리면 `total_count` 가 말한다는 것만 고정한다.
+
+97. **Spot 이 `inspect` 를 든다 — 취득 계층 위에서, 대상의 이름은 세계 모델에 묻고, 결과는 `DataIdentifier` 참조로.**
+
+    ③의 실물 경로 ①(보고서 7장 — *`DataAcquisitionService`(C 수준, `request_id`·`STATUS_COMPLETE`·`data_saved[]`)*)을 어댑터가 실제로 든다. 지금까지 시나리오 ③은 미믹 위에서만 돌았고 결과 참조를 채우는 발신자가 없었다(§15.93 정직 항목). 이제 발신자가 하나 있다.
+
+    ### 판정을 바꿨다 — PARTIAL → YES, 근거와 함께
+
+    `distance/spot-arm.json` 은 `inspect` 를 PARTIAL 로 적고 *"진짜 결손은 모양의 어긋남 — 우리 계약은 물체 신원을 묻는데 BD 는 어디에 서서 어느 이름의 액션을 돌리는가"* 라 했다. 어댑터를 실제로 들면서 그 어긋남을 두 자리가 메운다는 것이 보였다.
+
+    | 계약이 묻는 것 | Spot 의 자리 | 어댑터 |
+    |---|---|---|
+    | 대상의 신원(`target`) | `WorldObject.name` — 사이트가 `MutateWorldObjects` 로 등록한 사람의 이름. Digit 의 객체 모델에서 우리가 이미 결속으로 인정한 것과 같은 구조 | `ListWorldObjects` 로 **있는지 묻는다**(`navigate_to` 가 지도에 묻는 것과 같은 규율, ADR 34·35). 없으면 `SITE_NAME_UNKNOWN`, 둘이면 `SITE_NAME_AMBIGUOUS` — 취득하지 않는다 |
+    | 관측을 대상에 묶기 | `CaptureActionId{action_name, group_name}` — 이 표면에서 클라이언트가 이름을 정해 넣는 유일한 자리(§15.75) | `action_name = target`, `group_name = 태스크`. 결과 `DataIdentifier.action_id` 에 그대로 돌아온다 |
+    | 결과 참조 | `GetStatusResponse.data_saved[]` | `channel/data_name#id@action_name/group_name` 을 `;` 로 이어 `result()` 로 — 계약의 `partial_result` 가 될 것 |
+    | 생명주기 | `AcquireData` → `GetStatus` 열하나 → `CancelAcquisition` 넷 | `ACQUIRING`·`SAVING`→RUNNING · `COMPLETE`→SUCCEEDED · `ACQUISITION_CANCELLED`→CANCELLED(쥔 것이 없다) · `CANCEL_ACQUISITION_FAILED`→CANCELLED_RECOVERY_FAILED · `TIMEDOUT`→`COMMAND_TIMED_OUT` · 데이터·내부 오류·요청 분실→`UNCLASSIFIED`+원문. 취소는 **답이 온다** — `FAILED_TO_CANCEL` 이면 거절이고 취득은 계속된다. 일시정지는 표면이 없다 |
+
+    남는 것 — **어느 카메라가 그 대상을 보느냐** — 는 벤더가 못 주는 것이 아니라 현장이 정하는 것이다. `AcquisitionRequestList` 는 센서를 받지 대상을 안 받는다. 그래서 어댑터는 광고된 영상 원천 **전부**로 찍고, *그 자리(`navigate_to` 의 웨이포인트)에 서면 카메라가 대상을 본다* 는 것을 `missing` 이 아니라 **환경 전제**로 옮겼다(`environment-preconditions.md` B 에 둘 — 등록은 관측 가능, 시야는 보증). `pick_place` 의 *"이 자리에는 A형만 있다"* 와 같은 종류다(§15.81 — 능력은 기체×현장의 성질).
+
+    **스킬 셋이 세 층에 올라탄다** — `move_relative` 명령, `navigate_to` 미션, `inspect` 취득. 층마다 일시정지·취소·피드백이 다르고 그 차이가 프로파일의 스킬 단위 선언으로 올라간다(`inspect`: 취소 YES, 일시정지 NO). 취득 계층이 없는 기체에서는 `inspect` 만 죽는다.
+
+    ### 저장소가 함께 움직인 것
+
+    `spot-arm.json` 에 `inspect`(revision 2) · `distance/spot-arm.json` YES + 재측정 근거 · `provenance/spot-arm.json` 두 항목 · `environment-preconditions.md` B 두 행 · 매니페스트 시험에 새 남쪽 타입 열(`WorldLayer`·`AcquisitionLayer`·열거 셋·데이터 클래스 넷) — 짚은 이름 전부 원문에 있다. 거리 시험의 *"닿는다고 적은 것과 선언한 것이 같다"* 가 프로파일과 거리 문서를 함께 움직이게 했다.
+
+    ### 정직하게 적어 둘 것
+
+    - **실물에서 확인한 바 없다**(C-3). 이름의 실재만 대조했다. 특히 `AcquireData` 가 리스 없이 받는지, 광고된 원천 전부를 한 요청에 넣어도 되는지는 벤더 주석의 진술이다.
+    - **북쪽이 없다.** `result()`·`failure()` 는 어댑터의 답이지 아직 `WatchTaskResponse` 가 아니다. 미들웨어의 `JobResponse.results` 가 비어 있음을 고정한 시험(§15.93)은 그대로다 — 미믹은 안 채우고 Spot 어댑터는 계약 서버가 없다. 결선은 어댑터 인스턴스(§15.77 이후 열린 것)의 일이다.
+    - 결과 참조의 문자열 모양(`channel/data_name#id@action/group`)은 우리가 정한 것이다. 계약의 `partial_result` 가 자유 문자열이라서이며, 구조화하려면 계약이 자리를 내야 한다(§15.76).
+    - `WorldObject.name` 으로 대상을 찾는 것과 `knownSiteNames()`(그래프의 웨이포인트 이름)는 다른 이름 공간이다(§15.78) — 확인 질의는 장소만 답하고 대상은 아직 안 답한다.
+    - 결함 주입 다섯(모르는 대상 수락 · 취득에 대상 이름 안 붙임 · 결과 참조 누락 · 시간 초과 미분류 · 거절된 취소가 상태 변경) 전부 겨냥한 시험이 잡았다. 앞 판의 *"드는 스킬이 아니면 받지 않는다"* 시험은 `inspect` 를 빼고 `pick_place` 만 남겼다.

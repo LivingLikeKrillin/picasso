@@ -121,7 +121,218 @@ interface SpotLink {
         "bosdyn.api.BehaviorFault.cause",
     )
     fun behaviorFaults(): Result<List<BehaviorFaultCause>>
+
+    /**
+     * 세계 모델(`WorldObjectService`). **대상의 이름이 여기 산다** — 사이트가 `MutateWorldObjects` 로 등록한 것이며
+     * (ADR 35), Digit 의 객체 모델과 구조가 같다(§15.76). `inspect` 의 `target` 을 여기서 찾는다. 널이면 대상을 찾을
+     * 데가 없어 `inspect` 만 죽는다 — `navigate_to` 는 지도 계층, `move_relative` 는 명령 계층이라 산다.
+     */
+    @get:VendorSurface("bosdyn.api.WorldObjectService")
+    val world: WorldLayer?
+
+    /**
+     * 취득 계층(`DataAcquisitionService`). `inspect` 가 여기로 간다 — 보고서 7장이 적은 ①경로의 C 수준 자리
+     * (`request_id` · `STATUS_COMPLETE` · `data_saved[]`). 생명주기가 온전하다: `AcquireData`(수락) · `GetStatus`(폴) ·
+     * `CancelAcquisition`(취소) · `GetServiceInfo`(능력). 일시정지는 없다.
+     */
+    @get:VendorSurface("bosdyn.api.DataAcquisitionService")
+    val acquisition: AcquisitionLayer?
 }
+
+/** 세계 모델 — 묻기만 한다. 대상의 이름과 id 의 대응을 정한 것은 어댑터가 아니라 등록한 사이트다. */
+interface WorldLayer {
+
+    /** `ListWorldObjects` → `WorldObject{id, name}`. 이름은 선택 필드라 비어 있을 수 있고 그런 객체는 사이트가 지은 것이 아니다. */
+    @VendorSurface(
+        "bosdyn.api.WorldObjectService.ListWorldObjects",
+        "bosdyn.api.ListWorldObjectResponse.world_objects",
+        "bosdyn.api.WorldObject.id",
+        "bosdyn.api.WorldObject.name",
+    )
+    fun listObjects(): Result<List<WorldObjectRef>>
+}
+
+/** `WorldObject` 에서 우리가 쓰는 둘. 항법의 `GraphWaypoint` 와 같은 이유로 id 와 이름을 한 필드로 접지 않는다. */
+data class WorldObjectRef(
+    @field:VendorSurface("bosdyn.api.WorldObject.id")
+    val id: Int,
+
+    @field:VendorSurface("bosdyn.api.WorldObject.name")
+    val name: String,
+)
+
+/**
+ * 취득 계층.
+ *
+ * **대상을 겨냥하는 자리가 없다** — `AcquisitionRequestList` 는 *어느 센서로 찍을지*를 받지 *무엇을 볼지*를 안 받는다
+ * (`distance/spot-arm.json`). 그래서 어댑터는 로봇이 광고하는 영상 원천 **전부**로 찍고, 대상의 이름은
+ * `CaptureActionId.action_name` 에 — 사이트가 이름을 정해 넣을 수 있는 유일한 자리(§15.75) — 묶는다. 그 자리에 섰을 때
+ * 카메라가 대상을 본다는 것은 **환경 전제**다(`environment-preconditions.md` B).
+ */
+interface AcquisitionLayer {
+
+    /** `GetServiceInfo` → 영상 원천들. 취득 요청은 이 이름들로 짠다. */
+    @VendorSurface(
+        "bosdyn.api.DataAcquisitionService.GetServiceInfo",
+        "bosdyn.api.GetServiceInfoResponse.capabilities",
+        "bosdyn.api.AcquisitionCapabilityList.image_sources",
+        "bosdyn.api.ImageAcquisitionCapability.service_name",
+        "bosdyn.api.ImageAcquisitionCapability.image_source_names",
+    )
+    fun imageSources(): Result<List<ImageSourceRef>>
+
+    /**
+     * `AcquireData{action_id{action_name, group_name}, acquisition_requests{image_captures}}` → `request_id`.
+     * 리스를 안 싣는다 — 취득은 움직임이 아니다(§15.76: `Lease` 는 34개 요청에만).
+     */
+    @VendorSurface(
+        "bosdyn.api.DataAcquisitionService.AcquireData",
+        "bosdyn.api.AcquireDataRequest.action_id",
+        "bosdyn.api.CaptureActionId.action_name",
+        "bosdyn.api.CaptureActionId.group_name",
+        "bosdyn.api.AcquireDataRequest.acquisition_requests",
+        "bosdyn.api.AcquisitionRequestList.image_captures",
+        "bosdyn.api.AcquireDataResponse.status",
+        "bosdyn.api.AcquireDataResponse.request_id",
+    )
+    fun acquire(actionName: String, groupName: String, captures: List<ImageSourceRef>): AcquireResult
+
+    /** `GetStatus(request_id)` — 진행·완료·오류와 **저장된 것의 식별자**. 그 식별자가 계약의 결과 참조가 된다. */
+    @VendorSurface(
+        "bosdyn.api.DataAcquisitionService.GetStatus",
+        "bosdyn.api.GetStatusRequest.request_id",
+        "bosdyn.api.GetStatusResponse.status",
+        "bosdyn.api.GetStatusResponse.data_saved",
+        "bosdyn.api.GetStatusResponse.data_errors",
+        "bosdyn.api.GetStatusResponse.service_errors",
+    )
+    fun status(requestId: Int): Result<AcquisitionStatus>
+
+    /** `CancelAcquisition(request_id)`. **벤더가 준 취소다** — 명령 계층의 `StopCommand` 와 달리 답이 온다. */
+    @VendorSurface(
+        "bosdyn.api.DataAcquisitionService.CancelAcquisition",
+        "bosdyn.api.CancelAcquisitionRequest.request_id",
+        "bosdyn.api.CancelAcquisitionResponse.status",
+    )
+    fun cancel(requestId: Int): Result<CancelAcquisitionStatus>
+}
+
+/** `ImageSourceCapture` 의 둘 — 어느 영상 서비스의 어느 원천. */
+data class ImageSourceRef(
+    @field:VendorSurface("bosdyn.api.ImageSourceCapture.image_service")
+    val service: String,
+
+    @field:VendorSurface("bosdyn.api.ImageSourceCapture.image_source")
+    val source: String,
+)
+
+/** `AcquireData` 의 답 — 우리가 만든 결과 어휘라 매니페스트 대조 목록에 없다(`LeaseResult` 와 같다). */
+sealed interface AcquireResult {
+    data class Accepted(val requestId: Int) : AcquireResult
+
+    /** `AcquireDataResponse.Status` 가 `STATUS_OK` 가 아니었다. */
+    data class Rejected(val status: AcquireStatus) : AcquireResult
+
+    data class Failed(val cause: Throwable) : AcquireResult
+}
+
+/** `bosdyn.api.AcquireDataResponse.Status` 셋 전부. */
+enum class AcquireStatus {
+    @VendorSurface("bosdyn.api.AcquireDataResponse.Status.STATUS_UNKNOWN")
+    STATUS_UNKNOWN,
+
+    @VendorSurface("bosdyn.api.AcquireDataResponse.Status.STATUS_OK")
+    STATUS_OK,
+
+    @VendorSurface("bosdyn.api.AcquireDataResponse.Status.STATUS_UNKNOWN_CAPTURE_TYPE")
+    STATUS_UNKNOWN_CAPTURE_TYPE,
+}
+
+/** `GetStatusResponse` 에서 우리가 쓰는 셋. */
+data class AcquisitionStatus(
+    @field:VendorSurface("bosdyn.api.GetStatusResponse.status")
+    val state: AcquisitionState,
+
+    /** 저장된 것들 — 계약의 결과 참조(`partial_result`)가 되는 자리다. */
+    @field:VendorSurface("bosdyn.api.GetStatusResponse.data_saved")
+    val saved: List<DataRef>,
+
+    /** 오류 셋을 문장으로 편 것 — 벤더 원문은 `vendor_detail` 로 동반한다. */
+    @field:VendorSurface("bosdyn.api.GetStatusResponse.data_errors", "bosdyn.api.GetStatusResponse.service_errors")
+    val errors: List<String>,
+)
+
+/** `bosdyn.api.GetStatusResponse.Status` 열하나 전부. 이름을 그대로 둔다. */
+enum class AcquisitionState {
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_UNKNOWN")
+    STATUS_UNKNOWN,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_ACQUIRING")
+    STATUS_ACQUIRING,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_SAVING")
+    STATUS_SAVING,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_COMPLETE")
+    STATUS_COMPLETE,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_CANCEL_IN_PROGRESS")
+    STATUS_CANCEL_IN_PROGRESS,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_ACQUISITION_CANCELLED")
+    STATUS_ACQUISITION_CANCELLED,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_DATA_ERROR")
+    STATUS_DATA_ERROR,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_TIMEDOUT")
+    STATUS_TIMEDOUT,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_INTERNAL_ERROR")
+    STATUS_INTERNAL_ERROR,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_CANCEL_ACQUISITION_FAILED")
+    STATUS_CANCEL_ACQUISITION_FAILED,
+
+    @VendorSurface("bosdyn.api.GetStatusResponse.Status.STATUS_REQUEST_ID_DOES_NOT_EXIST")
+    STATUS_REQUEST_ID_DOES_NOT_EXIST,
+}
+
+/** `bosdyn.api.CancelAcquisitionResponse.Status` 넷 전부. */
+enum class CancelAcquisitionStatus {
+    @VendorSurface("bosdyn.api.CancelAcquisitionResponse.Status.STATUS_UNKNOWN")
+    STATUS_UNKNOWN,
+
+    @VendorSurface("bosdyn.api.CancelAcquisitionResponse.Status.STATUS_OK")
+    STATUS_OK,
+
+    @VendorSurface("bosdyn.api.CancelAcquisitionResponse.Status.STATUS_FAILED_TO_CANCEL")
+    STATUS_FAILED_TO_CANCEL,
+
+    @VendorSurface("bosdyn.api.CancelAcquisitionResponse.Status.STATUS_REQUEST_ID_DOES_NOT_EXIST")
+    STATUS_REQUEST_ID_DOES_NOT_EXIST,
+}
+
+/**
+ * `DataIdentifier` — 저장된 취득물 하나의 이름. `action_id` 가 [CaptureActionId] 라 대상의 이름(`action_name`)과 태스크
+ * (`group_name`)가 붙어 온다. **이것이 시나리오 ③의 "증거 자료 참조"다** — 저장소에서 이 id 로 조회된다.
+ */
+data class DataRef(
+    @field:VendorSurface("bosdyn.api.DataIdentifier.action_id", "bosdyn.api.CaptureActionId.action_name")
+    val actionName: String,
+
+    @field:VendorSurface("bosdyn.api.DataIdentifier.action_id", "bosdyn.api.CaptureActionId.group_name")
+    val groupName: String,
+
+    @field:VendorSurface("bosdyn.api.DataIdentifier.channel")
+    val channel: String,
+
+    @field:VendorSurface("bosdyn.api.DataIdentifier.data_name")
+    val dataName: String,
+
+    @field:VendorSurface("bosdyn.api.DataIdentifier.id")
+    val id: String,
+)
 
 /**
  * 지도 계층 — **이 어댑터가 한 번 크게 틀렸던 자리다.**

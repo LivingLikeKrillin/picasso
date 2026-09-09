@@ -34,13 +34,16 @@ class SpotAdapterTest {
         "forward_speed" to 0.5, "lateral_speed" to 0.0, "yaw_rate" to 0.0, "duration" to 2.0,
     )
     private val navigate = mapOf<String, Any>("location" to "dock-3")
+    private val inspect = mapOf<String, Any>("target" to "PUMP-01")
 
     private fun adapter(
         command: FakeCommand? = FakeCommand(),
         mission: FakeMission? = FakeMission(),
         graph: FakeGraph? = mapped(),
         identity: AdapterIdentity = this.identity,
-    ) = SpotAdapter(FakeLink(command, mission, graph), identity)
+        acquisition: FakeAcquisition? = FakeAcquisition(),
+        world: FakeWorld? = FakeWorld("PUMP-01"),
+    ) = SpotAdapter(FakeLink(command, mission, graph, acquisition = acquisition, world = world), identity)
 
     /**
      * 픽스처의 [navigate] 가 갈 수 있는 지도.
@@ -372,15 +375,20 @@ class SpotAdapterTest {
 
     @Test
     fun `드는 스킬이 아니면 받지 않는다`() {
-        // **`pick_place` 와 `inspect` 가 여기로 온다.** 거리 측정이 둘을
-        // NO·PARTIAL 로 적었고, 어댑터가 그 판정과 같은 답을 낸다.
-        listOf("pick_place", "inspect").forEach {
+        // **`pick_place` 가 여기로 온다.** 거리 측정이 PARTIAL 로 적었고(놓기 요청의 자리가 없다), 어댑터가 그
+        // 판정과 같은 답을 낸다. `inspect` 는 2026-09-10 에 여기서 나갔다 — 취득 계층 위에 든다(아래 시험들).
+        listOf("pick_place").forEach {
             assertEquals(
                 Refusal.UNSUPPORTED_SKILL,
                 assertIs<Acceptance.Refused>(adapter().accept(it, emptyMap(), t0)).reason,
                 "$it 의 거절",
             )
         }
+        assertEquals(
+            Refusal.PARAMETER_MISSING,
+            assertIs<Acceptance.Refused>(adapter().accept("inspect", emptyMap(), t0)).reason,
+            "inspect 는 이제 든다 — 파라미터가 없어서 거절되는 것이지 스킬이 없어서가 아니다",
+        )
     }
 
     @Test
@@ -462,6 +470,143 @@ class SpotAdapterTest {
 
         override fun navigationFeedback(): Result<NavigationStatus?> =
             if (feedbackFails) Result.failure(IllegalStateException("피드백을 못 받았다")) else Result.success(feedback)
+    }
+
+    // ── inspect — 취득 계층 (시나리오 ③ ①경로, 보고서 7장)
+
+    private class FakeWorld(private vararg val names: String, private val fail: Throwable? = null) : WorldLayer {
+        override fun listObjects(): Result<List<WorldObjectRef>> {
+            fail?.let { return Result.failure(it) }
+            return Result.success(names.mapIndexed { i, n -> WorldObjectRef(100 + i, n) })
+        }
+    }
+
+    private class FakeAcquisition(
+        private val sources: List<ImageSourceRef> = listOf(ImageSourceRef("image", "frontleft_fisheye_image"), ImageSourceRef("spot-cam", "ptz")),
+        private val acceptWith: AcquireStatus = AcquireStatus.STATUS_OK,
+        var state: AcquisitionState = AcquisitionState.STATUS_ACQUIRING,
+        var saved: List<DataRef> = emptyList(),
+        var errors: List<String> = emptyList(),
+        var cancelAnswer: CancelAcquisitionStatus = CancelAcquisitionStatus.STATUS_OK,
+    ) : AcquisitionLayer {
+        val acquired = mutableListOf<Triple<String, String, List<ImageSourceRef>>>()
+        var cancels = 0
+        private var next = 7
+
+        override fun imageSources(): Result<List<ImageSourceRef>> = Result.success(sources)
+
+        override fun acquire(actionName: String, groupName: String, captures: List<ImageSourceRef>): AcquireResult {
+            if (acceptWith != AcquireStatus.STATUS_OK) return AcquireResult.Rejected(acceptWith)
+            acquired += Triple(actionName, groupName, captures)
+            next += 1
+            return AcquireResult.Accepted(next)
+        }
+
+        override fun status(requestId: Int): Result<AcquisitionStatus> = Result.success(AcquisitionStatus(state, saved, errors))
+
+        override fun cancel(requestId: Int): Result<CancelAcquisitionStatus> {
+            cancels += 1
+            if (cancelAnswer == CancelAcquisitionStatus.STATUS_OK) state = AcquisitionState.STATUS_CANCEL_IN_PROGRESS
+            return Result.success(cancelAnswer)
+        }
+    }
+
+    @Test
+    fun `target 은 세계 모델에 묻고, 취득은 그 이름과 태스크로 묶여 모든 영상 원천으로 간다`() {
+        val acquisition = FakeAcquisition()
+        val a = adapter(acquisition = acquisition, world = FakeWorld("PUMP-01", "PANEL-3"))
+        val accepted = assertIs<Acceptance.Accepted>(a.accept("inspect", inspect, t0))
+
+        val (actionName, groupName, captures) = acquisition.acquired.single()
+        assertEquals("PUMP-01", actionName, "CaptureActionId.action_name 이 대상의 이름이어야 한다 — 결과가 그 이름으로 묶인다")
+        assertEquals(accepted.taskId, groupName, "group_name 이 태스크여야 한다")
+        assertEquals(2, captures.size, "겨냥할 자리가 없으니 광고된 원천 전부다")
+        assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusSeconds(1)))
+    }
+
+    @Test
+    fun `세계 모델에 없는 대상은 거절하고 취득하지 않는다`() {
+        val acquisition = FakeAcquisition()
+        val refused = assertIs<Acceptance.Refused>(adapter(acquisition = acquisition, world = FakeWorld("PANEL-3")).accept("inspect", inspect, t0))
+        assertEquals(Refusal.SITE_NAME_UNKNOWN, refused.reason)
+        assertTrue(acquisition.acquired.isEmpty(), "모르는 대상을 찍었다 — 받아 놓고 아무거나 찍어 성공으로 적는 것이 가장 나쁘다")
+    }
+
+    @Test
+    fun `취득 계층이 없으면 inspect 만 죽고 navigate_to 는 산다 — 층이 셋이다`() {
+        val refused = assertIs<Acceptance.Refused>(adapter(acquisition = null).accept("inspect", inspect, t0))
+        assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
+        assertIs<Acceptance.Accepted>(adapter(acquisition = null).accept("navigate_to", navigate, t0))
+    }
+
+    @Test
+    fun `취득이 끝나면 저장된 것의 식별자가 결과 참조다 — 시나리오 ③의 증거 자료 참조`() {
+        val acquisition = FakeAcquisition()
+        val a = adapter(acquisition = acquisition)
+        val id = assertIs<Acceptance.Accepted>(a.accept("inspect", inspect, t0)).taskId
+        acquisition.state = AcquisitionState.STATUS_SAVING
+        assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusSeconds(1)))
+        assertEquals(null, a.result(), "끝나기 전에 결과가 있다")
+
+        acquisition.state = AcquisitionState.STATUS_COMPLETE
+        acquisition.saved = listOf(
+            DataRef("PUMP-01", id, "spot-cam-ptz", "ptz.jpg", "0a1"),
+            DataRef("PUMP-01", id, "frontleft_fisheye_image", "img.jpg", "0a2"),
+        )
+        assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(t0.plusSeconds(5)))
+        assertEquals("spot-cam-ptz/ptz.jpg#0a1@PUMP-01/$id;frontleft_fisheye_image/img.jpg#0a2@PUMP-01/$id", a.result())
+    }
+
+    @Test
+    fun `취득이 시간을 넘기면 COMMAND_TIMED_OUT 이고 데이터 오류는 분류하지 않는다`() {
+        val timedOut = FakeAcquisition(state = AcquisitionState.STATUS_TIMEDOUT)
+        val a = adapter(acquisition = timedOut)
+        a.accept("inspect", inspect, t0)
+        assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
+        assertEquals(FailureClass.FAILURE_CLASS_COMMAND_TIMED_OUT, a.failure()!!.failureClass)
+
+        val broken = FakeAcquisition(state = AcquisitionState.STATUS_DATA_ERROR, errors = listOf("spot-cam: capture failed"))
+        val b = adapter(acquisition = broken)
+        b.accept("inspect", inspect, t0)
+        assertEquals(TaskState.TASK_STATE_FAILED, b.poll(t0.plusSeconds(1)))
+        assertEquals(FailureClass.FAILURE_CLASS_UNCLASSIFIED, b.failure()!!.failureClass)
+        assertTrue(b.failure()!!.vendorDetail.contains("spot-cam: capture failed"), b.failure()!!.vendorDetail)
+    }
+
+    @Test
+    fun `취득의 취소는 벤더가 답한다 — 되면 CANCELLING 뒤 CANCELLED, 거절되면 취득은 계속된다`() {
+        val acquisition = FakeAcquisition()
+        val a = adapter(acquisition = acquisition)
+        a.accept("inspect", inspect, t0)
+        assertEquals(Applied.Ok, a.cancel())
+        assertEquals(1, acquisition.cancels)
+        assertEquals(TaskState.TASK_STATE_CANCELLING, a.poll(t0.plusSeconds(1)))
+        acquisition.state = AcquisitionState.STATUS_ACQUISITION_CANCELLED
+        assertEquals(TaskState.TASK_STATE_CANCELLED, a.poll(t0.plusSeconds(2)), "쥔 것이 없으니 복구할 것도 없다")
+
+        val stubborn = FakeAcquisition(cancelAnswer = CancelAcquisitionStatus.STATUS_FAILED_TO_CANCEL)
+        val b = adapter(acquisition = stubborn)
+        b.accept("inspect", inspect, t0)
+        val refused = assertIs<Applied.Refused>(b.cancel())
+        assertEquals(Refusal.VENDOR_REJECTED, refused.reason)
+        assertEquals(TaskState.TASK_STATE_RUNNING, b.poll(t0.plusSeconds(1)), "거절된 취소가 상태를 건드렸다")
+    }
+
+    @Test
+    fun `취득에는 일시정지가 없다`() {
+        val a = adapter()
+        a.accept("inspect", inspect, t0)
+        val refused = assertIs<Applied.Refused>(a.pause())
+        assertEquals(Refusal.NO_VENDOR_PRIMITIVE, refused.reason)
+    }
+
+    @Test
+    fun `로봇이 AcquireData 를 거절하면 벤더 거절이고 원문이 붙는다`() {
+        val refused = assertIs<Acceptance.Refused>(
+            adapter(acquisition = FakeAcquisition(acceptWith = AcquireStatus.STATUS_UNKNOWN_CAPTURE_TYPE)).accept("inspect", inspect, t0),
+        )
+        assertEquals(Refusal.VENDOR_REJECTED, refused.reason)
+        assertEquals("AcquireDataResponse.status=STATUS_UNKNOWN_CAPTURE_TYPE", refused.vendorDetail)
     }
 
     // ── 정준 실패 분류 (미들웨어 중앙 설계 §1.4) — 벤더 코드를 옮기는 자리는 어댑터다
@@ -597,6 +742,8 @@ class SpotAdapterTest {
         /** `BehaviorFaultState.faults[].cause`. 기본은 결함 없음. */
         private val behavior: List<BehaviorFaultCause> = emptyList(),
         private val behaviorFails: Boolean = false,
+        override val acquisition: AcquisitionLayer? = null,
+        override val world: WorldLayer? = null,
     ) : SpotLink {
         var armAsks = 0
 

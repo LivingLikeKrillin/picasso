@@ -40,6 +40,8 @@
 | 이동 목적지 — 웨이포인트면 족하다 | `Waypoint.waypoint_tform_ko`(`SE3Pose`)가 **로봇이 설 자리**다 | 관측 가능 |
 | **놓을 자리 — 웨이포인트로는 부족하다** | `Annotations`에 조작 대상의 자세가 없다 | §15.79 열림 |
 | 자리를 자세째 저작할 수는 있다 | `MutateWorldObjects`(`ACTION_ADD`) · `WorldObject.transforms_snapshot` | 관측 가능 |
+| **점검 대상이 세계 모델에 이름으로 등록되어 있다** | `WorldObject.name` (`ListWorldObjects`) — `inspect(target)` 이 여기 묻는다 | 관측 가능 |
+| **그 대상을 살필 자리에 서면 카메라가 그 대상을 본다** | 취득은 센서를 받지 대상을 안 받는다(`AcquisitionRequestList`) — 웨이포인트를 녹화할 때 대상이 시야에 있도록 서는 것은 사람이다 | **보증** |
 
 > **같은 이름이 `navigate_to`에는 충분하고 `pick_place`에는 모자랄 수 있다.** 선반 6번의 높이는 웨이포인트가 안 문다.
 
