@@ -79,6 +79,33 @@ def header_symbols(text):
     return found
 
 
+# **C++ 로 생성된 IDL 은 파이썬 것과 모양이 다르다.** Cyclone DDS 가
+# `class SportModeState_ { private: uint32_t fsm_id_ = 0; ... }` 를 내고, 필드는
+# 밑줄로 끝나며 게터가 같은 이름을 괄호와 함께 다시 쓴다. 그래서 **끝이
+# `_;` 이거나 `_ = ...;` 인 줄만** 필드로 본다 — 게터에는 괄호가 붙어 안 걸린다.
+#
+# 이것이 없어서 `hg/SportModeState_`(`task_id`·`task_time`)를 못 보고 있었고,
+# 그 침묵 위에서 *"진행 상태를 안 준다"* 고 적었다. 같은 실수의 세 번째다.
+_CXX_NS = re.compile(r"^namespace\s+(\w+)\s*$", re.M)
+_CXX_CLASS = re.compile(r"^class\s+(\w+)\s*$", re.M)
+_CXX_FIELD = re.compile(
+    r"^\s+(?:[\w:]+(?:<[^>]*>)?\s+)+(\w+)_\s*(?:=[^;]*)?;\s*$", re.M)
+
+
+def cxx_idl_symbols(text):
+    u"""Cyclone DDS 가 생성한 C++ IDL 헤더에서 클래스와 필드를 낸다."""
+    ns = _CXX_NS.findall(text)
+    module = ns[0] if ns else "cxx"
+    cls = _CXX_CLASS.search(text)
+    if cls is None:
+        return set()
+    name = "%s.%s" % (module, cls.group(1))
+    found = {name}
+    for field in _CXX_FIELD.findall(text):
+        found.add(name + "." + field)
+    return found
+
+
 def idl_symbols(text, module="unitree_hg"):
     found, current = set(), None
     for line in text.splitlines():
@@ -98,8 +125,16 @@ def idl_symbols(text, module="unitree_hg"):
 def build(source_dir, vendor, release, out_path):
     names, sources = set(), []
     for entry in sorted(os.listdir(source_dir)):
-        reader = header_symbols if entry.endswith((".hpp", ".h")) else (
-            idl_symbols if entry.endswith(".py") else None)
+        # **확장자만으로는 못 가른다.** `.hpp` 가 API 헤더일 수도 있고 Cyclone DDS 가
+        # 생성한 IDL 일 수도 있어서, 생성기 머리말을 보고 뒤엣것을 가른다.
+        if entry.endswith((".hpp", ".h")):
+            peek = io.open(os.path.join(source_dir, entry), "rb").read(400)
+            reader = (cxx_idl_symbols
+                      if b"IDL to CXX Translator" in peek else header_symbols)
+        elif entry.endswith(".py"):
+            reader = idl_symbols
+        else:
+            reader = None
         if reader is None:
             continue
         blob = io.open(os.path.join(source_dir, entry), "rb").read()

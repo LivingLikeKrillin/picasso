@@ -1,8 +1,11 @@
 # picasso vendor symbol manifest
 # vendor: unitree
-# release: unitree_sdk2@9754cd153af3 (g1 서비스 4 + terminations) + unitree_sdk2_python@65691c8a8bc5 (unitree_hg IDL 11)
+# release: unitree_sdk2@9754cd153af3 (g1 서비스 4 + terminations + hg C++ IDL 3) + unitree_sdk2_python@65691c8a8bc5 (unitree_hg IDL 11)
 # extractor: tools/vendor-manifest/unitree_symbols.py
 # 이 파일은 손으로 고치지 않는다. tools/vendor-manifest/README.md 참조.
+# source: cxxidl_AgvBmsState_.hpp sha256=3a17dcdebc7d15f4b44d81caba26334aa0fb4b4ee316cc594c663ac02f024ebc
+# source: cxxidl_SportModeState_.hpp sha256=85dda303b93504204693cfd456e977d3a9e2f07d74c06609929f4f156cf08858
+# source: cxxidl_doubleIMUState_.hpp sha256=fd2b5ef1d07854491be37c123730c938eda656d2a8ccec0e6048d889669f58f8
 # source: g1_agv_api.hpp sha256=185d5063a282a4223331bb8471e89bb0e6dbc2259a43d54995be6cf5de150de0
 # source: g1_agv_error.hpp sha256=3ab35d248d3efe846413c3c223bade2595a2e098e62f33c25a27d7e28f16a520
 # source: g1_arm_action_api.hpp sha256=d7610da8a620a7ce640edfe7cdbba803763321c0cfe0b362b7f2016545205d26
@@ -83,6 +86,14 @@ lost_connection
 low_battery
 motor_casing_overheat
 motor_winding_overheat
+unitree_hg.AgvBmsState_
+unitree_hg.AgvBmsState_.battery_percentage
+unitree_hg.AgvBmsState_.current
+unitree_hg.AgvBmsState_.docking_status
+unitree_hg.AgvBmsState_.is_charging
+unitree_hg.AgvBmsState_.is_dc_connected
+unitree_hg.AgvBmsState_.software_version
+unitree_hg.AgvBmsState_.temperature
 unitree_hg.BmsCmd_
 unitree_hg.BmsCmd_.cmd
 unitree_hg.BmsCmd_.reserve
@@ -164,3 +175,15 @@ unitree_hg.PressSensorState_.lost
 unitree_hg.PressSensorState_.pressure
 unitree_hg.PressSensorState_.reserve
 unitree_hg.PressSensorState_.temperature
+unitree_hg.SportModeState_
+unitree_hg.SportModeState_.fsm_id
+unitree_hg.SportModeState_.fsm_mode
+unitree_hg.SportModeState_.task_id
+unitree_hg.SportModeState_.task_time
+unitree_hg_doubleimu.doubleIMUState_
+unitree_hg_doubleimu.doubleIMUState_.accelerometer
+unitree_hg_doubleimu.doubleIMUState_.gyroscope
+unitree_hg_doubleimu.doubleIMUState_.quaternion
+unitree_hg_doubleimu.doubleIMUState_.rpy
+unitree_hg_doubleimu.doubleIMUState_.temperature
+unitree_hg_doubleimu.doubleIMUState_.tick
