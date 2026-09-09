@@ -3,7 +3,7 @@ package dev.picasso.middleware
 import dev.picasso.client.PicassoClient
 import dev.picasso.client.TaskFollower
 import dev.picasso.contracts.v1.CancelTaskResponse
-import dev.picasso.contracts.v1.Fault
+import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
@@ -29,10 +29,14 @@ interface RobotPort {
     fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse
 
     /**
-     * 기체가 지금 안고 있는 활성 결함(계약 §4.6, `GetSnapshot.faults`). **`null` 은 못 물어봤다는 뜻**이지 결함이
-     * 없다는 뜻이 아니다 — 둘을 접으면 관측 실패가 정상으로 읽힌다(원장의 `Observed`/`NotObservable` 과 같은 이유).
+     * 기체의 현재값(계약 `GetSnapshot`, §4.8) — 활성 결함·연결 상태·태스크 상태·다음 이벤트 번호. **`null` 은 못
+     * 물어봤다는 뜻**이지 결함이 없다는 뜻이 아니다 — 둘을 접으면 관측 실패가 정상으로 읽힌다(원장의
+     * `Observed`/`NotObservable` 과 같은 이유).
      */
-    fun faults(robotId: String): List<Fault>?
+    fun snapshot(robotId: String): RobotSnapshot?
+
+    /** 재생 버퍼(계약 `ReplayEvents`, §4.8) — [from] 부터의 이벤트. 벗어났으면 [Replay.Evicted]. 못 물어봤으면 `null`. */
+    fun replay(robotId: String, from: Long): Replay?
 }
 
 /** [PicassoClient] 위의 [RobotPort]. 핸들마다 팔로워 하나를 붙여 두고 그것을 읽는다. */
@@ -51,8 +55,25 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
 
     override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = client.cancel(robotId, handle)
 
-    override fun faults(robotId: String): List<Fault>? = try {
-        client.snapshot(robotId).faultsList
+    override fun snapshot(robotId: String): RobotSnapshot? = try {
+        val s = client.snapshot(robotId)
+        RobotSnapshot(
+            sequence = s.sequence,
+            faults = s.faultsList,
+            connection = s.connectionState,
+            tasks = s.tasksList.associate { it.taskId to it.state },
+        )
+    } catch (_: RuntimeException) {
+        null
+    }
+
+    override fun replay(robotId: String, from: Long): Replay? = try {
+        val responses = client.replay(robotId, from)
+        if (responses.any { it.hasRejection() && it.rejection.code == RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED }) {
+            Replay.Evicted
+        } else {
+            Replay.Events(responses.filter { it.hasEvent() }.map { it.event })
+        }
     } catch (_: RuntimeException) {
         null
     }

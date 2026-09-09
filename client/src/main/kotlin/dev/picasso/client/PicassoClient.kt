@@ -8,6 +8,8 @@ import dev.picasso.contracts.v1.EventServiceGrpc
 import dev.picasso.contracts.v1.GetCapabilitiesRequest
 import dev.picasso.contracts.v1.GetSnapshotRequest
 import dev.picasso.contracts.v1.GetSnapshotResponse
+import dev.picasso.contracts.v1.ReplayEventsRequest
+import dev.picasso.contracts.v1.ReplayEventsResponse
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
@@ -140,6 +142,19 @@ class PicassoClient(
             .setRobotId(robotId)
             .build(),
     ).also { note(robotId, it.header.capabilityEpoch) }
+
+    /**
+     * `ReplayEvents(from_sequence)` — 재생 버퍼를 **끝까지** 읽어 돌려준다. 발신자가 스트림을 닫으므로 블로킹으로
+     * 모아도 된다. 버퍼를 벗어났으면 첫 항목이 `SEQUENCE_EVICTED` 거절이다 — 소비자는 `GetSnapshot` 부터 다시 세운다.
+     */
+    fun replay(robotId: String, fromSequence: Long): List<ReplayEventsResponse> =
+        events.withDeadlineAfter(deadlineSeconds, TimeUnit.SECONDS).replayEvents(
+            ReplayEventsRequest.newBuilder()
+                .setHeader(header("picasso.v1.ReplayEventsRequest", robotId))
+                .setRobotId(robotId)
+                .setFromSequence(fromSequence)
+                .build(),
+        ).asSequence().toList()
 
     // ── 태스크 (§4.4)
 

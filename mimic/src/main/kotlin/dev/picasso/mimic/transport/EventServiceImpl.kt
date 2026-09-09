@@ -33,6 +33,9 @@ class EventServiceImpl(
             .addAllTasks(events.taskSnapshots())
             // §4.6 — 활성 결함만. 수명이 지난 것은 조회 시점에 사라진다.
             .addAllFaults(hosted.instance.faults.active())
+            // **연결 상태도 현재값이다.** 계약이 이 자리를 두었는데 채우지 않아 소비자가 언제나 UNSPECIFIED 를 봤다 —
+            // 미들웨어 층이 단절 중 결과를 미확정으로 두려다 발견했다(§15.95). MQTT connection 스트림과 같은 값이다.
+            .setConnectionState(events.connectionState)
             .build()
     }
 

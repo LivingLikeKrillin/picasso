@@ -1,7 +1,6 @@
 package dev.picasso.middleware
 
 import dev.picasso.contracts.v1.CancelTaskResponse
-import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.WatchTaskResponse
@@ -28,12 +27,29 @@ class LossyRobotPort(private val delegate: RobotPort, private var dropStartRespo
 
     override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> = delegate.watch(robotId, handle)
     override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = delegate.cancel(robotId, handle)
-    override fun faults(robotId: String): List<Fault>? = delegate.faults(robotId)
+    override fun snapshot(robotId: String): RobotSnapshot? = delegate.snapshot(robotId)
+    override fun replay(robotId: String, from: Long): Replay? = delegate.replay(robotId, from)
 }
 
-/** 결함을 **못 물어보는** 포트 — 스냅샷이 안 열린다. `null` 은 "없음" 이 아니라 "모름" 이고, 엔진은 그 둘을 다르게 다뤄야 한다. */
+/** 상태를 **못 물어보는** 포트 — 스냅샷이 안 열린다. `null` 은 "없음" 이 아니라 "모름" 이고, 엔진은 그 둘을 다르게 다뤄야 한다. */
 class FaultBlindRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
-    override fun faults(robotId: String): List<Fault>? = null
+    override fun snapshot(robotId: String): RobotSnapshot? = null
+    override fun replay(robotId: String, from: Long): Replay? = null
+}
+
+/** 재생 버퍼가 **한 번 축출**된 것처럼 답하는 포트 — 소비자가 스냅샷부터 다시 세우는지 본다(17장 9번). */
+class EvictingRobotPort(private val delegate: RobotPort, private var evictions: Int = 1) : RobotPort by delegate {
+    var replays = 0
+        private set
+
+    override fun replay(robotId: String, from: Long): Replay? {
+        replays += 1
+        if (evictions > 0) {
+            evictions -= 1
+            return Replay.Evicted
+        }
+        return delegate.replay(robotId, from)
+    }
 }
 
 /**

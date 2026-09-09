@@ -1,5 +1,7 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.ConnectionState
+import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldKind
@@ -46,6 +48,35 @@ class Middleware(
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
+    private val views = mutableMapOf<String, RobotView>()
+
+    /**
+     * 기체 하나에 대한 이 층의 관측 — 계약 §4.8 의 소비자 패턴 그대로다. 스냅샷으로 세우고(`cursor` = 다음에 올 번호)
+     * 재생으로 이어 붙이며, 버퍼를 벗어나면 스냅샷부터 다시 세운다(보고서 17장 9번 *단절 후 재동기화*).
+     *
+     * 결함과 연결 상태는 **스냅샷이 권위**다(현재값). 이벤트는 그 사이에 무슨 일이 있었는지 — 섰다가 사라진 결함,
+     * 전이 — 를 자취로 남긴다. 둘 중 하나만 쓰면 신규 소비자가 놓친 전이를 세우지 못하거나(이벤트만) 그 사이를
+     * 모른다(스냅샷만).
+     */
+    class RobotView internal constructor() {
+        var cursor: Long? = null
+            internal set
+        var faults: Map<String, Fault> = emptyMap()
+            internal set
+        var connection: ConnectionState = ConnectionState.CONNECTION_STATE_ONLINE
+            internal set
+        var tasks: Map<String, dev.picasso.contracts.v1.TaskState> = emptyMap()
+            internal set
+        /** 마지막 동기화에서 기체를 봤는가. 거짓이면 위의 값은 낡은 것이다. */
+        var observable: Boolean = false
+            internal set
+        var resyncs: Int = 0
+            internal set
+        var eventsSeen: Long = 0
+            internal set
+    }
+
+    fun view(robotId: String): RobotView? = views[robotId]
     private val outbox = mutableListOf<JobResponse>()
     private var responseSeq = 0
 
@@ -80,6 +111,13 @@ class Middleware(
 
         /** 운영자가 [release] 로 감수한 결함의 열쇠 — 같은 결함은 다시 막지 않는다. 새 결함은 막는다. 감사 기록이다. */
         val acknowledgedFaults: MutableSet<String> = linkedSetOf()
+
+        /** 이 실행이 도는 동안 기체가 낸 이벤트와 이 층의 관측 — 감사 자취(보고서 7장 *실행 추적·이벤트 전달·감사 기록*). */
+        val eventTrail: MutableList<ObservedEvent> = mutableListOf()
+
+        /** 연결이 끊긴 채 도는 중인가 — 그동안 결과는 미확정이다(`scenarios.md` §4.4 넷째 행). */
+        var linkBroken: Boolean = false
+            internal set
 
         /** 지연 이벤트(15.1) — 옛 버전의 종착. 폐기하지 않는다. */
         val lateEvents: MutableList<LateEvent> = mutableListOf()
@@ -227,11 +265,109 @@ class Middleware(
 
     /** 하류에서 온 것을 읽고 상태를 한 걸음 민다. 몇 번 불러도 같은 결과다(멱등). */
     fun pump() {
+        val live = executions.values.filter { !(it.physicalState.isSettled && it.physicalState != PhysicalState.PARTIAL) }
+        live.map { it.robotId }.distinct().forEach { sync(it, live.filter { e -> e.robotId == it }) }
         executions.values.forEach { pump(it) }
+    }
+
+    /**
+     * 기체 하나를 동기화한다 — 스냅샷(현재값) + 재생(그 사이의 사실). 이벤트는 관계있는 실행의 자취에 남긴다:
+     * 태스크 전이는 그 태스크를 든 실행에, 결함·능력 변경은 그 기체의 실행 전부에.
+     */
+    private fun sync(robotId: String, live: List<Execution>) {
+        val view = views.getOrPut(robotId) { RobotView() }
+        val snapshot = robots.snapshot(robotId)
+        if (snapshot == null) {
+            view.observable = false
+            return
+        }
+        view.observable = true
+        view.faults = snapshot.faults.associateBy { faultKey(it) }
+        view.connection = snapshot.connection
+        view.tasks = snapshot.tasks
+
+        val cursor = view.cursor
+        if (cursor == null) {
+            view.cursor = snapshot.sequence
+            view.resyncs += 1
+            live.forEach { it.trail("RESYNC", "snapshot: next sequence=${snapshot.sequence}, faults=${snapshot.faults.size}, connection=${snapshot.connection.name}") }
+            return
+        }
+        when (val replay = robots.replay(robotId, cursor)) {
+            null -> Unit // 못 물어봤다 — 다음 펌프에 같은 cursor 로 다시 묻는다
+            Replay.Evicted -> {
+                // 버퍼를 벗어났다 — 놓친 이벤트가 있다. 스냅샷은 이미 세웠으니 거기서부터 이어 붙인다(17장 9번).
+                view.cursor = snapshot.sequence
+                view.resyncs += 1
+                live.forEach { it.trail("RESYNC", "replay evicted at cursor=$cursor; rebuilt from snapshot sequence=${snapshot.sequence}") }
+            }
+            is Replay.Events -> {
+                replay.events.forEach { event -> record(event, live); view.eventsSeen += 1 }
+                replay.events.lastOrNull()?.let { view.cursor = it.header.sequence + 1 }
+            }
+        }
+    }
+
+    private fun record(event: Event, live: List<Execution>) {
+        val at = event.header.occurredAt
+        val seq = event.header.sequence
+        when {
+            event.hasTaskTransition() -> {
+                val tr = event.taskTransition
+                live.filter { e -> e.units.any { it.taskId == tr.taskId } }.forEach {
+                    it.eventTrail += ObservedEvent(seq, at, "TASK_TRANSITION", "${tr.taskId} ${tr.from.name}->${tr.to.name} rev=${tr.revision} attempt=${tr.attempt}")
+                }
+            }
+            event.hasFaultEvent() -> {
+                val f = event.faultEvent
+                val kind = if (f.cleared) "FAULT_CLEARED" else "FAULT_RAISED"
+                live.forEach { it.eventTrail += ObservedEvent(seq, at, kind, "${f.fault.errorType} class=${canonicalClassOf(f.fault)} can_accept_new_task=${f.fault.canAcceptNewTask}") }
+            }
+            event.hasCapabilityChanged() -> {
+                val c = event.capabilityChanged
+                live.forEach { it.eventTrail += ObservedEvent(seq, at, "CAPABILITY_CHANGED", "epoch=${c.capabilityEpoch} added=${c.addedList} removed=${c.removedList} cause=${c.cause.name}") }
+            }
+            event.hasSkillTransition() -> {
+                // 스킬 인스턴스의 전이(READY→ACTIVE→HALTED…). 태스크 전이가 결과를 말하지만 이것이 그 아래의 걸음이고,
+                // **재생을 이어 붙이는 검사가 이것에 기댄다** — 마지막으로 읽은 이벤트가 스킬 전이일 때 커서가 안 나아가면 여기서 중복이 보인다.
+                val st = event.skillTransition
+                live.filter { e -> e.units.any { it.taskId == st.taskId } }.forEach {
+                    it.eventTrail += ObservedEvent(seq, at, "SKILL_TRANSITION", "${st.taskId} ${st.skillType} ${st.from.name}->${st.to.name}")
+                }
+            }
+            else -> Unit
+        }
+    }
+
+    private fun Execution.trail(kind: String, detail: String) {
+        eventTrail += ObservedEvent(views[robotId]?.cursor ?: 0, now().toString(), kind, detail)
     }
 
     private fun pump(execution: Execution) {
         if (execution.physicalState.isSettled && execution.physicalState != PhysicalState.PARTIAL) return
+
+        // **연결이 끊기면 도는 단위의 결과는 미확정이다.** 계약이 OFFLINE 과 CONNECTION_BROKEN 을 가른다(완료 기준 5);
+        // HIBERNATING 은 침묵하지만 정상이다(§4.7). 되돌아오면 스냅샷으로 태스크 상태를 다시 세워 이어 간다 —
+        // 재실행이 아니다. 어느 쪽도 상류에 한 번씩 알린다(16장 — 결과가 아직 확인되지 않았다는 사실).
+        val view = views[execution.robotId]
+        val runningRobotUnit = execution.active?.takeIf { it.route == Route.ROBOT && it.state == UnitState.RUNNING }
+        if (view != null && view.observable && runningRobotUnit != null) {
+            val down = view.connection == ConnectionState.CONNECTION_STATE_CONNECTION_BROKEN ||
+                view.connection == ConnectionState.CONNECTION_STATE_OFFLINE
+            if (down && !execution.linkBroken) {
+                execution.linkBroken = true
+                execution.trail("LINK_BROKEN", "${view.connection.name} while ${runningRobotUnit.unitId} is running — result unconfirmed")
+                execution.physicalState = PhysicalState.IN_DOUBT
+                notify(execution)
+            } else if (!down && execution.linkBroken) {
+                execution.linkBroken = false
+                val downstream = view.tasks[runningRobotUnit.taskId]?.name ?: "(not in snapshot)"
+                execution.trail("LINK_RESTORED", "snapshot says ${runningRobotUnit.taskId}=$downstream — resuming tracking, no re-execution")
+                runningRobotUnit.annotate("link restored; snapshot state $downstream")
+                execution.physicalState = PhysicalState.RUNNING
+                notify(execution)
+            }
+        }
 
         val active = execution.active
         if (active != null) {
@@ -295,12 +431,12 @@ class Middleware(
 
     private fun blockingFaults(execution: Execution, next: ExecutionUnit): List<Fault> {
         if (next.route != Route.ROBOT) return emptyList()
-        val faults = robots.faults(execution.robotId)
-        if (faults == null) {
+        val view = views[execution.robotId]
+        if (view == null || !view.observable) {
             next.annotate("robot faults not observable before start — proceeding without the gate")
             return emptyList()
         }
-        return faults.filter { !it.canAcceptNewTask && faultKey(it) !in execution.acknowledgedFaults }
+        return view.faults.values.filter { !it.canAcceptNewTask && faultKey(it) !in execution.acknowledgedFaults }
     }
 
     /** 결함의 정체 — 모드 이름과 참조. 미믹의 `FaultRegistry` 가 같은 열쇠로 중복을 막는다. */
@@ -332,7 +468,11 @@ class Middleware(
             ?: return late.lastOrNull { it.state.isTerminal() }?.let { settleLate(execution, unit, it) } ?: false
         unit.hold = last.hold
         if (!last.state.isTerminal()) {
-            execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+            execution.physicalState = when {
+                execution.cancelRequested -> PhysicalState.CANCELING
+                execution.linkBroken -> PhysicalState.IN_DOUBT
+                else -> PhysicalState.RUNNING
+            }
             return false
         }
         when (last.state) {
@@ -779,6 +919,7 @@ class Middleware(
             inDoubtUnits = units.filter { it.state == UnitState.IN_DOUBT }.map { it.unitId },
             results = units.filter { it.state == UnitState.DONE && !it.result.isNullOrBlank() }.associate { it.unitId to it.result!! },
             blockedBy = execution.blockedBy.map { canonicalClassOf(it) },
+            connection = (views[execution.robotId]?.takeIf { it.observable }?.connection ?: ConnectionState.CONNECTION_STATE_UNSPECIFIED).name,
             autoResolvesInDoubt = units.all {
                 (if (it.route == Route.ROBOT) robots.executionLookup else fleet.executionLookup) == ExecutionLookup.CLIENT_REFERENCE
             },

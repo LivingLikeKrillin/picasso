@@ -1,6 +1,10 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.ConnectionState
+import dev.picasso.contracts.v1.Event
+import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldState
+import dev.picasso.contracts.v1.TaskState
 import java.time.Duration
 import java.time.Instant
 
@@ -182,6 +186,35 @@ data class ExecutionUnit(
     var result: String? = null,
 )
 
+/**
+ * 기체의 **현재값** — 계약 `GetSnapshot`(§4.8). 활성 결함·연결 상태·태스크 상태와 *다음에 올* 이벤트 번호.
+ * 이벤트는 발생한 사실이고 이것은 지금이다 — 둘을 함께 써야 신규 소비자가 놓친 전이를 세울 수 있다.
+ */
+data class RobotSnapshot(
+    val sequence: Long,
+    val faults: List<Fault>,
+    val connection: ConnectionState,
+    val tasks: Map<String, TaskState>,
+)
+
+/** `ReplayEvents(from)` 의 답 — 이벤트들이거나, 버퍼를 벗어났으니 스냅샷부터 다시 세우라는 말. */
+sealed interface Replay {
+    data class Events(val events: List<Event>) : Replay
+    data object Evicted : Replay
+}
+
+/**
+ * 실행이 본 이벤트 하나 — 감사 자취. 발행 열의 번호와 시각을 그대로 든다(다시 찍지 않는다 — 30초 전 사건이 방금 것으로
+ * 보이면 안 된다). [kind] 는 계약 이벤트의 종류(`FAULT_RAISED`·`FAULT_CLEARED`·`TASK_TRANSITION`·`CAPABILITY_CHANGED`)와
+ * 이 층이 낸 것(`RESYNC`·`LINK_BROKEN`·`LINK_RESTORED`)이다.
+ */
+data class ObservedEvent(
+    val sequence: Long,
+    val occurredAt: String,
+    val kind: String,
+    val detail: String,
+)
+
 /** 취소 응답(보고서 14.1) — 원상복구가 아니라 중단점과 잔여 물리 상태의 보고다. */
 data class CancelReport(
     val executionId: String,
@@ -234,5 +267,7 @@ data class JobResponse(
      * 시작하지 않고 세워 두었다. 16장 *"자동 복구가 불가능해 운영자 판단이 필요하다는 사실"*. 비어 있으면 막힌 것이 없다.
      */
     val blockedBy: List<String> = emptyList(),
+    /** 기체와의 연결 상태(계약 `ConnectionState` 의 이름). `CONNECTION_BROKEN`·`OFFLINE` 이면 도는 단위의 결과는 미확정이다. */
+    val connection: String = ConnectionState.CONNECTION_STATE_ONLINE.name,
     var ack: UpstreamAck = UpstreamAck.SENT_UNACKED,
 )
