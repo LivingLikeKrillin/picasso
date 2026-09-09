@@ -34,6 +34,11 @@ class OrbitDiscovery(
     private val link: OrbitLink,
     /** 이 어댑터가 배포된 사이트. **플릿은 우리 `site_id` 를 모른다**(ADR 37 의 미결을 §15.101 이 이렇게 닫았다). */
     private val site: String,
+    /**
+     * 이 배포의 이름(ADR 37 결정 2). 원장이 *"이 발견이 누구의 것인가"* 에 답하는 근거다.
+     * **널이면 안 밝히는 것이고**, 그때 원장은 그 기체의 출처를 모르는 채로 든다.
+     */
+    private val instanceId: String? = null,
     private val sink: RobotDiscovery = RobotDiscovery.NONE,
 ) {
 
@@ -51,7 +56,7 @@ class OrbitDiscovery(
             ?: return Result.failure(IllegalStateException("이 Orbit 이 기체 목록을 안 준다 — 발견이 선언으로 내려앉는다(ADR 37 결정 5)"))
 
         return fleet.robots().map { robots ->
-            sink.report(site, robots.map { it.toReport() })
+            sink.report(site, instanceId, robots.map { it.toReport() })
         }
     }
 

@@ -1,5 +1,7 @@
 package dev.picasso.registry.web
 
+import dev.picasso.registry.adapter.AdapterInstanceService
+import dev.picasso.registry.adapter.InstanceOutcome
 import dev.picasso.registry.binding.RecordOutcome
 import dev.picasso.registry.binding.RobotRegistration
 import dev.picasso.registry.binding.RobotRegistrationOutcome
@@ -43,7 +45,32 @@ import org.springframework.web.bind.annotation.RestController
 class OperationsController(
     private val siteNames: SiteNameRegistration,
     private val robots: RobotRegistration,
+    private val instances: AdapterInstanceService,
 ) {
+
+    /**
+     * 배포된 어댑터를 기록한다(ADR 37 결정 2).
+     *
+     * **조작 문이다** — 사람이 *"이 빌드를 여기에 띄웠고 플릿은 저 주소다"* 라고 적는다. 적재 문이 아닌 이유는
+     * 그것이 판단이기 때문이며, 적재 토큰으로 이것이 되면 현장의 기체가 자기 배포를 스스로 선언할 수 있다.
+     */
+    @PostMapping("/operations/adapter-instances")
+    fun registerInstance(
+        @RequestBody request: RegisterInstanceRequest,
+        @RequestHeader("X-Actor") actor: String,
+    ): ResponseEntity<Map<String, Any>> = when (
+        val outcome = instances.register(
+            instanceId = request.instance_id,
+            adapterVersionId = request.adapter_version_id,
+            siteId = request.site,
+            fleetEndpoint = request.fleet_endpoint,
+            actor = actor,
+        )
+    ) {
+        InstanceOutcome.Registered -> ResponseEntity.status(HttpStatus.CREATED).body(mapOf("instance" to request.instance_id))
+        InstanceOutcome.Updated -> ResponseEntity.ok(mapOf("instance" to request.instance_id))
+        is InstanceOutcome.Rejected -> ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to outcome.detail))
+    }
 
     /**
      * ADR 37 의 **선언** — 사람이 기체를 원장에 들인다.
@@ -153,4 +180,17 @@ data class DeclareRobotRequest(
     val serial_number: String,
     val display_name: String? = null,
     val endpoint: String? = null,
+)
+
+/**
+ * `POST /operations/adapter-instances` 의 본문.
+ *
+ * [fleet_endpoint] 는 **플릿 경유일 때만** 채운다(ADR 37 결정 4). 직결이면 로봇의 주소가 `robot.endpoint` 에 있다.
+ * **자격증명은 안 받는다**(§6.3).
+ */
+data class RegisterInstanceRequest(
+    val instance_id: String,
+    val adapter_version_id: Long,
+    val site: String,
+    val fleet_endpoint: String? = null,
 )

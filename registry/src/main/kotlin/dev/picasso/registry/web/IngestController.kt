@@ -187,6 +187,11 @@ class IngestController(
     @PostMapping("/ingest/robots")
     fun robots(
         @RequestParam(name = "site") site: String,
+        /**
+         * 올린 어댑터 인스턴스(ADR 37 결정 2). **자기 신고이고 선택이다** — `site`·`X-Actor` 와 같은 성질이다.
+         * 밝히면 실재해야 하고, 아니면 목록 전체가 거절된다.
+         */
+        @RequestParam(name = "instance", required = false) instance: String?,
         @RequestBody body: List<DiscoveredRobotRequest>,
     ): ResponseEntity<Map<String, Any>> {
         if (site.isBlank()) return badRequest("site가 없다")
@@ -195,6 +200,7 @@ class IngestController(
         val outcome = robots.discover(
             site,
             body.map { DiscoveredRobot(it.robot_id, it.serial_number, it.display_name, it.endpoint) },
+            instanceId = instance?.takeIf { it.isNotBlank() },
         )
         // **거절이 있어도 200 이다.** 부분 성공이고, 무엇이 들어가고 무엇이 안 들어갔는지는 본문이 말한다.
         return ResponseEntity.ok(mapOf("recorded" to outcome.recorded, "refused" to outcome.refused))

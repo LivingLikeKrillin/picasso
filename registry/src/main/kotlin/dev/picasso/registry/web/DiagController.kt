@@ -33,7 +33,9 @@ import org.springframework.web.bind.annotation.RestController
  */
 @RestController
 class DiagController(
+    /** ADR 37 의 등록 상태·배포 목록. 진단 서비스가 아니라 그 서비스들이 답한다 — 상태의 정의가 거기 있다. */
     private val robots: dev.picasso.registry.binding.RobotRegistration,
+    private val instances: dev.picasso.registry.adapter.AdapterInstanceService,
     private val diagnostics: DiagnosticsService,
     private val ledger: LedgerService,
     private val changePlans: ChangePlanService,
@@ -77,6 +79,17 @@ class DiagController(
     fun robots(
         @RequestParam(name = "site", required = false) site: String?,
     ): List<dev.picasso.registry.binding.RegisteredRobot> = robots.list(site)
+
+    /**
+     * 진단 10번 — **무엇이 어디에 떠 있는가**(ADR 37 결정 2).
+     *
+     * 적합성 상태를 함께 낸다. `UNTESTED` 인 빌드가 **실제로 배포됐다**는 것은 운영자가 알아야 할 사실이고,
+     * 그것을 보여 주는 자리가 여기가 처음이다(§9.7 ④).
+     */
+    @GetMapping("/diag/adapter-instances")
+    fun adapterInstances(
+        @RequestParam(name = "site", required = false) site: String?,
+    ): List<dev.picasso.registry.adapter.AdapterInstanceRow> = instances.list(site)
 
     @GetMapping("/diag/epochs")
     fun epochs(

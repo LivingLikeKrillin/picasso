@@ -16,9 +16,9 @@ import kotlin.test.assertTrue
 class OrbitDiscoveryTest {
 
     private class RecordingSink : RobotDiscovery {
-        val sent = mutableListOf<Pair<String, List<DiscoveredRobotReport>>>()
-        override fun report(site: String, robots: List<DiscoveredRobotReport>): DiscoveryAck {
-            sent += site to robots
+        val sent = mutableListOf<Triple<String, String?, List<DiscoveredRobotReport>>>()
+        override fun report(site: String, instanceId: String?, robots: List<DiscoveredRobotReport>): DiscoveryAck {
+            sent += Triple(site, instanceId, robots)
             return DiscoveryAck(robots.map { it.robotId }, emptyMap())
         }
     }
@@ -45,11 +45,13 @@ class OrbitDiscoveryTest {
             ),
         )
 
-        val ack = OrbitDiscovery(FakeLink(fleet), "line-a", sink).sweep().getOrThrow()
+        val ack = OrbitDiscovery(FakeLink(fleet), "line-a", INSTANCE, sink).sweep().getOrThrow()
         assertEquals(listOf("spot-a", "spot-b"), ack.recorded)
 
-        val (site, sent) = sink.sent.single()
+        val (site, instance, sent) = sink.sent.single()
         assertEquals("line-a", site, "사이트는 어댑터가 배포된 곳이다 — 플릿은 우리 site_id 를 모른다")
+        // **누가 올렸는지 함께 신고한다**(ADR 37 결정 2) — 원장이 "이 발견이 누구의 것인가" 에 답할 근거다.
+        assertEquals(INSTANCE, instance)
         // **주소가 아니라 별명이다.** 주소는 바뀌고 신원은 안 바뀐다(§15.78).
         assertEquals(listOf("spot-a", "spot-b"), sent.map { it.robotId })
         // **일련번호를 지어내지 않는다.** 플릿이 안 준다 — 주소를 그 자리에 넣으면 거짓말이다.
@@ -63,14 +65,14 @@ class OrbitDiscoveryTest {
         val sink = RecordingSink()
 
         // 링크에 그 층이 없다 — 발견이 선언으로 내려앉는 사분면이다(ADR 37 결정 5).
-        assertTrue(OrbitDiscovery(FakeLink(null), "line-a", sink).sweep().isFailure)
+        assertTrue(OrbitDiscovery(FakeLink(null), "line-a", INSTANCE, sink).sweep().isFailure)
         // 물어봤는데 못 받았다.
-        assertTrue(OrbitDiscovery(FakeLink(FakeFleet(Result.failure(IllegalStateException("502")))), "line-a", sink).sweep().isFailure)
+        assertTrue(OrbitDiscovery(FakeLink(FakeFleet(Result.failure(IllegalStateException("502")))), "line-a", INSTANCE, sink).sweep().isFailure)
         // **둘 다 아무것도 안 올린다.** 빈 목록을 올리면 원장은 "플릿에 기체가 없다" 로 읽는다.
         assertEquals(emptyList(), sink.sent)
 
         // 진짜로 비어 있으면 그것은 답이다 — 올린다.
-        val empty = OrbitDiscovery(FakeLink(FakeFleet(Result.success(emptyList()))), "line-a", sink).sweep().getOrThrow()
+        val empty = OrbitDiscovery(FakeLink(FakeFleet(Result.success(emptyList()))), "line-a", INSTANCE, sink).sweep().getOrThrow()
         assertEquals(emptyList(), empty.recorded)
         assertEquals(1, sink.sent.size)
     }
@@ -78,10 +80,14 @@ class OrbitDiscoveryTest {
     @Test
     fun `레지스트리 연계가 없으면 발견은 어댑터 안에서 끝난다`() {
         val fleet = FakeFleet(Result.success(listOf(OrbitRobot("h", "spot-a", 0, "admin"))))
-        val ack = OrbitDiscovery(FakeLink(fleet), "line-a").sweep().getOrThrow()
+        val ack = OrbitDiscovery(FakeLink(fleet), "line-a", INSTANCE).sweep().getOrThrow()
 
         // §3.2 의 "없을 때" — 상대가 없어도 모듈이 돈다. 다만 **조용히 성공하지 않는다.**
         assertEquals(emptyList(), ack.recorded)
         assertTrue("레지스트리" in ack.refused.getValue("spot-a"), ack.refused.toString())
+    }
+
+    private companion object {
+        const val INSTANCE = "orbit-line-a"
     }
 }

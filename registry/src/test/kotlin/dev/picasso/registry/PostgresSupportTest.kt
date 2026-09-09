@@ -48,7 +48,8 @@ class PostgresSupportTest {
         }
         assertEquals(
             listOf(
-                "adapter", "adapter_version", "audit_log", "capability_epoch_log",
+                // ADR 37 결정 2 의 셋째 축 — 제품·빌드와 다른 **배포된 것**(V14).
+                "adapter", "adapter_instance", "adapter_version", "audit_log", "capability_epoch_log",
                 "capability_profile", "change_plan", "change_plan_step",
                 "consumer", "consumer_requirement",
                 "flyway_schema_history", "handshake_rejection", "profile_optional_field",

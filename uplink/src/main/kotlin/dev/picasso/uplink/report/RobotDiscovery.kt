@@ -45,11 +45,17 @@ fun interface RobotDiscovery {
      * @param site **어댑터가 배포된 사이트**다. 플릿은 우리 `site_id` 를 모르지만 어댑터는 자기가 어디 있는지 안다
      *   (§15.101 이 ADR 37 의 미결을 그렇게 닫았다).
      */
-    fun report(site: String, robots: List<DiscoveredRobotReport>): DiscoveryAck
+    /**
+     * @param instanceId 올린 어댑터 인스턴스(ADR 37 결정 2). **자기 신고이고 선택이다** — 밝히면 원장에 실재해야
+     *   하고, 안 밝히면 원장이 *"어느 어댑터인지 모른다"* 로 든다.
+     */
+    fun report(site: String, instanceId: String?, robots: List<DiscoveredRobotReport>): DiscoveryAck
 
     companion object {
         /** 레지스트리 없이 도는 모드(§3.2 의 "없을 때"). 발견은 어댑터 안에서 끝나고 원장은 그 기체를 모른다. */
-        val NONE = RobotDiscovery { _, robots -> DiscoveryAck(emptyList(), robots.associate { it.robotId to "레지스트리 연계가 없다" }) }
+        val NONE = RobotDiscovery { _, _, robots ->
+            DiscoveryAck(emptyList(), robots.associate { it.robotId to "레지스트리 연계가 없다" })
+        }
     }
 }
 
@@ -71,7 +77,7 @@ class HttpRobotDiscovery(
 
     private val base = baseUrl.trimEnd('/')
 
-    override fun report(site: String, robots: List<DiscoveredRobotReport>): DiscoveryAck {
+    override fun report(site: String, instanceId: String?, robots: List<DiscoveredRobotReport>): DiscoveryAck {
         val body = robots.joinToString(",", prefix = "[", postfix = "]") { robot ->
             buildString {
                 append("""{"robot_id":${quote(robot.robotId)}""")
@@ -81,7 +87,11 @@ class HttpRobotDiscovery(
             }
         }
 
-        val request = HttpRequest.newBuilder(URI.create("$base/ingest/robots?site=${URLEncoder.encode(site, StandardCharsets.UTF_8)}"))
+        val query = buildString {
+            append("?site=").append(URLEncoder.encode(site, StandardCharsets.UTF_8))
+            instanceId?.let { append("&instance=").append(URLEncoder.encode(it, StandardCharsets.UTF_8)) }
+        }
+        val request = HttpRequest.newBuilder(URI.create("$base/ingest/robots$query"))
             .timeout(timeout)
             .header("Content-Type", "application/json")
             .header("Authorization", "Bearer $token")

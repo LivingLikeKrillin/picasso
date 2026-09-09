@@ -45,6 +45,17 @@ class OrbitDiscoveryEndToEndTest {
         PostgresSupport.reset()
         db = Db(PostgresSupport.jdbcUrl, PostgresSupport.username, PostgresSupport.password)
         robots = RobotRegistration(db)
+
+        // **인스턴스를 먼저 등록한다** — ADR 37 의 절차 그대로다(③ 어댑터 추가 화면에 접속 정보를 입력하고
+        // ④ 띄우면 로봇이 흘러 들어온다). 안 하면 적재 문이 이 발신자를 모른다며 목록 전체를 거절한다.
+        val adapters = dev.picasso.registry.adapter.AdapterService(db)
+        val version = adapters.registerVersion(
+            adapters.registerAdapter("boston-dynamics", "orbit", "op"),
+            "1.0.0", dev.picasso.contracts.wire.ContractIdentity.semver, "op",
+        )
+        val versionId = assertIs<dev.picasso.registry.adapter.RegisterOutcome.Registered>(version).adapterVersionId
+        dev.picasso.registry.adapter.AdapterInstanceService(db)
+            .register(INSTANCE, versionId, SITE, "https://orbit.line-a", actor = "operator-1")
     }
 
     // ── 가짜 Orbit. 벤더가 주는 모양 그대로다 — 일련번호가 없다.
@@ -60,16 +71,17 @@ class OrbitDiscoveryEndToEndTest {
     }
 
     /** 적재 문. HTTP 대신 등록 서비스를 직접 부른다 — 문은 같다. */
-    private fun door(): RobotDiscovery = RobotDiscovery { site, reported ->
+    private fun door(): RobotDiscovery = RobotDiscovery { site, instance, reported ->
         val outcome = robots.discover(
             site,
             reported.map { DiscoveredRobot(it.robotId, it.serialNumber, it.displayName) },
+            instanceId = instance,
         )
         DiscoveryAck(outcome.recorded, outcome.refused)
     }
 
     private fun sweep(vararg found: OrbitRobot) =
-        OrbitDiscovery(FakeLink(FakeFleet(found.toList())), SITE, door()).sweep().getOrThrow()
+        OrbitDiscovery(FakeLink(FakeFleet(found.toList())), SITE, INSTANCE, door()).sweep().getOrThrow()
 
     @Test
     fun `플릿에서 본 기체가 사람의 말 없이 원장에 관측으로 앉는다`() {
@@ -94,11 +106,13 @@ class OrbitDiscoveryEndToEndTest {
         // **접속 정보도 비어 있다.** 플릿 경유면 그것은 플릿이 갖는다(ADR 37 결정 4).
         assertTrue(rows.all { it.endpoint == null })
         assertEquals(listOf("spot-a@spot-a.line-a.local", "spot-b@10.0.0.7"), rows.map { it.displayName })
+        // **이 발견이 누구의 것인지 원장이 답한다**(ADR 37 결정 2) — §15.103 이 못 답한다고 적어 둔 자리다.
+        assertTrue(rows.all { it.discoveredBy == INSTANCE })
 
         // 행위자가 사람이 아니다 — 그 문에는 신원이 없고, 있는 척하면 감사 로그가 거짓말한다.
         assertEquals(
             listOf("ROBOT_DISCOVERED|adapter-discovery", "ROBOT_DISCOVERED|adapter-discovery"),
-            PostgresSupport.queryAll("SELECT operation, actor FROM audit_log ORDER BY subject") {
+            PostgresSupport.queryAll("SELECT operation, actor FROM audit_log WHERE operation LIKE 'ROBOT_%' ORDER BY subject") {
                 "${it.getString(1)}|${it.getString(2)}"
             },
         )
@@ -138,5 +152,6 @@ class OrbitDiscoveryEndToEndTest {
 
     private companion object {
         const val SITE = "line-a"
+        const val INSTANCE = "orbit-line-a"
     }
 }

@@ -65,13 +65,35 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
      * **하나가 거절돼도 나머지는 들인다.** 목록 하나가 통째로 실패하면 플릿에 기체를 하나 더한 날 발견 전체가
      * 멈추고, 그 멈춤은 *"플릿에서 사라졌다"* 와 화면에서 구별되지 않는다.
      */
+    /**
+     * @param instanceId 올린 어댑터 인스턴스(ADR 37 결정 2). **자기 신고이고 선택이다** — 안 밝히면 널로 남고
+     *   진단이 *"어느 어댑터인지 모른다"* 로 보여 준다. 밝히면 **실재해야 한다**: 모르는 이름이면 그 기체를
+     *   거절한다. 그것이 ADR 37 의 절차(인스턴스를 먼저 등록하고 띄우면 로봇이 흘러 들어온다)를 표가 드는 방법이다.
+     */
     fun discover(
         siteId: String,
         robots: List<DiscoveredRobot>,
         actor: String = INGEST_ACTOR,
+        instanceId: String? = null,
     ): DiscoveryOutcome = db.transaction { c ->
         val recorded = mutableListOf<String>()
         val refused = linkedMapOf<String, String>()
+
+        // **모르는 인스턴스가 올리면 목록 전체를 안 받는다.** 기체마다 거절하면 사유가 N 번 반복되고,
+        // 원인이 기체가 아니라 발신자인 것이 안 보인다.
+        if (instanceId != null) {
+            val known = c.prepareStatement("SELECT 1 FROM adapter_instance WHERE instance_id = ?").use { s ->
+                s.setString(1, instanceId)
+                s.executeQuery().use { it.next() }
+            }
+            if (!known) {
+                return@transaction DiscoveryOutcome(
+                    emptyList(),
+                    robots.associate { it.robotId to "등록되지 않은 어댑터 인스턴스가 올렸다: $instanceId" },
+                )
+            }
+        }
+
         robots.forEach { robot ->
             // **발견된 기체의 접속 정보는 플릿이 갖는다**(결정 4). 조용히 버리지 않고 사유를 준다 — 조용히 버리면
             // 보낸 쪽은 우리가 그것을 안다고 믿는다.
@@ -79,7 +101,7 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
                 refused[robot.robotId] = "발견된 기체의 접속 정보는 플릿이 갖는다 — 여기로 보내지 않는다(ADR 37 결정 4)"
                 return@forEach
             }
-            when (val outcome = register(c, robot.robotId, siteId, robot.serialNumber, robot.displayName, null, RobotOrigin.DISCOVERED, actor)) {
+            when (val outcome = register(c, robot.robotId, siteId, robot.serialNumber, robot.displayName, null, RobotOrigin.DISCOVERED, actor, instanceId)) {
                 is RobotRegistrationOutcome.Registered, is RobotRegistrationOutcome.Updated -> recorded += robot.robotId
                 is RobotRegistrationOutcome.WrongDoor -> refused[robot.robotId] = outcome.detail
                 is RobotRegistrationOutcome.Rejected -> refused[robot.robotId] = outcome.detail
@@ -97,7 +119,7 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
             append(
                 """
                 SELECT r.robot_id, r.site_id, r.serial_number, r.display_name, r.origin, r.endpoint,
-                       r.registered_at, r.registered_by, l.last_reported_at
+                       r.registered_at, r.registered_by, l.last_reported_at, r.discovered_by
                 FROM robot r
                 LEFT JOIN robot_liveness l ON l.robot_id = r.robot_id
                 """.trimIndent(),
@@ -123,6 +145,7 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
                                 registeredBy = rs.getString(8),
                                 lastReportedAt = rs.getTimestamp(9)?.toInstant()?.toString(),
                                 status = statusOf(origin, answered = rs.getTimestamp(9) != null),
+                                discoveredBy = rs.getString(10),
                             ),
                         )
                     }
@@ -146,6 +169,8 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
         endpoint: String?,
         origin: RobotOrigin,
         actor: String,
+        /** 발견이면 올린 인스턴스. 선언이면 널이며 표의 CHECK 가 그것을 든다. */
+        instanceId: String? = null,
     ): RobotRegistrationOutcome {
         blank(robotId, "robot_id")?.let { return it }
         blank(siteId, "site_id")?.let { return it }
@@ -181,8 +206,8 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
         val at = now()
         c.prepareStatement(
             """
-            INSERT INTO robot (robot_id, site_id, serial_number, display_name, origin, endpoint, registered_at, registered_by)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO robot (robot_id, site_id, serial_number, display_name, origin, endpoint, registered_at, registered_by, discovered_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (robot_id) DO UPDATE SET
                 site_id = EXCLUDED.site_id,
                 serial_number = EXCLUDED.serial_number,
@@ -192,12 +217,16 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
                 origin = EXCLUDED.origin,
                 endpoint = EXCLUDED.endpoint,
                 registered_at = EXCLUDED.registered_at,
-                registered_by = EXCLUDED.registered_by
+                registered_by = EXCLUDED.registered_by,
+                -- **안 밝힌 발견이 이미 아는 것을 지우지 않는다.** 옛 배포가 섞여 도는 동안 그 보고마다
+                -- 출처가 "모른다" 로 되돌아가면 아무것도 확정되지 않는다(생존 보고의 COALESCE 와 같은 규율).
+                discovered_by = COALESCE(EXCLUDED.discovered_by, robot.discovered_by)
             """.trimIndent(),
         ).use { s ->
             s.setString(1, robotId); s.setString(2, siteId); s.setString(3, serialNumber)
             s.setString(4, displayName); s.setString(5, origin.name); s.setString(6, endpoint)
             s.setTimestamp(7, java.sql.Timestamp.from(at)); s.setString(8, actor)
+            s.setString(9, instanceId)
             s.executeUpdate()
         }
 
@@ -300,6 +329,8 @@ data class RegisteredRobot(
     val registeredBy: String?,
     val lastReportedAt: String?,
     val status: RobotStatus,
+    /** 이 기체를 올린 어댑터 인스턴스. **널은 사람이 선언했거나 올린 쪽이 자기를 안 밝힌 것이다.** */
+    val discoveredBy: String? = null,
 )
 
 sealed interface RobotRegistrationOutcome {

@@ -69,6 +69,11 @@ open class RegistryApplication {
     @Bean
     open fun bindings(db: Db): BindingService = BindingService(db)
 
+    /** ADR 37 결정 2 의 셋째 축 — 배포된 것. */
+    @Bean
+    open fun adapterInstances(db: Db): dev.picasso.registry.adapter.AdapterInstanceService =
+        dev.picasso.registry.adapter.AdapterInstanceService(db)
+
     /** ADR 37 의 두 문. **서비스는 하나이고 문이 둘인 것이 요점이다** — 출처는 컨트롤러가 정한다. */
     @Bean
     open fun robotRegistration(db: Db): dev.picasso.registry.binding.RobotRegistration =
