@@ -114,9 +114,90 @@
 
 ---
 
+# Digit — 같은 갈래를 다시 재면 답이 다르다
+
+**기종이 다르면 전제도 다르다.** 아래는 Digit 매뉴얼·SDK 416심볼 실측이며, 앞의 A~J와 짝을 맞춰 읽는다.
+
+## 대비표 — 이것이 이 문서의 요점이다
+
+| | Spot | Digit |
+|---|---|---|
+| **지도를 어떻게 얻나** | **로봇을 몰고 다녀 녹화** (GraphNav) | **평면도 이미지를 올린다** (`set-floorplan-map`) |
+| 정렬 | `Anchoring`(선택) | **랜드마크 자세를 실측해 등록해야 한다** |
+| 자리가 일감에 족한가 | **선언이 없다** (§15.79 열림) | **`object-attribute.pickable`** — 벤더가 선언으로 갖고 있다 |
+| 저작물 vs 일시적 | 구별 필드 없음 | **`transient` · `timeout` · `notify-objects.persistent`** |
+| 충전 복귀 | `DockProperties` · `batteryMonitor` | **공개 표면에 도크가 없다** |
+| 금지구역 | `NoGoRegionProperties` | `object-attribute.keep-out` |
+| 문·계단 | `DoorCommand` · `Staircase` | **공개 표면에 없다** |
+| 배타 제어 | `Lease` (epoch·`STATUS_OLDER`) | `request-privilege{privilege, **priority**}` |
+
+## A′. 지도 — 커미셔닝이 정반대다
+
+```
+set-floorplan-map{ image-data, resolution, origin, initial-pose, landmarks, name }
+landmark{ id, pose, std-dev }
+tag-measurement{ id, corners, base-to-tag-pose, update-time }
+```
+
+**Digit은 도면에서 시작한다.** 그 대신 전제가 셋 붙는다 — 도면 이미지가 있어야 하고, **해상도(m/px)와 원점을 알아야** 하며, **랜드마크(AprilTag)를 실제로 붙이고 그 자세를 실측해 등록해야** 한다. `landmark.std-dev`가 있다는 것은 그 측정의 불확실성까지 넣으라는 뜻이다.
+
+> **배치 비용의 모양이 다르다.** Spot은 사람이 로봇을 몰아야 하고 라인을 개편하면 다시 몰아야 한다. Digit은 도면이 있으면 되지만 **태그를 붙이고 재는 작업**이 생긴다. 어느 쪽이 싼지는 현장이 정한다 — 도면이 최신인 공장이면 Digit 쪽이 싸고, 도면과 실물이 어긋난 곳이면 반대다.
+
+## B′. 자리의 결속 — Digit이 §15.79에 답을 갖고 있다
+
+```
+object-attribute{ name, pose, box-geometry, polygon, mass, april-tag-id,
+                  pickable, steppable, keep-out,
+                  parent, children, transient, timeout, velocity }
+```
+
+**`pickable`이 그 답이다.** §15.79가 *"그 이름이 놓기에 충분한 결속을 무는가"*를 물었고 Spot에는 그 선언이 없는데, **Digit은 사이트가 객체마다 `pickable`을 저작한다.** `steppable`·`keep-out`도 같은 성격이다.
+
+그리고 `transient`(+`timeout`, `notify-objects.persistent`)가 **저작된 것과 일시적인 것을 벤더가 가른다** — §15.78에서 우리가 이름 공간을 가른 그 축이 Digit에서는 이미 속성이다.
+
+## C′. 충전 — 공개 표면에 도크가 없다
+
+`dock` **0건**이고 `charge`는 `battery-status.charge-percent` 하나다. Spot에는 도크 등록·상태·자동 복귀 기준이 다 있는데 Digit 쪽에는 없다.
+
+> **등급 주의.** *"못 한다"*가 아니라 **"우리가 본 공개 표면에 없다"**이다(`survey_scope`). 다만 배치 관점에서는 결과가 같다 — **자동 충전 복귀를 일감에 넣을 수 없다.** 사람이 개입하거나 벤더 밖 절차가 필요하다.
+
+## D′. 기동 방식이 물리 설비를 요구할 수 있다
+
+```
+start-mode{ assisted, auto, push-up, rope }
+```
+
+**`rope`가 있다.** 기동에 로프·갠트리 같은 물리 설비가 필요한 모드가 존재한다는 뜻이며, 이는 A~J 어디에도 없던 갈래다 — **기체를 세우는 것 자체가 현장 전제다.**
+
+## E′. 이동 파라미터가 환경 전제를 드러낸다
+
+```
+mobility-parameters{ avoid-obstacles, obstacle-threshold,
+                     step-clearance, feet-avoid-unsteppable-regions }
+```
+
+`feet-avoid-unsteppable-regions`는 **밟으면 안 되는 영역이 저작돼 있어야** 뜻이 있다(B′의 `steppable`과 짝). `step-clearance`는 단차 전제를 값으로 노출한다.
+
+## F′. 배타 제어의 모양이 다르다
+
+`request-privilege{privilege, **priority**}` — 우선순위로 다툰다. Spot의 `Lease`는 epoch과 `STATUS_OLDER`로 다툰다. 그리고 `start-persistent-session`·`resume-persistent-session`·`persistent-session-token`이 **세션을 재개할 수 있게** 한다.
+
+## G′. 문·계단이 공개 표면에 없다
+
+`door` 0 · `stair` 0 · `elevator` 0. `steppable`·`step-clearance`가 있으므로 **단차는 다루지만**, 문 여는 명령이나 계단 모델은 없다.
+
+> **이족이므로 물리적으로는 가능할 수 있다.** 근거 등급이 낮으면 `NO`가 아니라 `UNKNOWN`이다(§15.65) — 여기서는 **"이 표면으로는 시킬 수 없다"**까지가 확실하다.
+
+## 이 절에서 배운 규율 하나
+
+처음에 `nogo`·`no-go`로 검색해 **0건을 보고 "금지구역이 없다"고 적을 뻔했다.** 벤더는 그것을 `keep-out`이라 부른다. **부재 판정은 벤더의 낱말로 다시 물어야 한다** — 우리 낱말로 물어 안 나온 것은 부재가 아니라 **검색 실패**다. §15.65와 같은 실수의 다른 얼굴이다.
+
+---
+
 ## 아직 안 정한 것
 
 - **전제를 어디에 선언하나.** 프로파일은 기체마다이고 이 전제들은 **일감과 현장의 짝**에 붙는다. 어느 한쪽 문서에 안 들어갈 수 있다(§15.81).
 - **보증 항목을 어떻게 기록하나.** 영원히 CLAIMED인 것들이며, CONFIRMED와 같은 칸에 두면 안 된다.
-- **A~J의 분류가 맞는지 모른다.** 항목이 하루에 모였고 근거가 Spot에 치우쳐 있다. Digit 쪽은 조건·분기가 없고 인지 훅이 없다는 것까지만 쟀다.
+- **A~J의 분류가 맞는지 모른다.** 항목이 하루에 모였다. Digit을 재고 나서 **갈래가 하나 늘었다**(D′ 기동 설비) — 두 기종으로 이 정도면 셋째에서 또 는다. **분류를 굳히기 전에 기종을 더 재야 한다.**
+- **G1을 아직 이 축으로 안 쟀다.** 지도도 세계 모델도 없는 기체가 어느 전제를 갖는지가 표의 한 축을 비워 두고 있다.
 - 안전 격리(사람과 로봇의 공간 분리)는 여기 안 적었다 — [ADR 32](adr/0032-safety-boundary.md)가 안전을 계약 밖으로 둔 것과의 관계를 먼저 정해야 한다.
