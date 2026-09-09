@@ -20,6 +20,7 @@ Orbit 스펙은 JSON 으로 내려받을 수 없다 — Swagger UI 페이지에 
 |---|---|---|
 | 게시 스펙(HTML 안의 객체) | 경로·메서드·스키마·필드·열거값 | `GET /robots`, `Schedule`, `Schedule.task` |
 | `bosdyn-orbit` 클라이언트 | **스펙에 없는 경로** | `bosdyn-orbit:calendar/mission/dispatch/{nickname}` |
+| 같은 클라이언트의 `payload` | **실제로 보내는 본문의 키** — 스펙의 스키마와 다르다 | `bosdyn-orbit:body:task.dispatchTarget.missionId` |
 
 접두사가 있는 것은 우리 표기다. 벤더의 표기를 그대로 쓰는 원칙(§15.56)의 예외이며 이유가
 있다 — **같은 이름 공간에 섞으면 게시 스펙에 있는 것과 클라이언트에만 있는 것을 구별할 수
@@ -212,13 +213,47 @@ def spec_symbols(spec):
         if not isinstance(item, dict):
             continue
         for method in _METHODS:
-            if method in item:
-                names.add("%s %s" % (method.upper(), path))
+            operation = item.get(method)
+            if operation is None:
+                continue
+            names.add("%s %s" % (method.upper(), path))
+            names |= _inline_schemas("%s %s" % (method.upper(), path), operation)
 
     schemas = ((spec.get("components") or {}).get("schemas") or {})
     for schema, body in sorted(schemas.items()):
         names.add(schema)
         names |= _properties(schema, body)
+    return names
+
+
+def _inline_schemas(where, operation):
+    u"""경로에 **인라인으로 적힌 스키마**의 키들 — 응답 봉투와 요청 본문.
+
+    `components.schemas` 만 읽으면 이것들이 통째로 빠진다. Orbit 에서 그 구멍이 실제로 물렸다:
+    `GET /runs/` 의 응답이 `{limit, offset, total, resources: [Run]}` 인데 `Run` 만 매니페스트에 있어
+    **봉투의 `resources` 를 짚을 수 없었다.** 짚을 수 없으면 우리 구현이 그 이름을 하드코딩하게 되고,
+    벤더가 그것을 바꿔도 아무것도 안 빨개진다.
+
+    `$ref` 는 안 따라간다 — 가리키는 스키마는 이미 따로 나온다. 봉투만 여기서 더한다.
+    """
+    names = set()
+    bodies = []
+    for response in (operation.get("responses") or {}).values():
+        if isinstance(response, dict):
+            for content in (response.get("content") or {}).values():
+                if isinstance(content, dict) and isinstance(content.get("schema"), dict):
+                    bodies.append(content["schema"])
+    request = operation.get("requestBody")
+    if isinstance(request, dict):
+        for content in (request.get("content") or {}).values():
+            if isinstance(content, dict) and isinstance(content.get("schema"), dict):
+                bodies.append(content["schema"])
+
+    for body in bodies:
+        for key, value in sorted((body.get("properties") or {}).items()):
+            name = "%s#%s" % (where, key)
+            names.add(name)
+            names |= _properties(name, value)
     return names
 
 
@@ -282,6 +317,47 @@ def _literal(node):
     return None
 
 
+def _body_keys(node, prefix_path, out):
+    u"""딕셔너리 리터럴의 **키 경로**를 모은다. 값이 리터럴이 아니면 거기서 멈춘다."""
+    import ast
+    if not isinstance(node, ast.Dict):
+        return
+    for key, value in zip(node.keys, node.values):
+        if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+            continue
+        path = prefix_path + [key.value]
+        out.add(".".join(path))
+        _body_keys(value, path, out)
+
+
+def client_bodies(text, prefix):
+    u"""클라이언트가 **실제로 보내는 본문의 키**.
+
+    ## 왜 경로만으로 부족한가
+
+    Orbit 에서 게시 스펙의 스키마와 클라이언트가 보내는 본문이 **다르다**. `Schedule.schedule.timeMs` 는
+    스펙에서 `type: integer` 인데 클라이언트는 `{low, high, unsigned}` 를 보내고, `Schedule.task.missionId` 는
+    클라이언트에서 `task.dispatchTarget.missionId` 다. 스펙만 매니페스트에 넣으면 **우리 구현이 스펙을 따라
+    짜여 서버에 거절당하는데 검사는 초록**이다.
+
+    `payload` 라는 이름에 붙는 딕셔너리만 읽는다 — 모든 딕셔너리를 읽으면 벤더가 안 보내는 키까지 이름이
+    되고, 그것은 없는 것을 만드는 쪽이다.
+    """
+    import ast
+    found = set()
+    for node in ast.walk(ast.parse(text)):
+        targets = []
+        if isinstance(node, ast.Assign):
+            targets = [t for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            targets = [node.target]
+        if any(t.id == "payload" for t in targets):
+            keys = set()
+            _body_keys(node.value, [], keys)
+            found |= set(prefix + ":body:" + k for k in keys)
+    return found
+
+
 def client_symbols(text, prefix):
     u"""클라이언트가 **실제로 치는 경로**만. 응답 처리는 안 본다.
 
@@ -331,6 +407,7 @@ def build(src_dir, prefix="bosdyn-orbit"):
             names |= spec_symbols(extract_spec(text))
         elif entry.endswith(".py"):
             names |= client_symbols(text, prefix)
+            names |= client_bodies(text, prefix)
         else:
             raise ValueError("모르는 원본이다: %s (.html 은 스펙, .py 는 클라이언트)" % entry)
     if not names:

@@ -59,22 +59,44 @@ DashboardQueryHandles
 DashboardResultSet
 DashboardSecret
 GET /anomalies
+GET /anomalies#limit
+GET /anomalies#offset
+GET /anomalies#resources
+GET /anomalies#total
 GET /api_token/authenticate
 GET /backup_tasks
 GET /backups/{taskId}
 GET /calendar/schedule
+GET /calendar/schedule#activeEvents
 GET /missions
 GET /missions/{missionId}
 GET /robots
 GET /robots/{robotHostname}
 GET /run_archives/{runId}
 GET /run_captures/
+GET /run_captures/#limit
+GET /run_captures/#offset
+GET /run_captures/#resources
+GET /run_captures/#total
 GET /run_captures/{runCaptureUuid}
 GET /run_events/
+GET /run_events/#limit
+GET /run_events/#offset
+GET /run_events/#resources
+GET /run_events/#total
 GET /run_events/{runEventUuid}
 GET /run_statistics/sessions
 GET /run_statistics/sessions_summary
+GET /run_statistics/sessions_summary#actionsAttempted
+GET /run_statistics/sessions_summary#actionsCompletedPercentage
+GET /run_statistics/sessions_summary#distanceTraveledM
+GET /run_statistics/sessions_summary#missionsAttempted
+GET /run_statistics/sessions_summary#missionsCompletedPercentage
 GET /runs/
+GET /runs/#limit
+GET /runs/#offset
+GET /runs/#resources
+GET /runs/#total
 GET /runs/facets/actions
 GET /runs/facets/missions
 GET /runs/facets/robots
@@ -92,17 +114,43 @@ Mission.name
 Mission.saved_at
 Mission.uuid
 PATCH /anomalies
+PATCH /anomalies#command
+PATCH /anomalies#command=close
+PATCH /anomalies#elementIds
 PATCH /anomalies/{anomalyId}
+PATCH /anomalies/{anomalyId}#status
+PATCH /anomalies/{anomalyId}#status=closed
+PATCH /anomalies/{anomalyId}#status=open
 POST /backup_tasks
+POST /backup_tasks#data
 POST /calendar/disable-enable
+POST /calendar/disable-enable#disableReason
+POST /calendar/disable-enable#eventId
 POST /calendar/schedule
 POST /login
+POST /login#password
+POST /login#username
 POST /robots
+POST /robots#hostname
+POST /robots#nickname
+POST /robots#password
+POST /robots#robotIndex
+POST /robots#username
 POST /site_docks
 POST /site_elements
 POST /site_walks
 POST /webhooks
+POST /webhooks#enabled
+POST /webhooks#events
+POST /webhooks#secret
+POST /webhooks#url
+POST /webhooks#validateTlsCert
 POST /webhooks/{uuid}
+POST /webhooks/{uuid}#enabled
+POST /webhooks/{uuid}#events
+POST /webhooks/{uuid}#secret
+POST /webhooks/{uuid}#url
+POST /webhooks/{uuid}#validateTlsCert
 Robot
 Robot.hostname
 Robot.nickname
@@ -224,6 +272,30 @@ bosdyn-orbit:api_token/authenticate
 bosdyn-orbit:backup_tasks/
 bosdyn-orbit:backup_tasks/{task_id}
 bosdyn-orbit:backups/{task_id}
+bosdyn-orbit:body:agent
+bosdyn-orbit:body:agent.nickname
+bosdyn-orbit:body:eventMetadata
+bosdyn-orbit:body:eventMetadata.eventId
+bosdyn-orbit:body:eventMetadata.name
+bosdyn-orbit:body:includeCaptures
+bosdyn-orbit:body:includeMissions
+bosdyn-orbit:body:schedule
+bosdyn-orbit:body:schedule.blackouts
+bosdyn-orbit:body:schedule.disableReason
+bosdyn-orbit:body:schedule.repeatMs
+bosdyn-orbit:body:schedule.repeatMs.high
+bosdyn-orbit:body:schedule.repeatMs.low
+bosdyn-orbit:body:schedule.repeatMs.unsigned
+bosdyn-orbit:body:schedule.timeMs
+bosdyn-orbit:body:schedule.timeMs.high
+bosdyn-orbit:body:schedule.timeMs.low
+bosdyn-orbit:body:schedule.timeMs.unsigned
+bosdyn-orbit:body:task
+bosdyn-orbit:body:task.dispatchTarget
+bosdyn-orbit:body:task.forceAcquireEstop
+bosdyn-orbit:body:task.missionId
+bosdyn-orbit:body:task.requireDocked
+bosdyn-orbit:body:task.skipInitialization
 bosdyn-orbit:calendar/disable-enable
 bosdyn-orbit:calendar/mission/dispatch/{robot_nickname}?currentDriverId={driver_id}
 bosdyn-orbit:calendar/schedule

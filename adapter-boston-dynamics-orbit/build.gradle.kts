@@ -16,6 +16,10 @@ dependencies {
     // (`RobotDiscovery`)을 생성자에 드러내기 때문이다 — 조립하는 쪽이 무엇을 넣을지 보여야 한다.
     api(project(":uplink"))
 
+    // 벤더의 REST 응답을 읽는다. **벤더 SDK 가 아니다** — Orbit 은 REST 라 들일 SDK 가 없고,
+    // 이것은 JSON 파서일 뿐이다(다른 모듈이 쓰는 것과 같은 것).
+    implementation(libs.jackson.databind)
+
     testImplementation(kotlin("test"))
 
     // 벤더 원문 대조 검사([VendorManifest]). 매니페스트는 게시 스펙과 벤더의 파이썬
