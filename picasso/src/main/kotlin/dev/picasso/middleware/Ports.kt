@@ -17,6 +17,12 @@ import java.time.Instant
  * 맞추기 위해서다(§12.1).
  */
 interface RobotPort {
+    /**
+     * 계약(④)은 같은 `(task_id, revision)` 재전송이 같은 핸들이다(§4.4) — 그것이 보고서 13.2 ①의 조회다.
+     * 벤더가 참조 키를 안 받아도 어댑터가 매핑을 들어 이 답을 지킨다(어댑터 재시작은 밖, §1.3 B-1).
+     */
+    val executionLookup: ExecutionLookup get() = ExecutionLookup.CLIENT_REFERENCE
+
     fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse
     fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse>
     fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse
@@ -95,6 +101,12 @@ data class TransportStatus(
 )
 
 interface AmrFleetPort {
+    /**
+     * 이 플릿이 [TransportOrder.reference] 로 기존 운반을 찾아 주는가. 프로젝트용 계약의 기본은 그렇다 —
+     * 실물 플릿이 안 그러면 어댑터가 [ExecutionLookup.NONE] 을 선언하고, 그때 `IN_DOUBT` 는 운영자에게 간다.
+     */
+    val executionLookup: ExecutionLookup get() = ExecutionLookup.CLIENT_REFERENCE
+
     /** 맡긴다. 플릿이 거절하면 `null`. 같은 [TransportOrder.reference] 는 같은 핸들이다. */
     fun dispatch(order: TransportOrder): TransportHandle?
     fun status(handle: TransportHandle): TransportStatus

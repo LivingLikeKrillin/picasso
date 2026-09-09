@@ -60,13 +60,42 @@ enum class Verification {
 /**
  * 원자 단위의 상태.
  *
+ * - [IN_DOUBT] — 요청은 보냈는데 답을 못 받았다(보고서 13장). 접수됐는지 모른다. 해소 순서(13.2)를 [Middleware]가 집행한다
  * - [VERIFYING] — 하류는 끝났다고 했고, 시간창이 닫힐 때까지 설비 신호를 기다리는 중
- * - [OPERATOR_HOLD] — 하류는 실패라는데 설비에는 있다(보고서 12.3 둘째 행). 운영자가 [OperatorDecision]을 낸다
+ * - [OPERATOR_HOLD] — 하류는 실패라는데 설비에는 있다(보고서 12.3 둘째 행), 또는 `IN_DOUBT` 를 자동으로 못 풀었다(13.2 ③). 운영자가 [OperatorDecision]을 낸다
  */
-enum class UnitState { PENDING, RUNNING, VERIFYING, OPERATOR_HOLD, DONE, UNVERIFIED, FAILED, ABORTED }
+enum class UnitState { PENDING, IN_DOUBT, RUNNING, VERIFYING, OPERATOR_HOLD, DONE, UNVERIFIED, FAILED, ABORTED }
 
-/** 운영자의 판단 — 12.3 둘째 행 *"운영자 확인 후 PHYSICALLY_DONE 또는 재작업"*. */
+/**
+ * 하류가 **클라이언트 참조로 기존 실행을 찾아 주는가**(보고서 13.2 ①, 16장 *"실행 조회 가능 여부 — 이 하류에서
+ * `IN_DOUBT` 가 자동 해소되는가"*).
+ *
+ * - [CLIENT_REFERENCE] — 같은 참조로 다시 물으면 **같은 실행**이 돌아온다. 계약(④)은 같은 `(task_id, revision)` 재전송이
+ *   같은 핸들이고(§4.4), 프로젝트용 플릿 계약은 [TransportOrder.reference] 가 그것이다. `IN_DOUBT` 가 자동으로 풀린다.
+ * - [NONE] — 그런 조회가 없다. 조사한 실물 하류 셋이 전부 이쪽이었고(13.2), 어댑터가 매핑을 들어 계약 쪽으로는
+ *   [CLIENT_REFERENCE] 로 보이게 한다. 이 값이면 **자동 재실행 금지**가 기본이다 — 다시 보내면 물리 작업이 둘이 될 수 있다.
+ */
+enum class ExecutionLookup { CLIENT_REFERENCE, NONE }
+
+/**
+ * 운영자의 판단 — 12.3 둘째 행 *"운영자 확인 후 PHYSICALLY_DONE 또는 재작업"*, 그리고 13.2 ③.
+ *
+ * [REWORK] 는 **명시적 재요청**이다(13.3 — 명령 재시도는 미실행이 확인된 경우에만, 사람이 확인하고 낸다). 새 정체성으로 간다.
+ */
 enum class OperatorDecision { CONFIRM_DONE, REWORK }
+
+/**
+ * 지연 이벤트(보고서 15.1) — 단위의 지금 버전보다 **낮은 버전**을 단 하류 종착. 폐기하지 않고 여기 보존한다(감사·사후 분석).
+ * v17 을 돌리다 v18 로 바꿨는데 뒤늦게 온 v17 의 완료로 v18 을 닫지 않는다 — 그 완료가 무엇을 뜻하는지는 설비가 v18 의
+ * 기대에 대고 다시 본다.
+ */
+data class LateEvent(
+    val unitId: String,
+    val revision: Int,
+    val currentRevision: Int,
+    val downstreamState: String,
+    val occurredAt: Instant,
+)
 
 /**
  * 단위가 어느 하류로 가는가(보고서 3.2 축 1·2).
@@ -117,10 +146,11 @@ data class ExecutionUnit(
     val unitId: String,
     val route: Route,
     val skillType: String,
-    val parameters: Map<String, String>,
-    val expectedIdentity: String?,
-    val source: String?,
-    val destination: String?,
+    /** 아래 넷은 **버전의 것**이다 — 새 버전이 도는 단위에 붙으면(15.3) 기대도 새 버전의 것으로 바뀐다. 검증은 지금 기대에 대고 한다. */
+    var parameters: Map<String, String>,
+    var expectedIdentity: String?,
+    var source: String?,
+    var destination: String?,
     var state: UnitState = UnitState.PENDING,
     var taskId: String = "",
     var revision: Int = 0,
@@ -141,6 +171,10 @@ data class ExecutionUnit(
     var evidenceAt: Instant? = null,
     /** 설비에 몇 번 물었는가 — 12.2 의 재확인 횟수. */
     var rechecks: Int = 0,
+    /** 하류에 요청을 보낸 시각. `IN_DOUBT` 관측 창의 기준이다. */
+    var requestedAt: Instant? = null,
+    /** `IN_DOUBT` 에서 같은 참조로 다시 물은 횟수(13.2 ①). */
+    var lookups: Int = 0,
 )
 
 /** 취소 응답(보고서 14.1) — 원상복구가 아니라 중단점과 잔여 물리 상태의 보고다. */
@@ -178,5 +212,9 @@ data class JobResponse(
     val incompleteUnits: Map<String, String>,
     val operatorRequired: Boolean,
     val residualHold: HoldState,
+    /** 결과가 아직 확인되지 않은 단위 — 요청은 갔는데 접수됐는지 모른다(16장 *"드러내야 하는 것"*). */
+    val inDoubtUnits: List<String> = emptyList(),
+    /** 이 실행의 하류가 `IN_DOUBT` 를 자동으로 푸는가(16장 — 실행 조회 가능 여부). 거짓이면 그 상황은 운영자에게 간다. */
+    val autoResolvesInDoubt: Boolean = true,
     var ack: UpstreamAck = UpstreamAck.SENT_UNACKED,
 )

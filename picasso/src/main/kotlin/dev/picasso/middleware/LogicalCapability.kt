@@ -20,6 +20,13 @@ interface LogicalCapability {
      */
     val evidenceWindow: EvidenceWindow get() = EvidenceWindow(before = Duration.ofSeconds(30), after = Duration.ofSeconds(15))
 
+    /**
+     * `IN_DOUBT` 에서 하류에 물을 수 없을 때 **물리 관측을 기다리는 유예**(보고서 12.3 셋째 행 — 무응답·설비 있음 → 잠정
+     * 완료). 요청 시각부터 이만큼 설비를 보고, 그 안에 기대한 것이 나타나면 잠정 완료로, 아니면 그대로 운영자에게 세운다.
+     * 시간창 δ 와 다른 값이다 — 저것은 보고와 신호의 어긋남이고 이것은 답 없는 하류가 일을 마치는 데 걸리는 시간이다.
+     */
+    val inDoubtGrace: Duration get() = Duration.ofSeconds(60)
+
     /** 상류 요청을 원자 단위 열로. 계획이지 실행이 아니다. */
     fun plan(order: JobOrder): List<ExecutionUnit>
 }

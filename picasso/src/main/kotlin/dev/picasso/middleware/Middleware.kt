@@ -37,6 +37,11 @@ class Middleware(
     private val fleet: AmrFleetPort = AmrFleetPort.None,
     capabilities: List<LogicalCapability> = listOf(PrepareSequencedRack(), DeliverContainer()),
     private val now: () -> Instant = { Instant.now() },
+    /**
+     * `IN_DOUBT` 에서 같은 참조로 다시 묻는 횟수의 상한(13.2 ①). 이만큼 물어도 답이 없으면 하류가 지금은 조회 불가인
+     * 것이고, 12.3 셋째 행대로 **불가 시 운영자**다. `pump()` 한 번에 한 번 묻는다.
+     */
+    private val lookupRetries: Int = 3,
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -60,9 +65,20 @@ class Middleware(
         internal var transport: TransportHandle? = null
         internal var cancelRequested = false
         internal var lastCancel: CancelReport? = null
-        /** 지연 보고·운영자 보류 통보를 한 번만 내기 위한 표시. */
+        /** 지연 보고·운영자 보류·미확정 통보를 한 번만 내기 위한 표시. */
         internal var notedDelay: String? = null
         internal var notedHold: String? = null
+        internal var notedDoubt: String? = null
+
+        /** 지연 이벤트(15.1) — 옛 버전의 종착. 폐기하지 않는다. */
+        val lateEvents: MutableList<LateEvent> = mutableListOf()
+        private val seenLate = mutableSetOf<Triple<String, Int, String>>()
+
+        internal fun noteLate(unit: ExecutionUnit, update: WatchTaskResponse) {
+            val key = Triple(unit.unitId, update.revision, update.state.name)
+            if (!seenLate.add(key)) return
+            lateEvents += LateEvent(unit.unitId, update.revision, unit.revision, update.state.name, stateTime(update))
+        }
 
         val completedUnits: List<String> get() = units.filter { it.state == UnitState.DONE }.map { it.unitId }
         val version: Int get() = order.version
@@ -131,14 +147,44 @@ class Middleware(
                     unit
                 }
                 UnitState.PENDING -> (replanned[unit.unitId] ?: unit).also { it.revision = order.version }
-                UnitState.RUNNING -> {
+                // 도는 단위와 답을 못 받은 단위는 같은 길이다 — 새 버전을 보내는 것이 계약에서는 갱신이자 조회다(같은
+                // task_id: 접수돼 있었으면 갱신, 아니었으면 새 접수. 어느 쪽이든 핸들이 돌아오면 이제 추적한다).
+                UnitState.RUNNING, UnitState.IN_DOUBT -> {
                     val fresh = replanned[unit.unitId]
                     if (fresh != null && unit.route == Route.ROBOT) {
+                        val previous = unit.revision
                         unit.revision = order.version
-                        val response = robots.start(execution.robotId, unit.taskId, order.version, unit.skillType, fresh.parameters)
-                        if (!response.hasHandle()) {
-                            unit.state = UnitState.FAILED
-                            unit.failureClass = response.rejection.code.name
+                        // **기대도 새 버전의 것이다.** 옛 기대를 들고 있으면 옛 버전의 완료가 옛 기대에 맞아 새 버전의 완료로 적힌다.
+                        unit.parameters = fresh.parameters
+                        unit.expectedIdentity = fresh.expectedIdentity
+                        unit.source = fresh.source
+                        unit.destination = fresh.destination
+                        try {
+                            val response = robots.start(execution.robotId, unit.taskId, order.version, unit.skillType, fresh.parameters)
+                            when {
+                                response.hasHandle() -> if (unit.state == UnitState.IN_DOUBT) {
+                                    execution.handle = response.handle
+                                    unit.state = UnitState.RUNNING
+                                    unit.annotate("IN_DOUBT resolved by revision ${order.version} update")
+                                }
+
+                                // **이미 종착한 태스크다** — 갱신이 닿기 전에 끝났다(계약의 래치, §4.4). 그 종착은 옛 버전의
+                                // 것이고 pump 가 **지연 이벤트**로 받는다(15.1). 여기서 실패로 적으면 물리 결과를 잃는다.
+                                response.rejection.code == RejectionCode.REJECTION_CODE_INVALID_TRANSITION ->
+                                    unit.annotate("revision ${order.version} update rejected: task already terminal under revision $previous")
+
+                                else -> {
+                                    unit.state = UnitState.FAILED
+                                    unit.failureClass = response.rejection.code.name
+                                }
+                            }
+                        } catch (_: RuntimeException) {
+                            // 갱신의 답을 못 받았다 — 적용됐는지 모른다. 도는 중이었더라도 이제는 미확정이다.
+                            unit.state = UnitState.IN_DOUBT
+                            unit.requestedAt = now()
+                            unit.lookups = 0
+                            unit.annotate("revision ${order.version} update unanswered")
+                            execution.physicalState = PhysicalState.IN_DOUBT
                         }
                     }
                     // 플릿에 맡긴 운반은 도중에 바꾸지 않는다 — 플릿 계약에 갱신이 없다. 끝난 뒤 새 주문이다.
@@ -172,6 +218,7 @@ class Middleware(
         val active = execution.active
         if (active != null) {
             val settled = when {
+                active.state == UnitState.IN_DOUBT -> resolveDoubt(execution, active)
                 active.state == UnitState.VERIFYING -> checkEvidence(execution, active)
                 active.route == Route.ROBOT -> pumpRobotUnit(execution, active)
                 else -> pumpFleetUnit(execution, active)
@@ -214,7 +261,12 @@ class Middleware(
     /** @return 단위가 이 펌프에서 종착(또는 검증 대기로 이행)해 active 에서 내려와도 되는가. */
     private fun pumpRobotUnit(execution: Execution, unit: ExecutionUnit): Boolean {
         val updates = robots.watch(execution.robotId, execution.handle!!)
-        val last = updates.lastOrNull() ?: return false
+        // **결과 이벤트는 (실행, 버전)으로 맞춘다**(15.1). 이 단위의 지금 버전보다 낮은 버전의 종착은 지연 이벤트로
+        // **보존**하고, 이 버전의 갱신만 상태로 옮긴다.
+        val (late, current) = updates.partition { it.revision < unit.revision }
+        late.filter { it.state.isTerminal() }.forEach { execution.noteLate(unit, it) }
+        val last = current.lastOrNull()
+            ?: return late.lastOrNull { it.state.isTerminal() }?.let { settleLate(execution, unit, it) } ?: false
         unit.hold = last.hold
         if (!last.state.isTerminal()) {
             execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
@@ -247,6 +299,123 @@ class Middleware(
         }
         return true
     }
+
+    /**
+     * 옛 버전의 종착만 있고 새 버전의 갱신은 오지 않는다 — 갱신이 닿기 전에 끝난 태스크다(보고서 17장 6번).
+     *
+     * **새 버전의 완료로 적지 않는다**(15.1). 물리적으로 일어난 일은 옛 버전의 파라미터로 한 일이므로, 그것이 새 버전의
+     * 기대에 맞는지는 **설비가 새 버전의 기대에 대고** 판정한다 — 요구 등급이 E0 라도 설비를 묻고(`strict`), 설비가
+     * 없으면 `UNVERIFIED` 다. 실패·중단은 버전과 무관한 물리 사실이라 그대로 옮기되 어느 버전의 것인지를 남긴다.
+     */
+    private fun settleLate(execution: Execution, unit: ExecutionUnit, update: WatchTaskResponse): Boolean {
+        unit.hold = update.hold
+        unit.annotate("late event: revision ${update.revision} ${update.state.name} arrived under revision ${unit.revision}")
+        when (update.state) {
+            TaskState.TASK_STATE_SUCCEEDED -> {
+                beginVerify(execution, unit, reachedByDownstream = Evidence.E0, doneAt = stateTime(update), strict = true)
+                if (unit.state == UnitState.VERIFYING) return false
+            }
+            TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> unit.state = UnitState.ABORTED
+            else -> failWithEvidenceCheck(execution, unit, canonicalClass(update), detail = downstreamDetail(update), at = stateTime(update))
+        }
+        return true
+    }
+
+    /**
+     * `IN_DOUBT` 의 해소 — 보고서 13.2 의 순서 그대로.
+     *
+     * 1. **하류의 클라이언트 참조 기반 조회** — 같은 참조로 다시 묻는다. 계약은 같은 핸들을 돌려주고 플릿은 같은 운반을
+     *    돌려준다. 돌아오면 그 실행을 **이어서 추적**한다(새 실행이 아니다 — 17장 3번 *자동 재실행 없음*, 9번 재동기화는
+     *    처음부터 되짚는 `WatchTask(0)` 이 한다). [lookupRetries] 번 물어도 답이 없으면 지금은 조회 불가다.
+     * 2. **물리 상태 관측** — 하류에 물을 수 없을 때 설비를 본다. 요청 시각부터 [LogicalCapability.inDoubtGrace] 안에
+     *    기대한 것이 목적지에 나타나면 **잠정 완료**다(12.3 셋째 행). 확정은 조회가 하고, 조회가 없으면 운영자가 한다.
+     * 3. **운영자** — `OPERATOR_HOLD`. 자동 재실행은 없다. 재요청은 사람이 [OperatorDecision.REWORK] 로 명시적으로 낸다(13.3).
+     *
+     * @return 단위가 이 펌프에서 종착(운영자 보류 포함)했는가.
+     */
+    private fun resolveDoubt(execution: Execution, unit: ExecutionUnit): Boolean {
+        val lookup = if (unit.route == Route.ROBOT) robots.executionLookup else fleet.executionLookup
+        if (lookup == ExecutionLookup.CLIENT_REFERENCE && unit.lookups < lookupRetries) {
+            unit.lookups += 1
+            val found = try {
+                lookupDownstream(execution, unit)
+            } catch (_: RuntimeException) {
+                false
+            }
+            if (found) {
+                unit.state = UnitState.RUNNING
+                unit.annotate("IN_DOUBT resolved by client-reference lookup after ${unit.lookups} lookup(s)")
+                execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+                if (execution.cancelRequested) {
+                    execution.handle?.let { robots.cancel(execution.robotId, it) }
+                    execution.transport?.let { fleet.cancel(it) }
+                }
+                return false
+            }
+            if (unit.state == UnitState.FAILED) return true // 하류가 이 요청을 거절했다 — 미실행이 확인된 것이고 그 사유는 우리 어휘다
+            execution.physicalState = PhysicalState.IN_DOUBT
+            return false
+        }
+
+        // ② 물리 관측 — 요청 시각부터의 신호만 이 요청의 것이다.
+        val requestedAt = unit.requestedAt!!
+        val window = execution.capability.evidenceWindow
+        val signal = unit.destination?.let { cell.observe(it) }
+        val observedAt = signal?.observedAt ?: now()
+        val provisional = signal != null && signal.occupied &&
+            (unit.expectedIdentity == null || signal.identity == unit.expectedIdentity) &&
+            !observedAt.isBefore(requestedAt.minus(window.before))
+        if (!provisional && now().isBefore(requestedAt.plus(execution.capability.inDoubtGrace))) {
+            execution.physicalState = PhysicalState.IN_DOUBT
+            return false
+        }
+
+        // ③ 운영자.
+        val why = if (lookup == ExecutionLookup.NONE) "downstream has no client-reference lookup" else "lookup unanswered ${unit.lookups} time(s)"
+        if (provisional) {
+            unit.verification = Verification.MATCHED
+            unit.evidenceAt = observedAt
+            unit.annotate("IN_DOUBT: response lost; evidence present at ${unit.destination} (provisional done); $why — confirm")
+        } else {
+            unit.annotate("IN_DOUBT: response lost; no evidence at ${unit.destination} within grace; $why — no automatic re-execution")
+        }
+        unit.state = UnitState.OPERATOR_HOLD
+        return true
+    }
+
+    /** 13.2 ① — 같은 참조로 다시 묻는다. 돌아오면 핸들을 잡고 참, 거절이면 단위를 실패로 적고 거짓, 답이 없으면 던진다. */
+    private fun lookupDownstream(execution: Execution, unit: ExecutionUnit): Boolean = when (unit.route) {
+        Route.ROBOT -> {
+            val response = robots.start(execution.robotId, unit.taskId, unit.revision, unit.skillType, unit.parameters)
+            if (response.hasHandle()) {
+                execution.handle = response.handle
+                true
+            } else {
+                unit.state = UnitState.FAILED
+                unit.failureClass = response.rejection.code.takeIf { it != RejectionCode.REJECTION_CODE_UNSPECIFIED }?.name ?: "REJECTED"
+                false
+            }
+        }
+
+        Route.FLEET -> {
+            val handle = fleet.dispatch(transportOrderOf(unit))
+            if (handle != null) {
+                execution.transport = handle
+                true
+            } else {
+                unit.state = UnitState.FAILED
+                unit.failureClass = FLEET_REJECTED
+                false
+            }
+        }
+    }
+
+    private fun transportOrderOf(unit: ExecutionUnit) = TransportOrder(
+        reference = unit.taskId,
+        containerId = unit.expectedIdentity ?: unit.unitId,
+        source = unit.source ?: "",
+        destination = unit.destination ?: "",
+    )
 
     /** @return 단위가 종착했는가. */
     private fun pumpFleetUnit(execution: Execution, unit: ExecutionUnit): Boolean {
@@ -308,37 +477,27 @@ class Middleware(
     private fun startUnit(execution: Execution, unit: ExecutionUnit) {
         // 재작업은 새 정체성이다 — 같은 task_id 는 계약이 같은(종착한) 핸들로 돌려준다.
         unit.taskId = "${execution.order.jobOrderId}#${unit.unitId}" + if (unit.attempt > 0) "@r${unit.attempt}" else ""
-        when (unit.route) {
-            Route.ROBOT -> {
-                val response = robots.start(execution.robotId, unit.taskId, unit.revision, unit.skillType, unit.parameters)
-                if (!response.hasHandle()) {
-                    unit.state = UnitState.FAILED
-                    unit.failureClass = response.rejection.code.takeIf { it != RejectionCode.REJECTION_CODE_UNSPECIFIED }?.name
-                        ?: "REJECTED"
-                    return
-                }
-                execution.handle = response.handle
+        unit.requestedAt = now()
+        unit.lookups = 0
+        execution.active = unit
+        val accepted = try {
+            lookupDownstream(execution, unit)
+        } catch (_: RuntimeException) {
+            // **요청은 갔는데 답이 없다.** 접수됐는지 모른다 — 다시 보내지 않는다(물리 작업이 둘이 될 수 있다).
+            // 해소는 13.2 의 순서로 [resolveDoubt] 가 한다. 상류에는 미확정이라는 사실을 드러낸다(16장).
+            unit.state = UnitState.IN_DOUBT
+            execution.physicalState = PhysicalState.IN_DOUBT
+            if (execution.notedDoubt != unit.unitId) {
+                execution.notedDoubt = unit.unitId
+                notify(execution)
             }
-
-            Route.FLEET -> {
-                val handle = fleet.dispatch(
-                    TransportOrder(
-                        reference = unit.taskId,
-                        containerId = unit.expectedIdentity ?: unit.unitId,
-                        source = unit.source ?: "",
-                        destination = unit.destination ?: "",
-                    ),
-                )
-                if (handle == null) {
-                    unit.state = UnitState.FAILED
-                    unit.failureClass = FLEET_REJECTED
-                    return
-                }
-                execution.transport = handle
-            }
+            return
+        }
+        if (!accepted) {
+            execution.active = null
+            return
         }
         unit.state = UnitState.RUNNING
-        execution.active = unit
         execution.physicalState = PhysicalState.RUNNING
     }
 
@@ -351,10 +510,11 @@ class Middleware(
      * 아니면 [UnitState.VERIFYING] 으로 옮기고 시간창이 닫힐 때까지([EvidenceWindow.after])
      * 설비에 묻는다 — PLC 는 폴링이라 신호가 보고보다 **늦게** 읽힐 수 있다. 첫 확인은 지금 한다.
      */
-    private fun beginVerify(execution: Execution, unit: ExecutionUnit, reachedByDownstream: Evidence, doneAt: Instant) {
+    private fun beginVerify(execution: Execution, unit: ExecutionUnit, reachedByDownstream: Evidence, doneAt: Instant, strict: Boolean = false) {
         unit.reached = reachedByDownstream
         unit.downstreamDoneAt = doneAt
-        if (execution.order.requiredEvidence <= reachedByDownstream) {
+        // `strict` — 하류의 보고만으로는 못 닫는다(지연 이벤트: 옛 버전의 완료). 설비가 지금 버전의 기대에 대고 봐야 한다.
+        if (!strict && execution.order.requiredEvidence <= reachedByDownstream) {
             unit.verification = Verification.NOT_REQUESTED
             unit.state = UnitState.DONE
             return
@@ -391,7 +551,7 @@ class Middleware(
                 unit.state = UnitState.FAILED
                 unit.failureClass = MISMATCH
                 unit.evidenceAt = observedAt
-                unit.note = "observed=${signal.identity} at ${unit.destination}"
+                unit.annotate("observed=${signal.identity} at ${unit.destination}")
             }
 
             inWindow -> {
@@ -404,11 +564,13 @@ class Middleware(
             current.isAfter(unit.evidenceDeadline!!) -> {
                 unit.verification = Verification.ABSENT
                 unit.state = UnitState.UNVERIFIED
-                unit.note = if (signal != null && signal.occupied) {
-                    "signal at $observedAt is outside [${doneAt.minus(window.before)}, ${doneAt.plus(window.after)}] — stale"
-                } else {
-                    "no signal within window after ${unit.rechecks} rechecks"
-                }
+                unit.annotate(
+                    if (signal != null && signal.occupied) {
+                        "signal at $observedAt is outside [${doneAt.minus(window.before)}, ${doneAt.plus(window.after)}] — stale"
+                    } else {
+                        "no signal within window after ${unit.rechecks} rechecks"
+                    },
+                )
             }
 
             else -> {
@@ -455,9 +617,10 @@ class Middleware(
         val unit = execution.units.firstOrNull { it.unitId == unitId && it.state == UnitState.OPERATOR_HOLD } ?: return false
         when (decision) {
             OperatorDecision.CONFIRM_DONE -> {
-                unit.reached = Evidence.E2
+                // 설비 근거가 있었으면 E2 다. 없이 사람이 확인한 것은 근거 등급을 올리지 않는다 — 그 사실이 note 에 남는다.
+                if (unit.verification == Verification.MATCHED) unit.reached = Evidence.E2
                 unit.state = UnitState.DONE
-                unit.note = "operator confirmed: ${unit.note}"
+                unit.note = "operator confirmed" + (if (unit.verification == Verification.MATCHED) "" else " without equipment evidence") + ": ${unit.note}"
             }
             OperatorDecision.REWORK -> {
                 unit.attempt += 1
@@ -541,6 +704,10 @@ class Middleware(
                     it.verification == Verification.MISMATCH || it.failureClass == SOURCE_MISMATCH
             } || execution.lastCancel?.cleanup == "failed",
             residualHold = units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold ?: HoldState.getDefaultInstance(),
+            inDoubtUnits = units.filter { it.state == UnitState.IN_DOUBT }.map { it.unitId },
+            autoResolvesInDoubt = units.all {
+                (if (it.route == Route.ROBOT) robots.executionLookup else fleet.executionLookup) == ExecutionLookup.CLIENT_REFERENCE
+            },
         )
         outbox += response
         execution.upstreamAck = UpstreamAck.SENT_UNACKED
@@ -552,6 +719,11 @@ class Middleware(
         response.ack = UpstreamAck.ACKED
         executions.values.firstOrNull { it.order.jobOrderId == response.jobOrderId }?.upstreamAck = UpstreamAck.ACKED
         return true
+    }
+
+    /** 사정을 덧붙인다 — 앞의 것을 지우지 않는다. 지연 이벤트·미확정 같은 사정은 종착 사유와 함께 남아야 한다. */
+    private fun ExecutionUnit.annotate(message: String) {
+        note = if (note.isNullOrBlank()) message else "$note; $message"
     }
 
     /** 계약의 정준 분류 이름(접두사 없이). 결함이 없거나 분류가 비어 있으면 [UNCLASSIFIED]. */
