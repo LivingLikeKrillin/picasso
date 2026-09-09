@@ -57,6 +57,7 @@
     },
     {
       "error_type": "X_BOSTONDYNAMICS_FALL",
+      "failure_class": "ROBOT_FELL",
       "rate": 0,
       "can_continue_current_task": false,
       "can_accept_new_task": false,
@@ -66,6 +67,7 @@
     },
     {
       "error_type": "X_BOSTONDYNAMICS_HARDWARE",
+      "failure_class": "HARDWARE_FAULT",
       "rate": 0,
       "can_continue_current_task": false,
       "can_accept_new_task": false,

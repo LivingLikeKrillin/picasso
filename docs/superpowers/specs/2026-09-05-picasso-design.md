@@ -2218,3 +2218,21 @@ mimic/
     - 연결 단절 중에도 `WatchTask` 는 흐른다(미믹의 단절은 발행 축의 사실이고 gRPC 는 산다). 그래서 미확정은 실행 상태의 표시이지 단위의 정지가 아니며, 단절 중 종착하면 그 종착은 선다. 실물에서 단절이 gRPC 까지 끊으면 `WatchTask` 스트림의 오류가 함께 오고, 그 경로는 `IN_DOUBT` 해소(§15.92)가 맡는다 — 둘을 합쳐 본 시험은 없다.
     - 연결 상태의 원천은 스냅샷이다. MQTT connection 스트림(retain, Last Will)은 이 층이 아직 안 듣는다 — 브로커 결선은 열려 있다.
     - 결함 주입 여섯(단절 판정 반전 · 축출 무시 · 커서 미전진 · 복귀 뒤 `linkBroken` 미해제 · 못 봤는데 ONLINE · **미믹이 다시 연결 상태를 안 채움**) 전부 겨냥한 시험이 잡았다. 둘은 처음에 빠져나갔다 — ① *복귀 뒤 상태를 IN_DOUBT 로 두기* 는 바로 뒤의 `pumpRobotUnit` 이 상태를 다시 정하므로 **동치 변이**였고, 진짜 결함(`linkBroken` 미해제)으로 바꿔 놓으니 잡혔다. ② *커서 미전진* 은 마지막으로 읽은 이벤트가 **스킬 전이**라 자취에 안 남아 중복이 안 보였다 — 스킬 전이도 자취에 남기니(감사로도 맞다) 같은 시험이 잡았다. **주입이 빠져나가면 시험이 아니라 관측을 먼저 의심한다** — 이번 둘 다 그랬다.
+
+96. **정리 여섯 — 미결로 적어 두었던 작은 것들을 닫는다.**
+
+    | 항목 | 어디서 미결이 됐나 | 무엇을 했나 |
+    |---|---|---|
+    | `client` 에 `GetKnownSiteNames` 없음 | §15.87 | `PicassoClient.knownSiteNames()`. 판단하지 않는다 — `unsupported` 와 빈 목록을 가르는 것도, `total_count` 로 잘림을 아는 것도 소비자의 일. 하네스 `KnownSiteNamesTest` 3(아는 이름 / 0개 vs 못 함 / 40개 중 잘림) |
+    | buf 디스크립터 재생성이 빌드 배선에 없음 | §15.85 부터 손으로 | `./gradlew :contracts:bufDescriptor` — `tools/buf` 와 같은 컨테이너·인자로 Docker 를 **직접** 부른다(bash 래퍼는 Windows 의 CreateProcess 로 못 부른다). `build` 에는 안 건다 — 게이트가 `contracts` 에 빌드 의존을 안 거는 것은 설계의 결정이라(§3.2) 순서를 Gradle 이 강제하지 않되, proto 를 고친 뒤 어디서든 한 명령이면 되게 했다. README 에 적음 |
+    | `EquipmentUse` 어휘가 코드 상수뿐 | §15.88·§15.93 | 중앙 설계 §3 에 표 — 값·속성·뜻·읽는 능력. 능력은 자기 열의 낱말만 본다 |
+    | 프로파일 넷에 `failure_class` 미선언 | §15.91 | `humanoid-a`·`no-pause`(`SKILL_EXECUTION_FAILED`→`GRASP_FAILED`) · `quadruped-c`(`X_PICASSOREF_NAVIGATION_BLOCKED`→`ROUTE_BLOCKED`) · `spot-arm`(`X_BOSTONDYNAMICS_FALL`→`ROBOT_FELL`, `X_BOSTONDYNAMICS_HARDWARE`→`HARDWARE_FAULT`). `LOCALIZATION_LOST` 는 유도된다 |
+    | `inProgressUnit` 이 완료 단위와 겹침 | §15.93 | `CancelReport.stoppedAfter` — 단위가 끝까지 갔으면(거절됐든 취소가 닿기 전에 끝났든) 중단된 단위가 아니라 **그 뒤에서 멈춘 경계**다. 그때 `inProgressUnit` 은 `null` |
+    | `IN_DOUBT` 중 취소 시험 없음 | §15.92 | 둘 — 취소 가능한 프로파일 사본: 핸들이 생기는 순간 취소가 닿아 `CANCELLED`·재실행 0 / 픽스처(취소 `NO`): 거절이 기록되고 `stoppedAfter` 가 그 단위 |
+
+    시험 하나가 앞 판의 빈틈을 하나 더 보였다 — 미확정이 풀리며 보낸 취소의 **거절을 기록하지 않았다**(`cancel()` 경로만 기록했다). 이제 두 경로가 같은 자리에 적는다.
+
+    ### 정직하게 적어 둘 것
+
+    - `bufDescriptor` 는 Docker 가 있어야 돈다. 없으면 실패하고 게이트 시험이 만드는 법을 찍는다 — 앞과 같다. Docker 없는 대안(protoc 가 이미 만드는 `contract-descriptor/picasso.desc` 를 쓰는 것)은 게이트의 입력을 바꾸는 일이라 여기서 안 했다.
+    - `KnownSiteNamesTest` 의 잘림 시험은 `protocol_limits.max_array_length` 가 40 보다 클 수도 있어 조건부 단언이다 — 잘리면 `total_count` 가 말한다는 것만 고정한다.

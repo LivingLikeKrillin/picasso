@@ -234,6 +234,12 @@ data class CancelReport(
      * 드러내는 자리이고, 지원하지 않는 것을 지원하는 것처럼 감추지 않는다(7장). 하류가 받아들였으면 `null`.
      */
     val refusal: String? = null,
+    /**
+     * 하류가 중단을 거절해([refusal]) 진행 중 단위가 **끝까지 간 뒤** 멈췄을 때, 그 단위. 이때 [inProgressUnit] 은 `null`
+     * 이다 — 중단된 것이 없다. 앞 판은 같은 이름을 [inProgressUnit] 과 [completedUnits] 양쪽에 두어 두 사실을 한 자리로
+     * 말했다(§15.93 정직 항목).
+     */
+    val stoppedAfter: String? = null,
 )
 
 /**

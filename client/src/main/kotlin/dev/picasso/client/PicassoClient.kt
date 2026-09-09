@@ -6,6 +6,8 @@ import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.CapabilityRequirement
 import dev.picasso.contracts.v1.EventServiceGrpc
 import dev.picasso.contracts.v1.GetCapabilitiesRequest
+import dev.picasso.contracts.v1.GetKnownSiteNamesRequest
+import dev.picasso.contracts.v1.GetKnownSiteNamesResponse
 import dev.picasso.contracts.v1.GetSnapshotRequest
 import dev.picasso.contracts.v1.GetSnapshotResponse
 import dev.picasso.contracts.v1.ReplayEventsRequest
@@ -132,6 +134,19 @@ class PicassoClient(
 
     /** 시험이 세대 변화를 흉내 내는 문. 실제로는 응답 헤더가 부른다. */
     internal fun observeEpoch(robotId: String, epoch: Long) = note(robotId, epoch)
+
+    /**
+     * `GetKnownSiteNames`(ADR 35 확인 질의) — 이 기체가 아는 사이트 이름. **판단하지 않는다**: `unsupported` 와 빈 목록을
+     * 가르는 것도, `total_count > names.size` 로 잘림을 아는 것도 소비자의 일이다. 지금까지 계약에는 있는데 이 소비자에
+     * 없었다(§15.87 미결).
+     */
+    fun knownSiteNames(robotId: String): GetKnownSiteNamesResponse =
+        skills.withDeadlineAfter(deadlineSeconds, TimeUnit.SECONDS).getKnownSiteNames(
+            GetKnownSiteNamesRequest.newBuilder()
+                .setHeader(header("picasso.v1.GetKnownSiteNamesRequest", robotId))
+                .setRobotId(robotId)
+                .build(),
+        ).also { note(robotId, it.header.capabilityEpoch) }
 
     // ── 상태 (§4.8)
 

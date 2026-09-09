@@ -383,7 +383,7 @@ class Middleware(
             execution.transport = null
             if (execution.cancelRequested) {
                 // 하류 갱신을 읽은 경로는 abort 를 이미 적었다. 검증 대기 중에 취소가 걸린 경우만 여기서 적는다.
-                if (execution.physicalState != PhysicalState.ABORTED) abort(execution, inProgress = null, hold = active.hold, cleanup = "not_applicable")
+                if (execution.physicalState != PhysicalState.ABORTED) abort(execution, inProgress = active, hold = active.hold, cleanup = "not_applicable")
                 return
             }
         }
@@ -552,7 +552,10 @@ class Middleware(
                 unit.annotate("IN_DOUBT resolved by client-reference lookup after ${unit.lookups} lookup(s)")
                 execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
                 if (execution.cancelRequested) {
-                    execution.handle?.let { robots.cancel(execution.robotId, it) }
+                    execution.handle?.let { handle ->
+                        val response = robots.cancel(execution.robotId, handle)
+                        if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
+                    }
                     execution.transport?.let { fleet.cancel(it) }
                 }
                 return false
@@ -878,13 +881,16 @@ class Middleware(
     fun lastCancel(executionId: String): CancelReport? = executions[executionId]?.lastCancel
 
     private fun abort(execution: Execution, inProgress: ExecutionUnit?, hold: HoldState?, cleanup: String) {
+        // 단위가 끝까지 갔으면(하류가 중단을 거절했거나, 취소가 닿기 전에 끝났거나) 중단된 단위가 아니라 **그 뒤에서 멈춘** 경계다.
+        val refused = inProgress != null && (inProgress.state == UnitState.DONE || inProgress.state == UnitState.UNVERIFIED)
         val report = CancelReport(
             executionId = execution.executionId,
             version = execution.order.version,
             accepted = true,
             motionStopped = true,
             completedUnits = execution.completedUnits,
-            inProgressUnit = inProgress?.unitId,
+            inProgressUnit = if (refused) null else inProgress?.unitId,
+            stoppedAfter = if (refused) inProgress.unitId else null,
             notStartedUnits = execution.units.filter { it.state == UnitState.PENDING }.map { it.unitId },
             residualHold = hold ?: HoldState.getDefaultInstance(),
             cleanup = cleanup,

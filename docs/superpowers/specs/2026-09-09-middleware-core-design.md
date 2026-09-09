@@ -149,7 +149,19 @@ picasso: `residual.holding` = `hold`(있음). `stopPoint` = 종착·미종착 �
 
 ## 3. 상류 인터페이스 — 통합 테스트 수준
 
-ISA-95 Job Control 의 `JobOrder`/`JobResponse` 모양(`scenarios.md` §4.1 의 예)으로 **미들웨어가 API 를 낸다.** MES·WMS 는 그 API 의 **예상 소비자**다 — 우리가 그들의 내부를 흉내낼 이유가 없으므로 Mock 이 아니라 **통합 시험이 소비자 역할을 한다**: 요청을 넣고, 결과 통보를 받고, ack 하고, ack 유실을 일으킨다. 하류의 mimic 과는 위치가 반대다 — mimic 은 우리가 **부르는** 쪽을 대신하고, 여기서는 우리를 **부르는** 쪽이 시험이다. 실제 상위 시스템 어댑터는 만들지 않는다. `EquipmentUse` 값(`destination`·`source`)은 우리가 지은 말이라 표시한다(표준이 열어 둠).
+ISA-95 Job Control 의 `JobOrder`/`JobResponse` 모양(`scenarios.md` §4.1 의 예)으로 **미들웨어가 API 를 낸다.** MES·WMS 는 그 API 의 **예상 소비자**다 — 우리가 그들의 내부를 흉내낼 이유가 없으므로 Mock 이 아니라 **통합 시험이 소비자 역할을 한다**: 요청을 넣고, 결과 통보를 받고, ack 하고, ack 유실을 일으킨다. 하류의 mimic 과는 위치가 반대다 — mimic 은 우리가 **부르는** 쪽을 대신하고, 여기서는 우리를 **부르는** 쪽이 시험이다. 실제 상위 시스템 어댑터는 만들지 않는다.
+
+**`EquipmentUse` 어휘 — 우리가 지은 말이다**(ISA-95 는 열어 두었다). 코드의 `EquipmentUse` 객체와 이 표가 같은 것이며, 표에 없는 값은 어느 능력도 읽지 않는다. 능력은 자기 열의 낱말만 본다 — 그래서 능력이 늘어도 다른 능력의 주문 모양이 안 바뀐다(§15.93).
+
+| `EquipmentUse` | 속성 | 뜻 | 읽는 능력 |
+|---|---|---|---|
+| `destination` | `material`(부품 타입) | 부품이 놓일 슬롯. 슬롯 하나 = 원자 태스크 하나 | `PrepareSequencedRack` |
+| `source` | `material` | 그 타입을 제시하는 자리 — 로봇에 제품 타입 개념이 없어 **자리의 이름**이 `object_id` 로 간다(§15.80) | `PrepareSequencedRack` |
+| `source` | `container`(용기 태그) | 출발 인계점과 WMS 가 할당한 용기 | `DeliverContainer` |
+| `destination` | — | 도착 인계점 | `DeliverContainer` |
+| `inspection_target` | `location`(살필 자리), `item`(점검 항목) | 점검 대상. 목록 순서가 순회 순서 | `InspectAsset` |
+
+주문 `parameters` 는 능력별 실행 조건이다(`InspectAsset` 의 `mode`). 요구 근거 등급은 `JobOrder.requiredEvidence` 로 따로 온다.
 
 ---
 

@@ -44,6 +44,7 @@
   "failure_modes": [
     {
       "error_type": "X_PICASSOREF_NAVIGATION_BLOCKED",
+      "failure_class": "ROUTE_BLOCKED",
       "skill_type": "navigate_to",
       "rate": 0.03,
       "can_continue_current_task": false,

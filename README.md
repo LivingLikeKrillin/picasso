@@ -68,6 +68,12 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 mkdir -p contracts/build && ( cd contracts && ../tools/buf build -o build/descriptor.binpb )
 ```
 
+같은 것을 Gradle 로(셸 래퍼 없이 Docker 직접 호출 — Windows 에서도 돈다). proto 를 고쳤으면 이것부터:
+
+```bash
+./gradlew :contracts:bufDescriptor
+```
+
 ```bash
 ./gradlew build -Dpicasso.negative.strict=true -Dpicasso.buf="$PWD/tools/buf"
 ```

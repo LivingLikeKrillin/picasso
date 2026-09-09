@@ -183,7 +183,8 @@ class InspectAssetTest {
             val report = w.mw.lastCancel(exec.executionId)!!
             assertEquals("REJECTION_CODE_CANCEL_UNSUPPORTED", report.refusal, "navigate_to 는 취소를 안 든다 — 감추면 격리가 아니다")
             assertEquals(listOf(travel), report.completedUnits, "거절된 단위는 끝까지 간다")
-            assertEquals(travel, report.inProgressUnit)
+            assertNull(report.inProgressUnit, "중단된 단위는 없다 — 끝까지 갔다")
+            assertEquals(travel, report.stoppedAfter, "그 뒤에서 멈췄다")
             assertEquals(5, report.notStartedUnits.size, "다음 경계에서 멈춘다 — 점검은 시작하지 않는다")
             assertEquals(PhysicalState.ABORTED, exec.physicalState)
             assertEquals(1, w.tasks().size)
@@ -202,6 +203,7 @@ class InspectAssetTest {
 
             val report = w.mw.lastCancel(exec.executionId)!!
             assertNull(report.refusal)
+            assertNull(report.stoppedAfter)
             assertEquals("done", report.cleanup)
             assertEquals("PUMP-01", report.inProgressUnit)
             assertEquals(listOf("PUMP-01${InspectAsset.TRAVEL_SUFFIX}"), report.completedUnits)

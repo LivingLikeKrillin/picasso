@@ -2,6 +2,7 @@ package dev.picasso.middleware
 
 import dev.picasso.harness.Harness
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import kotlin.test.Test
@@ -34,8 +35,8 @@ class InDoubtTest {
         ),
     )
 
-    private class RobotWorld(drop: Int) : AutoCloseable {
-        val harness = Harness(mapOf(ROBOT to Path.of("..", "profile", "fixtures", "minimal.json").normalize()))
+    private class RobotWorld(drop: Int, profile: Path = Path.of("..", "profile", "fixtures", "minimal.json").normalize()) : AutoCloseable {
+        val harness = Harness(mapOf(ROBOT to profile))
         val cell = CellMimic(now = { harness.clock.now() })
         val port = LossyRobotPort(ClientRobotPort(harness.client()), dropStartResponses = drop)
         val mw = Middleware(port, cell, now = { harness.clock.now() })
@@ -97,6 +98,56 @@ class InDoubtTest {
             assertEquals(1, w.tasks().size, "조회 시도가 물리 작업을 만들었다")
             assertEquals(3, exec.unit().lookups, "상한만큼 묻고 멈춘다")
             assertTrue(exec.unit().note!!.contains("lookup unanswered 3 time(s)"), exec.unit().note)
+        }
+    }
+
+    /** 픽스처의 `pick_place` 는 취소 `NO` 다. 취소가 닿는 경로를 보려면 `YES` 인 사본이 필요하다(SequencingRackTest 와 같은 수법). */
+    private fun cancellableProfile(): Path {
+        val raw = Files.readString(Path.of("..", "profile", "fixtures", "minimal.json").normalize())
+        val needle = "\"cancel_support\": \"NO\""
+        check(raw.split(needle).size == 2) { "픽스처에 cancel_support NO 가 하나가 아니다" }
+        val copy = Files.createTempFile("picasso-doubt-cancellable-", ".json")
+        Files.writeString(copy, raw.replace(needle, "\"cancel_support\": \"YES\""))
+        copy.toFile().deleteOnExit()
+        return copy
+    }
+
+    @Test
+    fun `미확정 중의 취소는 핸들이 생기는 순간 하류에 닿는다 — 재실행 없이 중단으로 끝난다`() {
+        RobotWorld(drop = 1, profile = cancellableProfile()).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+
+            // 답을 못 받은 채로 취소가 온다 — 보낼 핸들이 없다. 요청만 적어 둔다.
+            assertTrue(w.mw.cancel(exec.executionId))
+            assertEquals(PhysicalState.CANCELING, exec.physicalState)
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(1, w.tasks().size, "취소 경로가 물리 작업을 다시 만들었다")
+            val report = w.mw.lastCancel(exec.executionId)!!
+            assertEquals(null, report.refusal)
+            assertEquals(SLOT, report.inProgressUnit)
+            assertTrue(w.tasks().single().taskState.startsWith("CANCELLED"), w.tasks().single().taskState)
+        }
+    }
+
+    @Test
+    fun `미확정 중의 취소를 하류가 거절하면 그 단위는 끝까지 가고 — 거절과 멈춘 경계가 응답에 있다`() {
+        RobotWorld(drop = 1).use { w -> // 픽스처의 pick_place 는 취소 NO
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder().copy(requiredEvidence = Evidence.E0), ROBOT)).execution
+            w.mw.pump()
+            assertTrue(w.mw.cancel(exec.executionId))
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            val report = w.mw.lastCancel(exec.executionId)!!
+            assertEquals("REJECTION_CODE_CANCEL_UNSUPPORTED", report.refusal)
+            assertEquals(null, report.inProgressUnit, "중단된 단위는 없다 — 끝까지 갔다")
+            assertEquals(SLOT, report.stoppedAfter)
+            assertEquals(listOf(SLOT), report.completedUnits)
+            assertEquals("SUCCEEDED", w.tasks().single().taskState)
         }
     }
 
