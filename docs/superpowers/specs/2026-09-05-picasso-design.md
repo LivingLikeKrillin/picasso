@@ -1788,3 +1788,61 @@ mimic/
     > **환경 참조를 가진 것들만 기종마다 갈린다.** `move_relative`의 파라미터 넷에는 환경 참조가 하나도 없고 그것만 3/3이다(§15.76). `navigate_to`·`pick_place`·`inspect`는 전부 환경을 참조하고 전부 기종마다 다르게 닿는다. **환경 결속이 곧 이식성의 경계**라는 뜻이며, ADR 36이 `move_relative`를 *"너무 저수준"*이라 판정한 것의 다른 얼굴이다.
 
     > **곁가지.** `Waypoint.Annotations.waypoint_source`가 `ROBOT_PATH`(녹화 중 자동 생성) · `USER_REQUEST`(사람이 놓음) · `ALTERNATE_ROUTE_FINDING`을 가른다. **벤더가 저작 여부를 선언해 준다.** 지금 Spot 어댑터는 *"이름이 비지 않았는가"*로 저작물을 짐작하는데(§15.73), 이 필드가 그 짐작을 관측으로 바꾼다. 아직 안 든다.
+
+
+80. **대상을 무엇으로 지시하는가 — 그리고 분류는 원자가 아니다.**
+
+    2026-09-09 조사. `pick_place(object_id, destination)`에서 `object_id`가 어떻게 물리적 대상에 닿는지를 물었더니 형식 자체가 흔들렸다.
+
+    ### 신원 수단이 셋이고 값이 다르다
+
+    | | 수단 | 벤더 근거 | 대가 |
+    |---|---|---|---|
+    | ① | **자리가 보증한다** | 없어도 된다 | 공정이 종류별로 제시해야 한다 |
+    | ② | **AprilTag** | Spot `WorldObject.apriltag_properties`, Digit `ObjectSelector.april_tag_id` | 로트마다 붙이는 것은 비현실적. 재사용되는 용기·팔레트·지그에는 현실적 |
+    | ③ | **외부 인지** | Spot `NetworkComputeBridge` (심볼 72) | 워커를 배포하고 유지해야 한다 |
+
+    **바코드·QR·RFID는 Spot 공개 표면 8089 심볼에 0건이다.** *"제품에 QR을 붙인다"*는 애초에 벤더가 못 받는다. 마킹은 AprilTag 하나다.
+
+    ③의 사슬은 끝까지 있다 — `NetworkComputeRequest{image, model_name, min_confidence}` → 외부 워커 → `NetworkComputeResponse.object_in_image`(`repeated WorldObject`, *"May include bounding boxes, image coordinates, 3D pose information"*) → `PickObjectInImage{pixel_xy}`.
+
+    ### 조작이 요구하는 것은 인스턴스가 아니다
+
+    `PickObject`는 **3D 점**(`Vec3 object_rt_frame`)이나 **픽셀**만 받는다. 이름도 타입도 안 받고, `GraspParams`는 `grasp_palm_to_fingertip`·`allowable_orientation` 같은 **전략**이며 *"아무것도 안 주면 로봇이 알아서 좋은 파지 방향을 찾는다"*고 적혀 있다. **로봇에 제품 타입이라는 개념이 없다.**
+
+    | 일감 | 대상을 무엇으로 지시하나 | 결속 |
+    |---|---|---|
+    | 순서공급 | `source` — **자리** | 등록 (ADR 35) |
+    | 분류 | **타입 라벨** | 워커가 선언 (`ModelLabels.available_labels`) |
+    | 추적·이력 | `AA-1234` — 인스턴스 | **조작 밖.** 상류가 사후 결속 |
+
+    > **`pick_place(object_id, destination)`은 이력 키를 조작 파라미터 자리에 놓고 있다.** `object_id`가 결속 경로를 못 갖는 이유가 *"아직 안 만들어서"*가 아니라 **거기 들어갈 것이 아니라서**일 수 있다. §15.76이 `inspect(target)`에 대해 제기한 *"우리 형식이 틀렸을 가능성"*이 `pick_place`에도 걸린다.
+
+    ### 분류는 원자가 아니다 — 배치가 넷이고 기종이 갈린다
+
+    분류는 `인지 → 라벨 판정 → 규칙 적용 → 집어 놓기 → 반복`이다. **누가 그 루프를 돌고 누가 규칙을 갖느냐**가 결정이다.
+
+    | | 루프 | **규칙** | Spot | Digit |
+    |---|---|---|---|---|
+    | **A** 자리 기반 | 없음 | 상류 | ✓ | ✓ |
+    | **B** 로봇이 판단 | 로봇 | 로봇의 미션 | **✓** | **✗** |
+    | **C** 관제가 판단 | 관제 | 관제 | ✓ | **✓** |
+    | **D** 로봇 루프 + 외부 판단 | 로봇 | 외부 호출 | **✓** | ✗ |
+
+    **실측이 이 표를 만들었다.** Spot의 미션 노드에 `Repeat`·`Retry`·`Switch`·`Selector`·`Condition{EQ,NE,LT,LE,GT,GE}`·`DefineBlackboard`/`SetBlackboard`·`ParallelAnd`·`SimpleParallel`이 다 있고, `RemoteGrpc`·`RemoteMissionService`로 외부에 물을 수도 있다(D). **Digit은 `action-loop{action, count}`로 횟수 반복만 되고 조건·분기가 0건이다**(`condition`·`branch`·`switch`·`while` 전부 0). 대신 `add-sequential-actions{actions, append, reference-number}`가 있어 **실행 중인 순열에 액션을 밀어 넣을 수 있다** — 그것이 C다.
+
+    > **둘 다 되는 유일한 배치가 C다.** 그리고 **ADR 36의 층 구분이 같은 답을 가리킨다** — 규칙은 층 ③(배정과 결정)이고 로봇은 층 ④(실행)다. 이식성과 층 구분이 일치하는 드문 경우이며, 그래서 이것은 취향이 아니라 근거 있는 방향이다.
+
+    ### 그런데 계약이 C를 못 나른다
+
+    - **관측을 올릴 길이 없다.** 위로 가는 것은 태스크 상태·결함·능력 변경뿐이고, 구조화된 관측을 실을 자리가 `WatchTaskResponse.partial_result` **문자열 하나**다. *"라벨 valve, 신뢰도 0.91, 픽셀 (412,308)"*을 실을 데가 없다.
+    - **B를 고르더라도 나를 어휘가 없다.** *"분류해라"*가 카탈로그에 없고, 규칙을 로봇에 배포하는 경로도 없다.
+    - C의 대가는 **왕복 지연**이다. 물건 하나마다 인지→상행→판단→하행이 돈다.
+
+    ### 능력 어휘의 첫 벤더 근거
+
+    `ModelLabels.available_labels`(`repeated string`, *"List of class labels returned by this model"*)가 **이 기체가 지시받을 수 있는 대상 종류**다. 워커가 스스로 선언하고, 프로파일의 `allowed_values`(§10.4 ③)가 그것을 나를 그릇이다. **ADR 36 층 ②의 첫 구체적 사례이며 발명이 아니다.**
+
+    ### 안 정한 것
+
+    **혼재로 오느냐 종류별 용기로 오느냐는 공정 설계의 결과**이고 우리는 그 라인을 모른다. 시연 영상은 연출이라 근거가 못 된다. 확실한 것은 **둘 다 지원해야 하고 둘이 요구하는 것이 다르다**는 데까지다 — 순서공급은 자리 결속만 있으면 되고, 분류는 인지 라벨·규칙·반복이 필요하다.
