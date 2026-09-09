@@ -53,6 +53,7 @@
     "**우리 계약은 명령 계층이 아니라 미션 계층에 있다.** MissionService 의 PlayMission·PauseMission·StopMission·RestartMission·GetState·AnswerQuestion 이 우리 태스크 생명주기와 모양이 같고, NEEDS_INTERVENTION 에 해당하는 것(AnswerQuestion + Prompt 노드)까지 있다. 명령 계층에는 그 중 어느 것도 없다. 이 층 구분이 G1 의 거리도 설명한다 — G1 은 미션 계층이 아예 없다.",
     "**나머지 스킬의 거리는 전부 시맨틱 신원이다.** navigate_to 만 맞는데, 항법이 쉬워서가 아니라 GraphNav 이 이미 시맨틱 결속을 해 두고 destination_waypoint_id 라는 문자열로 노출하기 때문이다. inspect 는 ImageRequest.image_source_name 이 **센서** 이름이지 대상이 아니고, pick_place 는 PickObjectInImage{pixel_xy}·PickObject{object_rt_frame: Vec3} 라 픽셀과 3D 점이다.",
     "**벤더 자신의 API 에도 같은 비대칭이 있다.** manipulation_cmd oneof 의 여섯이 전부 pick 이나 walk-to 인데 피드백 열거에는 MANIP_STATE_MOVING_TO_PLACE·PLACE_SUCCEEDED·PLACE_FAILED 가 있다. 놓기의 결과는 선언하면서 놓으라는 요청이 없고, 미션 노드에도 없다. 벤더의 답은 RemoteGrpc(네 서비스를 불러라)다.",
-    "**CONTROL_AUTHORITY_LOST 의 근거가 여기 있다.** LeaseUseResult.Status 에 STATUS_REVOKED·STATUS_OLDER·STATUS_WRONG_EPOCH 가 있어 §4.9 를 기계적으로 채울 수 있다. G1 은 lease id 가 있어도 인증이 없어 같은 것을 못 채운다."
+    "**CONTROL_AUTHORITY_LOST 의 근거가 여기 있다.** LeaseUseResult.Status 에 STATUS_REVOKED·STATUS_OLDER·STATUS_WRONG_EPOCH 가 있어 §4.9 를 기계적으로 채울 수 있다. G1 은 lease id 가 있어도 인증이 없어 같은 것을 못 채운다.",
+    "**어댑터 가용성이 로봇 거동이다 (2026-09-09, 매니페스트 대조).** `KeepaliveService.Policy` 의 `ActionAfter` 가 `AutoReturn`·`ControlledMotorsOff`·`ImmediateRobotOff`·`LeaseStale` 을 두고, E-Stop 엔드포인트의 `timeout` 초과는 `SETTLE_THEN_CUT`, `cut_power_timeout` 초과는 CUT 이다. 팔에 든 것은 `CarryState` 가 가른다. 어댑터 프로세스가 죽으면 로봇이 앉고 전원이 끊기는 것이 벤더의 기본 거동이며, ADR 32(계약은 안전 기능을 안 나른다)는 유지하되 배치의 전제로 적는다. `docs/scenarios.md` §5."
   ]
 }
