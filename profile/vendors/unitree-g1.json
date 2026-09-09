@@ -2,8 +2,8 @@
   "schema_version": "1.0.0",
   "evidence_grade": "VENDOR_PRIMARY",
   "derived_from": {
-    "source": "설계 §2.3의 실물 조사. unitree_sdk2 공개 저장소와 unitree_ros2, URDF.",
-    "observed_at": "2026-09-05"
+    "source": "설계 §2.3의 실물 조사. unitree_sdk2 공개 저장소와 unitree_ros2, URDF. **2026-09-09 에 범위를 넓혔다** — 앞 판은 `loco` 서비스 하나와 IDL 둘(44 심볼)만 보고 적은 것이었고, 공개 SDK 의 서비스 넷(`loco`·`arm_action`·`agv`·`audio`)과 `terminations.hpp`, IDL 열넷을 전수로 읽어 161 심볼이 됐다(`adapter-unitree-g1/src/test/resources/vendor-manifest.txt`, §15.82). 그 읽기가 `failure_modes` 를 NONE 에서 PARTIAL 로 올렸고, 나머지 판정은 값을 유지하되 근거의 범위를 고쳤다.",
+    "observed_at": "2026-09-09"
   },
   "vendor": "Unitree",
   "model": "G1",
@@ -18,15 +18,15 @@
   "coverage": {
     "model_identity": {
       "level": "NONE",
-      "evidence": "로봇 신원 질의가 아예 없다"
+      "evidence": "로봇 신원(모델·시리얼) 질의가 없다 — 서비스 넷 전수 기준. 있는 것은 버전뿐이다: `LowState_.version`, `BmsState_.version_high/low`, `AgvBmsState_.software_version`, 서비스별 `*_API_VERSION` 상수. 버전은 신원이 아니다"
     },
     "supported_skills": {
       "level": "PARTIAL",
-      "evidence": "팔만 GetActionList 를 준다. 이동을 포함한 고수준 API 는 전부 int fsm_id 매직 넘버 위의 얇은 래퍼다 — Damp()=SetFsmId(1), Start()=SetFsmId(500)"
+      "evidence": "팔만 GetActionList 를 준다(`ROBOT_API_ID_ARM_ACTION_GET_ACTION_LIST` — 서비스 넷 전수에서 유일한 능력 열거). 이동을 포함한 고수준 API 는 전부 int fsm_id 매직 넘버 위의 얇은 래퍼다 — Damp()=SetFsmId(1), Start()=SetFsmId(500)"
     },
     "cancel_pause": {
       "level": "NONE",
-      "evidence": "취소·일시정지 프리미티브가 없다"
+      "evidence": "이동(`loco`)에는 취소·일시정지 프리미티브가 없다 — 서비스 넷 전수 기준. `arm_action` 에 `STOP_CUSTOM_ACTION` 이 있으나 커스텀 액션에만 붙고 일시정지·재개가 없어 태스크 생명주기가 아니다. 진행 상태는 `SportModeState_{fsm_id, task_id, task_time}` 토픽으로 나오나 진행률은 아니다"
     },
     "parameter_ranges": {
       "level": "PARTIAL",
@@ -37,8 +37,8 @@
       "evidence": "문자열·배열 최대 길이를 선언하지 않는다"
     },
     "failure_modes": {
-      "level": "NONE",
-      "evidence": "결함 목록을 보고하지 않는다. 클라이언트가 terminations.hpp 로 과열·자세이상을 스스로 판정한다"
+      "level": "PARTIAL",
+      "evidence": "결함 **목록을 발행**하지는 않는다. 그러나 호출의 반환으로 **에러 코드 11개**를 준다(`UT_DECL_ERR` — loco 3·arm_action 4·agv 3·audio 1, 예 `UT_ROBOT_LOCO_ERR_INVALID_FSM_ID`), `terminations.hpp` 가 종료 조건 7개를 코드로 준다(`lost_connection`·`low_battery`·`bad_orientation`·속도 한계 둘·과열을 케이싱/권선으로 가른 둘), `HandState_.error` 필드가 있다. 앞 판의 NONE 은 `*_error.hpp` 를 추출기가 못 읽어 생긴 침묵을 부재로 읽은 것이다(§15.82)"
     },
     "publish_interval": {
       "level": "NONE",
@@ -48,7 +48,7 @@
 
   "notes": [
     "양산 휴머노이드 중 SDK 가 공개된 사실상 유일한 것이며 BSD-3-Clause 라 라이선스 제약이 없다. unitree_ros2 는 브리지가 아니라 같은 DDS wire 에 rmw 로 직접 참여한다.",
-    "Spot 과 정확히 반대다 — 라이선스는 열려 있는데 말할 것이 없다. 능력을 선언하지 않고, 자기가 누구인지도 말하지 않고, 결함도 안 알린다.",
+    "Spot 과 정확히 반대다 — 라이선스는 열려 있는데 말할 것이 적다. 능력은 팔만 열거하고, 자기가 누구인지는 말하지 않고, 결함은 목록으로 발행하지 않는다(호출 반환 에러 코드와 종료 조건 코드는 있다 — 2026-09-09 에 '결함도 안 알린다' 에서 고쳤다. 앞 판은 서비스 넷 중 하나만 본 것이었다).",
     "exclusive_control_required 를 YES 로 적었으나 강제되지 않는다. lease id 는 있지만 인증이 없어 네트워크 도달이 곧 전권이다(§4.9·§6.3).",
     "공식 시뮬레이터(unitree_mujoco)가 있으나 **저수준만 흉내낸다** — README 가 'Current version only supports low-level development' 라 못박는다. LowCmd_/LowState_ 는 답하지만 스킬이 올라탈 sport 서비스(ai_sport)는 실물에서만 돈다. 처음에 'SDK2 인터페이스를 그대로 노출한다' 고 적은 것을 2026-09-08 조사에서 고쳤다.",
     "그래서 실물 없이 어댑터를 **돌려 보는** 것은 이 기종으로도 안 된다. CycloneDDS 에 Java 바인딩이 없고(C·C++·Python 뿐) 시뮬레이터는 Ubuntu 전용이라는 것이 그 위에 더 얹힌다. 어댑터가 검증되는 범위는 계약 쪽 거동까지이며 적합성(C-3)은 열려 있다."

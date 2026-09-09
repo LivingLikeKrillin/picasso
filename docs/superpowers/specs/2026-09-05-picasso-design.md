@@ -272,7 +272,7 @@ adapter-<v>-<m> → contracts, adapter-core    ※ 아래 단서
 | `common.proto` | **공통 헤더**, `Reference`, `Lifetime`, `ProfileRef`, `Support`, `Resolution`, `RejectionCode`, `Rejection`. **의존이 없다** | — |
 | `fault.proto` | 결함 모델 | A-2 |
 | `skill.proto` | 스킬 상태머신, `Capability`, `GetCapabilities`, `Negotiate` | A-1 |
-| `skill_catalog.proto` | **계약이 소유하는 스킬 타입 어휘.** `since_minor`·`is_optional`·`skill_type_max_minor`를 proto 커스텀 옵션으로 싣는다 | A-1 |
+| `skill_catalog.proto` | **계약이 소유하는 스킬 타입 어휘.** `since_minor`·`is_optional`·`skill_type_max_minor`, 그리고 파라미터가 어느 이름 공간의 것인지를 말하는 `is_site_reference`(장소)·`is_object_reference`(대상)를 proto 커스텀 옵션으로 싣는다(§15.78) | A-1 |
 | `task.proto` | 장기 실행 태스크 RPC와 상태 | A-4 |
 | `event.proto` | 이벤트, `StateMessage`, `GetSnapshot`, `ReplayEvents`, `CapabilityChanged`, 연결 상태. 위 넷을 참조하므로 마지막 | A-2 |
 
@@ -1398,7 +1398,7 @@ mimic/
 19. **`mimic`이 게이트가 거절할 프로파일로 기동할 수 있다.** `ProfileSource`는 JSON Schema만 보고 게이트 검사 3번의 구조 규칙 넷(발행 간격 뒤집힘, `(skill_type, major)` 중복, 스킬 내 `key` 중복, 어댑터 전용 `error_type`)은 보지 않는다. §10.2가 요구하는 것이 스키마 검증뿐이라 사양 위반은 아니지만, `--profile <path>`가 임의 경로를 받으므로 실제로 가능한 비대칭이다.
 20. **proto 코드 생성과 디스크립터를 서로 다른 도구가 만든다**(ADR 30). Gradle protobuf 플러그인의 protoc와 `buf` 내장본이 버전이 달라 생성 코드와 디스크립터가 미세하게 다를 수 있다. 쓰는 것이 메시지 구성이라 실질 영향은 없다. 그리고 protobuf-gradle-plugin 0.9.4는 **Gradle 10에서 깨진다** — legacy `Usage` 속성과 다중 문자열 의존 표기가 플러그인 내부에서 나오므로 우리가 못 고친다. Gradle 10 이전에 플러그인 버전을 올려야 한다.
 21. **`session_id`가 §5.5의 ULID가 아니라 기동 카운터다.** ULID의 난수부를 시드에서 뽑으면 §12.1의 결정성 규율("시드 + 가상 시계 고정 = 동일 이벤트 시퀀스")과 "재기동하면 새 세션"이 충돌하고, `UUID.randomUUID()`를 쓰면 결정성이 깨진다. 세션의 요건은 "온라인이 될 때마다 새것"이므로 프로세스 내 카운터로 족하다. **대가는 프로세스를 재기동하면 카운터가 0으로 돌아간다는 것**이다 — 같은 밀리초에 재기동하면 세션이 겹칠 수 있다. `mimic`은 PoC이므로 감수하고, 실물 어댑터는 ULID를 쓴다.
-22. **`contract_digest`가 `buf` 모듈 다이제스트가 아니라 디스크립터 셋의 SHA-256이다.** `buf`는 Docker 래퍼이고 게이트는 CI가 `buf build`를 먼저 돌리는 순서에 기대고 있는데, 런타임 헤더까지 거기 매달면 `mimic`이 Docker 없이 기동하지 못한다. `includeSourceInfo = false`라 주석만 고친 커밋에서는 변하지 않는다(실측). **역은 성립하지 않는다** — `includeImports = true`가 `descriptor.proto`를 끌고 오므로 protobuf나 플러그인 버전을 올리면 계약이 그대로여도 다이제스트가 바뀐다.
+22. **`contract_digest`가 `buf` 모듈 다이제스트가 아니라 디스크립터 셋의 SHA-256이다.** `buf`는 Docker 래퍼이고 게이트는 CI가 `buf build`를 먼저 돌리는 순서에 기대고 있는데, 런타임 헤더까지 거기 매달면 `mimic`이 Docker 없이 기동하지 못한다. `includeSourceInfo = false`라 주석만 고친 커밋에서는 변하지 않는다(실측). **역은 성립하지 않는다** — `includeImports = true`가 `descriptor.proto`를 끌고 오므로 protobuf나 플러그인 버전을 올리면 계약이 그대로여도 다이제스트가 바뀐다. **그리고 그 순서 의존이 로컬에서 물었다 (2026-09-09).** 디스크립터가 **둘**이다 — `contracts` 의 Gradle 이 `contract_digest` 용으로 만드는 `picasso.desc` 와, 게이트 시험이 읽는 `contracts/build/descriptor.binpb`. 뒤의 것은 `tools/buf build` 를 **손으로** 돌려야 갱신되고 Gradle 은 그 존재만 확인한다(`gate/build.gradle.kts`). `skill_catalog.proto` 에 옵션을 더하고 게이트 시험을 돌리니 빨개지지 않고 **옛 판정**이 나왔다 — 낡은 디스크립터는 낡은 코드와 사이좋게 초록이다. 재생성은 여전히 빌드 배선 밖에 있다.
 23. **`MAJOR_MISMATCH`가 minor 부족까지 덮는다.** §12.2의 13번이 협상 거절을 다섯으로 못박았고 버전 불만족을 뜻하는 코드가 그것뿐이다. `detail`이 무엇이 부족한지 말하지만 코드 이름은 실제보다 좁다.
 24. **`GetCapabilitiesResponse`에 `Rejection` 자리가 없다.** 그래서 그 RPC만 신원 불일치가 응답 `oneof`가 아니라 gRPC 상태로 나간다 — "요청을 해석하지 못했으면 gRPC 상태, 해석했는데 거절하면 `oneof`"라는 규칙의 유일한 예외다.
 25. **`update_index`가 0부터 시작해 헤더에서 미설정과 구별되지 않는다.** `capability_epoch`는 1에서 시작해 피했지만 `task.proto`가 `update_index`를 0부터라고 못박았다. `schema_id`가 방향을 말하므로 실질 문제는 없다. **`sequence`도 같다**(§4.8이 0부터를 못박았다).
@@ -1884,3 +1884,37 @@ mimic/
     - **확인 못 하는 전제가 있다.** *"공정이 종류별로 제시하는가"*는 로봇이 관측할 수 없다. 그런 전제는 **영원히 CLAIMED**이며 CONFIRMED가 될 길이 없다. 그것을 CONFIRMED와 같은 칸에 두면 확인된 것과 사람이 말한 것이 구별되지 않는다.
     - **목록을 모으기 시작했다** — [`docs/environment-preconditions.md`](../../environment-preconditions.md). 거기서 이 항목의 목적이 하나 더 드러났다: **전제는 검사 명세가 아니라 설계 입력이다.** 로봇 쓰는 공장·창고를 짓는 쪽이 *"이런 일을 시키려면 물리 세계에 이런 것이 있어야 하는구나"*를 읽어 가는 문서이며, 제약이자 제안이다. 가장 선명한 사례가 `DoorCommand`다 — **문을 어느 쪽으로 달지가 로봇 능력을 바꾼다**(`hinge_side`·`swing_direction`, 그리고 미는 문이냐 잡는 문이냐가 팔의 필요를 가른다).
     - 이 항목은 **결정이 아니라 관찰**이다. 결정하려면 ADR이어야 하고, 그 전에 전제의 종류를 몇 개 더 모아야 한다 — 지금은 다섯이고 전부 오늘 나왔다.
+
+82. **범위를 안 보고 단정했다 — 하루에 두 번째, 그리고 침묵을 부재로 읽을 뻔한 것이 셋이었다.**
+
+    G1 의 벤더 매니페스트가 **44 심볼**이었다. `g1_loco_api.hpp` 와 `unitree_hg` IDL 둘(`LowState_`·`MotorState_`)이 전부였고, 그 위에서 *"G1 은 능력을 선언하지 않고, 결함도 안 알린다"* 를 적었다. 공개 SDK 에 서비스가 **넷**이다 — `loco`·`arm_action`·`agv`·`audio`. §15.75 가 Spot 을 54 개 서비스 중 3 개만 읽고 쟀다고 적은 바로 그 모양이고, 그 항목을 적은 다음 날 같은 실수를 다른 기종에서 했다. 넷 전부와 `common/terminations.hpp`, `unitree_hg` IDL 열하나, 그리고 C++ 전용 IDL 셋을 넣어 **161 심볼**이 됐다(`53aae87`·`fcd0884`).
+
+    ### 침묵 셋 — 벤더가 안 준 것이 아니라 추출기가 못 읽은 것
+
+    범위를 넓히자 원문 파일이 늘었는데 그중 심볼이 **하나도 안 나오는** 파일들이 있었다. 셋 다 *"이 벤더는 그것을 안 준다"* 로 적힐 뻔했다.
+
+    | 원문 | 벤더가 준 모양 | 앞 판이 읽던 것 | 드러난 것 |
+    |---|---|---|---|
+    | `*_error.hpp` 넷 | `UT_DECL_ERR(NAME, 7303, "...")` 매크로 | `const` 줄만 | **에러 코드 11개** — `LOCO_ERR_{INVALID_FSM_ID, INVALID_TASK_ID, LOCOSTATE_NOT_AVAILABLE}` · `ARM_ACTION_ERR_{INVALID_ACTION_ID, HOLDING, ARMSDK, INVALID_FSM_ID}` · `G1_AGV_ERR_{NOT_INIT, EXEC_MOVE, EXEC_HEIGHT_ADJUST}` · `AUDIO_ERR_COMM` |
+    | `terminations.hpp` | `inline bool bad_orientation(...)` 함수 | 상수·클래스만 | **종료 조건 7개를 코드로 준다** — `lost_connection`·`low_battery`·`bad_orientation`·`joint_vel_out_of_limit`·`ang_vel_out_of_limit`, 그리고 과열을 `motor_casing_overheat`/`motor_winding_overheat` 둘로 가른다 |
+    | Cyclone DDS C++ IDL 셋 | `class SportModeState_ { … int32_t task_id_; }` | 파이썬 생성본만 | **`SportModeState_{fsm_id, fsm_mode, task_id, task_time}`** — 무엇이 도는지를 토픽으로 발행한다 |
+
+    셋 다 결함 주입으로 확인했다 — 매크로 하나를 깨뜨리면 141→140, 필드 하나를 깨뜨리면 161→160, 클래스 줄을 깨뜨리면 161→156. **주입이 없었으면 "읽었다" 와 "0 개가 맞다" 를 구분할 길이 없었다.**
+
+    > **추출기의 침묵을 벤더의 부재로 읽지 말 것.** `unitree_symbols.py` 의 머리말이 이미 한 번 그 실수를 적어 두고 있었고(`Jsonize*` 키), 그 문단이 있는 파일에 같은 실수가 셋 더 있었다. 침묵이 나오면 벤더를 의심하기 전에 추출기부터 의심하고, 판정은 주입으로 잠근 뒤에 적는다. `tools/vendor-manifest/README.md` 의 *"이름을 빠뜨리면 시험이 빨개진다"* 는 **누군가 그 이름을 짚고 있을 때만** 참이다 — 아무도 안 짚은 표면의 침묵은 아무것도 빨갛게 만들지 않는다. 오늘 셋이 정확히 그것이었다.
+
+    ### 부재 판정은 벤더의 낱말로 다시 물어야 한다
+
+    같은 날 다른 자리에서 같은 종류의 실수를 한 번 더 할 뻔했다. Digit 매니페스트에서 `nogo`·`no-go` 를 찾아 0 건이 나왔고 *"출입 금지 구역이 없다"* 고 적으려 했다. 벤더는 그것을 **`keep-out`** 이라 부른다. 우리 낱말로 안 나온 것은 부재가 아니라 **검색 실패**이며, 부재를 적으려면 벤더의 낱말로 한 번 더 묻고 나서다.
+
+    ### 그래서 보인 것 — 그리고 판정이 어떻게 됐나
+
+    - **G1 이 에러 어휘를 갖고 있다.** 호출의 반환값으로 11개. 조사 문서(`profile/vendors/unitree-g1.json`)의 `failure_modes: NONE` 은 *"결함 목록을 발행하지 않는다"* 로는 여전히 참이지만 *"결함을 안 알린다"* 로는 틀렸다 — `PARTIAL` 로 고쳤다. 이 11개는 §15.79 가 합쳐진 **결과 어휘 정준화**의 세 번째 입력이다(Spot 18값 · Digit 상태 · G1 11개).
+    - **`arm_action` 에 `GET_ACTION_LIST` 와 `STOP_CUSTOM_ACTION` 이 있다.** 능력 열거와 정지가 팔에는 있다. `vendor_layer: NONE` 은 유지하되 읽는 법이 바뀐다 — *기종에 태스크 개념이 없다* 가 아니라 *우리가 쓰는 표면(`loco`)에 없다* 다.
+    - **`go2` 네임스페이스는 G1 것이 아니다.** `HeightMap_`·`VoxelMapCompressed_`·`LidarState_`·`UwbState_` 는 `unitree_go` 이고 `hg` 에 대응물이 없으며 G1 예제 열여덟 어디에도 안 쓰인다. 그러므로 *"G1 에 지도가 없다"* 는 범위 인공물이 아니라 표면의 사실이다 — 범위를 넓혔는데도 그대로인 판정이 하나 있다는 것이 이번 재측정의 반대쪽 결과다.
+
+    ### 어댑터가 `SportModeState_` 를 듣는다 (`66bc2f0`)
+
+    G1 어댑터는 성공을 **시계로** 적는다(`SetVelocity` 의 `duration` 이 근거). `TERMINAL_STATE_VIOLATED` 가 *"끝났다고 적었는데 계속 걷는"* 쪽 구멍을 막고 있었는데, 반대쪽 구멍이 열려 있었다 — **명령은 받아들여졌는데 로봇이 `damp` 나 `sit` 에 있어 아무 일도 안 일어나고, 시간만 지나면 성공이 되는** 경우. `SportModeState_.fsm_id` 가 그 관측이다. 태스크가 도는 동안 `fsm_id` 가 기대(`fsm.start`)와 다르면 `X_UNITREE_FSM_UNEXPECTED` 를 낸다. **막지는 않는다** — 어느 FSM 에서 속도 명령이 듣는지를 벤더가 열거해 주지 않으므로 *"못 움직인다"* 고 단정할 근거가 없고, 아는 것은 기대와 관측이 어긋났다는 사실뿐이다.
+
+    두 가지를 정직하게 적어 둔다. ① **이 관측이 `lowstate` 뒤에 갇혀 있다** — 저수준 상태를 못 받으면 `faults()` 가 통째로 `NotObservable` 을 내므로 운동 상태만 오는 대상에서는 이 결함이 안 보인다. 채널 둘이 독립인데 관측 가능성을 하나로 접은 것이며, 고치려면 `FaultObservation` 이 부분 관측을 표현해야 한다. ② **결함 주입 셋 중 하나를 시험이 못 잡았다.** `running.state == RUNNING` 조건을 지워도 초록이었다 — 종착한 태스크에 결함을 내는 경우를 겨냥한 시험이 없었다. 시험을 하나 더 만들고(`종착한 태스크에는 FSM 결함을 안 낸다`) 다시 주입해 잡히는 것을 확인했다. 못 잡음은 시험 집합의 구멍이고, 그것을 찾는 것이 주입의 용도다.

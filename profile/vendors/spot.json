@@ -2,8 +2,8 @@
   "schema_version": "1.0.0",
   "evidence_grade": "VENDOR_PRIMARY",
   "derived_from": {
-    "source": "설계 §2.3의 실물 조사(2026-09-05, 공개 문서와 라이선스 원문). **2026-09-08에 공개 proto 원문으로 갱신했다** — boston-dynamics/spot-sdk 의 `graph_nav.proto`·`manipulation_api.proto`·`basic_command.proto`·`image.proto`·`lease.proto`·`mission/mission_service.proto`·`mission/nodes.proto`. 그 읽기가 `UNKNOWN` 둘을 해소했고 하나는 뒤집었다.",
-    "observed_at": "2026-09-08"
+    "source": "설계 §2.3의 실물 조사(2026-09-05, 공개 문서와 라이선스 원문). **2026-09-08에 공개 proto 원문으로 갱신했다** — boston-dynamics/spot-sdk 의 `graph_nav.proto`·`manipulation_api.proto`·`basic_command.proto`·`image.proto`·`lease.proto`·`mission/mission_service.proto`·`mission/nodes.proto`. 그 읽기가 `UNKNOWN` 둘을 해소했고 하나는 뒤집었다. **2026-09-09 에 범위를 다시 넓혔다** — 위 일곱은 54 개 서비스 중 셋이었고(§15.75), `bosdyn/api` 아래 `.proto` 152 개 전수(8089 심볼)로 다시 쟀다(`929e05f`). 판정값은 그대로이고 이유가 바뀐 것이 셋이다(층이 넷 · `WorldObjectService` 라는 세계 모델이 있음 · 취득 결과 결속 자리 `CaptureActionId`). 같은 날 Orbit Web API(OpenAPI 5.0.0)도 직접 떠서 대조했다 — `docs/vendors/orbit.md`.",
+    "observed_at": "2026-09-09"
   },
   "vendor": "Boston Dynamics",
   "model": "Spot",
