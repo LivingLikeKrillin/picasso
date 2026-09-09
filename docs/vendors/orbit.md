@@ -35,6 +35,8 @@
 
 **게시된 5.0.0 스펙에 work order 문자열이 0 건이다.** 35 개 경로 어디에도 없다. 벤더가 스스로 문서화한 엔드포인트가 게시 스펙에 없다.
 
+**그리고 클라이언트 코드에도 스펙 밖 경로가 있다 (2026-09-09 추가).** `bosdyn-orbit` 의 `post_dispatch_mission_to_robot()` → `calendar/mission/dispatch/{nickname}`. 처음 측정 때 이 클라이언트를 범위에 안 넣었고, 그래서 아래 "즉시 실행 경로가 없다" 를 적었다. 정정은 그 절에 있다. **이 노트의 범위는 이제 "게시 스펙 + 산문 문서 + 공식 파이썬 클라이언트의 경로 문자열" 이고, 클라이언트는 경로만 봤지 응답 처리는 안 봤다.**
+
 같은 이유로 **웹훅 이벤트 이름은 스펙이 아니라 산문 문서에만 있다** — `Webhook.events` 는 enum 없는 `type: "object"` 인데, `about_orbit.md` 는 `"ACTION_COMPLETED_WITH_ALERT"` 를 명시한다. 스펙만 보고 "이벤트 종류가 선언되지 않았다" 고 적으면 틀린다.
 
 ### ③ 구조적으로도 닫을 수 없다
@@ -61,15 +63,25 @@ API 는 **각 Orbit 인스턴스가 자기 `/api/v0` 에 서빙**한다. 배포�
 
 나머지 22 개는 읽기(`/runs`·`/run_events`·`/run_captures`·`/run_statistics`·facets 계열)다.
 
-### 즉시 실행 경로가 없다
+### 즉시 실행 경로는 스펙에 없고 — 벤더 클라이언트에는 있다
 
-`run`·`execute`·`dispatch` 류 경로가 없고 `/missions` 에 POST 가 없다. **작업을 넣는 유일한 문이 캘린더 항목이다.**
+~~`run`·`execute`·`dispatch` 류 경로가 없고 `/missions` 에 POST 가 없다. **작업을 넣는 유일한 문이 캘린더 항목이다.**~~
+
+**정정 (2026-09-09).** 위 문장은 **게시 스펙 안에서만** 참이다. `spot-sdk` 의 공식 파이썬 클라이언트 `bosdyn-orbit` (`python/bosdyn-orbit/src/bosdyn/orbit/client.py`, master `8577b41dffe0`, 파일 최종 커밋 `b1a9fa9a6da7`, sha256 `19c7f980dd4e1b9585f0805f58f999a2effd265c7b636780e90142a4f4e88b0c`)에 `post_dispatch_mission_to_robot()` 이 있고, 그것이 **`POST calendar/mission/dispatch/{nickname}?currentDriverId=…`** 를 친다 — 35 개 경로 어디에도 없는 경로다. 몸통은 `Schedule` 과 같은 모양인데 `schedule.timeMs` 를 **1** 로 두어 *지금* 이 되게 하고, `task.dispatchTarget` 에 `missionId`(**deprecated**) 또는 **`walk` 를 인라인으로** 싣는다. 그 밖에 `requireDocked`·`skipInitialization` 이 있다.
+
+이것이 바꾸는 판정 셋.
+
+1. **즉시 파견 경로가 있다.** 다만 게시 스펙 밖이고, 클라이언트 주석이 *"temporary walk file that will not be reused"* 를 권한다 — 일회성 walk 를 만들어 던지는 모양이다.
+2. **파라미터 자리가 있다** — 아래 표의 *"파라미터 자리 없음"* 은 `missionId` 경로에서만 참이다. `walk` 인라인이면 `Element[]` 전체가 몸통에 실리므로, Orbit 경유로도 Autowalk 가 나르는 것은 전부 나른다. **"SiteWalk = Autowalk Walk 의 REST 전송"** 이 여기서 한 번 더 확인된다.
+3. **부재 판정의 범위가 또 좁았다.** 스펙 35 경로를 전수로 읽고 "없다" 를 적었는데, 벤더가 준 1 차 표면이 스펙 하나가 아니었다. §15.82 의 규율(추출기의 침묵·벤더의 낱말)에 하나 더 — **벤더가 배포하는 클라이언트 코드도 1 차 표면이다.** §15.83.
+
+게시 스펙만 본 사람이 같은 결론을 내리도록, 아래는 스펙 안의 모양을 그대로 둔다.
 
 ```
 Schedule
   eventMetadata { name, modificationTimeMs, modificationUser }
   agent         { nickname }                      ← 로봇 닉네임
-  task          { missionId, forceAcquireEstop }  ← 파라미터 자리 없음
+  task          { missionId, forceAcquireEstop }  ← 스펙 안에서는 파라미터 자리 없음 (클라이언트의 dispatchTarget.walk 는 위 정정 참조)
   schedule      { timeMs, repeatMs, blackouts[] }
 ```
 
@@ -177,7 +189,7 @@ work order 템플릿이 **`bosdyn.api.DictParamSpec` 모양**이라고 명시된
 
 ### 사실이라면 우리 구조가 바뀐다 — 미리 적어 둔다
 
-- **직결의 이점이 Atlas 로 전이되지 않는다.** 우리가 Spot 에서 `ManipulationFeedbackState` 를 안 잃는 것은 어댑터가 gRPC 로 직접 붙기 때문이다. Atlas 가 Orbit 뒤에 있으면 그 경로가 없고, 정수 에러 코드와 캘린더 투입을 그대로 물려받는다.
+- **직결의 이점이 Atlas 로 전이되지 않는다.** 우리가 Spot 에서 `ManipulationFeedbackState` 를 안 잃는 것은 어댑터가 gRPC 로 직접 붙기 때문이다. Atlas 가 Orbit 뒤에 있으면 그 경로가 없고, 정수 에러 코드와 캘린더 투입(또는 스펙 밖 dispatch)을 그대로 물려받는다.
 - **어댑터의 단위가 달라진다.** ADR 31·33 은 *어댑터 하나 = 기종 하나* 를 전제한다. Orbit 어댑터는 **플릿 하나에 하나**이고 뒤에 로봇 N 대가 `nickname` 으로 구분돼 붙는다. 기종 어댑터가 아니라 **플릿 어댑터**다.
 - **배타 제어 모델이 안 맞는다.** Spot 은 `Lease` 로 소유권을 준다. Orbit 표면에는 리스가 없고 `task.forceAcquireEstop` 불리언과 `robotIndex` 만 있다.
 - **규모 상한이 선언돼 있다.** `robotIndex` 가 *"a number between 0 and the max for your Orbit server (typically 32)"* — **인스턴스당 대략 32 대**다.
