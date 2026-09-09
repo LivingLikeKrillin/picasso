@@ -583,9 +583,11 @@ class TaskHost(
     /**
      * §4.4의 잔여 물리 상태 — 미믹의 규칙.
      *
-     * **대상의 이름을 받는 스킬만 든다.** 어느 파라미터가 대상의 이름인지는
-     * 계약이 `is_object_reference`로 말하고([ObjectReferences]), 프로파일이나
-     * 스킬 이름을 여기서 보지 않는다 — 보면 미믹이 스킬 어휘를 알게 된다.
+     * **대상을 쥐는 스킬만 든다.** 쥐는지는 계약이 `grasps_object`로, 든 것의
+     * 이름은 `is_object_reference` 파라미터로 말한다([ObjectReferences]).
+     * 프로파일이나 스킬 이름을 여기서 보지 않는다 — 보면 미믹이 스킬 어휘를
+     * 알게 된다. **참조와 쥠은 다르다** — `inspect(target)`는 대상의 이름을
+     * 받지만 빈손이다. 앞 판이 그 둘을 접었고 시나리오 ③이 그것을 잡았다(§15.87).
      *
      * 단순화 하나를 적어 둔다: 도는 동안 **내내** 든 것으로 친다. 실제 기체는
      * 대상까지 걸어가는 구간이 있지만 프로파일이 그 구간을 선언하지 않고,
@@ -597,8 +599,8 @@ class TaskHost(
      * 맞는지는 §15.84 후보 ③으로 열려 있다.
      */
     private fun holdOf(task: TaskRuntime): HoldState {
+        if (!ObjectReferences.grasps(task.skillType) || task.payloadLost) return EMPTY_HANDS
         val keys = ObjectReferences.keysOf(task.skillType)
-        if (keys.isEmpty() || task.payloadLost) return EMPTY_HANDS
 
         val ref = task.machine.parameters.firstOrNull { it.key in keys }?.stringValue.orEmpty()
         val holding = HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_HOLDING).setObjectRef(ref).build()

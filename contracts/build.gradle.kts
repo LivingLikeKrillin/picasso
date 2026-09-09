@@ -18,7 +18,9 @@ plugins {
 // 0.4.0 — WatchTaskResponse.hold(HoldState) 추가. 취소·실패 뒤에 로봇이
 //         무엇을 들고 있는지를 실을 자리가 없었다(§15.84 후보 ②). 추가이므로
 //         major는 그대로다.
-val contractSemver = "0.4.0"
+// 0.5.0 — 카탈로그 옵션 grasps_object 추가. 대상을 참조하는 스킬과 쥐는 스킬을
+//         가른다(§15.87). 추가이므로 major는 그대로다.
+val contractSemver = "0.5.0"
 
 // 이 모듈은 proto 파일과 거기서 나온 것, 그리고 **그 구조를 채우는 규칙**을
 // 담는다 — §5.5의 헤더 표와 계약 신원이다. 발신자 쪽에만 두면 client가 요청

@@ -68,6 +68,26 @@ class HoldStateTest {
     }
 
     @Test
+    fun `대상을 참조만 하는 스킬은 빈손이다 — inspect`() {
+        // `inspect(target)` 의 target 은 대상의 이름(is_object_reference)이지만
+        // 점검은 쥐지 않는다(grasps_object 없음). 앞 판은 이 둘을 접어 점검 중인
+        // 로봇을 든 채로 보고했다 — 시나리오 ③이 잡은 결함이다(§15.87).
+        val quadruped = TaskMachineFixtures.document(
+            java.nio.file.Files.readString(
+                java.nio.file.Path.of("..", "profile", "profiles", "quadruped-b.json").normalize(),
+            ).replace("\r\n", "\n"),
+        )
+        val clock = VirtualClock(Instant.EPOCH)
+        val tasks = host(quadruped, clock)
+        tasks.start("i1", 1, "inspect", listOf(TaskMachineFixtures.param("target", "PUMP-01")))
+        tasks.tick()
+
+        val task = tasks.find("i1")!!
+        assertEquals(TaskState.RUNNING, task.machine.state)
+        assertEquals(HoldKind.HOLD_KIND_EMPTY, task.lastHold().kind, "점검 중인 로봇이 대상을 든 채로 보고된다")
+    }
+
+    @Test
     fun `접수 시점에는 아직 빈손이다`() {
         val clock = VirtualClock(Instant.EPOCH)
         val tasks = host(TaskMachineFixtures.document(), clock)

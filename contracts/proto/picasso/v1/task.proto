@@ -109,7 +109,8 @@ message WatchTaskRequest {
 //           노드 상태(`action-pick` 성공 ∧ `action-place` 미완)에서 추론한다
 //   G1    — 벤더가 판정을 안 준다. `HandState_.press_sensor_state`는 원시
 //           압력값이고 문턱을 우리가 정하면 그것은 벤더의 답이 아니다
-//   mimic — 대상의 이름을 받는 스킬(`is_object_reference`)이 도는 동안 HOLDING
+//   mimic — 대상을 쥐는 스킬(`grasps_object`)이 도는 동안 HOLDING. 참조만 하는
+//           스킬(`inspect`)은 빈손이다
 //
 // **불변식 하나.** `CANCELLED`(복구까지 마쳤다)와 함께 `HOLD_KIND_HOLDING`이
 // 올 수 없다. 들고 있으면 복구가 끝난 것이 아니고, 그것은

@@ -14,8 +14,8 @@ import dev.picasso.contracts.v1.SkillCatalog
  * `buf build`의 바이트에서, 여기는 생성 코드에서. 둘이 어긋나면 디스크립터가
  * 낡은 것이다(§15.22).
  *
- * 쓰는 곳: [TaskHost]의 잔여 물리 상태(`HoldState`) — 대상의 이름을 받는
- * 스킬만 무언가를 든다.
+ * 쓰는 곳: [TaskHost]의 잔여 물리 상태(`HoldState`) — 대상을 **쥐는** 스킬
+ * ([grasps])만 무언가를 들고, 든 것의 이름은 [keysOf]의 파라미터에서 온다.
  */
 object ObjectReferences {
 
@@ -35,4 +35,20 @@ object ObjectReferences {
 
     /** 이 스킬 타입에서 대상의 이름을 나르는 파라미터 키들. 없으면 빈 집합. */
     fun keysOf(skillType: String): Set<String> = byName[skillType].orEmpty()
+
+    private val grasping: Set<String> by lazy {
+        SkillCatalog.getDescriptor().messageTypes
+            .filter { it.options.getExtension(SkillCatalog.graspsObject) }
+            .map { it.options.getExtension(SkillCatalog.skillTypeName) }
+            .filter { it.isNotEmpty() }
+            .toSet()
+    }
+
+    /**
+     * 이 스킬이 수행하는 동안 대상을 **쥐는가**(`grasps_object`).
+     *
+     * [keysOf]가 비어 있지 않다고 쥐는 것이 아니다 — `inspect(target)`는 대상을
+     * 참조만 한다. 앞 판이 그 둘을 접어 점검 중인 로봇을 든 채로 보고했다(§15.87).
+     */
+    fun grasps(skillType: String): Boolean = skillType in grasping
 }

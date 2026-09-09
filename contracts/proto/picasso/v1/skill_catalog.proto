@@ -70,6 +70,17 @@ extend google.protobuf.MessageOptions {
   // max(since_minor)로 유도하지 않는다 — 파라미터를 더하지 않는 minor 증가
   // (예: 성공 판정 문구만 다듬은 1.3)를 표현할 수 없기 때문이다.
   uint32 skill_type_max_minor = 50004;
+
+  // 이 스킬은 수행하는 동안 **대상을 쥔다.**
+  //
+  // 대상의 이름을 받는 것([is_object_reference])과 대상을 쥐는 것은 다르다 —
+  // `inspect(target)`는 대상을 참조하지만 쥐지 않고, `pick_place(object_id)`는
+  // 쥔다. 잔여 물리 상태(`HoldState`, 설계 §4.4)의 발신자가 무엇을 든 채로
+  // 칠지, 든 것의 이름을 어느 파라미터에서 가져올지가 여기 걸린다.
+  //
+  // 시나리오 ③(설비 점검 순회)을 하네스로 옮기다 드러났다 — 앞 판의 미믹이
+  // 참조를 쥠으로 읽어 점검 중인 로봇이 대상을 든 채로 보고됐다(§15.87).
+  bool grasps_object = 50008;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +129,7 @@ message PickPlaceV1 {
   option (skill_type_name) = "pick_place";
   option (skill_type_major) = 1;
   option (skill_type_max_minor) = 2;
+  option (grasps_object) = true;
 
   // 집을 대상의 식별자.
   string object_id = 1 [(since_minor) = 0, (is_optional) = false, (is_object_reference) = true];

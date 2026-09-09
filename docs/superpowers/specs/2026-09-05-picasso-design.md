@@ -392,7 +392,7 @@ GetCapabilities(robot_id)              -> Capability    유효 능력의 투영 
 | `CANCELLED` ⇒ `kind ≠ HOLDING` | 복구까지 마쳤다는 말과 들고 있다는 말은 양립하지 않는다. 들고 있으면 `CANCELLED_RECOVERY_FAILED`다 |
 | `CANCELLED_RECOVERY_FAILED` ⇏ `HOLDING` | 역은 성립하지 않는다 — 놓쳐서 실패했을 수 있고, 그때는 `PAYLOAD_LOST`가 같이 서고 손은 비어 있다 |
 
-발신자마다 근거가 다르고 그 차이가 `kind`에 그대로 나타난다 — Spot은 `ManipulatorState.is_gripper_holding_item`(벤더 불리언), Digit은 `get-execution-state`의 노드 상태에서 **추론**(`action-pick` 성공 ∧ `action-place` 미완), G1은 `NOT_OBSERVABLE`(원시 압력값뿐), `mimic`은 대상의 이름을 받는 스킬이 도는 동안 `HOLDING`. **어댑터는 멈춘 뒤 이것을 보고 종착을 정한다** — 들고 있으면 `CANCELLED`로 적지 않는다. 스냅샷에는 넣지 않았다(§15.85). 상세는 §15.85.
+발신자마다 근거가 다르고 그 차이가 `kind`에 그대로 나타난다 — Spot은 `ManipulatorState.is_gripper_holding_item`(벤더 불리언), Digit은 `get-execution-state`의 노드 상태에서 **추론**(`action-pick` 성공 ∧ `action-place` 미완), G1은 `NOT_OBSERVABLE`(원시 압력값뿐), `mimic`은 대상을 **쥐는** 스킬(`grasps_object`, 0.5.0)이 도는 동안 `HOLDING` — 참조만 하는 `inspect`는 빈손이다(§15.87). **어댑터는 멈춘 뒤 이것을 보고 종착을 정한다** — 들고 있으면 `CANCELLED`로 적지 않는다. 스냅샷에는 넣지 않았다(§15.85). 상세는 §15.85.
 
 Agility Arc가 같은 결론에 도달해 있다 — 워크플로 상태에 `CANCELED_WITH_RECOVERY` / `CANCELED_RUNNING_RECOVERY` / `CANCELED_FAILED_RECOVERY` 세 변종이 있다. 우리는 진행 중(`CANCELLING`)과 결과(둘)로 갈라 같은 것을 두 축으로 표현한다.
 
@@ -1966,7 +1966,7 @@ mimic/
     | Spot | `ManipulatorState.is_gripper_holding_item` — 벤더가 불리언을 준다. 세 기종 중 유일하다 | `HOLDING`/`EMPTY`. 팔 없음(`manipulator_state` 비어 있음)은 쥘 것이 없으니 `EMPTY`, 읽기 실패는 `NOT_OBSERVABLE`. `object_ref`는 늘 비어 있다 — 대상의 이름을 받는 스킬을 안 든다 |
     | Digit | `get-execution-state`의 노드 상태 — 벤더는 파지를 **발행하지 않는다**(SDK 메시지 전수) | **추론**: 최근 `action-pick`이 `success`이고 뒤에 `success`인 `action-place`가 없으면 `HOLDING`(지금 태스크가 `pick_place`면 그 `object_id`). 트리에 `action-pick`이 없으면 `NOT_OBSERVABLE` — 빈손이 아니다. 이전 시퀀스가 놓기에 실패한 채 트리가 비워졌을 수 있고 그것을 볼 표면이 없다 |
     | G1 | 없음 — `HandState_.press_sensor_state`는 원시 압력값 | 언제나 `NOT_OBSERVABLE`. 문턱을 우리가 정해 불리언으로 만들면 로봇의 답처럼 보이는 우리의 짐작이다(§15.65) |
-    | mimic | 계약의 `is_object_reference` — 생성 디스크립터에서 읽는다(`ObjectReferences`). 스킬 이름은 미믹 어디에도 없다 | 대상의 이름을 받는 스킬이 `RUNNING`·`PAUSED`·`CANCELLING`·`CANCELLED_RECOVERY_FAILED`면 `HOLDING`, `ACCEPTED`·`SUCCEEDED`·`CANCELLED`면 `EMPTY`, 실패 셋은 직전 값 유지(실패가 물건을 내려놓지는 않는다), `PAYLOAD_LOST`가 서면 `EMPTY` |
+    | mimic | 계약의 `grasps_object`(쥐는가)와 `is_object_reference`(든 것의 이름) — 생성 디스크립터에서 읽는다(`ObjectReferences`). 스킬 이름은 미믹 어디에도 없다. ~~대상의 이름을 받는 스킬~~ → 쥐는 스킬(§15.87 정정) | 쥐는 스킬이 `RUNNING`·`PAUSED`·`CANCELLING`·`CANCELLED_RECOVERY_FAILED`면 `HOLDING`, `ACCEPTED`·`SUCCEEDED`·`CANCELLED`면 `EMPTY`, 실패 셋은 직전 값 유지(실패가 물건을 내려놓지는 않는다), `PAYLOAD_LOST`가 서면 `EMPTY` |
 
     ### 열면서 드러난 것 — 멈추는 것과 내려놓는 것은 다르다
 
@@ -1992,3 +1992,19 @@ mimic/
     ### 시험이 고정하지 않고 드러내는 것
 
     도는 슬롯의 버전 갱신(§15.84 후보 ③). 계약은 지금 든 채로 다시 세운다 — 진행률은 0부터, `hold`는 `HOLDING` 그대로. 그것이 맞는지는 열려 있고, 이 시험은 그 거동이 **조용히 바뀌지 않게** 붙들 뿐이다. 바꾸는 날 이 시험의 그 단언을 함께 고쳐야 하며, 그것이 의도다.
+
+87. **시나리오 ③이 하네스 시험이 됐다 — 그리고 "참조하는 것과 쥐는 것은 다르다"를 첫 시험이 잡았다.**
+
+    `docs/scenarios.md` §5의 설비 점검 순회를 `InspectionPatrolTest`(harness, 4족 픽스처 `quadruped-b`)로 옮겼다. 지점 셋 = `navigate_to` + `inspect` 여섯. 점검 일시정지·재개, 위치 상실 뒤 사람 개입과 재시도, 점검 취소, 그리고 **점검 결과를 실을 자리가 없다는 사실**(§15.76 — `partial_result` 문자열뿐, 아무도 안 채운다)을 `LongRunningTaskTest`와 같은 방식으로 고정했다.
+
+    ### 첫 시험이 빨갰다 — 점검 중인 로봇이 대상을 든 채로 보고됐다
+
+    §15.85의 미믹 규칙이 *"대상의 이름을 받는 스킬은 도는 동안 든 채"* 였다. `inspect(target)`의 `target`은 `is_object_reference`이므로 그 규칙대로면 점검 중인 4족이 펌프를 들고 있다. **참조와 쥠을 접은 것이다.** 카탈로그에 `grasps_object`(MessageOptions, 계약 0.5.0)를 두고 `PickPlaceV1`에만 켰다. 쥐는지는 계약이 말하고, 든 것의 이름은 여전히 `is_object_reference` 파라미터에서 온다. 미믹은 스킬 이름을 여전히 모른다.
+
+    이것은 §15.78의 공간 셋과 같은 종류의 실수다 — 이름 공간 하나(`is_object_reference`)에 뜻 둘(참조/쥠)을 얹었다. 구분할 수 있으면 구분한다. 그리고 §15.84 후보 ②를 열 때 미믹 시험을 `pick_place`로만 써서 놓쳤다 — **한 스킬로 만든 규칙은 다른 스킬에 대 봐야 규칙이다.**
+
+    ### 시험이 물어본 것
+
+    - **점검 결과.** 시나리오 ③의 결과는 *항목별 수행 상태와 측정값 또는 증거 자료 참조*인데 계약에는 그 자리가 없다. Spot에서는 `DataAcquisition`의 `CaptureActionId`가 결속 자리이고(§15.75) Orbit에서는 `RunCapture`인데, 계약이 그것을 위로 올릴 길은 `partial_result` 문자열 하나다. **결과 어휘 정준화(후보 ①과 함께)의 범위에 "관측을 올리는 자리"가 들어간다.**
+    - **결함은 인터록이 아니다.** 기체 수준 `LOCALIZATION_LOST`(`can_accept_new_task=false`)가 서도 계약은 다음 지점의 `navigate_to`를 받는다 — §4.6 *"판단은 밖으로, 사실은 안으로"*. 시나리오 ③이 점검 결과를 안전 인터록으로 쓰지 않는다고 그은 경계(ADR 32)가 계약 거동으로 확인된다.
+    - **소비자가 점검 지점의 등록을 물을 수 없다.** 순회의 `location`들은 사이트가 로봇에 등록한 이름이어야 하는데(ADR 35), `client`에 `GetKnownSiteNames`를 부르는 메서드가 없다 — 레지스트리만 든다. 얇은 소비자가 그것을 들어야 하는지는 정하지 않았다. 지금은 시험에서 뺐다.
