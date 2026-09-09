@@ -38,6 +38,8 @@ adapter-host/             어댑터 하나를 계약의 gRPC 서비스 뒤에 �
 adapter-unitree-g1/       실물 어댑터 — 기종을 아는 유일한 자리 (기종마다 모듈 하나)
 adapter-boston-dynamics-spot/
 adapter-agility-digit/
+adapter-boston-dynamics-orbit/
+                          기체가 아니라 **플릿**에 붙는 어댑터 + 배치 런처. 발견이 여기서 실증된다(ADR 37)
 tools/buf                 buf 를 Docker 로 실행하는 래퍼
 tools/vendor-manifest/    벤더 원문에서 심볼 이름만 뽑아 남쪽 포트의 인용을 대조하는 도구
 docs/adr/                 결정 기록

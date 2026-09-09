@@ -17,4 +17,7 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.grpc.inprocess)
+    // **실 포트가 있어야 순서를 물을 수 있다** — `Server.getPort()` 는 기동 전에 던지고 기동 뒤에 답한다.
+    // in-process 전송은 포트가 없어서 "포트가 열린 뒤에 ONLINE 이 나가는가" 를 물을 수 없다.
+    testImplementation(libs.grpc.netty.shaded)
 }

@@ -55,10 +55,18 @@ internal inline fun <T> reply(observer: StreamObserver<T>, block: () -> T) {
 }
 
 /**
- * 라우팅 — 계약 개정판 차단이 먼저, 그 다음 `robot_id`. 이 호스트는 기체 하나를 든다. 그리고 **모든 RPC 가 펌프를
+ * 라우팅 — 계약 개정판 차단이 먼저, 그 다음 `robot_id`.
+ *
+ * **기체 여럿을 들 수 있다.** 플릿 뒤에는 기체가 여럿이고(§15.106) 계약은 요청 헤더의 `robot_id` 로 그중 하나를
+ * 지목한다 — 미믹이 한 프로세스에 여럿을 호스팅하는 것과 같은 편의이며 같은 단서가 붙는다: **PoC 의 편의이지
+ * 아키텍처 주장이 아니다**(ADR 21). 그리고 **모든 RPC 가 펌프를
  * 먼저 지난다** — 그러지 않으면 열린 `WatchTask` 가 다른 RPC 가 만든 전이를 놓친다.
  */
-internal class Routing(private val robot: HostedRobot) {
+internal class Routing(private val robots: Map<String, HostedRobot>) {
+
+    /** 기체 하나짜리 배치 — 시험과 직결 어댑터가 쓴다. */
+    constructor(robot: HostedRobot) : this(mapOf(robot.robotId to robot))
+
     fun enter(header: MessageHeader): HostedRobot {
         val compatibility = RequestHeaders.compatibility(header)
         if (compatibility.blocking) {
@@ -67,9 +75,10 @@ internal class Routing(private val robot: HostedRobot) {
         if (header.robotId.isBlank()) {
             throw Status.INVALID_ARGUMENT.withDescription("요청 헤더에 robot_id가 없다 — §5.5는 gRPC 요청에 싣는다").asRuntimeException()
         }
-        if (header.robotId != robot.robotId) {
-            throw Status.NOT_FOUND.withDescription("호스팅하지 않는 기체다: ${header.robotId} (있는 것: ${robot.robotId})").asRuntimeException()
-        }
+        val robot = robots[header.robotId]
+            ?: throw Status.NOT_FOUND.withDescription(
+                "호스팅하지 않는 기체다: ${header.robotId} (있는 것: ${robots.keys.sorted()})",
+            ).asRuntimeException()
         robot.pump()
         return robot
     }
@@ -77,22 +86,26 @@ internal class Routing(private val robot: HostedRobot) {
 
 // ── TaskService (§4.4)
 
-internal class HostTaskService(private val robot: HostedRobot) : TaskServiceGrpc.TaskServiceImplBase() {
+internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGrpc.TaskServiceImplBase() {
 
-    private val routing = Routing(robot)
+    constructor(robot: HostedRobot) : this(mapOf(robot.robotId to robot))
+
+    private val routing = Routing(robots)
 
     private class Watcher(val observer: StreamObserver<WatchTaskResponse>, var nextIndex: Long)
 
     private val watchers = mutableMapOf<String, MutableList<Watcher>>()
 
     init {
-        robot.onUpdate += { task, _ -> push(task) }
+        // **기체마다 매단다.** 스트림은 태스크 단위이고 태스크는 기체의 것이므로, 미는 쪽이 어느 기체인지 알아야
+        // 헤더(세션·`profile_ref`)를 그 기체의 것으로 쓸 수 있다.
+        robots.values.forEach { hosted -> hosted.onUpdate += { task, _ -> push(hosted, task) } }
     }
 
-    private fun push(task: HostedRobot.HostedTask) {
+    private fun push(robot: HostedRobot, task: HostedRobot.HostedTask) {
         val open = watchers[task.taskId] ?: return
         open.forEach { watcher ->
-            task.updates.drop(watcher.nextIndex.toInt()).forEach { watcher.observer.onNext(responseOf(task, it)) }
+            task.updates.drop(watcher.nextIndex.toInt()).forEach { watcher.observer.onNext(responseOf(robot, task, it)) }
             watcher.nextIndex = task.updates.size.toLong()
         }
         if (task.terminal) {
@@ -102,13 +115,13 @@ internal class HostTaskService(private val robot: HostedRobot) : TaskServiceGrpc
     }
 
     override fun startTask(request: StartTaskRequest, observer: StreamObserver<StartTaskResponse>) = reply(observer) {
-        routing.enter(request.header)
+        val robot = routing.enter(request.header)
         val builder = StartTaskResponse.newBuilder().setHeader(robot.header(StartTaskResponse.getDescriptor()))
         identity(request.header, request.robotId)?.let { return@reply builder.setRejection(it).build() }
 
         when (val outcome = robot.start(request.taskId, request.revision, request.skillType, parametersOf(request.parametersList))) {
-            is HostedRobot.StartOutcome.Accepted -> builder.setHandle(handleOf(outcome.task))
-            is HostedRobot.StartOutcome.Idempotent -> builder.setHandle(handleOf(outcome.task))
+            is HostedRobot.StartOutcome.Accepted -> builder.setHandle(handleOf(robot, outcome.task))
+            is HostedRobot.StartOutcome.Idempotent -> builder.setHandle(handleOf(robot, outcome.task))
             is HostedRobot.StartOutcome.Rejected -> builder.setRejection(rejection(outcome.code, outcome.detail))
             is HostedRobot.StartOutcome.Unavailable -> throw outcome.status.asRuntimeException()
         }
@@ -116,10 +129,14 @@ internal class HostTaskService(private val robot: HostedRobot) : TaskServiceGrpc
     }
 
     override fun watchTask(request: WatchTaskRequest, observer: StreamObserver<WatchTaskResponse>) {
-        val task = try {
-            routing.enter(request.header)
-            robot.task(request.handle.taskId)
-                ?: throw Status.NOT_FOUND.withDescription("모르는 태스크다: ${request.handle.taskId}").asRuntimeException()
+        // **괄호가 있어야 한다.** `a to b ?: c` 는 `(a to b) ?: c` 로 읽혀 쌍이 널이 아니므로 엘비스가 안 걸린다 —
+        // 그러면 태스크가 널인 채로 흘러간다(실측으로 컴파일러가 잡았다).
+        val (robot, task) = try {
+            val hosted = routing.enter(request.header)
+            hosted to (
+                hosted.task(request.handle.taskId)
+                    ?: throw Status.NOT_FOUND.withDescription("모르는 태스크다: ${request.handle.taskId}").asRuntimeException()
+                )
         } catch (e: StatusRuntimeException) {
             observer.onError(e); return
         }
@@ -128,7 +145,7 @@ internal class HostTaskService(private val robot: HostedRobot) : TaskServiceGrpc
             observer.onError(Status.OUT_OF_RANGE.withDescription("아직 없는 색인이다: $from (있는 것: 0..${task.updates.size - 1})").asRuntimeException())
             return
         }
-        task.updates.drop(from.toInt()).forEach { observer.onNext(responseOf(task, it)) }
+        task.updates.drop(from.toInt()).forEach { observer.onNext(responseOf(robot, task, it)) }
         if (task.terminal) {
             observer.onCompleted()
             return
@@ -137,25 +154,29 @@ internal class HostTaskService(private val robot: HostedRobot) : TaskServiceGrpc
     }
 
     override fun pauseTask(request: PauseTaskRequest, observer: StreamObserver<PauseTaskResponse>) = reply(observer) {
-        val (state, rejection) = manipulate(request.header, request.handle, "pause") { robot.adapter.pause() }
+        val robot = routing.enter(request.header)
+        val (state, rejection) = manipulate(robot, request.handle, "pause") { robot.adapter.pause() }
         PauseTaskResponse.newBuilder().setHeader(robot.header(PauseTaskResponse.getDescriptor()))
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
 
     override fun resumeTask(request: ResumeTaskRequest, observer: StreamObserver<ResumeTaskResponse>) = reply(observer) {
-        val (state, rejection) = manipulate(request.header, request.handle, "resume") { robot.adapter.resume() }
+        val robot = routing.enter(request.header)
+        val (state, rejection) = manipulate(robot, request.handle, "resume") { robot.adapter.resume() }
         ResumeTaskResponse.newBuilder().setHeader(robot.header(ResumeTaskResponse.getDescriptor()))
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
 
     override fun cancelTask(request: CancelTaskRequest, observer: StreamObserver<CancelTaskResponse>) = reply(observer) {
-        val (state, rejection) = manipulate(request.header, request.handle, "cancel") { robot.adapter.cancel() }
+        val robot = routing.enter(request.header)
+        val (state, rejection) = manipulate(robot, request.handle, "cancel") { robot.adapter.cancel() }
         CancelTaskResponse.newBuilder().setHeader(robot.header(CancelTaskResponse.getDescriptor()))
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
 
     override fun retryTask(request: RetryTaskRequest, observer: StreamObserver<RetryTaskResponse>) = reply(observer) {
-        val (state, rejection) = manipulate(request.header, request.handle, "retry") { robot.adapter.retry() }
+        val robot = routing.enter(request.header)
+        val (state, rejection) = manipulate(robot, request.handle, "retry") { robot.adapter.retry() }
         RetryTaskResponse.newBuilder().setHeader(robot.header(RetryTaskResponse.getDescriptor()))
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
@@ -166,8 +187,7 @@ internal class HostTaskService(private val robot: HostedRobot) : TaskServiceGrpc
      * 어댑터가 *수단이 없다* 고 하면 그 조작의 코드(`PAUSE_UNSUPPORTED`·`CANCEL_UNSUPPORTED`)다 — 지원하지 않는 것을
      * 지원하는 것처럼 감추지 않는다. 재개·재시도에는 그런 코드가 없어 `INVALID_TRANSITION` 에 사정을 붙인다.
      */
-    private fun manipulate(header: MessageHeader, handle: TaskHandle, what: String, apply: () -> Applied): Pair<TaskState?, Rejection?> {
-        routing.enter(header)
+    private fun manipulate(robot: HostedRobot, handle: TaskHandle, what: String, apply: () -> Applied): Pair<TaskState?, Rejection?> {
         val task = robot.task(handle.taskId)
             ?: throw Status.NOT_FOUND.withDescription("모르는 태스크다: ${handle.taskId}").asRuntimeException()
         if (task.terminal) {
@@ -201,10 +221,10 @@ internal class HostTaskService(private val robot: HostedRobot) : TaskServiceGrpc
             null
         }
 
-    private fun handleOf(task: HostedRobot.HostedTask): TaskHandle =
+    private fun handleOf(robot: HostedRobot, task: HostedRobot.HostedTask): TaskHandle =
         TaskHandle.newBuilder().setTaskId(task.taskId).setRevision(task.revision).setRobotId(robot.robotId).build()
 
-    private fun responseOf(task: HostedRobot.HostedTask, update: HostedRobot.TaskUpdate): WatchTaskResponse =
+    private fun responseOf(robot: HostedRobot, task: HostedRobot.HostedTask, update: HostedRobot.TaskUpdate): WatchTaskResponse =
         WatchTaskResponse.newBuilder()
             .setHeader(robot.header(WatchTaskResponse.getDescriptor(), updateIndex = update.index, stateAsOf = update.occurredAt))
             .setState(update.state)
@@ -235,7 +255,7 @@ internal class HostTaskService(private val robot: HostedRobot) : TaskServiceGrpc
 // ── SkillService (§5.4)
 
 internal class HostSkillService(
-    private val robot: HostedRobot,
+    robots: Map<String, HostedRobot>,
     /**
      * §5.4 — *"결과는 성공·실패 모두 `registry`에 보고된다."* 기본값이 [HandshakeReporter.NONE] 인 것은 §3.2 가
      * 이 방향을 **런타임 접근**으로 두었기 때문이다: 레지스트리가 없어도 호스트는 돈다.
@@ -243,10 +263,13 @@ internal class HostSkillService(
     private val reporter: HandshakeReporter = HandshakeReporter.NONE,
 ) : SkillServiceGrpc.SkillServiceImplBase() {
 
-    private val routing = Routing(robot)
+    constructor(robot: HostedRobot, reporter: HandshakeReporter = HandshakeReporter.NONE) :
+        this(mapOf(robot.robotId to robot), reporter)
+
+    private val routing = Routing(robots)
 
     override fun getCapabilities(request: GetCapabilitiesRequest, observer: StreamObserver<GetCapabilitiesResponse>) = reply(observer) {
-        routing.enter(request.header)
+        val robot = routing.enter(request.header)
         if (request.robotId.isNotBlank() && request.robotId != request.header.robotId) {
             throw Status.INVALID_ARGUMENT.withDescription("헤더와 페이로드의 robot_id가 다르다").asRuntimeException()
         }
@@ -265,7 +288,7 @@ internal class HostSkillService(
      * 다 드는지는 여기서 확인하지 않으며, 갈리면 협상을 통과한 소비자가 `StartTask` 에서 거절당한다(C-3 적합성).
      */
     override fun negotiate(request: NegotiateRequest, observer: StreamObserver<NegotiateResponse>) = reply(observer) {
-        routing.enter(request.header)
+        val robot = routing.enter(request.header)
 
         // 판정 불가는 거절이 아니다 — 요구를 못 읽어 답 자체가 없는 것이라 응답이 아니라 gRPC 상태로 나간다.
         val judged = when (val outcome = Negotiator.negotiate(robot.capability, request.header, request.requirement)) {
@@ -288,7 +311,7 @@ internal class HostSkillService(
     }
 
     override fun getKnownSiteNames(request: GetKnownSiteNamesRequest, observer: StreamObserver<GetKnownSiteNamesResponse>) = reply(observer) {
-        routing.enter(request.header)
+        val robot = routing.enter(request.header)
         val builder = GetKnownSiteNamesResponse.newBuilder().setHeader(robot.header(GetKnownSiteNamesResponse.getDescriptor()))
         when (val names = robot.adapter.knownSiteNames()) {
             SiteNames.Unsupported -> builder.setUnsupported(true)
@@ -304,12 +327,14 @@ internal class HostSkillService(
 
 // ── EventService (§4.8)
 
-internal class HostEventService(private val robot: HostedRobot) : EventServiceGrpc.EventServiceImplBase() {
+internal class HostEventService(robots: Map<String, HostedRobot>) : EventServiceGrpc.EventServiceImplBase() {
 
-    private val routing = Routing(robot)
+    constructor(robot: HostedRobot) : this(mapOf(robot.robotId to robot))
+
+    private val routing = Routing(robots)
 
     override fun getSnapshot(request: GetSnapshotRequest, observer: StreamObserver<GetSnapshotResponse>) = reply(observer) {
-        routing.enter(request.header)
+        val robot = routing.enter(request.header)
         // **결함을 못 봤으면 없다고 하지 않는다.** 스냅샷에 "모름" 의 자리가 없으므로 gRPC 상태다 — 소비자는 그것을 못 물어본 것으로 다룬다.
         if (!robot.faultsObservable) {
             throw Status.UNAVAILABLE.withDescription("기체의 결함을 지금 못 본다 — 없다는 뜻이 아니다").asRuntimeException()
@@ -329,7 +354,7 @@ internal class HostEventService(private val robot: HostedRobot) : EventServiceGr
     }
 
     override fun replayEvents(request: ReplayEventsRequest, observer: StreamObserver<ReplayEventsResponse>) {
-        try {
+        val robot = try {
             routing.enter(request.header)
         } catch (e: StatusRuntimeException) {
             observer.onError(e); return

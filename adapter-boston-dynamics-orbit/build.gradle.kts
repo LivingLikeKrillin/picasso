@@ -20,6 +20,17 @@ dependencies {
     // 이것은 JSON 파서일 뿐이다(다른 모듈이 쓰는 것과 같은 것).
     implementation(libs.jackson.databind)
 
+    // 배치 런처가 계약 서버를 세운다. **조립은 기종을 아는 쪽이 한다**(ADR 39 결정 4) — 호스트는
+    // 어댑터 모듈을 모르고, 이 방향의 의존만 있다.
+    implementation(project(":adapter-host"))
+    implementation(project(":profile-model"))
+    // 실 포트로 띄우려면 주소를 지정해야 하고 그것은 NettyServerBuilder 뿐이라 컴파일 시점에 필요하다.
+    implementation(libs.grpc.netty.shaded)
+
+    testImplementation(libs.grpc.inprocess)
+    // 런처가 세운 것을 소비자가 실제로 두드려 본다.
+    testImplementation(project(":client"))
+
     testImplementation(kotlin("test"))
 
     // 벤더 원문 대조 검사([VendorManifest]). 매니페스트는 게시 스펙과 벤더의 파이썬

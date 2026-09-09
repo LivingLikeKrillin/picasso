@@ -444,6 +444,30 @@ class AdapterHostTest {
     }
 
     @Test
+    fun `포트가 열린 뒤에 ONLINE 이 나간다`() {
+        // §10.2 의 기동 순서. **포트가 안 열렸는데 온라인이라 알리면 소비자가 붙을 수 없는 기체를 살아 있다고
+        // 읽는다.** 순서를 묻는 유일한 방법이 실 포트다 — `Server.getPort()` 가 기동 전에는 던지기 때문이다.
+        var host: AdapterHost? = null
+        var portWhenAnnounced: Int? = null
+        val watcher = Publisher { publication ->
+            if (publication.retained && portWhenAnnounced == null) {
+                portWhenAnnounced = runCatching { host?.port }.getOrNull()
+            }
+        }
+
+        val robot = HostedRobot(ROBOT, ProfileDocument.parse("test", Files.readString(PROFILE)).getOrThrow(), ScriptedAdapter(), publisher = watcher)
+        host = AdapterHost(robot, io.grpc.ServerBuilder.forPort(0))
+        try {
+            host.start()
+            // 널이면 그때 포트가 아직 없었다는 뜻이다 — 즉 알림이 먼저 나갔다.
+            assertEquals(host.port, portWhenAnnounced, "ONLINE 이 포트보다 먼저 나갔다")
+            assertTrue(host.port > 0)
+        } finally {
+            host.shutdown()
+        }
+    }
+
+    @Test
     fun `닫으면 OFFLINE 을 retain 으로 남긴다`() {
         val w = World()
         w.close()
