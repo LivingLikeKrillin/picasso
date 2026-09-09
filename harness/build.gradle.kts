@@ -29,6 +29,9 @@ dependencies {
     // 어댑터 호스트가 미믹과 같은 적재 경로를 타는지 — 기종 없는 어댑터로 본다(HostIngestEndToEndTest).
     testImplementation(project(":adapter-host"))
     testImplementation(project(":adapter-core"))
+    // **ADR 37 의 발견을 실증하는 자리.** 어댑터의 남쪽에 플릿이 있는 것은 이 기종뿐이고,
+    // 그것과 레지스트리를 동시에 아는 모듈은 여기뿐이다(§3.2).
+    testImplementation(project(":adapter-boston-dynamics-orbit"))
 
     // 완료 기준 20(카나리)은 **레지스트리에서 바인딩하고 `mimic`이 당겨
     // 헤더로 관측되는 것까지** 한 줄로 봐야 성립한다. 반으로 쪼개 한쪽은

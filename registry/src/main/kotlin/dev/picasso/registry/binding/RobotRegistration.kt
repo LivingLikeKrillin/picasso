@@ -46,6 +46,7 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
     fun declare(
         robotId: String,
         siteId: String,
+        /** 선언에는 **요구한다** — 사람이 적는 경로에는 그것을 아는 사람이 있다(V13 의 CHECK 가 같이 든다). */
         serialNumber: String,
         displayName: String? = null,
         endpoint: String? = null,
@@ -136,7 +137,11 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
         c: Connection,
         robotId: String,
         siteId: String,
-        serialNumber: String,
+        /**
+         * **널일 수 있다 — 플릿이 안 주는 벤더가 있다**(§15.103, Orbit 의 `Robot` 에 일련번호가 없다).
+         * 선언 경로는 [declare] 의 시그니처가 널을 못 넣게 막고, 표는 V13 의 CHECK 로 같은 것을 막는다.
+         */
+        serialNumber: String?,
         displayName: String?,
         endpoint: String?,
         origin: RobotOrigin,
@@ -144,7 +149,8 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
     ): RobotRegistrationOutcome {
         blank(robotId, "robot_id")?.let { return it }
         blank(siteId, "site_id")?.let { return it }
-        blank(serialNumber, "serial_number")?.let { return it }
+        // 널은 *안 준다* 이고 빈 문자열은 *줬는데 비었다* 이다. 뒤엣것만 거절한다.
+        if (serialNumber != null) blank(serialNumber, "serial_number")?.let { return it }
         blank(actor, "actor")?.let { return it }
 
         val existing = rowOf(c, robotId)
@@ -159,11 +165,14 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
 
         // 다른 기체가 같은 (site, serial) 을 쓰고 있으면 UNIQUE 위반이 난다. 예외로 터뜨리면 표면이 500 을 내고
         // 사유가 사라진다 — 운영자가 알아야 할 사실이다.
-        val clash = c.prepareStatement(
-            "SELECT robot_id FROM robot WHERE site_id = ? AND serial_number = ? AND robot_id <> ?",
-        ).use { s ->
-            s.setString(1, siteId); s.setString(2, serialNumber); s.setString(3, robotId)
-            s.executeQuery().use { rs -> if (rs.next()) rs.getString(1) else null }
+        // 일련번호가 없으면 겹칠 것도 없다 — 표의 UNIQUE 도 널끼리는 안 부딪친다.
+        val clash = serialNumber?.let {
+            c.prepareStatement(
+                "SELECT robot_id FROM robot WHERE site_id = ? AND serial_number = ? AND robot_id <> ?",
+            ).use { s ->
+                s.setString(1, siteId); s.setString(2, it); s.setString(3, robotId)
+                s.executeQuery().use { rs -> if (rs.next()) rs.getString(1) else null }
+            }
         }
         if (clash != null) {
             return RobotRegistrationOutcome.Rejected("같은 사이트에 같은 일련번호를 쓰는 기체가 이미 있다: $clash")
@@ -270,7 +279,8 @@ enum class RobotStatus {
 /** 어댑터가 플릿에서 본 기체 하나. [endpoint]가 있으면 거절한다 — 그 정보는 플릿의 것이다(결정 4). */
 data class DiscoveredRobot(
     val robotId: String,
-    val serialNumber: String,
+    /** **널이면 플릿이 안 준 것이다**(§15.103). 지어내지 않는다 — 주소를 일련번호 자리에 넣으면 거짓말이 된다. */
+    val serialNumber: String? = null,
     val displayName: String? = null,
     val endpoint: String? = null,
 )
@@ -281,7 +291,8 @@ data class DiscoveryOutcome(val recorded: List<String>, val refused: Map<String,
 data class RegisteredRobot(
     val robotId: String,
     val siteId: String,
-    val serialNumber: String,
+    /** **널이면 플릿이 안 준 것이다**(§15.103). 선언된 기체는 언제나 있다 — V13 의 CHECK 가 그것을 든다. */
+    val serialNumber: String?,
     val displayName: String?,
     val origin: RobotOrigin?,
     val endpoint: String?,

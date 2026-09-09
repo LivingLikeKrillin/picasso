@@ -44,7 +44,8 @@ data class DeclareRequest(
  */
 data class DiscoveredRobotRequest(
     val robot_id: String,
-    val serial_number: String,
+    /** 선택이다 — **플릿이 일련번호를 안 주는 벤더가 있다**(§15.103). 없으면 없는 채로 들인다. */
+    val serial_number: String? = null,
     val display_name: String? = null,
     val endpoint: String? = null,
 )
