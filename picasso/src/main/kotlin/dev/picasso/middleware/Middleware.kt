@@ -6,15 +6,18 @@ import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.WatchTaskResponse
+import java.time.Instant
+import java.time.format.DateTimeParseException
 
 /**
  * 공통 실행 구조(설계 §2) — 접수 · 조합 · 실행 상태기계 · 근거 결합 · 취소 · 결과 통보.
  *
  * ## 구동
  *
- * 스레드가 없다. [submit]·[cancel]·[ack] 가 밖에서 오고, 하류의 전이는 [pump] 를
+ * 스레드가 없다. [submit]·[cancel]·[resolve]·[ack] 가 밖에서 오고, 하류의 전이는 [pump] 를
  * 부를 때 읽는다. 시험이 가상 시계를 밀고 `pump()` 를 부르는 결정적 구동에 맞춘
- * 것이며(§12.1), 운영 배치에서는 스케줄러가 `pump()` 를 돌린다.
+ * 것이며(§12.1), 운영 배치에서는 스케줄러가 `pump()` 를 돌린다. 시각은 [now] 로만
+ * 읽는다 — 시간창 δ 가 시각을 비교하기 때문이다.
  *
  * ## 하류가 둘
  *
@@ -25,14 +28,14 @@ import dev.picasso.contracts.v1.WatchTaskResponse
  * ## 기체
  *
  * 실행 하나는 기체 하나에서 **차례로** 돈다 — 실물은 예외 없이 배타적 제어
- * 모델이고(§4.9) 어느 기체에 줄지(배차)는 이 모듈의 일이 아니다(ADR 38). 상류가
- * 지정하거나 배치가 정한 기체를 [submit] 이 받는다.
+ * 모델이고(§4.9) 어느 기체에 줄지(배차)는 이 모듈의 일이 아니다(ADR 38).
  */
 class Middleware(
     private val robots: RobotPort,
     private val cell: CellSignals = CellSignals.None,
     private val fleet: AmrFleetPort = AmrFleetPort.None,
     capabilities: List<LogicalCapability> = listOf(PrepareSequencedRack(), DeliverContainer()),
+    private val now: () -> Instant = { Instant.now() },
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -56,8 +59,9 @@ class Middleware(
         internal var transport: TransportHandle? = null
         internal var cancelRequested = false
         internal var lastCancel: CancelReport? = null
-        /** 지연 보고를 한 번만 내기 위한 표시. */
+        /** 지연 보고·운영자 보류 통보를 한 번만 내기 위한 표시. */
         internal var notedDelay: String? = null
+        internal var notedHold: String? = null
 
         val completedUnits: List<String> get() = units.filter { it.state == UnitState.DONE }.map { it.unitId }
         val version: Int get() = order.version
@@ -116,7 +120,8 @@ class Middleware(
         val replanned = execution.capability.plan(order).associateBy { it.unitId }
         val kept = execution.units.map { unit ->
             when (unit.state) {
-                UnitState.DONE, UnitState.UNVERIFIED, UnitState.ABORTED -> unit
+                UnitState.DONE, UnitState.UNVERIFIED, UnitState.ABORTED,
+                UnitState.VERIFYING, UnitState.OPERATOR_HOLD -> unit
                 // 물리적으로 시도된 실패는 확정된 단위다. 계획 단계에서 못 시작한 것(태스크가 없다)은
                 // 아니다 — C형 부족처럼 새 버전이 공급을 채우면 그 슬롯은 다시 계획된다.
                 UnitState.FAILED -> if (unit.taskId.isEmpty()) {
@@ -165,19 +170,35 @@ class Middleware(
 
         val active = execution.active
         if (active != null) {
-            val settled = when (active.route) {
-                Route.ROBOT -> pumpRobotUnit(execution, active)
-                Route.FLEET -> pumpFleetUnit(execution, active)
+            val settled = when {
+                active.state == UnitState.VERIFYING -> checkEvidence(execution, active)
+                active.route == Route.ROBOT -> pumpRobotUnit(execution, active)
+                else -> pumpFleetUnit(execution, active)
             }
             if (!settled) return
             execution.active = null
             execution.handle = null
             execution.transport = null
-            if (execution.cancelRequested) return // abort 가 이미 적었다
+            if (execution.cancelRequested) {
+                // 하류 갱신을 읽은 경로는 abort 를 이미 적었다. 검증 대기 중에 취소가 걸린 경우만 여기서 적는다.
+                if (execution.physicalState != PhysicalState.ABORTED) abort(execution, inProgress = null, hold = active.hold, cleanup = "not_applicable")
+                return
+            }
         }
 
         if (execution.cancelRequested) {
             abort(execution, inProgress = null, hold = null, cleanup = "nothing_to_clean")
+            return
+        }
+
+        // 운영자가 판단할 단위가 있으면 다음으로 가지 않는다 — 판단이 재작업이면 그 슬롯이 먼저다.
+        val held = execution.units.firstOrNull { it.state == UnitState.OPERATOR_HOLD }
+        if (held != null) {
+            execution.physicalState = PhysicalState.OPERATOR_HOLD
+            if (execution.notedHold != held.unitId) {
+                execution.notedHold = held.unitId
+                notify(execution)
+            }
             return
         }
 
@@ -189,7 +210,7 @@ class Middleware(
         startUnit(execution, next)
     }
 
-    /** @return 단위가 종착했는가. */
+    /** @return 단위가 이 펌프에서 종착(또는 검증 대기로 이행)해 active 에서 내려와도 되는가. */
     private fun pumpRobotUnit(execution: Execution, unit: ExecutionUnit): Boolean {
         val updates = robots.watch(execution.robotId, execution.handle!!)
         val last = updates.lastOrNull() ?: return false
@@ -199,13 +220,18 @@ class Middleware(
             return false
         }
         when (last.state) {
-            TaskState.TASK_STATE_SUCCEEDED -> verify(execution, unit, reachedByDownstream = Evidence.E0)
+            TaskState.TASK_STATE_SUCCEEDED -> {
+                beginVerify(execution, unit, reachedByDownstream = Evidence.E0, doneAt = stateTime(last))
+                if (unit.state == UnitState.VERIFYING) return false // active 로 남아 시간창을 기다린다
+            }
+
             TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> unit.state = UnitState.ABORTED
+
             else -> {
-                unit.state = UnitState.FAILED
                 // 계약이 실은 정준 분류(어댑터가 벤더 코드에서 옮긴 것). 안 실렸으면 상태 이름으로 남긴다 —
                 // 지어내지 않는다.
-                unit.failureClass = last.fault.errorType.takeIf { it.isNotBlank() } ?: last.state.name
+                val failureClass = last.fault.errorType.takeIf { it.isNotBlank() } ?: last.state.name
+                failWithEvidenceCheck(execution, unit, failureClass, at = stateTime(last))
             }
         }
         if (execution.cancelRequested) {
@@ -243,21 +269,21 @@ class Middleware(
                 return false
             }
 
-            TransportState.DELIVERED -> verify(execution, unit, reachedByDownstream = Evidence.E1)
+            TransportState.DELIVERED -> {
+                beginVerify(execution, unit, reachedByDownstream = Evidence.E1, doneAt = now())
+                if (unit.state == UnitState.VERIFYING) return false
+            }
 
             TransportState.REJECTED_AT_SOURCE -> {
                 // 출발지의 용기가 요청과 다르다 — 인수하지 않고 불일치 보고. 상류(WMS)가 할당·현장 재고를 확인한다.
                 unit.state = UnitState.FAILED
                 unit.failureClass = SOURCE_MISMATCH
-                unit.note = status.observedContainer?.let { "observed=$it" }
+                unit.note = status.observedContainer?.let { "observed=$it at ${unit.source}" }
             }
 
             TransportState.CANCELLED -> unit.state = UnitState.ABORTED
 
-            TransportState.FAILED -> {
-                unit.state = UnitState.FAILED
-                unit.failureClass = status.detail ?: TransportState.FAILED.name
-            }
+            TransportState.FAILED -> failWithEvidenceCheck(execution, unit, status.detail ?: TransportState.FAILED.name, at = now())
         }
         if (execution.cancelRequested) {
             abort(
@@ -276,7 +302,8 @@ class Middleware(
         }
 
     private fun startUnit(execution: Execution, unit: ExecutionUnit) {
-        unit.taskId = "${execution.order.jobOrderId}#${unit.unitId}"
+        // 재작업은 새 정체성이다 — 같은 task_id 는 계약이 같은(종착한) 핸들로 돌려준다.
+        unit.taskId = "${execution.order.jobOrderId}#${unit.unitId}" + if (unit.attempt > 0) "@r${unit.attempt}" else ""
         when (unit.route) {
             Route.ROBOT -> {
                 val response = robots.start(execution.robotId, unit.taskId, unit.revision, unit.skillType, unit.parameters)
@@ -311,44 +338,141 @@ class Middleware(
         execution.physicalState = PhysicalState.RUNNING
     }
 
+    // ── 근거 결합 (보고서 12장)
+
     /**
-     * 하류의 완료를 단위의 종착으로 — 그리고 **근거를 결합**한다(보고서 10.2 — 번역만으로는 안 된다).
+     * 하류의 완료를 받는다 — 그리고 **근거를 결합하기 시작한다**(보고서 10.2 — 번역만으로는 안 된다).
      *
      * 하류가 준 등급([reachedByDownstream]: 로봇 E0, 플릿 E1)이 요구 이상이면 그대로 완료.
-     * 아니면 독립 설비에 묻는다: 신호가 기대와 맞으면 E2 도달, 없으면 `UNVERIFIED`(재작업
-     * 금지, 운영자 확인), 다르면 오인계 의심으로 `FAILED`(보고서 12.3). 시간창 δ 는 다음 단계.
+     * 아니면 [UnitState.VERIFYING] 으로 옮기고 시간창이 닫힐 때까지([EvidenceWindow.after])
+     * 설비에 묻는다 — PLC 는 폴링이라 신호가 보고보다 **늦게** 읽힐 수 있다. 첫 확인은 지금 한다.
      */
-    private fun verify(execution: Execution, unit: ExecutionUnit, reachedByDownstream: Evidence) {
+    private fun beginVerify(execution: Execution, unit: ExecutionUnit, reachedByDownstream: Evidence, doneAt: Instant) {
         unit.reached = reachedByDownstream
+        unit.downstreamDoneAt = doneAt
         if (execution.order.requiredEvidence <= reachedByDownstream) {
             unit.verification = Verification.NOT_REQUESTED
             unit.state = UnitState.DONE
             return
         }
+        unit.state = UnitState.VERIFYING
+        unit.evidenceDeadline = doneAt.plus(execution.capability.evidenceWindow.after)
+        checkEvidence(execution, unit)
+    }
+
+    /**
+     * 시간창 안에서 설비 신호를 찾는다(보고서 12.1):
+     * `t_p ∈ [t_r − before, t_r + after]` 이고 재석이면 **이 완료의** 근거다.
+     *
+     * - 맞으면 E2 `DONE`. 다르면 오인계 의심 — `FAILED` `VERIFICATION_MISMATCH`, 무엇을 어디서 봤는지 기록(12.3 넷째 행).
+     * - 창 밖의 신호(옛 것)는 세지 않는다. 창이 닫힐 때까지 없으면 `UNVERIFIED` — 재작업 금지, 운영자 확인(첫째 행).
+     * - 시각을 안 주는 설비는 **읽은 순간**을 `t_p` 로 친다.
+     *
+     * @return 단위가 종착했는가(아직 기다리는 중이면 `false`).
+     */
+    private fun checkEvidence(execution: Execution, unit: ExecutionUnit): Boolean {
+        val doneAt = unit.downstreamDoneAt!!
+        val window = execution.capability.evidenceWindow
+        val current = now()
+        unit.rechecks += 1
+
         val signal = unit.destination?.let { cell.observe(it) }
+        val observedAt = signal?.observedAt ?: current
+        val inWindow = signal != null && signal.occupied &&
+            !observedAt.isBefore(doneAt.minus(window.before)) && !observedAt.isAfter(doneAt.plus(window.after))
+
         when {
-            signal == null || !signal.occupied -> {
-                unit.verification = Verification.ABSENT
-                unit.state = UnitState.UNVERIFIED
-            }
-            unit.expectedIdentity != null && signal.identity != unit.expectedIdentity -> {
+            inWindow && unit.expectedIdentity != null && signal!!.identity != unit.expectedIdentity -> {
                 unit.verification = Verification.MISMATCH
                 unit.state = UnitState.FAILED
                 unit.failureClass = MISMATCH
-                unit.note = signal.identity?.let { "observed=$it" }
+                unit.evidenceAt = observedAt
+                unit.note = "observed=${signal.identity} at ${unit.destination}"
             }
-            else -> {
+
+            inWindow -> {
                 unit.verification = Verification.MATCHED
                 unit.reached = Evidence.E2
+                unit.evidenceAt = observedAt
                 unit.state = UnitState.DONE
             }
+
+            current.isAfter(unit.evidenceDeadline!!) -> {
+                unit.verification = Verification.ABSENT
+                unit.state = UnitState.UNVERIFIED
+                unit.note = if (signal != null && signal.occupied) {
+                    "signal at $observedAt is outside [${doneAt.minus(window.before)}, ${doneAt.plus(window.after)}] — stale"
+                } else {
+                    "no signal within window after ${unit.rechecks} rechecks"
+                }
+            }
+
+            else -> {
+                execution.physicalState = PhysicalState.RUNNING
+                return false
+            }
         }
+        return true
+    }
+
+    /**
+     * 하류는 실패라는데 설비에는 있을 수 있다(보고서 12.3 둘째 행 — *물리 완료 가능성*).
+     * 요구 등급이 설비 확인을 포함하면 지금 묻고, 시간창 안에 기대한 것이 있으면 `FAILED` 로
+     * 적지 않고 [UnitState.OPERATOR_HOLD] 로 세운다 — 운영자가 [resolve] 로 판단한다.
+     */
+    private fun failWithEvidenceCheck(execution: Execution, unit: ExecutionUnit, failureClass: String, at: Instant) {
+        unit.failureClass = failureClass
+        unit.downstreamDoneAt = at
+        if (execution.order.requiredEvidence > Evidence.E1) {
+            val window = execution.capability.evidenceWindow
+            val signal = unit.destination?.let { cell.observe(it) }
+            val observedAt = signal?.observedAt ?: now()
+            val present = signal != null && signal.occupied &&
+                (unit.expectedIdentity == null || signal.identity == unit.expectedIdentity) &&
+                !observedAt.isBefore(at.minus(window.before)) && !observedAt.isAfter(at.plus(window.after))
+            if (present) {
+                unit.verification = Verification.MATCHED
+                unit.evidenceAt = observedAt
+                unit.state = UnitState.OPERATOR_HOLD
+                unit.note = "downstream reported $failureClass but evidence present at ${unit.destination}"
+                return
+            }
+        }
+        unit.state = UnitState.FAILED
+    }
+
+    /**
+     * 운영자의 판단(12.3 둘째 행). [OperatorDecision.CONFIRM_DONE] 은 설비 근거로 완료(E2),
+     * [OperatorDecision.REWORK] 는 그 단위를 **새 정체성**으로 다시 계획한다 — 자동으로 돌지 않았던 것을 사람이 돌린다.
+     */
+    fun resolve(executionId: String, unitId: String, decision: OperatorDecision): Boolean {
+        val execution = executions[executionId] ?: return false
+        val unit = execution.units.firstOrNull { it.unitId == unitId && it.state == UnitState.OPERATOR_HOLD } ?: return false
+        when (decision) {
+            OperatorDecision.CONFIRM_DONE -> {
+                unit.reached = Evidence.E2
+                unit.state = UnitState.DONE
+                unit.note = "operator confirmed: ${unit.note}"
+            }
+            OperatorDecision.REWORK -> {
+                unit.attempt += 1
+                unit.state = UnitState.PENDING
+                unit.taskId = ""
+                unit.failureClass = null
+                unit.verification = Verification.NOT_REQUESTED
+                unit.note = "operator ordered rework"
+            }
+        }
+        execution.notedHold = null
+        execution.physicalState = PhysicalState.RUNNING
+        return true
     }
 
     private fun settleExecution(execution: Execution) {
         val states = execution.units.map { it.state }
         val before = execution.physicalState
         execution.physicalState = when {
+            states.any { it == UnitState.OPERATOR_HOLD } -> PhysicalState.OPERATOR_HOLD
             states.all { it == UnitState.DONE } -> PhysicalState.PHYSICALLY_DONE
             states.all { it == UnitState.FAILED } -> PhysicalState.FAILED
             states.any { it == UnitState.FAILED } -> PhysicalState.PARTIAL
@@ -407,8 +531,10 @@ class Middleware(
             unverifiedUnits = units.filter { it.state == UnitState.UNVERIFIED }.map { it.unitId },
             incompleteUnits = units.filter { it.state != UnitState.DONE && it.state != UnitState.UNVERIFIED }
                 .associate { it.unitId to (it.failureClass ?: it.note ?: it.state.name) },
-            operatorRequired = units.any { it.state == UnitState.UNVERIFIED || it.verification == Verification.MISMATCH || it.failureClass == SOURCE_MISMATCH } ||
-                execution.lastCancel?.cleanup == "failed",
+            operatorRequired = units.any {
+                it.state == UnitState.UNVERIFIED || it.state == UnitState.OPERATOR_HOLD ||
+                    it.verification == Verification.MISMATCH || it.failureClass == SOURCE_MISMATCH
+            } || execution.lastCancel?.cleanup == "failed",
             residualHold = units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold ?: HoldState.getDefaultInstance(),
         )
         outbox += response
@@ -421,6 +547,13 @@ class Middleware(
         response.ack = UpstreamAck.ACKED
         executions.values.firstOrNull { it.order.jobOrderId == response.jobOrderId }?.upstreamAck = UpstreamAck.ACKED
         return true
+    }
+
+    /** 하류 갱신의 시각 — 헤더의 `state_as_of`(§5.5). 없거나 못 읽으면 지금. */
+    private fun stateTime(update: WatchTaskResponse): Instant = try {
+        update.header.stateAsOf.takeIf { it.isNotBlank() }?.let { Instant.parse(it) } ?: now()
+    } catch (_: DateTimeParseException) {
+        now()
     }
 
     private fun TaskState.isTerminal(): Boolean = this == TaskState.TASK_STATE_SUCCEEDED ||

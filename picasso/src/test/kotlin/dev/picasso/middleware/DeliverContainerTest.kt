@@ -3,6 +3,7 @@ package dev.picasso.middleware
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.harness.Harness
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -39,19 +40,21 @@ class DeliverContainerTest {
 
     private class World : AutoCloseable {
         val harness = Harness(mapOf("idle-robot" to Path.of("..", "profile", "fixtures", "minimal.json").normalize()))
-        val fleet = AmrFleetMimic()
-        /** 인계 설비는 플릿이 실제로 내려놓은 것을 본다 — 침묵시키기 전까지. */
-        val cell = CellMimic(live = { fleet.containersAt[it] })
-        val mw = Middleware(ClientRobotPort(harness.client()), cell, fleet)
+        val fleet = AmrFleetMimic(now = { harness.clock.now() })
+        /** 인계 설비는 플릿이 실제로 내려놓은 것을 **놓인 시각과 함께** 본다 — 침묵시키기 전까지. */
+        val cell = CellMimic(now = { harness.clock.now() }, live = { loc -> fleet.containersAt[loc]?.let { it to fleet.placedAt[loc] } })
+        val mw = Middleware(ClientRobotPort(harness.client()), cell, fleet, now = { harness.clock.now() })
 
         init {
             fleet.containersAt[SOURCE] = CONTAINER
         }
 
+        /** 플릿 틱 하나를 세계 시간 10초로 친다 — 시간창(뒤쪽 15초)은 시계가 가야 닫힌다. */
         fun drive(rounds: Int = 12, until: () -> Boolean) {
             repeat(rounds) {
                 mw.pump()
                 if (until()) return
+                harness.advance(Duration.ofSeconds(10))
                 fleet.tick()
             }
             error("조건에 못 미쳤다: 세계=${fleet.containersAt}")

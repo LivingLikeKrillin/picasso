@@ -49,8 +49,8 @@ class SequencingRackTest {
 
     private class World(profile: Path) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to profile))
-        val cell = CellMimic()
-        val mw = Middleware(ClientRobotPort(harness.client()), cell)
+        val cell = CellMimic(now = { harness.clock.now() })
+        val mw = Middleware(ClientRobotPort(harness.client()), cell, now = { harness.clock.now() })
 
         fun tasks() = harness.oracle.dumpInternalState(
             DumpInternalStateRequest.newBuilder().setRobotId(ROBOT).build(),
@@ -136,6 +136,7 @@ class SequencingRackTest {
             val s02 = exec.units.single { it.unitId == "RACK-204.S02" }
             assertEquals(UnitState.FAILED, s02.state)
             assertEquals(Verification.MISMATCH, s02.verification)
+            assertEquals("observed=ENGINE-COVER-A at RACK-204.S02", s02.note, "잘못 놓인 것의 위치를 기록한다(12.3 넷째 행)")
             assertEquals(PhysicalState.PARTIAL, exec.physicalState, "다른 슬롯은 보존되고 실행은 부분 완료다")
 
             val response = w.mw.pending().single()

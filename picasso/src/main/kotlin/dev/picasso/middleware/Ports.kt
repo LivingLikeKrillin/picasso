@@ -7,6 +7,7 @@ import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.WatchTaskResponse
+import java.time.Instant
 
 /**
  * 하류(로봇) 포트 — 계약(④)의 소비자. 미들웨어는 이것 너머를 모른다.
@@ -126,6 +127,10 @@ interface CellSignals {
 
 /**
  * 한 자리의 설비 신호 — 재석 여부와 설비가 읽은 식별자(부품 타입 라벨이든 용기 태그든,
- * 설비가 읽을 수 있는 것 — §15.80 의 신원 수단).
+ * 설비가 읽을 수 있는 것 — §15.80 의 신원 수단), 그리고 그 신호의 시각 `t_p`.
+ *
+ * [observedAt] 이 `null` 이면 설비가 시각을 안 주는 것이다 — 폴링으로 현재값만 읽는 PLC 가
+ * 그렇다. 그때는 **읽은 순간**이 `t_p` 다(보고서 12.2 — 짧은 신호는 PLC 쪽 래치 비트나
+ * 카운터가 있어야 폴링이 놓치지 않는다).
  */
-data class SlotSignal(val occupied: Boolean, val identity: String?)
+data class SlotSignal(val occupied: Boolean, val identity: String?, val observedAt: Instant? = null)

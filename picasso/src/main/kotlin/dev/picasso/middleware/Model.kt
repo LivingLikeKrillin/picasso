@@ -1,6 +1,8 @@
 package dev.picasso.middleware
 
 import dev.picasso.contracts.v1.HoldState
+import java.time.Duration
+import java.time.Instant
 
 /**
  * 정준 모델 — 실행 하나의 상태(설계 §1.1, 보고서 10.3).
@@ -34,20 +36,37 @@ enum class UpstreamAck { NOT_SENT, SENT_UNACKED, ACKED }
  */
 enum class Evidence { E0, E1, E2, E3 }
 
+/**
+ * 시간창 δ(보고서 12.1·12.2) — 하류 보고 시각 `t_r` 을 기준으로 설비 신호 시각 `t_p` 가
+ * `[t_r − before, t_r + after]` 안에 있어야 그 신호가 **이 완료의** 근거다.
+ *
+ * 앞쪽 폭은 *이전 것의 신호*(아직 남아 있는 옛 용기·옛 부품)를 걸러 내고, 뒤쪽 폭은
+ * 보고 지연·폴링 지연·네트워크 지연을 합한 것이다. **현장별 설정**이며 능력이 기본값을 든다.
+ */
+data class EvidenceWindow(val before: Duration, val after: Duration)
+
 /** 원자 단위(슬롯·용기) 하나의 검증 결과 — 하류 보고와 독립 설비 신호의 대조(보고서 12.3). */
 enum class Verification {
     /** 요구 등급이 하류 보고 이하라 설비 확인을 묻지 않았다. */
     NOT_REQUESTED,
     /** 신호가 있고 기대와 맞는다. */
     MATCHED,
-    /** 신호가 없다 — 하류는 끝났다는데 설비가 말이 없다. `UNVERIFIED`. */
+    /** 시간창 안에 신호가 없다 — 하류는 끝났다는데 설비가 말이 없다. `UNVERIFIED`. */
     ABSENT,
     /** 신호가 있으나 기대와 다르다(B형 슬롯에 A형, 다른 용기). 오인계 의심 — `FAILED` + 운영자. */
     MISMATCH,
 }
 
-/** 원자 단위의 종착. */
-enum class UnitState { PENDING, RUNNING, DONE, UNVERIFIED, FAILED, ABORTED }
+/**
+ * 원자 단위의 상태.
+ *
+ * - [VERIFYING] — 하류는 끝났다고 했고, 시간창이 닫힐 때까지 설비 신호를 기다리는 중
+ * - [OPERATOR_HOLD] — 하류는 실패라는데 설비에는 있다(보고서 12.3 둘째 행). 운영자가 [OperatorDecision]을 낸다
+ */
+enum class UnitState { PENDING, RUNNING, VERIFYING, OPERATOR_HOLD, DONE, UNVERIFIED, FAILED, ABORTED }
+
+/** 운영자의 판단 — 12.3 둘째 행 *"운영자 확인 후 PHYSICALLY_DONE 또는 재작업"*. */
+enum class OperatorDecision { CONFIRM_DONE, REWORK }
 
 /**
  * 단위가 어느 하류로 가는가(보고서 3.2 축 1·2).
@@ -105,13 +124,23 @@ data class ExecutionUnit(
     var state: UnitState = UnitState.PENDING,
     var taskId: String = "",
     var revision: Int = 0,
+    /** 재작업 횟수. 하류 태스크의 정체성이 갈리는 자리다 — 같은 `task_id` 는 계약이 같은 핸들로 돌려준다. */
+    var attempt: Int = 0,
     var reached: Evidence = Evidence.E0,
     var verification: Verification = Verification.NOT_REQUESTED,
     /** 실패의 정준 분류. 어댑터가 벤더 코드에서 옮긴 것이 계약의 `Fault.error_type` 으로 온다. */
     var failureClass: String? = null,
-    /** 종착이 아닌 사정 — 인계 대기 같은 것. 지연 보고의 내용이다. */
+    /** 종착이 아닌 사정 — 인계 대기, 관측한 태그, 신호의 시각 같은 것. 지연 보고와 기록의 내용이다. */
     var note: String? = null,
     var hold: HoldState = HoldState.getDefaultInstance(),
+    /** 하류가 끝났다고 한 시각 `t_r`. 시간창의 기준. */
+    var downstreamDoneAt: Instant? = null,
+    /** `t_r + after`. 이 시각을 지나도 신호가 없으면 `UNVERIFIED`. */
+    var evidenceDeadline: Instant? = null,
+    /** 근거로 채택한 신호의 시각 `t_p`. */
+    var evidenceAt: Instant? = null,
+    /** 설비에 몇 번 물었는가 — 12.2 의 재확인 횟수. */
+    var rechecks: Int = 0,
 )
 
 /** 취소 응답(보고서 14.1) — 원상복구가 아니라 중단점과 잔여 물리 상태의 보고다. */

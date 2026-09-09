@@ -1,5 +1,7 @@
 package dev.picasso.middleware
 
+import java.time.Instant
+
 /**
  * AMR Fleet Mock — 운반 전체를 D 수준으로 위임받는 하류의 더블(보고서 4.1·5장).
  *
@@ -13,10 +15,13 @@ package dev.picasso.middleware
  *
  * 같은 참조로 다시 맡기면 같은 운반이다 — 클라이언트 참조 기반 멱등(보고서 13.2).
  */
-class AmrFleetMimic : AmrFleetPort {
+class AmrFleetMimic(private val now: () -> Instant = { Instant.now() }) : AmrFleetPort {
 
     /** 세계 — 자리 → 용기. 시험이 채우고, 인계가 바꾼다. */
     val containersAt = mutableMapOf<String, String>()
+
+    /** 자리 → 그 용기가 놓인 시각. 인계 설비가 읽는 `t_p` 의 원천. */
+    val placedAt = mutableMapOf<String, Instant>()
 
     /** 이전 용기가 남아 있어 인계할 수 없는 목적지들. 시험이 치운다. */
     val blocked = mutableSetOf<String>()
@@ -86,6 +91,7 @@ class AmrFleetMimic : AmrFleetPort {
                         t.state = TransportState.WAITING_HANDOVER
                     } else {
                         containersAt[t.order.destination] = t.order.containerId
+                        placedAt[t.order.destination] = now()
                         t.holding = false
                         t.state = TransportState.DELIVERED
                     }

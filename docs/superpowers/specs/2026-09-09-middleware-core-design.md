@@ -182,7 +182,7 @@ ISA-95 Job Control 의 `JobOrder`/`JobResponse` 모양(`scenarios.md` §4.1 의 
 
 1. ~~정준 모델 스키마 확정~~ **됐다(2026-09-09)** — 도달 등급은 실행 층 · 분류표 그대로 · 모듈 `picasso`. ADR 38 결정됨.
 2. **`middleware` 최소 + 시나리오 ②** — 접수·조합(슬롯마다 `pick_place`)·실행 상태기계·JobResponse. mimic 위에서. 셀 검증은 PLC/WCS Mimic 으로 E2.
-3. **PLC/WCS Mimic + 근거 결합** — 시간창, `UNVERIFIED`, 불일치 표(12.3) 넷.
+3. ~~PLC/WCS Mimic + 근거 결합~~ **됐다(2026-09-10, §15.90)** — 시간창 δ · `VERIFYING` 재확인 · 래치 · 12.3 의 셋(무응답 행은 6 에서).
 4. **AMR Fleet Mock + 시나리오 ①** — D 수준 위임, 인계 신호 결합, 응답 유실 후 재전송(통보 재시도 ≠ 명령 재시도).
 5. **정준 실패 분류 → 어댑터 매핑** — Spot·Digit·G1 이 벤더 코드를 분류로 옮기고 원문을 동반. 매니페스트 시험 대조.
 6. **IN_DOUBT 해소·지연 이벤트·`OPERATOR_HOLD`** — 17장 3·6.

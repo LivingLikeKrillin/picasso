@@ -1,5 +1,7 @@
 package dev.picasso.middleware
 
+import java.time.Duration
+
 /**
  * 논리적 능력 — 상류 업무 단위의 계약을 원자 단위 열로 나눈다(보고서 3.1, 설계 §1.2).
  *
@@ -11,6 +13,12 @@ interface LogicalCapability {
 
     /** 이 능력이 제공할 수 있는 최고 근거 등급(보고서 11.3 규칙 1). */
     val maxEvidence: Evidence
+
+    /**
+     * 시간창 δ(보고서 12.2 — 능력 단위 설정 항목). 앞쪽은 옛 신호를 거르는 폭, 뒤쪽은
+     * 보고 지연·폴링 지연·네트워크 지연의 합이다. **현장별로 설정**하는 값이며 여기는 기본값이다.
+     */
+    val evidenceWindow: EvidenceWindow get() = EvidenceWindow(before = Duration.ofSeconds(30), after = Duration.ofSeconds(15))
 
     /** 상류 요청을 원자 단위 열로. 계획이지 실행이 아니다. */
     fun plan(order: JobOrder): List<ExecutionUnit>
