@@ -16,6 +16,14 @@ interface LogicalCapability {
     fun plan(order: JobOrder): List<ExecutionUnit>
 }
 
+/** `EquipmentUse` 값 — 표준이 열어 두었고 **우리가 지은 말**이다. 능력 둘이 같은 낱말을 쓴다. */
+object EquipmentUse {
+    const val DESTINATION = "destination"
+    const val SOURCE = "source"
+    const val PROP_MATERIAL = "material"
+    const val PROP_CONTAINER = "container"
+}
+
 /**
  * `PrepareSequencedRack` — 생산 순서에 맞춰 랙의 슬롯에 부품을 배치한다(시나리오 ②).
  *
@@ -39,22 +47,24 @@ class PrepareSequencedRack : LogicalCapability {
 
     override fun plan(order: JobOrder): List<ExecutionUnit> {
         val sources = order.equipmentRequirements
-            .filter { it.equipmentUse == USE_SOURCE }
-            .associateBy { it.properties[PROP_MATERIAL] }
+            .filter { it.equipmentUse == EquipmentUse.SOURCE }
+            .associateBy { it.properties[EquipmentUse.PROP_MATERIAL] }
 
         return order.equipmentRequirements
-            .filter { it.equipmentUse == USE_DESTINATION }
+            .filter { it.equipmentUse == EquipmentUse.DESTINATION }
             .map { slot ->
-                val material = slot.properties[PROP_MATERIAL]
+                val material = slot.properties[EquipmentUse.PROP_MATERIAL]
                 val source = material?.let { sources[it] }
                 ExecutionUnit(
                     unitId = slot.id,
+                    route = Route.ROBOT,
                     skillType = SKILL,
                     parameters = mapOf(
                         P_OBJECT to (source?.id ?: ""),
                         P_DESTINATION to slot.id,
                     ),
-                    expectedMaterial = material,
+                    expectedIdentity = material,
+                    source = source?.id,
                     destination = slot.id,
                     // 제시 자리가 없으면 집을 것이 없다 — 시작도 못 한다. 부족은 여기서 드러난다.
                     state = if (source == null) UnitState.FAILED else UnitState.PENDING,
@@ -71,12 +81,75 @@ class PrepareSequencedRack : LogicalCapability {
         const val P_OBJECT = "object_id"
         const val P_DESTINATION = "destination"
 
-        /** `EquipmentUse` 값 — 표준이 열어 두었고 **우리가 지은 말**이다. */
-        const val USE_DESTINATION = "destination"
-        const val USE_SOURCE = "source"
-        const val PROP_MATERIAL = "material"
-
         /** 그 타입을 제시하는 자리가 주문에 없다 — 부품 부족의 미들웨어 쪽 이름. */
         const val NO_SOURCE = "NO_SOURCE_FOR_MATERIAL"
+    }
+}
+
+/**
+ * `DeliverContainer` — 할당된 용기를 출발 인계점에서 도착 인계점으로 공급한다(시나리오 ①).
+ *
+ * 입력(보고서 5장): `EquipmentUse = source` 인 것이 출발 인계점이고 `container` 속성이
+ * WMS 가 할당한 용기, `EquipmentUse = destination` 이 도착 인계점. 상류는 어느 AMR 을
+ * 쓸지도 경로도 지정하지 않는다.
+ *
+ * 단위 하나 = 운반 하나. 하류는 **플릿에 D 수준으로 위임**한다([Route.FLEET]) — 플릿이
+ * 운반 전체를 제공하므로 미들웨어가 이동·도킹·하역을 조합하지 않는다. 플릿의 완료가
+ * E1 이고, 그 용기가 그 자리에 있는지는 인계 설비(E2)가 말한다. 최고 등급 E2.
+ */
+class DeliverContainer : LogicalCapability {
+
+    override val workMasterId: String = WORK_MASTER
+
+    override val maxEvidence: Evidence = Evidence.E2
+
+    override fun plan(order: JobOrder): List<ExecutionUnit> {
+        val source = order.equipmentRequirements.firstOrNull { it.equipmentUse == EquipmentUse.SOURCE }
+        val destination = order.equipmentRequirements.firstOrNull { it.equipmentUse == EquipmentUse.DESTINATION }
+        val container = source?.properties?.get(EquipmentUse.PROP_CONTAINER)
+
+        if (source == null || destination == null || container == null) {
+            return listOf(
+                ExecutionUnit(
+                    unitId = container ?: order.jobOrderId,
+                    route = Route.FLEET,
+                    skillType = TRANSPORT,
+                    parameters = emptyMap(),
+                    expectedIdentity = container,
+                    source = source?.id,
+                    destination = destination?.id,
+                    state = UnitState.FAILED,
+                    failureClass = INCOMPLETE_ORDER,
+                ),
+            )
+        }
+
+        return listOf(
+            ExecutionUnit(
+                unitId = container,
+                route = Route.FLEET,
+                skillType = TRANSPORT,
+                parameters = mapOf(
+                    P_CONTAINER to container,
+                    P_SOURCE to source.id,
+                    P_DESTINATION to destination.id,
+                ),
+                expectedIdentity = container,
+                source = source.id,
+                destination = destination.id,
+            ),
+        )
+    }
+
+    companion object {
+        const val WORK_MASTER = "DeliverContainer"
+
+        /** 플릿 계약의 실행 단위 이름 — 계약 카탈로그의 스킬이 아니다. */
+        const val TRANSPORT = "transport"
+        const val P_CONTAINER = "container"
+        const val P_SOURCE = "source"
+        const val P_DESTINATION = "destination"
+
+        const val INCOMPLETE_ORDER = "INCOMPLETE_ORDER"
     }
 }

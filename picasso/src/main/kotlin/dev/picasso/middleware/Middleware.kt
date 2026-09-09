@@ -16,6 +16,12 @@ import dev.picasso.contracts.v1.WatchTaskResponse
  * 부를 때 읽는다. 시험이 가상 시계를 밀고 `pump()` 를 부르는 결정적 구동에 맞춘
  * 것이며(§12.1), 운영 배치에서는 스케줄러가 `pump()` 를 돌린다.
  *
+ * ## 하류가 둘
+ *
+ * [Route.ROBOT] 은 계약(④)의 원자 스킬이고 [Route.FLEET] 은 D 수준 위임이다.
+ * 둘을 가르는 것은 하류의 **종류**이지 기종이 아니다 — 여기에 기종 이름은 없고
+ * 게이트 7번이 그것을 지킨다.
+ *
  * ## 기체
  *
  * 실행 하나는 기체 하나에서 **차례로** 돈다 — 실물은 예외 없이 배타적 제어
@@ -25,7 +31,8 @@ import dev.picasso.contracts.v1.WatchTaskResponse
 class Middleware(
     private val robots: RobotPort,
     private val cell: CellSignals = CellSignals.None,
-    capabilities: List<LogicalCapability> = listOf(PrepareSequencedRack()),
+    private val fleet: AmrFleetPort = AmrFleetPort.None,
+    capabilities: List<LogicalCapability> = listOf(PrepareSequencedRack(), DeliverContainer()),
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -46,8 +53,11 @@ class Middleware(
             internal set
         internal var active: ExecutionUnit? = null
         internal var handle: TaskHandle? = null
+        internal var transport: TransportHandle? = null
         internal var cancelRequested = false
         internal var lastCancel: CancelReport? = null
+        /** 지연 보고를 한 번만 내기 위한 표시. */
+        internal var notedDelay: String? = null
 
         val completedUnits: List<String> get() = units.filter { it.state == UnitState.DONE }.map { it.unitId }
         val version: Int get() = order.version
@@ -117,7 +127,7 @@ class Middleware(
                 UnitState.PENDING -> (replanned[unit.unitId] ?: unit).also { it.revision = order.version }
                 UnitState.RUNNING -> {
                     val fresh = replanned[unit.unitId]
-                    if (fresh != null) {
+                    if (fresh != null && unit.route == Route.ROBOT) {
                         unit.revision = order.version
                         val response = robots.start(execution.robotId, unit.taskId, order.version, unit.skillType, fresh.parameters)
                         if (!response.hasHandle()) {
@@ -125,18 +135,19 @@ class Middleware(
                             unit.failureClass = response.rejection.code.name
                         }
                     }
+                    // 플릿에 맡긴 운반은 도중에 바꾸지 않는다 — 플릿 계약에 갱신이 없다. 끝난 뒤 새 주문이다.
                     unit
                 }
             }
         }
-        // 새 버전에 새로 생긴 슬롯
         val added = replanned.values.filter { fresh -> kept.none { it.unitId == fresh.unitId } }
             .onEach { it.revision = order.version }
         execution.units.clear()
         execution.units.addAll(kept + added)
         execution.order = order
-        // 부분 완료로 정착해 통보까지 나갔던 실행이 다시 산다.
-        if (execution.physicalState == PhysicalState.PARTIAL || execution.physicalState == PhysicalState.UNVERIFIED) {
+        if (execution.physicalState == PhysicalState.PARTIAL || execution.physicalState == PhysicalState.UNVERIFIED ||
+            execution.physicalState == PhysicalState.FAILED
+        ) {
             execution.physicalState = PhysicalState.RUNNING
         }
         return Submission.Accepted(execution)
@@ -154,24 +165,19 @@ class Middleware(
 
         val active = execution.active
         if (active != null) {
-            val updates = robots.watch(execution.robotId, execution.handle!!)
-            val last = updates.lastOrNull() ?: return
-            active.hold = last.hold
-            if (!last.state.isTerminal()) {
-                execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
-                return
+            val settled = when (active.route) {
+                Route.ROBOT -> pumpRobotUnit(execution, active)
+                Route.FLEET -> pumpFleetUnit(execution, active)
             }
-            settleUnit(execution, active, last)
+            if (!settled) return
             execution.active = null
             execution.handle = null
-            if (execution.cancelRequested) {
-                abort(execution, active, last)
-                return
-            }
+            execution.transport = null
+            if (execution.cancelRequested) return // abort 가 이미 적었다
         }
 
         if (execution.cancelRequested) {
-            abort(execution, inProgress = null, last = null)
+            abort(execution, inProgress = null, hold = null, cleanup = "nothing_to_clean")
             return
         }
 
@@ -183,66 +189,158 @@ class Middleware(
         startUnit(execution, next)
     }
 
-    private fun startUnit(execution: Execution, unit: ExecutionUnit) {
-        unit.taskId = "${execution.order.jobOrderId}#${unit.unitId}"
-        val response = robots.start(execution.robotId, unit.taskId, unit.revision, unit.skillType, unit.parameters)
-        if (!response.hasHandle()) {
-            unit.state = UnitState.FAILED
-            unit.failureClass = response.rejection.code.takeIf { it != RejectionCode.REJECTION_CODE_UNSPECIFIED }?.name
-                ?: "REJECTED"
-            return
+    /** @return 단위가 종착했는가. */
+    private fun pumpRobotUnit(execution: Execution, unit: ExecutionUnit): Boolean {
+        val updates = robots.watch(execution.robotId, execution.handle!!)
+        val last = updates.lastOrNull() ?: return false
+        unit.hold = last.hold
+        if (!last.state.isTerminal()) {
+            execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+            return false
         }
-        unit.state = UnitState.RUNNING
-        execution.active = unit
-        execution.handle = response.handle
-        execution.physicalState = PhysicalState.RUNNING
-    }
-
-    /**
-     * 원자 태스크의 종착을 단위의 종착으로 — 그리고 **근거를 결합**한다(보고서 10.2 —
-     * 번역만으로는 안 된다).
-     *
-     * 로봇의 `SUCCEEDED` 는 E0 다. 요구 등급이 그보다 높으면 셀 검증 장치에 묻는다:
-     * 신호가 기대와 맞으면 E2 도달, 없으면 `UNVERIFIED`(재작업 금지, 운영자 확인),
-     * 다르면 오인계 의심으로 `FAILED`(보고서 12.3). 시간창 δ 는 다음 단계에서 붙는다.
-     */
-    private fun settleUnit(execution: Execution, unit: ExecutionUnit, last: WatchTaskResponse) {
         when (last.state) {
-            TaskState.TASK_STATE_SUCCEEDED -> {
-                unit.reached = Evidence.E0
-                if (execution.order.requiredEvidence <= Evidence.E0) {
-                    unit.verification = Verification.NOT_REQUESTED
-                    unit.state = UnitState.DONE
-                    return
-                }
-                val signal = unit.destination?.let { cell.observe(it) }
-                when {
-                    signal == null || !signal.occupied -> {
-                        unit.verification = Verification.ABSENT
-                        unit.state = UnitState.UNVERIFIED
-                    }
-                    unit.expectedMaterial != null && signal.material != unit.expectedMaterial -> {
-                        unit.verification = Verification.MISMATCH
-                        unit.state = UnitState.FAILED
-                        unit.failureClass = MISMATCH
-                    }
-                    else -> {
-                        unit.verification = Verification.MATCHED
-                        unit.reached = Evidence.E2
-                        unit.state = UnitState.DONE
-                    }
-                }
-            }
-
-            TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> {
-                unit.state = UnitState.ABORTED
-            }
-
+            TaskState.TASK_STATE_SUCCEEDED -> verify(execution, unit, reachedByDownstream = Evidence.E0)
+            TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> unit.state = UnitState.ABORTED
             else -> {
                 unit.state = UnitState.FAILED
                 // 계약이 실은 정준 분류(어댑터가 벤더 코드에서 옮긴 것). 안 실렸으면 상태 이름으로 남긴다 —
                 // 지어내지 않는다.
                 unit.failureClass = last.fault.errorType.takeIf { it.isNotBlank() } ?: last.state.name
+            }
+        }
+        if (execution.cancelRequested) {
+            abort(
+                execution, inProgress = unit, hold = last.hold,
+                cleanup = when (last.state) {
+                    TaskState.TASK_STATE_CANCELLED -> "done"
+                    TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> "failed"
+                    else -> "not_applicable"
+                },
+            )
+        }
+        return true
+    }
+
+    /** @return 단위가 종착했는가. */
+    private fun pumpFleetUnit(execution: Execution, unit: ExecutionUnit): Boolean {
+        val status = fleet.status(execution.transport!!)
+        unit.hold = holdOf(status, unit)
+        when (status.state) {
+            TransportState.ACCEPTED, TransportState.PICKED_UP, TransportState.IN_TRANSIT -> {
+                unit.note = null
+                execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+                return false
+            }
+
+            TransportState.WAITING_HANDOVER -> {
+                // 목적지에 이전 용기가 남아 있다 — 인계 대기와 **지연 보고**. 임의의 다른 자리에 내려놓지 않는다.
+                unit.note = WAITING_HANDOVER
+                execution.physicalState = PhysicalState.RUNNING
+                if (execution.notedDelay != unit.unitId) {
+                    execution.notedDelay = unit.unitId
+                    notify(execution)
+                }
+                return false
+            }
+
+            TransportState.DELIVERED -> verify(execution, unit, reachedByDownstream = Evidence.E1)
+
+            TransportState.REJECTED_AT_SOURCE -> {
+                // 출발지의 용기가 요청과 다르다 — 인수하지 않고 불일치 보고. 상류(WMS)가 할당·현장 재고를 확인한다.
+                unit.state = UnitState.FAILED
+                unit.failureClass = SOURCE_MISMATCH
+                unit.note = status.observedContainer?.let { "observed=$it" }
+            }
+
+            TransportState.CANCELLED -> unit.state = UnitState.ABORTED
+
+            TransportState.FAILED -> {
+                unit.state = UnitState.FAILED
+                unit.failureClass = status.detail ?: TransportState.FAILED.name
+            }
+        }
+        if (execution.cancelRequested) {
+            abort(
+                execution, inProgress = unit, hold = unit.hold,
+                cleanup = if (status.holding) "failed" else "done",
+            )
+        }
+        return true
+    }
+
+    private fun holdOf(status: TransportStatus, unit: ExecutionUnit): HoldState =
+        if (status.holding) {
+            HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_HOLDING).setObjectRef(status.observedContainer ?: unit.unitId).build()
+        } else {
+            HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_EMPTY).build()
+        }
+
+    private fun startUnit(execution: Execution, unit: ExecutionUnit) {
+        unit.taskId = "${execution.order.jobOrderId}#${unit.unitId}"
+        when (unit.route) {
+            Route.ROBOT -> {
+                val response = robots.start(execution.robotId, unit.taskId, unit.revision, unit.skillType, unit.parameters)
+                if (!response.hasHandle()) {
+                    unit.state = UnitState.FAILED
+                    unit.failureClass = response.rejection.code.takeIf { it != RejectionCode.REJECTION_CODE_UNSPECIFIED }?.name
+                        ?: "REJECTED"
+                    return
+                }
+                execution.handle = response.handle
+            }
+
+            Route.FLEET -> {
+                val handle = fleet.dispatch(
+                    TransportOrder(
+                        reference = unit.taskId,
+                        containerId = unit.expectedIdentity ?: unit.unitId,
+                        source = unit.source ?: "",
+                        destination = unit.destination ?: "",
+                    ),
+                )
+                if (handle == null) {
+                    unit.state = UnitState.FAILED
+                    unit.failureClass = FLEET_REJECTED
+                    return
+                }
+                execution.transport = handle
+            }
+        }
+        unit.state = UnitState.RUNNING
+        execution.active = unit
+        execution.physicalState = PhysicalState.RUNNING
+    }
+
+    /**
+     * 하류의 완료를 단위의 종착으로 — 그리고 **근거를 결합**한다(보고서 10.2 — 번역만으로는 안 된다).
+     *
+     * 하류가 준 등급([reachedByDownstream]: 로봇 E0, 플릿 E1)이 요구 이상이면 그대로 완료.
+     * 아니면 독립 설비에 묻는다: 신호가 기대와 맞으면 E2 도달, 없으면 `UNVERIFIED`(재작업
+     * 금지, 운영자 확인), 다르면 오인계 의심으로 `FAILED`(보고서 12.3). 시간창 δ 는 다음 단계.
+     */
+    private fun verify(execution: Execution, unit: ExecutionUnit, reachedByDownstream: Evidence) {
+        unit.reached = reachedByDownstream
+        if (execution.order.requiredEvidence <= reachedByDownstream) {
+            unit.verification = Verification.NOT_REQUESTED
+            unit.state = UnitState.DONE
+            return
+        }
+        val signal = unit.destination?.let { cell.observe(it) }
+        when {
+            signal == null || !signal.occupied -> {
+                unit.verification = Verification.ABSENT
+                unit.state = UnitState.UNVERIFIED
+            }
+            unit.expectedIdentity != null && signal.identity != unit.expectedIdentity -> {
+                unit.verification = Verification.MISMATCH
+                unit.state = UnitState.FAILED
+                unit.failureClass = MISMATCH
+                unit.note = signal.identity?.let { "observed=$it" }
+            }
+            else -> {
+                unit.verification = Verification.MATCHED
+                unit.reached = Evidence.E2
+                unit.state = UnitState.DONE
             }
         }
     }
@@ -252,6 +350,7 @@ class Middleware(
         val before = execution.physicalState
         execution.physicalState = when {
             states.all { it == UnitState.DONE } -> PhysicalState.PHYSICALLY_DONE
+            states.all { it == UnitState.FAILED } -> PhysicalState.FAILED
             states.any { it == UnitState.FAILED } -> PhysicalState.PARTIAL
             states.any { it == UnitState.UNVERIFIED } -> PhysicalState.UNVERIFIED
             states.any { it == UnitState.ABORTED } -> PhysicalState.ABORTED
@@ -267,37 +366,25 @@ class Middleware(
         val execution = executions[executionId] ?: return false
         if (execution.physicalState.isSettled && execution.physicalState != PhysicalState.PARTIAL) return false
         execution.cancelRequested = true
-        val handle = execution.handle
-        if (handle != null) {
-            val response = robots.cancel(execution.robotId, handle)
-            if (!response.hasState()) {
-                // 취소 불가 스킬(CANCEL_UNSUPPORTED) — 감추지 않는다. 도는 단위는 끝까지 가고 그 뒤에 멈춘다.
-                execution.physicalState = PhysicalState.CANCELING
-                return true
-            }
-        }
+        execution.handle?.let { robots.cancel(execution.robotId, it) }
+        execution.transport?.let { fleet.cancel(it) }
         execution.physicalState = PhysicalState.CANCELING
         return true
     }
 
     fun lastCancel(executionId: String): CancelReport? = executions[executionId]?.lastCancel
 
-    private fun abort(execution: Execution, inProgress: ExecutionUnit?, last: WatchTaskResponse?) {
+    private fun abort(execution: Execution, inProgress: ExecutionUnit?, hold: HoldState?, cleanup: String) {
         val report = CancelReport(
             executionId = execution.executionId,
             version = execution.order.version,
             accepted = true,
-            motionStopped = last == null || last.state.isTerminal(),
+            motionStopped = true,
             completedUnits = execution.completedUnits,
             inProgressUnit = inProgress?.unitId,
             notStartedUnits = execution.units.filter { it.state == UnitState.PENDING }.map { it.unitId },
-            residualHold = last?.hold ?: HoldState.getDefaultInstance(),
-            cleanup = when (last?.state) {
-                TaskState.TASK_STATE_CANCELLED -> "done"
-                TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> "failed"
-                null -> "nothing_to_clean"
-                else -> "not_applicable"
-            },
+            residualHold = hold ?: HoldState.getDefaultInstance(),
+            cleanup = cleanup,
             finalState = PhysicalState.ABORTED,
         )
         execution.lastCancel = report
@@ -318,9 +405,9 @@ class Middleware(
             reachedEvidence = units.filter { it.state == UnitState.DONE }.minOfOrNull { it.reached } ?: Evidence.E0,
             completedUnits = units.filter { it.state == UnitState.DONE }.map { it.unitId },
             unverifiedUnits = units.filter { it.state == UnitState.UNVERIFIED }.map { it.unitId },
-            incompleteUnits = units.filter { it.state == UnitState.FAILED || it.state == UnitState.ABORTED || it.state == UnitState.PENDING }
-                .associate { it.unitId to (it.failureClass ?: it.state.name) },
-            operatorRequired = units.any { it.state == UnitState.UNVERIFIED || it.verification == Verification.MISMATCH } ||
+            incompleteUnits = units.filter { it.state != UnitState.DONE && it.state != UnitState.UNVERIFIED }
+                .associate { it.unitId to (it.failureClass ?: it.note ?: it.state.name) },
+            operatorRequired = units.any { it.state == UnitState.UNVERIFIED || it.verification == Verification.MISMATCH || it.failureClass == SOURCE_MISMATCH } ||
                 execution.lastCancel?.cleanup == "failed",
             residualHold = units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold ?: HoldState.getDefaultInstance(),
         )
@@ -343,7 +430,15 @@ class Middleware(
         this == TaskState.TASK_STATE_NEEDS_INTERVENTION || this == TaskState.TASK_STATE_RETRIABLE
 
     companion object {
-        /** 검증 불일치 — 로봇은 성공이라는데 설비가 다른 자재를 봤다(보고서 12.3 넷째 행). */
+        /** 검증 불일치 — 하류는 성공이라는데 설비가 다른 것을 봤다(보고서 12.3 넷째 행). */
         const val MISMATCH = "VERIFICATION_MISMATCH"
+
+        /** 출발지의 용기가 요청과 달라 인수하지 않았다(보고서 5장 상황표 둘째 행). */
+        const val SOURCE_MISMATCH = "SOURCE_CONTAINER_MISMATCH"
+
+        /** 목적지가 비어 있지 않아 인계를 기다린다(같은 표 첫째 행) — 실패가 아니라 지연이다. */
+        const val WAITING_HANDOVER = "WAITING_HANDOVER"
+
+        const val FLEET_REJECTED = "FLEET_REJECTED"
     }
 }

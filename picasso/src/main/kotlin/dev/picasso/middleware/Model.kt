@@ -28,26 +28,34 @@ enum class UpstreamAck { NOT_SENT, SENT_UNACKED, ACKED }
  * 완료 근거 등급(설계 §1.3, 보고서 11.3). 순서가 곧 세기다.
  *
  * - E0 로봇 자체 보고 — 계약 종착. 어댑터가 로봇에 직결된 경우
- * - E1 플릿 확인 — 어댑터가 플릿에 붙은 경우
+ * - E1 플릿 확인 — 플릿이 자기 완료 조건으로 발행한 완료(어댑터가 플릿에 붙은 경우, 또는 D 수준 위임)
  * - E2 독립 설비 확인 — 인계 설비·셀 검증 장치의 신호([CellSignals])
  * - E3 업무 확인 — 상류의 ack
  */
 enum class Evidence { E0, E1, E2, E3 }
 
-/** 원자 단위(슬롯·용기) 하나의 검증 결과 — 로봇 보고와 독립 설비 신호의 대조(보고서 12.3). */
+/** 원자 단위(슬롯·용기) 하나의 검증 결과 — 하류 보고와 독립 설비 신호의 대조(보고서 12.3). */
 enum class Verification {
-    /** 요구 등급이 E0 이하라 설비 확인을 묻지 않았다. */
+    /** 요구 등급이 하류 보고 이하라 설비 확인을 묻지 않았다. */
     NOT_REQUESTED,
     /** 신호가 있고 기대와 맞는다. */
     MATCHED,
-    /** 신호가 없다 — 로봇은 끝났다는데 설비가 말이 없다. `UNVERIFIED`. */
+    /** 신호가 없다 — 하류는 끝났다는데 설비가 말이 없다. `UNVERIFIED`. */
     ABSENT,
-    /** 신호가 있으나 기대와 다르다(B형 슬롯에 A형). 오인계 의심 — `FAILED` + 운영자. */
+    /** 신호가 있으나 기대와 다르다(B형 슬롯에 A형, 다른 용기). 오인계 의심 — `FAILED` + 운영자. */
     MISMATCH,
 }
 
 /** 원자 단위의 종착. */
 enum class UnitState { PENDING, RUNNING, DONE, UNVERIFIED, FAILED, ABORTED }
+
+/**
+ * 단위가 어느 하류로 가는가(보고서 3.2 축 1·2).
+ *
+ * - [ROBOT] — 계약(④)의 원자 스킬 하나. 기종은 어댑터 뒤에 있다
+ * - [FLEET] — D 수준 위임. 운반 전체를 플릿에 맡기고 결과만 받는다([AmrFleetPort], 프로젝트용 계약)
+ */
+enum class Route { ROBOT, FLEET }
 
 // ── 상류 인터페이스의 모양 — OPC UA ISA-95 Job Control 10031-4 의 타입을 따른다
 
@@ -81,15 +89,18 @@ data class JobOrder(
 )
 
 /**
- * 원자 단위 하나 — 슬롯 하나, 용기 하나. 계약의 태스크 하나에 대응한다.
+ * 원자 단위 하나 — 슬롯 하나, 용기 하나. 하류의 실행 하나에 대응한다.
  *
- * @param unitId 상류가 아는 단위 이름(슬롯 id). 중단점과 부분 완료 목록이 이것으로 말한다.
+ * @param unitId 상류가 아는 단위 이름(슬롯 id·용기 id). 중단점과 부분 완료 목록이 이것으로 말한다.
+ * @param expectedIdentity 설비가 그 자리에서 읽어야 할 것 — 부품 타입이거나 용기 태그.
  */
 data class ExecutionUnit(
     val unitId: String,
+    val route: Route,
     val skillType: String,
     val parameters: Map<String, String>,
-    val expectedMaterial: String?,
+    val expectedIdentity: String?,
+    val source: String?,
     val destination: String?,
     var state: UnitState = UnitState.PENDING,
     var taskId: String = "",
@@ -98,6 +109,8 @@ data class ExecutionUnit(
     var verification: Verification = Verification.NOT_REQUESTED,
     /** 실패의 정준 분류. 어댑터가 벤더 코드에서 옮긴 것이 계약의 `Fault.error_type` 으로 온다. */
     var failureClass: String? = null,
+    /** 종착이 아닌 사정 — 인계 대기 같은 것. 지연 보고의 내용이다. */
+    var note: String? = null,
     var hold: HoldState = HoldState.getDefaultInstance(),
 )
 
@@ -121,7 +134,7 @@ data class CancelReport(
  *
  * 상류에 드러내는 것(보고서 16장): 도달 등급과 요구 등급 충족 여부, 아직 확인되지
  * 않았다는 사실(`UNVERIFIED`), 일부 단위만 완료됐다는 사실과 그 목록, 운영자 판단
- * 필요. 감추는 것: SDK, 하류 상태 이름, 어댑터가 어느 층에 붙었는지.
+ * 필요, 인계 대기 같은 지연. 감추는 것: SDK, 하류 상태 이름, 어댑터가 어느 층에 붙었는지.
  */
 data class JobResponse(
     val jobResponseId: String,
@@ -132,7 +145,7 @@ data class JobResponse(
     val reachedEvidence: Evidence,
     val completedUnits: List<String>,
     val unverifiedUnits: List<String>,
-    /** 미완료 단위와 그 사유 — 정준 분류 또는 검증 결과. 벤더 이름은 없다. */
+    /** 미완료 단위와 그 사유 — 정준 분류·검증 결과·지연 사정. 벤더 이름은 없다. */
     val incompleteUnits: Map<String, String>,
     val operatorRequired: Boolean,
     val residualHold: HoldState,
