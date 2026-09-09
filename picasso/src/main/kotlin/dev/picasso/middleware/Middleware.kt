@@ -35,7 +35,7 @@ class Middleware(
     private val robots: RobotPort,
     private val cell: CellSignals = CellSignals.None,
     private val fleet: AmrFleetPort = AmrFleetPort.None,
-    capabilities: List<LogicalCapability> = listOf(PrepareSequencedRack(), DeliverContainer()),
+    capabilities: List<LogicalCapability> = listOf(PrepareSequencedRack(), DeliverContainer(), InspectAsset()),
     private val now: () -> Instant = { Instant.now() },
     /**
      * `IN_DOUBT` 에서 같은 참조로 다시 묻는 횟수의 상한(13.2 ①). 이만큼 물어도 답이 없으면 하류가 지금은 조회 불가인
@@ -65,6 +65,8 @@ class Middleware(
         internal var transport: TransportHandle? = null
         internal var cancelRequested = false
         internal var lastCancel: CancelReport? = null
+        /** 하류가 진행 중 단위의 중단을 거절한 사유 — 그 단위는 끝까지 가고 다음 경계에서 멈춘다. */
+        internal var cancelRefusal: String? = null
         /** 지연 보고·운영자 보류·미확정 통보를 한 번만 내기 위한 표시. */
         internal var notedDelay: String? = null
         internal var notedHold: String? = null
@@ -106,6 +108,13 @@ class Middleware(
     fun submit(order: JobOrder, robotId: String): Submission {
         val capability = capabilities[order.workMasterId]
             ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
+        // 보고서 11.3 — 능력은 최고 등급을 선언하고 요청은 요구 등급을 지정한다. 확인 수단이 없으면 제공 불가다.
+        // 받아 놓고 UNVERIFIED 로 끝내는 것은 상류에 "될지도 모른다" 고 말한 셈이다.
+        if (order.requiredEvidence > capability.maxEvidence) {
+            return Submission.Rejected(
+                "요구 근거 등급 ${order.requiredEvidence} 은 ${capability.workMasterId} 의 최고 등급 ${capability.maxEvidence} 를 넘는다 — 확인 수단이 없다",
+            )
+        }
 
         val existing = executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }
         if (existing != null) return revise(existing, order)
@@ -274,6 +283,8 @@ class Middleware(
         }
         when (last.state) {
             TaskState.TASK_STATE_SUCCEEDED -> {
+                // 하류가 실어 준 결과 참조(E0 의 내용). 비어 있으면 비어 있는 채로 — 지어내지 않는다.
+                unit.result = last.partialResult.takeIf { it.isNotBlank() }
                 beginVerify(execution, unit, reachedByDownstream = Evidence.E0, doneAt = stateTime(last))
                 if (unit.state == UnitState.VERIFYING) return false // active 로 남아 시간창을 기다린다
             }
@@ -658,7 +669,13 @@ class Middleware(
         val execution = executions[executionId] ?: return false
         if (execution.physicalState.isSettled && execution.physicalState != PhysicalState.PARTIAL) return false
         execution.cancelRequested = true
-        execution.handle?.let { robots.cancel(execution.robotId, it) }
+        execution.cancelRefusal = null
+        execution.handle?.let { handle ->
+            val response = robots.cancel(execution.robotId, handle)
+            // **거절을 감추지 않는다.** 그 스킬이 취소를 안 들면(CANCEL_UNSUPPORTED) 진행 중 단위는 끝까지 가고 다음
+            // 경계에서 멈춘다 — 그 사실이 취소 응답에 드러나야 상류가 중단점을 안다(16장).
+            if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
+        }
         execution.transport?.let { fleet.cancel(it) }
         execution.physicalState = PhysicalState.CANCELING
         return true
@@ -678,6 +695,7 @@ class Middleware(
             residualHold = hold ?: HoldState.getDefaultInstance(),
             cleanup = cleanup,
             finalState = PhysicalState.ABORTED,
+            refusal = execution.cancelRefusal,
         )
         execution.lastCancel = report
         execution.physicalState = PhysicalState.ABORTED
@@ -705,6 +723,7 @@ class Middleware(
             } || execution.lastCancel?.cleanup == "failed",
             residualHold = units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold ?: HoldState.getDefaultInstance(),
             inDoubtUnits = units.filter { it.state == UnitState.IN_DOUBT }.map { it.unitId },
+            results = units.filter { it.state == UnitState.DONE && !it.result.isNullOrBlank() }.associate { it.unitId to it.result!! },
             autoResolvesInDoubt = units.all {
                 (if (it.route == Route.ROBOT) robots.executionLookup else fleet.executionLookup) == ExecutionLookup.CLIENT_REFERENCE
             },

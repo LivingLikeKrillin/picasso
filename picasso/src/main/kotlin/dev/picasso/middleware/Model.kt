@@ -175,6 +175,11 @@ data class ExecutionUnit(
     var requestedAt: Instant? = null,
     /** `IN_DOUBT` 에서 같은 참조로 다시 물은 횟수(13.2 ①). */
     var lookups: Int = 0,
+    /**
+     * 하류가 종착에 실어 준 결과 참조 — 계약의 `partial_result`. 점검(③)의 *측정값 또는 증거 자료 참조*가 올 자리이며
+     * 지금은 아무 발신자도 채우지 않는다(§15.76). 비어 있으면 `null`.
+     */
+    var result: String? = null,
 )
 
 /** 취소 응답(보고서 14.1) — 원상복구가 아니라 중단점과 잔여 물리 상태의 보고다. */
@@ -190,6 +195,12 @@ data class CancelReport(
     /** 정리 동작의 결과 — 계약의 `CANCELLED`(done) / `CANCELLED_RECOVERY_FAILED`(failed). */
     val cleanup: String,
     val finalState: PhysicalState,
+    /**
+     * 하류가 진행 중 단위의 중단을 **거절**한 사유(계약의 거절 코드) — 그 스킬이 취소를 안 든다(`CANCEL_UNSUPPORTED`).
+     * 그러면 그 단위는 끝까지 가고 다음 경계에서 멈춘다. 보고서 16장 *"취소 수준 지원 범위와 취소 가능 지점 제약"* 을
+     * 드러내는 자리이고, 지원하지 않는 것을 지원하는 것처럼 감추지 않는다(7장). 하류가 받아들였으면 `null`.
+     */
+    val refusal: String? = null,
 )
 
 /**
@@ -216,5 +227,7 @@ data class JobResponse(
     val inDoubtUnits: List<String> = emptyList(),
     /** 이 실행의 하류가 `IN_DOUBT` 를 자동으로 푸는가(16장 — 실행 조회 가능 여부). 거짓이면 그 상황은 운영자에게 간다. */
     val autoResolvesInDoubt: Boolean = true,
+    /** 완료 단위가 실어 온 결과 참조(있는 것만). 점검의 측정값·증거 자료 참조가 올 자리 — 지금은 비어 있다. */
+    val results: Map<String, String> = emptyMap(),
     var ack: UpstreamAck = UpstreamAck.SENT_UNACKED,
 )

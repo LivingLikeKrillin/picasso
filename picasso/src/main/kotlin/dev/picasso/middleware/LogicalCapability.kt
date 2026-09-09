@@ -37,6 +37,11 @@ object EquipmentUse {
     const val SOURCE = "source"
     const val PROP_MATERIAL = "material"
     const val PROP_CONTAINER = "container"
+
+    /** 점검 대상(시나리오 ③). `location` 속성이 그 대상을 살필 자리, `item` 이 점검 항목이다. */
+    const val INSPECTION_TARGET = "inspection_target"
+    const val PROP_LOCATION = "location"
+    const val PROP_ITEM = "item"
 }
 
 /**
@@ -166,5 +171,95 @@ class DeliverContainer : LogicalCapability {
         const val P_DESTINATION = "destination"
 
         const val INCOMPLETE_ORDER = "INCOMPLETE_ORDER"
+    }
+}
+
+/**
+ * `InspectAsset` — 점검 대상 목록을 순회하며 항목을 살핀다(시나리오 ③, 보고서 7장).
+ *
+ * 입력: `EquipmentUse = inspection_target` 인 것이 점검 대상이고, `location` 속성이 그 대상을 살필
+ * 자리(장소의 이름 — `is_site_reference`), `item` 이 점검 항목이다. 목록의 순서가 순회 순서다. 실행
+ * 조건은 주문의 `parameters` 로 온다(`mode` 가 있으면 `inspect` 의 선택 파라미터로 넘긴다).
+ *
+ * 대상 하나 = 단위 둘 — `<대상>.travel`(`navigate_to(location)`) 과 `<대상>`(`inspect(target)`). 갈 곳은
+ * 장소의 이름이고 살필 것은 대상의 이름이다(공간 둘, §15.78). 상류가 아는 단위는 뒤의 것(항목)이고,
+ * 앞의 것은 거기까지 가는 걸음이다 — 둘 다 결과 목록에 오르므로 어디서 멈췄는지가 보인다.
+ *
+ * **최고 근거 등급은 E0 다.** 점검 결과는 로봇 자신의 보고(측정값·증거 자료 참조)이고 그것을 독립적으로
+ * 확인하는 설비가 없다. E2 를 요구하는 주문은 접수하지 않는다(보고서 11.3 — *확인 수단이 없으면 제공 불가*).
+ *
+ * 점검 결과를 실을 자리는 계약에 `partial_result` 문자열 하나뿐이고 미믹은 채우지 않는다(§15.76·§15.87).
+ * 그래서 이 능력이 낸 `JobResponse.results` 는 지금 비어 있으며, 그 사실을 시험이 고정한다.
+ *
+ * 공통 엔진은 손대지 않았다 — 이 클래스와 [EquipmentUse] 의 낱말 셋이 확장의 전부다(17장 10번).
+ */
+class InspectAsset : LogicalCapability {
+
+    override val workMasterId: String = WORK_MASTER
+
+    override val maxEvidence: Evidence = Evidence.E0
+
+    override fun plan(order: JobOrder): List<ExecutionUnit> {
+        val mode = order.parameters[P_MODE]
+        return order.equipmentRequirements
+            .filter { it.equipmentUse == EquipmentUse.INSPECTION_TARGET }
+            .flatMap { target ->
+                val location = target.properties[EquipmentUse.PROP_LOCATION]
+                if (location == null) {
+                    // 살필 자리를 모르면 갈 수도 살필 수도 없다 — 부족은 계획에서 드러난다(PrepareSequencedRack 의 NO_SOURCE 와 같은 자리).
+                    return@flatMap listOf(
+                        ExecutionUnit(
+                            unitId = target.id,
+                            route = Route.ROBOT,
+                            skillType = INSPECT,
+                            parameters = mapOf(P_TARGET to target.id),
+                            expectedIdentity = null,
+                            source = null,
+                            destination = null,
+                            state = UnitState.FAILED,
+                            failureClass = NO_LOCATION,
+                        ),
+                    )
+                }
+                listOf(
+                    ExecutionUnit(
+                        unitId = "${target.id}$TRAVEL_SUFFIX",
+                        route = Route.ROBOT,
+                        skillType = NAVIGATE,
+                        parameters = mapOf(P_LOCATION to location),
+                        expectedIdentity = null,
+                        source = null,
+                        destination = location,
+                    ),
+                    ExecutionUnit(
+                        unitId = target.id,
+                        route = Route.ROBOT,
+                        skillType = INSPECT,
+                        parameters = buildMap {
+                            put(P_TARGET, target.id)
+                            if (mode != null) put(P_MODE, mode)
+                        },
+                        expectedIdentity = null,
+                        source = null,
+                        destination = location,
+                    ),
+                )
+            }
+    }
+
+    companion object {
+        const val WORK_MASTER = "InspectAsset"
+
+        /** 계약 카탈로그의 스킬 둘. */
+        const val NAVIGATE = "navigate_to"
+        const val INSPECT = "inspect"
+        const val P_LOCATION = "location"
+        const val P_TARGET = "target"
+        const val P_MODE = "mode"
+
+        const val TRAVEL_SUFFIX = ".travel"
+
+        /** 그 대상을 살필 자리가 주문에 없다. */
+        const val NO_LOCATION = "NO_LOCATION_FOR_TARGET"
     }
 }

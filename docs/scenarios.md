@@ -188,6 +188,8 @@ picasso 의 `(task_id, revision)` 이 그 짝이다. 요청 쪽 규칙은 §4.4 
 ## 5. 시나리오 ③ — 설비 점검 순회 (4족, `inspect`)
 
 > **이 시나리오는 하네스가 돌린다** — `harness/src/test/kotlin/dev/picasso/harness/InspectionPatrolTest.kt`(4족 픽스처). 지점마다 `navigate_to` + `inspect`, 일시정지·재개, 위치 상실 뒤 개입과 재시도, 취소, 그리고 **점검 결과를 실을 자리가 없다**는 사실을 고정한다. 첫 시험이 미믹의 결함 하나를 잡았다 — 점검은 대상을 참조할 뿐 쥐지 않는다(`grasps_object`, §15.87).
+>
+> **미들웨어 층에서도 돈다** — `picasso/src/test/kotlin/dev/picasso/middleware/InspectAssetTest.kt`(§15.93). 논리적 능력 `InspectAsset` 이 점검 대상 목록을 `navigate_to`+`inspect` 열로 나누고, 공통 엔진은 분기 없이 그대로 돈다(17장 10). 이동 중 취소는 하류가 거절하고 다음 경계에서 멈추며 그 거절이 `CancelReport.refusal` 에 드러난다. 점검 결과를 실을 자리(`JobResponse.results`)는 비어 있고 시험이 그것을 고정한다.
 
 **배경.** 보전 시스템이 점검 대상 목록과 항목을 내고, 결과로 항목별 수행 상태와 측정값 또는 증거 자료 참조를 받는다. 점검 결과를 부품 공급의 필수 단계로 억지로 잇지 않고, 안전 인터록으로도 쓰지 않는다(ADR 32).
 

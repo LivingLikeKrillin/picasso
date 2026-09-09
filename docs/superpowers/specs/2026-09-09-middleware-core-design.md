@@ -186,7 +186,7 @@ ISA-95 Job Control 의 `JobOrder`/`JobResponse` 모양(`scenarios.md` §4.1 의 
 4. **AMR Fleet Mock + 시나리오 ①** — D 수준 위임, 인계 신호 결합, 응답 유실 후 재전송(통보 재시도 ≠ 명령 재시도).
 5. ~~정준 실패 분류 → 어댑터 매핑~~ **됐다(2026-09-10, §15.91, 계약 0.6.0)** — `FailureClass` 가 계약을 타고, Spot·Digit·G1·미믹이 옮기며, 원문은 `vendor_detail` 에 동반. 발신자 없는 값 둘(`PERCEPTION_FAILED`·`GRASP_PLANNING_FAILED`)은 §15.91 정직 항목.
 6. ~~IN_DOUBT 해소·지연 이벤트·`OPERATOR_HOLD`~~ **됐다(2026-09-10, §15.92)** — 13.2 의 순서를 `resolveDoubt` 가 집행하고(포트가 조회 능력을 선언, 없으면 운영자·자동 재실행 없음), 옛 버전의 종착은 `lateEvents` 에 보존하고 새 버전의 기대에 대고 다시 본다. 17장 3·6·9.
-7. **③ 회귀** — `InspectAsset` 추가로 공통 엔진 무변경 확인.
+7. ~~③ 회귀~~ **됐다(2026-09-10, §15.93)** — `InspectAsset` 은 확장 지점에만, 엔진에는 능력·기종 분기 없이 일반 규칙 셋(등급 상한 거절·결과 참조·취소 거절 노출). 17장 1~9 회귀 초록, 10 의 *미지원 취소 차이 노출* 은 `CancelReport.refusal`.
 
 RB-Y1 은 이 순서 뒤의 별도 트랙이다.
 
