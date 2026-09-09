@@ -28,6 +28,8 @@ mimic/                    프로파일 주도 에뮬레이터 — "어댑터 + �
 client/                   계약을 두드려 완료 기준을 증명하는 얇은 소비자
 harness/                  계약 스위트의 주인. mimic 을 띄우고 client 로 돈다
 registry/                 개정판·어댑터 수명주기, 바인딩, 의존 원장, 변경 계획, 카탈로그
+picasso/                  미들웨어의 가운데 — 정준 모델(실행 상태 두 축·근거 등급·논리적 능력·취소 응답)과
+                          공통 실행 구조. 접수 → 조합 → 실행 → 근거 결합 → 결과 통보. 기종을 모른다 (ADR 38)
 adapter-core/             어댑터들이 공유하는 계약 쪽 어휘. 기종을 모른다
 adapter-unitree-g1/       실물 어댑터 — 기종을 아는 유일한 자리 (기종마다 모듈 하나)
 adapter-boston-dynamics-spot/
@@ -90,8 +92,8 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | 왜 이렇게 지었나, 전부 | [설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md) — §1 목적과 **비목표**, §3 아키텍처, §4 계약, §7 프로파일, §9 운영 변경, §11 게이트 |
 | **무엇이 틀렸었고 무엇이 아직 안 되나** | 설계 문서 **§15 알려진 한계** — 항목을 지우지 않고 정정을 덧쓰는 운행 기록. 뒤집힌 판정에는 취소선과 정정 포인터가 남아 있다 |
 | 일감 셋이 계약의 어디에 닿나 — 그리고 AMR 의 경계 | [`docs/scenarios.md`](docs/scenarios.md) — 용기 공급(AMR, 계약 밖) · 부품 시퀀싱(`pick_place`) · 설비 점검(`inspect`); 완료 세 계층과 근거 등급; 계약이 아직 못 주는 것 다섯 |
-| 미들웨어의 가운데 — 정준 모델과 공통 실행 구조 | [`docs/superpowers/specs/2026-09-09-middleware-core-design.md`](docs/superpowers/specs/2026-09-09-middleware-core-design.md) — **검토 대기 초안.** 실행 상태 두 축, 논리적 능력, 근거 등급, 정준 실패 분류, 취소 응답, 상류는 시험 더블까지 |
-| 내린 결정 | [ADR 색인](docs/adr/README.md) — 특히 9(소비 표면 없는 선언 금지), 31·33(어댑터 소유와 자리), 32(안전 기능은 안 나른다), 34·35(시맨틱 결속의 주인), 36(배정 어휘와 실행 계약을 가른다), 37(등록은 발견 아니면 선언) |
+| 미들웨어의 가운데 — 정준 모델과 공통 실행 구조 | [`docs/superpowers/specs/2026-09-09-middleware-core-design.md`](docs/superpowers/specs/2026-09-09-middleware-core-design.md) — 실행 상태 두 축, 논리적 능력, 근거 등급, 정준 실패 분류, 취소 응답, 상류는 예상 소비자(통합 시험이 그 역할) |
+| 내린 결정 | [ADR 색인](docs/adr/README.md) — 특히 9(소비 표면 없는 선언 금지), 31·33(어댑터 소유와 자리), 32(안전 기능은 안 나른다), 34·35(시맨틱 결속의 주인), 36(배정 어휘와 실행 계약을 가른다), 37(등록은 발견 아니면 선언), **38(미션 계층의 스키마와 PoC 엔진은 우리 것)** |
 | 실물 셋이 계약에 얼마나 닿나 | [`profile/distance/`](profile/distance) — 기종별, 스킬별, 근거 등급과 조사 범위 포함 |
 | 벤더가 무엇을 선언하나 | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) |
 | 이 일감을 시키려면 현장에 무엇이 있어야 하나 | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) — 로봇 쓰는 공장·창고를 짓는 쪽이 읽는 제약이자 제안 |

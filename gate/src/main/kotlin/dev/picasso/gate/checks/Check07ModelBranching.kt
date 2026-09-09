@@ -154,8 +154,12 @@ class Check07ModelBranching : GateCheck {
          * 7번의 목록에 더해야 한다"* 가 두 번째 어댑터에서 실현된 자리다.
          *
          * `contracts`·`profile-model`은 기종을 알 수 없다.
+         *
+         * `picasso`(미들웨어의 가운데)는 ADR 38 로 들어왔다 — 벤더 코드에서 정준
+         * 분류로 옮기는 일은 어댑터의 것이고, 그 위의 실행 구조에 `if robot == …`
+         * 가 생기면 정준 모델이 아니다.
          */
-        val MODULES = listOf("client", "mimic", "harness", "adapter-core")
+        val MODULES = listOf("client", "mimic", "harness", "adapter-core", "picasso")
 
         const val MAIN = "src/main"
 

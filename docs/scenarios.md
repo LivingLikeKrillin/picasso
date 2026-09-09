@@ -88,7 +88,7 @@ ADR 36 의 층 넷에 참여자를 놓는다.
 
 ## 4. 시나리오 ② — 부품 시퀀싱 (휴머노이드, `pick_place`)
 
-> **이 시나리오는 하네스가 돌린다** — `harness/src/test/kotlin/dev/picasso/harness/SequencingCellTest.kt`. 슬롯 넷을 차례로 완주시키고, 아래 §4.4 상황표에서 *계약이 답하는 것*을 전부 단언한다(완료 슬롯 보존 · 버전 18 세 갈래 · S03 파지 중 취소와 새 정체성의 재작업 · 든 채 단절). 답하지 않는 것(E2)은 시험에도 없다. 생산 순서 버전이 곧 태스크의 `revision` 이다(17 → 18).
+> **이 시나리오는 두 층에서 돌린다** — 계약 층은 `harness/src/test/kotlin/dev/picasso/harness/SequencingCellTest.kt`, **미들웨어 층은 `picasso/src/test/kotlin/dev/picasso/middleware/SequencingRackTest.kt`**(§15.88 — JobOrder 접수 → 조합 → 근거 결합 → JobResponse 까지, 상황표 넷 전부). 계약 층 시험은 슬롯 넷을 차례로 완주시키고, 아래 §4.4 상황표에서 *계약이 답하는 것*을 전부 단언한다(완료 슬롯 보존 · 버전 18 세 갈래 · S03 파지 중 취소와 새 정체성의 재작업 · 든 채 단절). 답하지 않는 것(E2)은 시험에도 없다. 생산 순서 버전이 곧 태스크의 `revision` 이다(17 → 18).
 
 **배경.** ① 로 부품 용기가 셀에 있다. MES 가 투입 순서를 확정하고 그 순서에 맞는 시퀀싱 랙을 준비하라고 한다. 셀에 있는 부품의 작업별 할당은 MES 가 관리한다. **첫 구현은 용기와 랙 위치가 고정**이며, 그것이 환경 전제 C(종류별 제시) 다.
 
