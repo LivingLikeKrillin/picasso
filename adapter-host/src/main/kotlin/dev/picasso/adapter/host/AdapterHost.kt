@@ -1,5 +1,6 @@
 package dev.picasso.adapter.host
 
+import dev.picasso.uplink.report.HandshakeReporter
 import io.grpc.Server
 import io.grpc.ServerBuilder
 
@@ -12,13 +13,18 @@ import io.grpc.ServerBuilder
  * 발행(상태·이벤트·연결)은 [HostedRobot] 이 자기 `Publisher` 로 내고, 레지스트리 적재는 그 발행자를 `uplink` 의
  * `IngestBridge` 로 감싼 쪽(조립하는 쪽)이 한다 — 미믹의 CLI 가 `RegistryLink.wrap` 으로 하는 것과 같다.
  *
- * **여기 없는 것** — 레지스트리 폴링(§10.3), `Negotiate`, 운영 배치에서 [pump] 를 부르는 스케줄러(모든 RPC 가 펌프를
- * 지나므로 소비자가 폴링하면 그것이 곧 구동이다 — 스케줄러는 런처와 함께 온다).
+ * **여기 없는 것** — 레지스트리 폴링(§10.3), 운영 배치에서 [pump] 를 부르는 스케줄러(모든 RPC 가 펌프를 지나므로
+ * 소비자가 폴링하면 그것이 곧 구동이다 — 스케줄러는 런처와 함께 온다).
  */
-class AdapterHost(val robot: HostedRobot, builder: ServerBuilder<*>) {
+class AdapterHost(
+    val robot: HostedRobot,
+    builder: ServerBuilder<*>,
+    /** §5.4 의 핸드셰이크 결과 보고. 붙이지 않으면 아무 데도 안 나간다 — 미믹의 `MimicServer` 와 같은 자리다. */
+    reporter: HandshakeReporter = HandshakeReporter.NONE,
+) {
 
     private val server: Server = builder
-        .addService(HostSkillService(robot))
+        .addService(HostSkillService(robot, reporter))
         .addService(HostTaskService(robot))
         .addService(HostEventService(robot))
         .build()

@@ -1,6 +1,5 @@
-package dev.picasso.mimic.profile
+package dev.picasso.capability
 
-import dev.picasso.profile.projection.CapabilityProjection
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.OptionalFieldSupport
 import dev.picasso.contracts.v1.Support

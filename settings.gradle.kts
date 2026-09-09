@@ -6,8 +6,9 @@ plugins {
 
 include("contracts", "profile-model", "gate", "mimic", "client", "harness", "registry")
 
-// 프로파일 → Capability 투영. mimic 과 어댑터 호스트가 공유한다(ADR 29 의 이유 그대로).
-include("profile-projection")
+// 능력의 투영과 판정 — 프로파일 → Capability, 그리고 요구 집합 대 Capability 협상.
+// mimic 과 어댑터 호스트가 공유한다(ADR 29 의 이유 그대로).
+include("capability")
 
 // 발신자의 위쪽 결선 — 브로커 발행과 레지스트리 적재. mimic 과 어댑터 호스트가 공유한다.
 include("uplink")

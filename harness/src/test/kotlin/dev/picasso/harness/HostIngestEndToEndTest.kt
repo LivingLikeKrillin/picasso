@@ -18,6 +18,8 @@ import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.profile.ProfileDocument
+import dev.picasso.profile.Requirement
+import dev.picasso.profile.RequirementSet
 import dev.picasso.registry.Fixtures
 import dev.picasso.registry.PostgresSupport
 import dev.picasso.registry.adapter.AdapterService
@@ -25,18 +27,23 @@ import dev.picasso.registry.adapter.RegisterOutcome
 import dev.picasso.registry.binding.ActivateOutcome
 import dev.picasso.registry.binding.BindOutcome
 import dev.picasso.registry.binding.BindingService
+import dev.picasso.registry.ingest.HandshakeIngestOutcome
+import dev.picasso.registry.ingest.HandshakeIngestService
 import dev.picasso.registry.ingest.LivenessOutcome
 import dev.picasso.registry.ingest.LivenessService
 import dev.picasso.registry.ingest.SiteNameReport
 import dev.picasso.registry.ingest.TaskIngestService
+import dev.picasso.registry.ledger.LedgerService
 import dev.picasso.registry.ledger.Observability
 import dev.picasso.registry.ledger.RobotObservability
+import dev.picasso.registry.observe.ObservationService
 import dev.picasso.registry.revision.RevisionService
 import dev.picasso.registry.revision.SkillTypeSync
 import dev.picasso.registry.revision.SubmitOutcome
 import dev.picasso.registry.store.Db
 import dev.picasso.uplink.RecordingPublisher
 import dev.picasso.uplink.report.IngestBridge
+import dev.picasso.uplink.report.HandshakeReporter
 import dev.picasso.uplink.report.LivenessObservations
 import dev.picasso.uplink.report.SiteNameSummary
 import dev.picasso.uplink.report.TaskObservations
@@ -49,6 +56,7 @@ import java.time.Instant
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -60,6 +68,9 @@ import kotlin.test.assertTrue
  * 순서: 원장이 이 기체를 못 본다 → 호스트가 뜬다(`ONLINE`) → 원장이 본다 → 태스크가 돈다 → `task` 표에 비종착으로 앉는다
  * → 종착한다 → 드레인 → 호스트가 닫힌다(`OFFLINE`) → 원장에 그 상태가 남는다.
  *
+ * 두 번째 시험이 **세 번째 관측선**(소비자 요구)을 본다 — 협상이 호스트에 생기면서(§15.100) 미믹만 채우던 그 줄을
+ * 실물 어댑터 경로도 채운다. 이것이 없으면 호스트 위의 기체는 *"쓰는 사람 0명"* 으로 보이고 그 위에서 축소가 열린다.
+ *
  * **HTTP 는 여기서 안 지난다** — 미믹 쪽 시험과 같은 이유로 적재 서비스를 직접 싱크로 붙인다. 와이어는 `IngestEndpointTest` 가
  * 본다. 기체 행은 여전히 SQL 로 넣는다: 로봇 등록 엔드포인트가 아직 없다(ADR 37 미결). 이 시험이 증명하는 것은 *등록된*
  * 기체의 관측이 호스트에서 흘러온다는 것까지다.
@@ -69,6 +80,8 @@ class HostIngestEndToEndTest {
     private lateinit var db: Db
     private lateinit var tasks: TaskIngestService
     private lateinit var liveness: LivenessService
+    private lateinit var ledger: LedgerService
+    private lateinit var handshakes: HandshakeIngestService
 
     @BeforeTest
     fun reset() {
@@ -76,6 +89,8 @@ class HostIngestEndToEndTest {
         db = Db(PostgresSupport.jdbcUrl, PostgresSupport.username, PostgresSupport.password)
         tasks = TaskIngestService(db)
         liveness = LivenessService(db)
+        ledger = LedgerService(db)
+        handshakes = HandshakeIngestService(ledger, ObservationService(db))
         SkillTypeSync(db).sync(Fixtures.descriptor(), dev.picasso.contracts.wire.ContractIdentity.semver, "sync")
         PostgresSupport.execute("INSERT INTO robot (robot_id, site_id, serial_number) VALUES ('$ROBOT','line-a','sn')")
         val stored = RevisionService(db, Fixtures.validator()).submit(Fixtures.good(), "op")
@@ -134,7 +149,14 @@ class HostIngestEndToEndTest {
 
         val robot = HostedRobot(ROBOT, ProfileDocument.parse("minimal", Files.readString(PROFILE)).getOrThrow(), adapter, publisher = outbound, site = "line-a") { now }
         private val name = InProcessServerBuilder.generateName()
-        val host = AdapterHost(robot, InProcessServerBuilder.forName(name).directExecutor()).start()
+
+        /** §5.4 의 핸드셰이크 보고 — 미믹의 `MimicServer` 가 받는 것과 같은 자리다. */
+        private val reporter = HandshakeReporter { report ->
+            val outcome = handshakes.record(report.request, report.response, report.site)
+            check(outcome is HandshakeIngestOutcome.Recorded) { "핸드셰이크 적재 거부: $outcome" }
+        }
+
+        val host = AdapterHost(robot, InProcessServerBuilder.forName(name).directExecutor(), reporter).start()
         private val channel: ManagedChannel = InProcessChannelBuilder.forName(name).directExecutor().build()
         val client = PicassoClient(channel, "line-controller")
 
@@ -181,12 +203,49 @@ class HostIngestEndToEndTest {
         assertTrue("연결이 끊긴 기체" in gone.reason, gone.reason)
     }
 
+    @Test
+    fun `호스트에서 협상한 소비자가 원장의 관측선에 앉고, 거절은 원장이 아니라 거절 표로 간다`() {
+        World().use { w ->
+            assertEquals(0, ledger.activeConsumerCount("navigate_to"), "협상 전인데 소비자가 있다")
+
+            val accepted = w.client.negotiate(ROBOT, requirements())
+            assertTrue(accepted.accepted, "픽스처가 만족하지 않으면 이 시험이 뜻을 잃는다: ${accepted.rejectionsList}")
+
+            assertEquals(1, ledger.activeConsumerCount("navigate_to"), "호스트의 협상이 원장에 안 실렸다")
+            // **요구가 빠짐없이 실려야 한다** — 하나만 적재하면 나머지 스킬은 "쓰는 사람 0명" 으로 보이고 축소가 열린다.
+            assertEquals(
+                listOf("navigate_to", "pick_place"),
+                PostgresSupport.queryAll("SELECT skill_type_name FROM consumer_requirement ORDER BY skill_type_name") { it.getString(1) },
+            )
+
+            // 거절된 협상은 원장에 오르지 않는다 — 오르면 그 소비자 때문에 축소가 영영 안 열린다.
+            val rejected = w.client.negotiate(ROBOT, impossible())
+            assertFalse(rejected.accepted)
+            assertEquals(1, ledger.activeConsumerCount("navigate_to"), "거절된 요구가 원장에 올랐다")
+            assertEquals(
+                rejected.rejectionsList.size,
+                PostgresSupport.queryOne("SELECT count(*) FROM handshake_rejection") { it.getInt(1) },
+                "거절이 빠짐없이 적재되지 않았다",
+            )
+        }
+    }
+
+    private fun requirements(): RequirementSet = RequirementSet
+        .parse("minimal", Files.readString(Path.of("..", "profile", "requirements", "minimal.json").normalize()))
+        .copy(clientId = CLIENT)
+
+    /** 어느 로봇도 못 맞추는 요구. major 를 올린다 — 스킬은 있는데 버전이 없다. */
+    private fun impossible(): RequirementSet = requirements().let { set ->
+        set.copy(requirements = set.requirements.map { Requirement(it.skillType, major = 9, minor = 9) })
+    }
+
     private fun inflightSkills(): List<String> = PostgresSupport.queryAll(
         "SELECT s.name FROM task t JOIN skill_type s ON s.skill_type_id = t.skill_type_id WHERE NOT t.terminal ORDER BY s.name",
     ) { it.getString(1) }
 
     private companion object {
         const val ROBOT = "host-r1"
+        const val CLIENT = "line-controller"
         val PROFILE: Path = Path.of("..", "profile", "fixtures", "minimal.json").normalize()
     }
 }

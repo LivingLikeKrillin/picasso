@@ -1,6 +1,6 @@
 package dev.picasso.mimic.engine
 
-import dev.picasso.profile.projection.CapabilityProjection
+import dev.picasso.capability.CapabilityProjection
 import dev.picasso.profile.ProfileDocument
 import java.time.Duration
 import java.time.Instant

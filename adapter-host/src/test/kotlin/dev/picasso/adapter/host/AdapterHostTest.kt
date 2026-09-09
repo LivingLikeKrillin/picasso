@@ -9,6 +9,7 @@ import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.adapter.core.classifiedFault
 import dev.picasso.contracts.v1.CancelTaskRequest
+import dev.picasso.contracts.v1.CapabilityRequirement
 import dev.picasso.contracts.v1.ConnectionMessage
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
@@ -19,6 +20,9 @@ import dev.picasso.contracts.v1.GetCapabilitiesRequest
 import dev.picasso.contracts.v1.GetKnownSiteNamesRequest
 import dev.picasso.contracts.v1.GetSnapshotRequest
 import dev.picasso.contracts.v1.HoldKind
+import dev.picasso.contracts.v1.NegotiateRequest
+import dev.picasso.contracts.v1.NegotiateResponse
+import dev.picasso.contracts.v1.ProtocolLimits
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.PauseTaskRequest
 import dev.picasso.contracts.v1.RejectionCode
@@ -35,6 +39,7 @@ import dev.picasso.contracts.v1.WatchTaskResponse
 import dev.picasso.contracts.wire.RequestHeaders
 import dev.picasso.profile.ProfileDocument
 import dev.picasso.uplink.Publication
+import dev.picasso.uplink.report.RecordingHandshakeReporter
 import dev.picasso.uplink.Publisher
 import dev.picasso.uplink.RecordingPublisher
 import dev.picasso.uplink.Topics
@@ -105,8 +110,9 @@ class AdapterHostTest {
         val published = RecordingPublisher()
         val flaky = FlakyPublisher(published)
         val robot = HostedRobot(ROBOT, ProfileDocument.parse("test", profileJson).getOrThrow(), adapter, publisher = flaky, site = "line-a") { now }
+        val handshakes = RecordingHandshakeReporter()
         private val name = InProcessServerBuilder.generateName()
-        val host = AdapterHost(robot, InProcessServerBuilder.forName(name).directExecutor()).start()
+        val host = AdapterHost(robot, InProcessServerBuilder.forName(name).directExecutor(), handshakes).start()
         val channel: ManagedChannel = InProcessChannelBuilder.forName(name).directExecutor().build()
         val tasks: TaskServiceGrpc.TaskServiceBlockingStub = TaskServiceGrpc.newBlockingStub(channel)
         val skills: SkillServiceGrpc.SkillServiceBlockingStub = SkillServiceGrpc.newBlockingStub(channel)
@@ -283,6 +289,82 @@ class AdapterHostTest {
             assertTrue(w.skills.getKnownSiteNames(req).unsupported)
             w.adapter.siteNames = SiteNames.Unavailable("graph 못 받음")
             assertEquals(Status.Code.UNAVAILABLE, assertFailsWith<StatusRuntimeException> { w.skills.getKnownSiteNames(req) }.status.code)
+        }
+    }
+
+    // ── 협상 (§5.4)
+
+    /** 픽스처 프로파일을 만족하는 요구. 여기서 출발해 하나씩 어긴다 — 미믹의 `NegotiateTest` 와 같은 씨앗이다. */
+    private fun satisfying(): CapabilityRequirement.Builder = CapabilityRequirement.newBuilder()
+        .setClientId("test-client")
+        .setRobotId(ROBOT)
+        .addRequirements("pick_place@^1.2")
+        .addRequirements("navigate_to@^1.0")
+        .addOptionalFieldsUsed("task.parameters.verify_grasp")
+        .setLimitsNeeded(ProtocolLimits.newBuilder().setMaxStringLength(64).setMaxArrayLength(8))
+
+    private fun World.negotiate(requirement: CapabilityRequirement.Builder): NegotiateResponse =
+        skills.negotiate(NegotiateRequest.newBuilder().setHeader(header("picasso.v1.NegotiateRequest")).setRequirement(requirement).build())
+
+    @Test
+    fun `협상이 프로파일의 투영에 대고 판정되고, 결과가 보고된다`() {
+        World().use { w ->
+            val accepted = w.negotiate(satisfying())
+            assertTrue(accepted.accepted, accepted.rejectionsList.toString())
+            assertEquals(emptyList(), accepted.rejectionsList)
+            assertEquals(ROBOT, accepted.header.robotId)
+
+            // **거절도 보고된다** — §5.4 는 성공·실패 **모두** 보고하라 한다. 수락만 보내면 원장은 거절을 못 본다.
+            val rejected = w.negotiate(satisfying().clearRequirements().addRequirements("fly@^1.0"))
+            assertFalse(rejected.accepted)
+            assertEquals(listOf(RejectionCode.REJECTION_CODE_SKILL_ABSENT), rejected.rejectionsList.map { it.code })
+
+            // **거절이 있으면 수락이 아니다 — 거절의 종류와 무관하게.** 수락 여부를 거절 목록과 따로 계산하는 구현은
+            // 스킬이 없는 경우만 보는 시험을 통과한다(그 경우에는 두 계산이 우연히 같은 답이다).
+            val overLimit = w.negotiate(satisfying().setLimitsNeeded(ProtocolLimits.newBuilder().setMaxStringLength(99999).setMaxArrayLength(8)))
+            assertFalse(overLimit.accepted)
+            assertEquals(listOf(RejectionCode.REJECTION_CODE_LIMIT_EXCEEDED), overLimit.rejectionsList.map { it.code })
+
+            assertEquals(listOf(true, false, false), w.handshakes.reports.map { it.response.accepted }, "성공·실패 둘 다 보고돼야 한다")
+            assertEquals(listOf("line-a", "line-a", "line-a"), w.handshakes.reports.map { it.site }, "토픽의 site 가 보고에 실려야 한다")
+        }
+    }
+
+    @Test
+    fun `안 맞는 것을 한 번에 전부 돌려준다`() {
+        World().use { w ->
+            // 셋을 한꺼번에 어긴다 — 첫 거절에서 끊는 구현은 한 가지씩만 어기는 시험을 전부 통과한다.
+            val response = w.negotiate(
+                satisfying()
+                    .clearRequirements().addRequirements("fly@^1.0").addRequirements("pick_place@^9.0")
+                    .clearOptionalFieldsUsed()
+                    .setLimitsNeeded(ProtocolLimits.newBuilder().setMaxStringLength(99999).setMaxArrayLength(8)),
+            )
+            assertFalse(response.accepted)
+            assertEquals(
+                setOf(
+                    RejectionCode.REJECTION_CODE_SKILL_ABSENT,
+                    RejectionCode.REJECTION_CODE_MAJOR_MISMATCH,
+                    RejectionCode.REJECTION_CODE_REQUIRED_OPTIONAL_MISSING,
+                    RejectionCode.REJECTION_CODE_LIMIT_EXCEEDED,
+                ),
+                response.rejectionsList.map { it.code }.toSet(),
+            )
+        }
+    }
+
+    @Test
+    fun `읽지 못한 요구는 거절이 아니라 판정 불가다`() {
+        World().use { w ->
+            // 캐럿 없는 요구는 문법이 아니다. 거절 목록에 담으면 "능력이 부족하다" 로 보이는데 그것이 아니다.
+            val e = assertFailsWith<StatusRuntimeException> {
+                w.negotiate(satisfying().clearRequirements().addRequirements("pick_place@1.2").addRequirements("navigate_to"))
+            }
+            assertEquals(Status.Code.INVALID_ARGUMENT, e.status.code)
+            val detail = e.status.description ?: ""
+            // **틀린 것을 전부 열거한다** — 설정 파일의 오타를 한 줄씩 고치며 왕복하게 두지 않는다.
+            assertTrue("pick_place@1.2" in detail && "navigate_to" in detail, detail)
+            assertEquals(emptyList(), w.handshakes.reports, "판정 불가는 핸드셰이크 결과가 아니라 보고할 것이 없다")
         }
     }
 

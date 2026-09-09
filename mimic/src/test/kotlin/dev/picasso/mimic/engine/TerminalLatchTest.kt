@@ -1,7 +1,7 @@
 package dev.picasso.mimic.engine
 
 import dev.picasso.contracts.v1.Fault
-import dev.picasso.profile.projection.CapabilityProjection
+import dev.picasso.capability.CapabilityProjection
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals

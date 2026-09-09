@@ -1,4 +1,4 @@
-package dev.picasso.mimic.transport
+package dev.picasso.capability
 
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.CapabilityRequirement
@@ -8,7 +8,6 @@ import dev.picasso.contracts.v1.Reference
 import dev.picasso.contracts.v1.Rejection
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.profile.Requirement
-import io.grpc.Status
 
 /**
  * §5.4의 핸드셰이크 판정. 순수 함수다 — 입력은 능력·헤더·요구, 출력은 거절 목록.
@@ -19,9 +18,14 @@ import io.grpc.Status
  * 번에 고친다. 첫 거절에서 끊는 구현은 "각 코드가 나온다"만 보는 시험을
  * **전부 통과한다**(각 케이스가 한 가지만 어기기 때문이다).
  *
- * 요구 문자열을 해석하지 못하면 판정 자체가 불가능하므로 gRPC 상태로 나간다.
- * **그때도 틀린 것을 전부 열거한다** — 요구 집합은 설정 파일이고(§5.4) 오타는
- * 왕복 한 번에 다 알려줘야 한다.
+ * 요구 문자열을 해석하지 못하면 판정 자체가 불가능하다. 그것은 **거절이 아니라 판정 불가**이고
+ * [Negotiation.Unparseable]로 나간다 — 계약으로는 `INVALID_ARGUMENT`인데 **그 매핑은 부르는 쪽이
+ * 한다.** 이 모듈은 전송을 모른다(발행 추상이 MQTT 라이브러리를 모르는 것과 같은 규율). 그때도 틀린
+ * 것을 전부 열거한다 — 요구 집합은 설정 파일이고(§5.4) 오타는 왕복 한 번에 다 알려줘야 한다.
+ *
+ * **미믹과 어댑터 호스트가 같은 함수를 부른다.** 둘로 두면 같은 요구 집합에 대해 미믹이 받고 실물이
+ * 거절하는 일이 가능해지고, 그 순간 *"소비자는 엔드포인트만 바꿔 둘을 오간다"*가 거짓이 된다
+ * (§15.100). `CapabilityProjection`을 여기 둔 이유와 같다.
  */
 object Negotiator {
 
@@ -29,31 +33,29 @@ object Negotiator {
         capability: Capability,
         header: MessageHeader,
         requirement: CapabilityRequirement,
-    ): List<Rejection> {
+    ): Negotiation {
         val requirements = parseAll(requirement.requirementsList)
+            ?: return Negotiation.Unparseable(problems(requirement.requirementsList))
 
-        return buildList {
-            addAll(identity(header, requirement))
-            requirements.forEach { addAll(version(capability, it)) }
-            addAll(requiredOptionalFields(capability, requirement))
-            addAll(limits(capability, requirement))
-        }
+        return Negotiation.Judged(
+            buildList {
+                addAll(identity(header, requirement))
+                requirements.forEach { addAll(version(capability, it)) }
+                addAll(requiredOptionalFields(capability, requirement))
+                addAll(limits(capability, requirement))
+            },
+        )
     }
 
-    /** 해석할 수 없는 요구는 판정 불가다. 전부 모아 한 번에 던진다. */
-    private fun parseAll(texts: List<String>): List<Requirement> {
-        val problems = mutableListOf<String>()
-        val parsed = texts.mapNotNull { text ->
-            runCatching { Requirement.parse(text) }
-                .onFailure { problems += it.message!! }
-                .getOrNull()
-        }
-        if (problems.isNotEmpty()) {
-            throw Status.INVALID_ARGUMENT
-                .withDescription("요구를 해석할 수 없다:\n${problems.joinToString("\n") { "  - $it" }}")
-                .asRuntimeException()
-        }
-        return parsed
+    /** 전부 해석되면 그 목록, 하나라도 안 되면 널. 사유는 [problems]가 다시 모은다. */
+    private fun parseAll(texts: List<String>): List<Requirement>? {
+        val parsed = texts.map { runCatching { Requirement.parse(it) }.getOrNull() }
+        return if (parsed.any { it == null }) null else parsed.filterNotNull()
+    }
+
+    /** **틀린 것을 전부 모은다.** 첫 오타에서 끊으면 소비자가 설정 파일을 한 줄씩 고치며 왕복한다. */
+    private fun problems(texts: List<String>): List<String> = texts.mapNotNull { text ->
+        runCatching { Requirement.parse(text) }.exceptionOrNull()?.message
     }
 
     /**
@@ -204,4 +206,22 @@ object Negotiator {
             }
         }
         .build()
+}
+
+/**
+ * 협상 판정의 결과. **거절과 판정 불가는 다르다** — 앞은 로봇이 요구를 못 맞춘다는 답이고, 뒤는
+ * 요구를 읽지 못해 답 자체가 없다는 것이다. 접으면 오타 난 요구 집합이 "능력 부족"으로 보인다.
+ */
+sealed interface Negotiation {
+
+    /** 판정했다. 비어 있으면 수락이다 — `accepted`를 따로 계산하지 않는다. */
+    data class Judged(val rejections: List<Rejection>) : Negotiation
+
+    /** 요구 문자열을 읽지 못했다. 계약으로는 `INVALID_ARGUMENT`이고 그 매핑은 서비스가 한다. */
+    data class Unparseable(val problems: List<String>) : Negotiation {
+
+        /** **메시지를 여기서 만든다.** 서비스마다 지으면 미믹과 호스트의 같은 오류가 다른 말로 나온다. */
+        val detail: String
+            get() = "요구를 해석할 수 없다:\n${problems.joinToString("\n") { "  - $it" }}"
+    }
 }

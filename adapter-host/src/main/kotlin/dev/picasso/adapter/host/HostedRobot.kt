@@ -22,7 +22,7 @@ import dev.picasso.contracts.v1.TaskTransition
 import dev.picasso.contracts.wire.ContractIdentity
 import dev.picasso.contracts.wire.TaskStates
 import dev.picasso.profile.ProfileDocument
-import dev.picasso.profile.projection.CapabilityProjection
+import dev.picasso.capability.CapabilityProjection
 import dev.picasso.uplink.Publication
 import dev.picasso.uplink.Publisher
 import dev.picasso.uplink.Topics

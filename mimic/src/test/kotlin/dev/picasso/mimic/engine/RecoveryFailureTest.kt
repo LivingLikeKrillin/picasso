@@ -2,7 +2,7 @@ package dev.picasso.mimic.engine
 
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.Lifetime
-import dev.picasso.profile.projection.CapabilityProjection
+import dev.picasso.capability.CapabilityProjection
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant

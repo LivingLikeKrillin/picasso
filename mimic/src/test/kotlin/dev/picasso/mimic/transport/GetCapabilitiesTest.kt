@@ -5,7 +5,7 @@ import dev.picasso.contracts.v1.GetCapabilitiesResponse
 import dev.picasso.contracts.v1.Support
 import dev.picasso.contracts.wire.HeaderColumns
 import dev.picasso.mimic.engine.TaskMachineFixtures
-import dev.picasso.profile.projection.CapabilityProjection
+import dev.picasso.capability.CapabilityProjection
 import dev.picasso.profile.ProfileDocument
 import io.grpc.Status
 import io.grpc.StatusRuntimeException

@@ -35,7 +35,11 @@ import dev.picasso.contracts.v1.TaskSnapshot
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.WatchTaskRequest
 import dev.picasso.contracts.v1.WatchTaskResponse
+import dev.picasso.capability.Negotiation
+import dev.picasso.capability.Negotiator
 import dev.picasso.contracts.wire.RequestHeaders
+import dev.picasso.uplink.report.HandshakeReport
+import dev.picasso.uplink.report.HandshakeReporter
 import io.grpc.Status
 import io.grpc.StatusRuntimeException
 import io.grpc.stub.StreamObserver
@@ -230,7 +234,14 @@ internal class HostTaskService(private val robot: HostedRobot) : TaskServiceGrpc
 
 // ── SkillService (§5.4)
 
-internal class HostSkillService(private val robot: HostedRobot) : SkillServiceGrpc.SkillServiceImplBase() {
+internal class HostSkillService(
+    private val robot: HostedRobot,
+    /**
+     * §5.4 — *"결과는 성공·실패 모두 `registry`에 보고된다."* 기본값이 [HandshakeReporter.NONE] 인 것은 §3.2 가
+     * 이 방향을 **런타임 접근**으로 두었기 때문이다: 레지스트리가 없어도 호스트는 돈다.
+     */
+    private val reporter: HandshakeReporter = HandshakeReporter.NONE,
+) : SkillServiceGrpc.SkillServiceImplBase() {
 
     private val routing = Routing(robot)
 
@@ -246,11 +257,34 @@ internal class HostSkillService(private val robot: HostedRobot) : SkillServiceGr
             .build()
     }
 
-    /** 협상(§5.4)은 미믹의 `Negotiator` 가 규칙을 든다. 여기서는 아직 안 한다 — 되는 척하지 않는다. */
-    override fun negotiate(request: NegotiateRequest, observer: StreamObserver<NegotiateResponse>) {
-        observer.onError(
-            Status.UNIMPLEMENTED.withDescription("어댑터 호스트는 Negotiate 를 아직 들지 않는다 — GetCapabilities 로 능력을 읽어라(§15.98)").asRuntimeException(),
-        )
+    /**
+     * §5.4 의 핸드셰이크. **판정은 미믹과 같은 함수**(`capability` 모듈의 `Negotiator`)이고 여기서는 계약으로 옮기고
+     * 보고할 뿐이다. 둘로 두면 같은 요구 집합에 미믹이 수락하고 실물이 거절하는 일이 가능해진다(§15.100).
+     *
+     * **판정 기준은 프로파일의 투영이다** — `GetCapabilities` 가 돌려주는 그것과 같다. 어댑터가 그 선언을 실제로
+     * 다 드는지는 여기서 확인하지 않으며, 갈리면 협상을 통과한 소비자가 `StartTask` 에서 거절당한다(C-3 적합성).
+     */
+    override fun negotiate(request: NegotiateRequest, observer: StreamObserver<NegotiateResponse>) = reply(observer) {
+        routing.enter(request.header)
+
+        // 판정 불가는 거절이 아니다 — 요구를 못 읽어 답 자체가 없는 것이라 응답이 아니라 gRPC 상태로 나간다.
+        val judged = when (val outcome = Negotiator.negotiate(robot.capability, request.header, request.requirement)) {
+            is Negotiation.Judged -> outcome
+            is Negotiation.Unparseable -> throw Status.INVALID_ARGUMENT.withDescription(outcome.detail).asRuntimeException()
+        }
+
+        val response = NegotiateResponse.newBuilder()
+            .setHeader(robot.header(NegotiateResponse.getDescriptor()))
+            // accepted 와 거절 목록을 따로 계산하지 않는다 — 어긋나면 소비자가 통과했다고 믿는다.
+            .setAccepted(judged.rejections.isEmpty())
+            .addAllRejections(judged.rejections)
+            .build()
+
+        // **§5.4 — 보고 실패는 핸드셰이크 결과에 영향을 주지 않는다.** 그래서 삼킨다. 삼켜도 잃지 않는 것은
+        // 폴백의 몫이고(`FileHandshakeReporter`), 삼킨 것이 조용하지 않은 것은 워터마크의 몫이다.
+        runCatching { reporter.report(HandshakeReport(robot.site, request, response)) }
+
+        response
     }
 
     override fun getKnownSiteNames(request: GetKnownSiteNamesRequest, observer: StreamObserver<GetKnownSiteNamesResponse>) = reply(observer) {

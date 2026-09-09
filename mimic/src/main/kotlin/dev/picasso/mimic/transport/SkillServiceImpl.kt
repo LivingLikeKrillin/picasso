@@ -7,6 +7,8 @@ import dev.picasso.contracts.v1.GetKnownSiteNamesResponse
 import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.SkillServiceGrpc
+import dev.picasso.capability.Negotiation
+import dev.picasso.capability.Negotiator
 import dev.picasso.uplink.report.HandshakeReport
 import dev.picasso.uplink.report.HandshakeReporter
 import io.grpc.Status
@@ -123,11 +125,14 @@ class SkillServiceImpl(
         observer: StreamObserver<NegotiateResponse>,
     ) = reply(observer) {
         val hosted = registry.require(request.header)
-        val rejections = Negotiator.negotiate(
-            hosted.instance.capability,
-            request.header,
-            request.requirement,
-        )
+        // **판정은 `capability` 모듈의 것이고 여기서는 계약으로 옮기기만 한다** — 어댑터 호스트가 같은 함수를
+        // 부른다(§15.100). 판정 불가는 거절이 아니므로 응답이 아니라 gRPC 상태다.
+        val judged = when (val outcome = Negotiator.negotiate(hosted.instance.capability, request.header, request.requirement)) {
+            is Negotiation.Judged -> outcome
+            is Negotiation.Unparseable ->
+                throw Status.INVALID_ARGUMENT.withDescription(outcome.detail).asRuntimeException()
+        }
+        val rejections = judged.rejections
 
         val response = NegotiateResponse.newBuilder()
             .setHeader(hosted.headers.forResponse(NegotiateResponse.getDescriptor()))

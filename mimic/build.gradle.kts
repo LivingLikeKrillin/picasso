@@ -22,7 +22,7 @@ dependencies {
     // `RobotInstance`·`MimicServer` 가 그 타입(`Publisher`·`HandshakeReporter`)을 생성자에 드러내기 때문이다.
     api(project(":uplink"))
     implementation(project(":profile-model"))
-    implementation(project(":profile-projection"))
+    implementation(project(":capability"))
     implementation(project(":contracts"))
     implementation(libs.jackson.databind)
     implementation(libs.jsonschema.validator)
