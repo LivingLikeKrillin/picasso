@@ -33,6 +33,17 @@ interface G1Link {
     /** 저수준 채널. 시뮬레이터도 실물도 답한다. */
     @get:VendorSurface("unitree_hg.LowState_")
     val lowLevel: LowLevelChannel
+
+    /**
+     * 운동 상태 채널. **널이면 이 대상이 그 토픽을 안 낸다.**
+     *
+     * 2026-09-09 에 생겼다 — 앞 판은 이 토픽이 있는 줄 몰랐다. 매니페스트
+     * 추출기가 C++ 로 생성된 IDL 을 못 읽어서 `unitree_hg::SportModeState_`
+     * 가 심볼 목록에 아예 없었고, 그 침묵 위에서 *"이 기종은 무엇이 도는지
+     * 안 알려 준다"* 고 적고 있었다.
+     */
+    @get:VendorSurface("unitree_hg.SportModeState_")
+    val sportMode: SportModeChannel?
 }
 
 /**
@@ -72,6 +83,51 @@ interface SportService {
     )
     fun setVelocity(vx: Double, vy: Double, omega: Double, durationSeconds: Double): Result<Unit>
 }
+
+/**
+ * 운동 상태 채널. 읽기만 한다.
+ *
+ * **여기 있는 것이 앞 판의 진술을 반쯤 뒤집는다.** `SportService` 의 주석은
+ * *"진행률을 내는 메서드가 없다"* 고 적었고 그것은 지금도 참이다 — 그러나
+ * **메서드가 아니라 토픽으로** 무엇이 도는지가 나온다.
+ */
+interface SportModeChannel {
+
+    /** 마지막으로 받은 운동 상태. 아직 하나도 못 받았으면 널이다. */
+    @VendorSurface("unitree_hg.SportModeState_")
+    fun latestSportMode(): SportModeState?
+}
+
+/**
+ * `unitree_hg::msg::dds_::SportModeState_` 넷 전부.
+ *
+ * **`taskId`·`taskTimeSeconds` 는 지금 아무도 안 쓴다.** 그 둘이 세워지는
+ * 것은 `SetTaskId`(= `ROBOT_API_ID_LOCO_SET_ARM_TASK`)뿐이고 — 벤더 클라이언트가
+ * `WaveHand()` 와 `ShakeHand()` 를 그것으로 구현한다 — 이 어댑터가 드는
+ * `move_relative` 는 `SetVelocity` 라 태스크 번호를 세우지 않는다. **그래서
+ * 진행 확인에 못 쓴다.** 그래도 옮겨 두는 것은, 안 옮기면 다음 조사가
+ * *"이 기종은 태스크 번호가 없다"* 를 다시 결론 낼 것이기 때문이다.
+ */
+data class SportModeState(
+
+    /**
+     * `fsm_id`. 벤더 클라이언트가 이름을 붙여 둔다 — `ZeroTorque()`=0 ·
+     * `Damp()`=1 · `Squat()`=2 · `Sit()`=3 · `StandUp()`=4 · `Start()`=500.
+     */
+    @field:VendorSurface("unitree_hg.SportModeState_.fsm_id")
+    val fsmId: Int,
+
+    @field:VendorSurface("unitree_hg.SportModeState_.fsm_mode")
+    val fsmMode: Int,
+
+    /** `task_id`. 팔 동작의 번호다 — 위 클래스 주석 참조. */
+    @field:VendorSurface("unitree_hg.SportModeState_.task_id")
+    val taskId: Int,
+
+    /** `task_time`. 그 팔 동작이 돈 시간(초). */
+    @field:VendorSurface("unitree_hg.SportModeState_.task_time")
+    val taskTimeSeconds: Double,
+)
 
 /** 저수준 채널(`rt/lowstate`). 읽기만 한다 — 어댑터는 관절을 직접 몰지 않는다. */
 interface LowLevelChannel {

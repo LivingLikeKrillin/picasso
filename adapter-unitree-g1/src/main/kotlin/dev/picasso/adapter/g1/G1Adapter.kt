@@ -122,6 +122,12 @@ class G1Adapter(
      * 전제한다. 안 멈추면 [faults]가 `TERMINAL_STATE_VIOLATED`로 잡는다 —
      * 둘이 한 쌍이며 한쪽만 두면 "끝났다고 적었는데 계속 걷는" 상태가 조용히
      * 성공으로 남는다.
+     *
+     * **반대쪽 구멍은 `SportModeState_`가 막는다**(2026-09-09). 시계는 로봇이
+     * 실제로 그 모드에 있었는지를 모르므로, 명령이 받아들여지고 아무 일도
+     * 안 일어난 경우에도 시간이 지나면 성공이 된다. [faults]의
+     * `X_UNITREE_FSM_UNEXPECTED`가 그 자리이며 **여기서 막지는 않는다** —
+     * 판정을 바꾸면 어느 FSM 에서 속도가 듣는지를 우리가 안다고 주장하게 된다.
      */
     fun poll(now: Instant): TaskState {
         val current = task ?: return TaskState.TASK_STATE_UNSPECIFIED
@@ -213,6 +219,37 @@ class G1Adapter(
                 .build()
         }
 
+        // **우리가 기대한 모드가 아니다.** 태스크가 도는 중인데 로봇의 FSM 이
+        // 배포자가 선언한 `start` 가 아니면, `SetVelocity` 는 받아들여졌는데
+        // 로봇은 damp·sit·squat 같은 데 있는 것이다. 그 조합에서 가장 나쁜
+        // 결과가 **아무것도 안 하면서 시계로 성공이 되는 것**이고, 그것이
+        // 이 어댑터가 성공을 시계로 적기 때문에 특히 조용하다.
+        //
+        // **막지 않는다.** 어느 FSM 에서 속도 명령이 듣는지를 벤더가 열거해
+        // 주지 않으므로 *"못 움직인다"* 고 단정할 근거가 없다. 우리가 아는
+        // 것은 **기대와 관측이 어긋났다**는 사실뿐이고, 그것만 낸다.
+        //
+        // **이 관측이 저수준 상태 뒤에 갇혀 있다.** 위의 이른 반환이 `lowstate`
+        // 를 못 받으면 통째로 `NotObservable` 을 내므로, 운동 상태만 오는
+        // 대상에서는 이 결함이 안 보인다. 채널 둘이 독립인데 관측 가능성을
+        // 하나로 접은 것이며, 고치려면 [FaultObservation] 이 부분 관측을
+        // 표현할 수 있어야 한다 — 지금은 둘 중 하나다.
+        val running = task
+        val mode = link.sportMode?.latestSportMode()
+        if (running != null && running.state == TaskState.TASK_STATE_RUNNING &&
+            mode != null && mode.fsmId != fsm.start
+        ) {
+            faults += Fault.newBuilder()
+                .setErrorType(FSM_UNEXPECTED)
+                .setCanContinueCurrentTask(false)
+                .setCanAcceptNewTask(false)
+                .setErrorHint(
+                    "${running.id} 이 도는데 로봇 FSM 은 ${mode.fsmId} 다(기대 ${fsm.start}). " +
+                        "명령은 받아들여졌으나 로봇이 그 모드에 없다 — 시계로 성공이 적히기 전에 확인하십시오.",
+                )
+                .build()
+        }
+
         // **§4.4의 래치.** 종착했다고 우리가 적었는데 관절이 아직 돈다면 둘
         // 중 하나가 틀렸고, 어느 쪽이든 소비자가 알아야 한다.
         val current = task
@@ -274,6 +311,15 @@ class G1Adapter(
 
         /** 벤더 확장(§4.6의 `X_<VENDOR>_` 규칙). 코어 여덟에 과열이 없고 그것이 맞다. */
         const val OVERHEAT = "X_UNITREE_MOTOR_OVERHEAT"
+
+        /**
+         * 태스크가 도는데 FSM 이 기대한 모드가 아니다.
+         *
+         * 코어 여덟에 없어서 벤더 확장이다. **`TERMINAL_STATE_VIOLATED` 와
+         * 짝이지만 반대편이다** — 저쪽은 *끝났다고 적었는데 아직 움직인다*,
+         * 이쪽은 *돈다고 적었는데 그 모드가 아니다*.
+         */
+        const val FSM_UNEXPECTED = "X_UNITREE_FSM_UNEXPECTED"
 
         const val TERMINAL_VIOLATED = "TERMINAL_STATE_VIOLATED"
 

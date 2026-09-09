@@ -39,7 +39,8 @@ class G1AdapterTest {
         sport: FakeSport? = FakeSport(),
         low: FakeLowLevel = FakeLowLevel(),
         identity: AdapterIdentity = this.identity,
-    ) = G1Adapter(FakeLink(sport, low), identity, fsm)
+        mode: FakeMode? = null,
+    ) = G1Adapter(FakeLink(sport, low, mode), identity, fsm)
 
     // ── 받기 전에 거절하는 것들
 
@@ -234,6 +235,94 @@ class G1AdapterTest {
 
     // ── 설정
 
+    // ── 운동 상태 (2026-09-09)
+
+    @Test
+    fun `도는 중에 FSM 이 기대와 다르면 결함을 낸다`() {
+        // **시계 판정의 반대쪽 구멍이다.** `SetVelocity` 가 받아들여져도 로봇이
+        // damp·sit 같은 데 있으면 아무 일도 안 일어나는데, 이 어댑터는 성공을
+        // 시계로 적으므로 **시간만 지나면 성공이 된다.** 그 조용한 통과를
+        // 여기서 보이게 한다.
+        val mode = FakeMode(SportModeState(fsmId = 1, fsmMode = 0, taskId = 0, taskTimeSeconds = 0.0))
+        val a = adapter(low = FakeLowLevel(state = lowState()), mode = mode)
+        a.accept("move_relative", move, t0)
+
+        val observed = a.faults()
+        assertTrue(observed is FaultObservation.Observed, "$observed")
+        assertTrue(
+            observed.faults.any { it.errorType == "X_UNITREE_FSM_UNEXPECTED" },
+            "FSM 이 1(damp)인데 결함이 없다: ${observed.faults.map { it.errorType }}",
+        )
+    }
+
+    @Test
+    fun `FSM 이 기대와 같으면 결함이 아니다`() {
+        // **한쪽만 보면 "언제나 결함을 내는" 판정이 통과한다.**
+        val mode = FakeMode(SportModeState(fsmId = fsm.start, fsmMode = 0, taskId = 0, taskTimeSeconds = 0.0))
+        val a = adapter(low = FakeLowLevel(state = lowState()), mode = mode)
+        a.accept("move_relative", move, t0)
+
+        val observed = a.faults()
+        assertTrue(observed is FaultObservation.Observed, "$observed")
+        assertEquals(
+            emptyList(),
+            observed.faults.filter { it.errorType == "X_UNITREE_FSM_UNEXPECTED" },
+            "기대한 모드인데 결함을 냈다",
+        )
+    }
+
+    @Test
+    fun `종착한 태스크에는 FSM 결함을 안 낸다`() {
+        // **결함 주입이 이 시험을 요구했다.** 앞 판에는 이것이 없어서
+        // `running.state == RUNNING` 검사를 통째로 지워도 스물세 개가 전부
+        // 초록이었다. 걷기가 끝나면 로봇이 서는 모드로 돌아가는 것이 정상이고,
+        // 그때 *"FSM 이 기대와 다르다"* 를 내면 **정상 종료마다 결함이 뜬다.**
+        val mode = FakeMode(SportModeState(fsmId = 1, fsmMode = 0, taskId = 0, taskTimeSeconds = 0.0))
+        val a = adapter(low = FakeLowLevel(state = lowState()), mode = mode)
+        a.accept("move_relative", move, t0)
+        a.poll(t0.plusSeconds(3))
+
+        assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.state, "시계가 아직 종착으로 안 옮겼다")
+        val observed = a.faults()
+        assertTrue(observed is FaultObservation.Observed, "$observed")
+        assertEquals(
+            emptyList(),
+            observed.faults.filter { it.errorType == "X_UNITREE_FSM_UNEXPECTED" },
+            "끝난 태스크에 FSM 결함을 냈다",
+        )
+    }
+
+    @Test
+    fun `운동 상태 채널이 없으면 이 결함을 안 낸다`() {
+        // **없는 것과 어긋난 것은 다르다.** 토픽을 못 받는 대상(시뮬레이터)에서
+        // 결함을 내면 "모른다" 가 "틀렸다" 로 보고된다 — 이 저장소가
+        // `Unavailable` 과 0 을 가른 것과 같은 규율이다.
+        val a = adapter(low = FakeLowLevel(state = lowState()), mode = null)
+        a.accept("move_relative", move, t0)
+
+        val observed = a.faults()
+        assertTrue(observed is FaultObservation.Observed, "$observed")
+        assertEquals(
+            emptyList(),
+            observed.faults.filter { it.errorType == "X_UNITREE_FSM_UNEXPECTED" },
+            "채널이 없는데 어긋났다고 적었다",
+        )
+    }
+
+    @Test
+    fun `태스크가 없으면 FSM 이 달라도 결함이 아니다`() {
+        // 아무것도 안 시켰는데 로봇이 damp 에 있는 것은 정상이다.
+        val mode = FakeMode(SportModeState(fsmId = 1, fsmMode = 0, taskId = 0, taskTimeSeconds = 0.0))
+        val observed = adapter(low = FakeLowLevel(state = lowState()), mode = mode).faults()
+
+        assertTrue(observed is FaultObservation.Observed, "$observed")
+        assertEquals(
+            emptyList(),
+            observed.faults.filter { it.errorType == "X_UNITREE_FSM_UNEXPECTED" },
+            "태스크가 없는데 어긋났다고 적었다",
+        )
+    }
+
     @Test
     fun `FSM 번호가 음수면 기동에서 막는다`() {
         // 잘못 배선된 설정이 런타임 깊은 곳에서 터지는 것보다 여기서 터지는
@@ -272,5 +361,13 @@ class G1AdapterTest {
         override fun latestState(): LowState? = state
     }
 
-    private class FakeLink(override val sport: SportService?, override val lowLevel: LowLevelChannel) : G1Link
+    private class FakeMode(var mode: SportModeState? = null) : SportModeChannel {
+        override fun latestSportMode(): SportModeState? = mode
+    }
+
+    private class FakeLink(
+        override val sport: SportService?,
+        override val lowLevel: LowLevelChannel,
+        override val sportMode: SportModeChannel? = null,
+    ) : G1Link
 }
