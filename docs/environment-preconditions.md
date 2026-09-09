@@ -120,16 +120,17 @@
 
 ## 대비표 — 이것이 이 문서의 요점이다
 
-| | Spot | Digit |
-|---|---|---|
-| **지도를 어떻게 얻나** | **로봇을 몰고 다녀 녹화** (GraphNav) | **평면도 이미지를 올린다** (`set-floorplan-map`) |
-| 정렬 | `Anchoring`(선택) | **랜드마크 자세를 실측해 등록해야 한다** |
-| 자리가 일감에 족한가 | **선언이 없다** (§15.79 열림) | **`object-attribute.pickable`** — 벤더가 선언으로 갖고 있다 |
-| 저작물 vs 일시적 | 구별 필드 없음 | **`transient` · `timeout` · `notify-objects.persistent`** |
-| 충전 복귀 | `DockProperties` · `batteryMonitor` | **공개 표면에 도크가 없다** |
-| 금지구역 | `NoGoRegionProperties` | `object-attribute.keep-out` |
-| 문·계단 | `DoorCommand` · `Staircase` | **공개 표면에 없다** |
-| 배타 제어 | `Lease` (epoch·`STATUS_OLDER`) | `request-privilege{privilege, **priority**}` |
+| | Spot (8089심볼) | Digit (416심볼) | G1 (**44심볼**) |
+|---|---|---|---|
+| **지도를 어떻게 얻나** | **로봇을 몰고 다녀 녹화** | **평면도 이미지를 올린다** | **없다** |
+| 정렬 | `Anchoring`(선택) | **랜드마크 자세를 실측해 등록** | 없다 |
+| 자리가 일감에 족한가 | **선언 없음** (§15.79 열림) | **`object-attribute.pickable`** | 자리 개념이 없다 |
+| 저작물 vs 일시적 | 구별 필드 없음 | **`transient`·`timeout`·`persistent`** | 없다 |
+| 충전 복귀 | `DockProperties`·`batteryMonitor` | 공개 표면에 도크 없음 | 없다 |
+| 금지구역 | `NoGoRegionProperties` | `object-attribute.keep-out` | 없다 |
+| 문·계단 | `DoorCommand`·`Staircase` | 공개 표면에 없음 | 없다 |
+| 배타 제어 | `Lease`(epoch·`STATUS_OLDER`) | `request-privilege{**priority**}` | `SWITCH_TO_USER_CTRL` / `SWITCH_TO_INTERNAL_CTRL` |
+| **지형 전제를 어떻게 다루나** | `ground_mu_est`·`Staircase` | `step-clearance`·`steppable` | **`SET_SWING_HEIGHT`·`SET_STAND_HEIGHT`** — 값으로만 |
 
 ## A′. 지도 — 커미셔닝이 정반대다
 
@@ -194,10 +195,55 @@ mobility-parameters{ avoid-obstacles, obstacle-threshold,
 
 ---
 
+# G1 — 전제가 거의 없다, 그리고 그것이 좋은 소식이 아니다
+
+> **범위 경고가 먼저다.** 이 측정은 공개된 `g1_loco_api.hpp`(API ID 상수 + `Jsonize*` 요청 키)와 `unitree_hg` IDL(`LowState_`·`MotorState_`)뿐이며 **44심볼**이다. Spot 8089·Digit 416과 나란히 놓으면 오해가 난다 — **좁게 봐서 없는 것과 실제로 없는 것을 구별할 수 없다.** `profile/distance/unitree-g1.json`의 `survey_scope`가 *"공개된 것만 봤고 구매 시 딸려오는 문서가 있는지는 확인 못 했다"*라고 적어 두었다.
+
+## 이 표면이 아는 것
+
+```
+이동      SET_VELOCITY{velocity, duration} · SET_SPEED_MODE
+자세      SET_STAND_HEIGHT · SET_SWING_HEIGHT · SET_BALANCE_MODE
+상태기계  SET_FSM_ID · GET_FSM_ID · GET_FSM_MODE · GET_PHASE
+팔        SET_ARM_TASK
+제어권    SWITCH_TO_USER_CTRL · SWITCH_TO_INTERNAL_CTRL
+저수준    LowState_{imu_state, motor_state, mode_machine, tick, wireless_remote}
+          MotorState_{q, dq, ddq, tau_est, temperature, vol, mode}
+```
+
+**지도·이름·객체·도크·인지·문·계단이 하나도 없다.** 저작된 환경이라는 개념 자체가 이 표면에 없다.
+
+## 그래서 전제가 셋뿐이다
+
+| 전제 | 근거 | 확인 |
+|---|---|---|
+| 바닥의 단차가 스윙 높이 안이다 | `SET_SWING_HEIGHT`·`SET_STAND_HEIGHT` — **지형을 값으로만 다룬다** | **보증** |
+| 사람이 제어권을 안 뺏고 있다 | `SWITCH_TO_USER_CTRL`/`SWITCH_TO_INTERNAL_CTRL` · `LowState_.wireless_remote` | 관측 가능 |
+| 연속 운전이 열을 넘지 않는다 | `MotorState_.temperature` (모터마다) | 관측 가능(사후) |
+
+`LowState_.wireless_remote`가 눈에 띈다 — **리모컨 상태가 로봇 상태에 섞여 올라온다.** 사람이 리모컨으로 개입할 수 있고 그것이 관측된다는 뜻이며, 배타 제어를 리스가 아니라 **모드 전환**으로 푸는 것과 짝이다.
+
+## 뒤집어 읽어야 한다
+
+**전제가 적은 것은 요구가 적다는 뜻이 아니라, 환경을 아는 일감을 아예 못 받는다는 뜻이다.**
+
+| | 전제의 수 | 받을 수 있는 일감 |
+|---|---|---|
+| Spot·Digit | 많다 | 자리·대상을 지시하는 일감 |
+| **G1** | **셋** | **`move_relative`만** |
+
+`vendor_layer`가 `NONE`인 것과 같은 사실이다 — 진행률을 내는 메서드도 진행 중 동작을 취소하는 메서드도 없어서 태스크 생명주기가 올라탈 곳이 없다.
+
+> **§15.79의 관찰이 여기서 극단으로 확인된다.** *"환경 참조를 가진 것들만 기종마다 갈린다"*고 적었는데, G1은 **환경 참조가 있는 스킬을 하나도 못 든다.** `move_relative`가 3/3인 것과 G1의 전제가 셋인 것은 같은 사실의 양면이다.
+>
+> 그러므로 이 문서가 고객에게 하는 말은 **"전제를 만들지 않으면 로봇은 저수준 명령만 받는다"**이다. 전제는 비용이 아니라 **능력의 입력**이다.
+
+---
+
 ## 아직 안 정한 것
 
 - **전제를 어디에 선언하나.** 프로파일은 기체마다이고 이 전제들은 **일감과 현장의 짝**에 붙는다. 어느 한쪽 문서에 안 들어갈 수 있다(§15.81).
 - **보증 항목을 어떻게 기록하나.** 영원히 CLAIMED인 것들이며, CONFIRMED와 같은 칸에 두면 안 된다.
 - **A~J의 분류가 맞는지 모른다.** 항목이 하루에 모였다. Digit을 재고 나서 **갈래가 하나 늘었다**(D′ 기동 설비) — 두 기종으로 이 정도면 셋째에서 또 는다. **분류를 굳히기 전에 기종을 더 재야 한다.**
-- **G1을 아직 이 축으로 안 쟀다.** 지도도 세계 모델도 없는 기체가 어느 전제를 갖는지가 표의 한 축을 비워 두고 있다.
+- **G1의 범위가 너무 좁다.** 44심볼로 잰 것이라 *"전제가 셋"*이 실제인지 우리가 좁게 본 것인지 구별되지 않는다. Unitree의 다른 표면(`sport` 서비스 전체, Go2 계열)을 안 쟀다.
 - 안전 격리(사람과 로봇의 공간 분리)는 여기 안 적었다 — [ADR 32](adr/0032-safety-boundary.md)가 안전을 계약 밖으로 둔 것과의 관계를 먼저 정해야 한다.
