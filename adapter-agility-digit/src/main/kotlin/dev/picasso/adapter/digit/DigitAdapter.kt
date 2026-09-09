@@ -47,7 +47,6 @@ class DigitAdapter(
 ) : RobotAdapter {
 
     private var task: RunningTask? = null
-    private var issued = 0
     private var latchViolated = false
 
     /** 지금 든 태스크의 상태. 아무것도 안 들었으면 `UNSPECIFIED`. */
@@ -60,7 +59,7 @@ class DigitAdapter(
      * 권한 검사가 스킬·파라미터 **뒤**에 온다 — 앞의 것들은 설정 실수이고
      * 권한은 환경 사실이다(G1·Spot 어댑터와 같은 순서).
      */
-    override fun accept(skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
+    override fun accept(taskId: String, skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         if (!identity.complete) {
             return Acceptance.Refused(Refusal.IDENTITY_UNSET, "기체 신원이 비어 있다")
         }
@@ -109,14 +108,12 @@ class DigitAdapter(
             return Acceptance.Refused(Refusal.LINK_ERROR, "액션 전송이 실패했다: ${it.message}")
         }
 
-        issued += 1
-        val id = "${identity.robotId}-$issued"
         task = RunningTask(
-            id, ref, startedAt, TaskState.TASK_STATE_RUNNING,
+            taskId, ref, startedAt, TaskState.TASK_STATE_RUNNING,
             skillType = skillType,
             objectName = if (skillType == PICK_PLACE) text(parameters, P_OBJECT) else null,
         )
-        return Acceptance.Accepted(id)
+        return Acceptance.Accepted(taskId)
     }
 
     /**

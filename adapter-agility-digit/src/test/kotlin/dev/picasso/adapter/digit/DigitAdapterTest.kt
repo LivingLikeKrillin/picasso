@@ -51,7 +51,7 @@ class DigitAdapterTest {
         // 옮기는 표가 **없는 것**이 요점이다(ADR 34). 그 이름을 로봇이 알게
         // 만드는 것은 `add-object` 로 하는 사이트 작업이다(ADR 35).
         val link = FakeLink()
-        DigitAdapter(link, identity).accept("navigate_to", navigate, t0)
+        DigitAdapter(link, identity).accept("t-1", "navigate_to", navigate, t0)
         assertEquals(listOf("dock-3"), link.gotos)
     }
 
@@ -60,7 +60,7 @@ class DigitAdapterTest {
         // **조사한 셋 중 시맨틱 집기·놓기를 파는 유일한 기종이다.**
         // `action-pick{object: ObjectSelector}` · `action-place{reference_frame}`.
         val link = FakeLink()
-        DigitAdapter(link, identity).accept("pick_place", pickPlace, t0)
+        DigitAdapter(link, identity).accept("t-1", "pick_place", pickPlace, t0)
         assertEquals(listOf("tote-7" to "shelf-b"), link.pickPlaces)
     }
 
@@ -73,7 +73,7 @@ class DigitAdapterTest {
         // 죽었다. 액션이 막히면 그 태스크는 **영원히 RUNNING** 이었다.
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
 
         link.reported = ActionStatus.FAILURE
         assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
@@ -87,7 +87,7 @@ class DigitAdapterTest {
         // 안 나르므로, **종착으로 옮기면 멀쩡한 태스크를 죽인다.**
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
 
         link.reported = ActionStatus.INACTIVE
         assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusSeconds(1)))
@@ -99,7 +99,7 @@ class DigitAdapterTest {
     fun `집기가 실패하면 GRASP_FAILED 다 — 실행 트리가 어느 액션인지 말한다`() {
         val link = FakeLink(error = "grasp slipped")
         val a = DigitAdapter(link, identity)
-        a.accept("pick_place", pickPlace, t0)
+        a.accept("t-1", "pick_place", pickPlace, t0)
         link.tree = listOf(
             ExecutionNode(
                 "action-sequential", ActionStatus.FAILURE,
@@ -120,7 +120,7 @@ class DigitAdapterTest {
     fun `놓기가 실패하면 PLACE_FAILED 다`() {
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("pick_place", pickPlace, t0)
+        a.accept("t-1", "pick_place", pickPlace, t0)
         link.tree = listOf(
             ExecutionNode(
                 "action-sequential", ActionStatus.FAILURE,
@@ -138,7 +138,7 @@ class DigitAdapterTest {
         // 벤더의 failure 정의가 *"blocked from making progress towards its goal"* 이다 — 이동에서는 그 말 그대로다.
         val link = FakeLink(error = "path obstructed by pallet")
         val a = DigitAdapter(link, identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
         link.reported = ActionStatus.FAILURE
 
         a.poll(t0.plusSeconds(1))
@@ -151,7 +151,7 @@ class DigitAdapterTest {
     fun `트리를 못 읽으면 집기인지 놓기인지 가르지 않는다`() {
         val link = FakeLink(treeFails = true)
         val a = DigitAdapter(link, identity)
-        a.accept("pick_place", pickPlace, t0)
+        a.accept("t-1", "pick_place", pickPlace, t0)
         link.reported = ActionStatus.FAILURE
 
         a.poll(t0.plusSeconds(1))
@@ -164,7 +164,7 @@ class DigitAdapterTest {
     fun `권한을 잃어 죽은 태스크는 CONTROL_AUTHORITY_LOST 다`() {
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
         link.privilege = PrivilegeState.LOST
 
         assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
@@ -208,7 +208,7 @@ class DigitAdapterTest {
     fun `지속시간이 로봇으로 넘어간다`() {
         // `action-duration{action, duration}` 이 감싸므로 **로봇이 집행한다.**
         val link = FakeLink()
-        DigitAdapter(link, identity).accept("move_relative", move, t0)
+        DigitAdapter(link, identity).accept("t-1", "move_relative", move, t0)
         assertEquals(listOf(Move(yawRate = 0.1, forward = 0.6, lateral = 0.0, duration = 2.0)), link.moves)
     }
 
@@ -222,7 +222,7 @@ class DigitAdapterTest {
         // 워치독이 다시 기어들어오면 여기서 빨개진다.
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusSeconds(9_999)))
         assertEquals(0, link.removed, "어댑터가 시계를 보고 액션을 건드렸다")
@@ -237,7 +237,7 @@ class DigitAdapterTest {
     fun `종착 뒤에 running 이 다시 오면 래치 위반을 낸다`() {
         val link = FakeLink(reported = ActionStatus.SUCCESS)
         val a = DigitAdapter(link, identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
         a.poll(t0.plusSeconds(1))
         assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.state)
 
@@ -254,7 +254,7 @@ class DigitAdapterTest {
         // 위 시험이 "running 이면 언제나 빨갛다" 로 통과하는 것을 막는다.
         val link = FakeLink(reported = ActionStatus.RUNNING)
         val a = DigitAdapter(link, identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
         a.poll(t0.plusSeconds(1))
 
         val observed = assertIs<FaultObservation.Observed>(a.faults())
@@ -267,7 +267,7 @@ class DigitAdapterTest {
     fun `취소가 액션을 지운다`() {
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
 
         assertEquals(Applied.Ok, a.cancel())
         assertEquals(1, link.removed)
@@ -282,7 +282,7 @@ class DigitAdapterTest {
         // 적게 된다.
         val link = FakeLink(reported = ActionStatus.RUNNING)
         val a = DigitAdapter(link, identity)
-        a.accept("pick_place", pickPlace, t0)
+        a.accept("t-1", "pick_place", pickPlace, t0)
 
         val refused = assertIs<Applied.Refused>(a.cancel())
         assertEquals(Refusal.LINK_ERROR, refused.reason)
@@ -293,7 +293,7 @@ class DigitAdapterTest {
     fun `지우기가 실패하면 취소됐다고 적지 않는다`() {
         val link = FakeLink(removeFails = true)
         val a = DigitAdapter(link, identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
 
         assertEquals(Refusal.LINK_ERROR, assertIs<Applied.Refused>(a.cancel()).reason)
         assertEquals(TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED, a.state)
@@ -304,7 +304,7 @@ class DigitAdapterTest {
     @Test
     fun `권한이 없으면 받지 않는다`() {
         val refused = assertIs<Acceptance.Refused>(
-            adapter(FakeLink(privilege = PrivilegeState.LOST)).accept("navigate_to", navigate, t0),
+            adapter(FakeLink(privilege = PrivilegeState.LOST)).accept("t-1", "navigate_to", navigate, t0),
         )
         assertEquals(Refusal.CONTROL_AUTHORITY_LOST, refused.reason)
     }
@@ -315,7 +315,7 @@ class DigitAdapterTest {
         // 리셋되므로 태스크가 실패한 것이다.
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
 
         link.privilege = PrivilegeState.LOST
         assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
@@ -349,7 +349,7 @@ class DigitAdapterTest {
     fun `일시정지는 언제나 거절한다`() {
         // **이 NO 는 근거가 있다** — SDK 메시지 전수에 일시정지가 없다.
         val a = adapter()
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
         assertEquals(Refusal.NO_VENDOR_PRIMITIVE, assertIs<Applied.Refused>(a.pause()).reason)
         assertEquals(TaskState.TASK_STATE_RUNNING, a.state, "거절이 상태를 건드렸다")
     }
@@ -359,12 +359,12 @@ class DigitAdapterTest {
         // 셋은 들고 하나는 못 든다. 거리 측정과 같은 답이어야 한다.
         listOf("move_relative" to move, "navigate_to" to navigate, "pick_place" to pickPlace)
             .forEach { (skill, params) ->
-                assertIs<Acceptance.Accepted>(adapter().accept(skill, params, t0), "$skill 을 못 들었다")
+                assertIs<Acceptance.Accepted>(adapter().accept("t-1", skill, params, t0), "$skill 을 못 들었다")
             }
 
         assertEquals(
             Refusal.UNSUPPORTED_SKILL,
-            assertIs<Acceptance.Refused>(adapter().accept("inspect", mapOf("target" to "x"), t0)).reason,
+            assertIs<Acceptance.Refused>(adapter().accept("t-1", "inspect", mapOf("target" to "x"), t0)).reason,
         )
     }
 
@@ -377,7 +377,7 @@ class DigitAdapterTest {
         ).forEach { (skill, params) ->
             assertEquals(
                 Refusal.PARAMETER_MISSING,
-                assertIs<Acceptance.Refused>(adapter().accept(skill, params, t0)).reason,
+                assertIs<Acceptance.Refused>(adapter().accept("t-1", skill, params, t0)).reason,
                 "$skill 의 누락",
             )
         }
@@ -386,7 +386,7 @@ class DigitAdapterTest {
     @Test
     fun `종착한 태스크는 조작을 거절한다`() {
         val a = adapter(FakeLink(reported = ActionStatus.SUCCESS))
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
         a.poll(t0.plusSeconds(1))
 
         assertEquals(Refusal.TERMINAL_LATCHED, assertIs<Applied.Refused>(a.cancel()).reason)
@@ -396,10 +396,10 @@ class DigitAdapterTest {
     @Test
     fun `이미 도는 태스크가 있으면 받지 않는다`() {
         val a = adapter()
-        assertIs<Acceptance.Accepted>(a.accept("navigate_to", navigate, t0))
+        assertIs<Acceptance.Accepted>(a.accept("t-1", "navigate_to", navigate, t0))
         assertEquals(
             Refusal.ALREADY_RUNNING,
-            assertIs<Acceptance.Refused>(a.accept("move_relative", move, t0)).reason,
+            assertIs<Acceptance.Refused>(a.accept("t-1", "move_relative", move, t0)).reason,
         )
     }
 
@@ -408,7 +408,7 @@ class DigitAdapterTest {
         val blank = AdapterIdentity("agility-robotics", "agility-digit", "")
         assertEquals(
             Refusal.IDENTITY_UNSET,
-            assertIs<Acceptance.Refused>(adapter(identity = blank).accept("navigate_to", navigate, t0)).reason,
+            assertIs<Acceptance.Refused>(adapter(identity = blank).accept("t-1", "navigate_to", navigate, t0)).reason,
         )
     }
 
@@ -425,7 +425,7 @@ class DigitAdapterTest {
     fun `집기는 성공했고 놓기는 아직이면 든 채다 — 그 대상의 이름으로`() {
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("pick_place", pickPlace, t0)
+        a.accept("t-1", "pick_place", pickPlace, t0)
         link.tree = sequential(
             ExecutionNode("action-pick", ActionStatus.SUCCESS),
             ExecutionNode("action-place", ActionStatus.RUNNING),
@@ -437,7 +437,7 @@ class DigitAdapterTest {
     fun `놓기까지 성공했으면 빈손이다`() {
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("pick_place", pickPlace, t0)
+        a.accept("t-1", "pick_place", pickPlace, t0)
         link.tree = sequential(
             ExecutionNode("action-pick", ActionStatus.SUCCESS),
             ExecutionNode("action-place", ActionStatus.SUCCESS),
@@ -468,7 +468,7 @@ class DigitAdapterTest {
         // remove-action 은 지우는 것이지 내려놓는 것이 아니다.
         val link = FakeLink()
         val a = DigitAdapter(link, identity)
-        a.accept("pick_place", pickPlace, t0)
+        a.accept("t-1", "pick_place", pickPlace, t0)
         link.tree = sequential(
             ExecutionNode("action-pick", ActionStatus.SUCCESS),
             ExecutionNode("action-place", ActionStatus.RUNNING),

@@ -158,7 +158,8 @@ picasso/
   registry/           개정판·어댑터·원장·변경 계획·카탈로그    8·9절
   mimic/              프로파일 주도 에뮬레이터 + 제어 채널      C-2
   client/             계약 소비자 — 완료 기준 증명용
-  adapter-core/       어댑터들이 공유하는 계약 쪽 어휘. **기종을 모른다** (ADR 33)
+  adapter-core/       어댑터들이 공유하는 계약 쪽 어휘와 `RobotAdapter`. **기종을 모른다** (ADR 33)
+  adapter-host/       어댑터 하나를 계약의 gRPC 서비스 뒤에 세우는 서버. **기종을 모른다** (ADR 39)
   adapter-<vendor>-<model>/
                       실물 어댑터. **기종을 아는 유일한 자리** (ADR 33)
   gate/
@@ -185,6 +186,7 @@ client        → contracts, profile-model   ※ 아래 단서
 harness       → mimic, client, contracts
 adapter-core  → contracts
 profile-projection → contracts, profile-model
+adapter-host  → contracts, adapter-core, profile-model, profile-projection   ※ 어댑터 모듈은 모른다 — 조립은 기종을 아는 쪽(ADR 39)
 mimic         → profile-model, profile-projection, contracts   ※ 투영은 2026-09-10 에 profile-projection 으로 나갔다
 adapter-<v>-<m> → contracts, adapter-core    ※ 아래 단서
 ```
@@ -2270,3 +2272,30 @@ mimic/
     - 결과 참조의 문자열 모양(`channel/data_name#id@action/group`)은 우리가 정한 것이다. 계약의 `partial_result` 가 자유 문자열이라서이며, 구조화하려면 계약이 자리를 내야 한다(§15.76).
     - `WorldObject.name` 으로 대상을 찾는 것과 `knownSiteNames()`(그래프의 웨이포인트 이름)는 다른 이름 공간이다(§15.78) — 확인 질의는 장소만 답하고 대상은 아직 안 답한다.
     - 결함 주입 다섯(모르는 대상 수락 · 취득에 대상 이름 안 붙임 · 결과 참조 누락 · 시간 초과 미분류 · 거절된 취소가 상태 변경) 전부 겨냥한 시험이 잡았다. 앞 판의 *"드는 스킬이 아니면 받지 않는다"* 시험은 `inspect` 를 빼고 `pick_place` 만 남겼다.
+
+98. **어댑터의 북쪽 — 계약 서버 하나가 어댑터 셋을 세우고, ③이 실물 어댑터 위에서 미들웨어까지 처음 이어졌다.**
+
+    §15.77 이 *"어댑터 인스턴스가 없다"* 로 적어 둔 것을 닫는 첫 걸음이다(ADR 39). 어댑터 셋의 같은 메서드 열이 `RobotAdapter` 가 됐고, 기종을 모르는 모듈 `adapter-host` 가 그것 하나를 계약의 gRPC 서비스 셋 뒤에 세운다. 프로파일 → `Capability` 투영은 `profile-projection` 으로 나가 미믹과 호스트가 같은 함수를 쓴다.
+
+    ### 소비자가 보는 모양은 미믹과 같다
+
+    | 계약 면 | 호스트 |
+    |---|---|
+    | `StartTask` | 프로파일 선언 대조(스킬·필수 파라미터·문자열 길이) → `adapter.accept` → 로그에 `ACCEPTED` 와 어댑터가 지금 말하는 상태. 같은 `(task_id, revision)` 은 같은 핸들이고 로그를 안 늘린다. 종착은 래치 |
+    | `WatchTask` | 되짚기(`from_update_index`) + 열어 두고 밀기. `partial_result` 는 어댑터의 결과 참조, `fault` 는 실패 종착의 정준 분류, `hold` 는 잔여 물리 상태 |
+    | 조작 넷 | 어댑터가 *수단이 없다* 하면 그 조작의 코드(`PAUSE_UNSUPPORTED`·`CANCEL_UNSUPPORTED`). 종착이면 `INVALID_TRANSITION` |
+    | `GetCapabilities` | 프로파일의 투영 그대로. `robot_software` 는 아직 안 싣는다 |
+    | `GetKnownSiteNames` | `Known`/`Unsupported` 는 계약대로, `Unavailable` 은 `UNAVAILABLE` — 0 개와 못 함을 접지 않는다 |
+    | `GetSnapshot`·`ReplayEvents` | 태스크 전이·결함 발생/해소를 `sequence` 축에 쌓고, 버퍼 크기는 프로파일의 것, 벗어나면 `SEQUENCE_EVICTED`. 결함을 못 봤으면 스냅샷이 `UNAVAILABLE` |
+
+    ### 끝에서 끝까지
+
+    `SpotHostEndToEndTest`(Spot 모듈 — 기종을 아는 쪽이 조립한다): 상류 JobOrder(점검 대상 둘) → `InspectAsset` → 계약 → 호스트 → `SpotAdapter` → 가짜 벤더 표면(미션·지도·세계 모델·취득). 이동 둘은 미션으로, 점검 둘은 취득으로 갔고, `DataIdentifier` 가 대상의 이름을 달고 `partial_result` → `ExecutionUnit.result` → **`JobResponse.results`** 에 닿았다. §15.93 이 *비어 있다* 고 고정한 그 칸이 실물 어댑터 경로에서는 찬다 — 미믹 경로의 시험은 그대로 비어 있고, 그것이 맞다(미믹은 결과를 안 채운다).
+
+    ### 정직하게 적어 둘 것
+
+    - **MQTT 발행·레지스트리 적재·`Negotiate` 가 없다.** 계약의 gRPC 면만 세웠다. 레지스트리가 호스트의 기체를 보는 결선(§3.2 `registry ⇠ 브로커`)과 ADR 37 의 등록 절차는 열려 있다.
+    - **도는 태스크의 갱신을 안 한다** — 어댑터 셋 중 아무도 Halt→Reset→Start 를 안 들어 `INVALID_TRANSITION` 에 사정을 붙여 거절한다. 미들웨어는 그 코드를 *이미 종착* 으로 읽고 지연 이벤트를 기다리므로(§15.92), 호스트 위에서 버전 갱신을 쓰면 그 단위는 원래 버전으로 끝나고 새 기대에 대고 검증된다. 시험은 없다.
+    - 어댑터의 거절 중 *로봇이 지금 못 받는다*(`VENDOR_REJECTED`·`CONTROL_AUTHORITY_LOST`·`ALREADY_RUNNING`)는 계약에 자리가 없어 `INVALID_TRANSITION` 에 분류와 원문을 붙인다 — 거절 코드 하나가 후보다(ADR 9: 발신자가 이제 있다).
+    - 진행률은 종착 전 0, 성공 1 이다. 어댑터가 진행률을 안 낸다.
+    - 결함 주입 일곱(결과 참조 누락 · 멱등 재수신을 새 요청으로 · 못 본 결함을 없음으로 · 축출 망각 · 취소 거절 코드 뒤바꿈 · 종착 래치 제거 · 실패에 fault 미부착) 전부 겨냥한 시험이 잡았다. 첫 실행에서 하나가 *"모든 겨냥 시험이 잡지는 않음"* 으로 나왔는데 — e2e 시험이 컴파일되지 않은 채였고 러너가 *시험 0건* 을 초록으로 읽었다. 러너의 초록 판정에 *시험이 하나라도 돌았는가* 를 더했다.

@@ -22,7 +22,12 @@ interface RobotAdapter {
     /** 지금 든 태스크의 상태. 아무것도 안 들었으면 `UNSPECIFIED`. */
     val state: TaskState
 
-    fun accept(skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance
+    /**
+     * [taskId] 는 **계약의 `task_id`** 다 — 정체성 열(보고서 15.1: 요청 ID·실행 ID·하류 작업 ID·버전)의 하류 칸이고, 어댑터는
+     * 그것을 벤더 쪽 결속 자리(Spot `CaptureActionId.group_name`)에 그대로 쓴다. 어댑터가 자기 식별자를 따로 만들면 넷째
+     * 칸이 생기고 결과 참조가 상류의 단위와 안 맞는다 — e2e 시험이 그것을 잡았다(§15.98).
+     */
+    fun accept(taskId: String, skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance
 
     /** 상태를 갱신하고 돌려준다. 호스트가 펌프마다 부른다. */
     fun poll(now: Instant): TaskState

@@ -49,7 +49,6 @@ class G1Adapter(
 ) : RobotAdapter {
 
     private var task: RunningTask? = null
-    private var issued = 0
 
     /** 지금 든 태스크의 상태. 아무것도 안 들었으면 `UNSPECIFIED`. */
     override val state: TaskState
@@ -63,7 +62,7 @@ class G1Adapter(
      * 환경 사실보다 먼저 말해 줘야 하기 때문이다. 환경 탓을 먼저 하면 잘못
      * 배선된 어댑터가 시뮬레이터 탓으로 읽힌다.
      */
-    override fun accept(skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
+    override fun accept(taskId: String, skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         if (!identity.complete) {
             return Acceptance.Refused(
                 Refusal.IDENTITY_UNSET,
@@ -115,13 +114,9 @@ class G1Adapter(
             return Acceptance.Refused(Refusal.LINK_ERROR, "SetVelocity 가 실패했다: ${it.message}")
         }
 
-        // **결정적 식별자다.** 난수를 쓰면 같은 입력이 같은 기록을 남기지
-        // 않는다 — §12.1의 결정성 규율과 §15.21이 세션 id를 카운터로 둔 것이
-        // 같은 이유다.
-        issued += 1
-        val id = "${identity.robotId}-$issued"
-        task = RunningTask(id, startedAt, duration, TaskState.TASK_STATE_RUNNING)
-        return Acceptance.Accepted(id)
+        // 계약의 task_id 가 곧 이 어댑터의 식별자다 — 정체성 열(15.1)의 하류 작업 ID 를 새로 만들지 않는다.
+        task = RunningTask(taskId, startedAt, duration, TaskState.TASK_STATE_RUNNING)
+        return Acceptance.Accepted(taskId)
     }
 
     /**

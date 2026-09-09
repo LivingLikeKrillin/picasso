@@ -21,6 +21,7 @@
 | **36** | **일감이 먼저다 — 배정 어휘와 실행 계약을 가른다** | [`0036`](0036-work-first-assignment-vs-execution.md) |
 | **37** | **등록이 두 갈래다 — 발견과 선언** | [`0037`](0037-registration-is-discovery-or-declaration.md) |
 | **38** | **미션 계층의 스키마와 PoC 엔진은 우리 범위다** | [`0038`](0038-mission-layer-schema-is-ours.md) — 미들웨어 중앙 설계와 함께 |
+| 39 | [어댑터의 북쪽은 기종을 모르는 호스트 하나다](0039-adapter-host.md) | 결정됨 | `RobotAdapter` 를 `adapter-core` 에, 계약 서버는 `adapter-host` 하나, 투영은 `profile-projection`, 조립은 기종을 아는 쪽. MQTT·레지스트리·Negotiate 는 아직 없다 |
 | **23** | **게이트의 구조 검사를 문자열 검사로 둔 것** | [`0023`](0023-string-checks-over-ast.md), 한계 §15.6·§15.11 |
 | 24~28 | 범위·출처 | 스펙 §1.3·§2.2·§15 |
 | **29** | **`profile-model`을 뽑아 `gate`와 `mimic`이 공유** | [`0029`](0029-shared-profile-model.md) |

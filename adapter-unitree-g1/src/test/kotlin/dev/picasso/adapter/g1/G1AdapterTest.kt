@@ -52,7 +52,7 @@ class G1AdapterTest {
         // 시뮬레이터를 상대로 띄운 어댑터가 태스크를 받아 놓고 아무것도 안
         // 하면, 스위트는 초록이고 로봇은 가만히 있는다. 거절해야 그 상태가
         // 보인다.
-        val result = adapter(sport = null).accept("move_relative", move, t0)
+        val result = adapter(sport = null).accept("t-1", "move_relative", move, t0)
 
         val refused = assertIs<Acceptance.Refused>(result)
         assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
@@ -63,13 +63,13 @@ class G1AdapterTest {
         // G1은 자기가 누구인지 말하지 않는다. 설정이 유일한 출처이므로
         // 비어 있는 것은 기본값이 아니라 배선 실수다.
         val blank = AdapterIdentity(vendor = "", model = "unitree-g1", robotId = "g1-01")
-        val refused = assertIs<Acceptance.Refused>(adapter(identity = blank).accept("move_relative", move, t0))
+        val refused = assertIs<Acceptance.Refused>(adapter(identity = blank).accept("t-1", "move_relative", move, t0))
         assertEquals(Refusal.IDENTITY_UNSET, refused.reason)
     }
 
     @Test
     fun `드는 스킬이 아니면 받지 않는다`() {
-        val refused = assertIs<Acceptance.Refused>(adapter().accept("navigate_to", move, t0))
+        val refused = assertIs<Acceptance.Refused>(adapter().accept("t-1", "navigate_to", move, t0))
         assertEquals(Refusal.UNSUPPORTED_SKILL, refused.reason)
     }
 
@@ -79,7 +79,7 @@ class G1AdapterTest {
         // 어댑터가 흉내내면 호출자가 안 준 값을 우리가 정하는 것이 되고,
         // 계약이 그 파라미터를 필수로 둔 이유가 사라진다.
         val refused = assertIs<Acceptance.Refused>(
-            adapter().accept("move_relative", move - "duration", t0),
+            adapter().accept("t-1", "move_relative", move - "duration", t0),
         )
         assertEquals(Refusal.PARAMETER_MISSING, refused.reason)
         assertTrue("duration" in refused.detail, "무엇이 빠졌는지 말하지 않는다: ${refused.detail}")
@@ -89,8 +89,8 @@ class G1AdapterTest {
     fun `이미 도는 태스크가 있으면 받지 않는다`() {
         // §4.9 — 실물은 예외 없이 배타적 제어 모델이다.
         val a = adapter()
-        assertIs<Acceptance.Accepted>(a.accept("move_relative", move, t0))
-        val refused = assertIs<Acceptance.Refused>(a.accept("move_relative", move, t0))
+        assertIs<Acceptance.Accepted>(a.accept("t-1", "move_relative", move, t0))
+        val refused = assertIs<Acceptance.Refused>(a.accept("t-1", "move_relative", move, t0))
         assertEquals(Refusal.ALREADY_RUNNING, refused.reason)
     }
 
@@ -103,7 +103,7 @@ class G1AdapterTest {
         val sport = FakeSport()
         val a = G1Adapter(FakeLink(sport, FakeLowLevel()), identity, fsm)
 
-        a.accept("move_relative", mapOf(
+        a.accept("t-1", "move_relative", mapOf(
             "forward_speed" to 0.4, "lateral_speed" to -0.1, "yaw_rate" to 0.2, "duration" to 3.0,
         ), t0)
 
@@ -113,7 +113,7 @@ class G1AdapterTest {
     @Test
     fun `시간이 지나면 성공으로 정착한다`() {
         val a = adapter()
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusMillis(1_999)))
         assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(t0.plusMillis(2_000)))
@@ -126,7 +126,7 @@ class G1AdapterTest {
         // 그래서 로봇의 선언이 아니라 어댑터가 만든 것이다.
         val sport = FakeSport()
         val a = G1Adapter(FakeLink(sport, FakeLowLevel()), identity, fsm)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         assertEquals(Applied.Ok, a.cancel())
         assertEquals(Velocity(0.0, 0.0, 0.0, 0.0), sport.velocities.last())
@@ -139,7 +139,7 @@ class G1AdapterTest {
         // `RUNNING`으로 되돌리면 취소를 시도한 사실이 사라진다.
         val sport = FakeSport(failFrom = 1)
         val a = G1Adapter(FakeLink(sport, FakeLowLevel()), identity, fsm)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         val refused = assertIs<Applied.Refused>(a.cancel())
         assertEquals(Refusal.LINK_ERROR, refused.reason)
@@ -150,7 +150,7 @@ class G1AdapterTest {
     fun `종착한 태스크는 취소를 거절한다`() {
         // §4.4의 래치. 종착에는 나가는 화살표가 없다.
         val a = adapter()
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
         a.poll(t0.plusSeconds(3))
 
         val refused = assertIs<Applied.Refused>(a.cancel())
@@ -163,7 +163,7 @@ class G1AdapterTest {
         // 프로파일이 `pause_support: NO` 라 선언했고 여기가 그것을 집행한다.
         // 선언과 거동이 갈리면 선언이 거짓말이 된다.
         val a = adapter()
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         val refused = assertIs<Applied.Refused>(a.pause())
         assertEquals(Refusal.NO_VENDOR_PRIMITIVE, refused.reason)
@@ -216,7 +216,7 @@ class G1AdapterTest {
         // 상태가 조용히 성공으로 남는다.
         val moving = FakeLowLevel(state = lowState(velocities = listOf(0.0, 0.9)))
         val a = adapter(low = moving)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
         a.poll(t0.plusSeconds(3))
 
         val observed = assertIs<FaultObservation.Observed>(a.faults())
@@ -229,7 +229,7 @@ class G1AdapterTest {
         // 그러면 걷는 로봇이 전부 위반이 된다.
         val moving = FakeLowLevel(state = lowState(velocities = listOf(0.0, 0.9)))
         val a = adapter(low = moving)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         val observed = assertIs<FaultObservation.Observed>(a.faults())
         assertEquals(emptyList(), observed.faults.map { it.errorType })
@@ -247,7 +247,7 @@ class G1AdapterTest {
         // 여기서 보이게 한다.
         val mode = FakeMode(SportModeState(fsmId = 1, fsmMode = 0, taskId = 0, taskTimeSeconds = 0.0))
         val a = adapter(low = FakeLowLevel(state = lowState()), mode = mode)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         val observed = a.faults()
         assertTrue(observed is FaultObservation.Observed, "$observed")
@@ -262,7 +262,7 @@ class G1AdapterTest {
         // **한쪽만 보면 "언제나 결함을 내는" 판정이 통과한다.**
         val mode = FakeMode(SportModeState(fsmId = fsm.start, fsmMode = 0, taskId = 0, taskTimeSeconds = 0.0))
         val a = adapter(low = FakeLowLevel(state = lowState()), mode = mode)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         val observed = a.faults()
         assertTrue(observed is FaultObservation.Observed, "$observed")
@@ -281,7 +281,7 @@ class G1AdapterTest {
         // 그때 *"FSM 이 기대와 다르다"* 를 내면 **정상 종료마다 결함이 뜬다.**
         val mode = FakeMode(SportModeState(fsmId = 1, fsmMode = 0, taskId = 0, taskTimeSeconds = 0.0))
         val a = adapter(low = FakeLowLevel(state = lowState()), mode = mode)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
         a.poll(t0.plusSeconds(3))
 
         assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.state, "시계가 아직 종착으로 안 옮겼다")
@@ -300,7 +300,7 @@ class G1AdapterTest {
         // 결함을 내면 "모른다" 가 "틀렸다" 로 보고된다 — 이 저장소가
         // `Unavailable` 과 0 을 가른 것과 같은 규율이다.
         val a = adapter(low = FakeLowLevel(state = lowState()), mode = null)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         val observed = a.faults()
         assertTrue(observed is FaultObservation.Observed, "$observed")
@@ -377,7 +377,7 @@ class G1AdapterTest {
     @Test
     fun `로봇이 에러 코드로 거절하면 링크 오류가 아니라 벤더 거절이고 분류가 붙는다`() {
         val refused = assertIs<Acceptance.Refused>(
-            adapter(sport = FakeSport(apiError = UnitreeError.UT_ROBOT_LOCO_ERR_LOCOSTATE_NOT_AVAILABLE)).accept("move_relative", move, t0),
+            adapter(sport = FakeSport(apiError = UnitreeError.UT_ROBOT_LOCO_ERR_LOCOSTATE_NOT_AVAILABLE)).accept("t-1", "move_relative", move, t0),
         )
         assertEquals(Refusal.VENDOR_REJECTED, refused.reason)
         assertEquals(FailureClass.FAILURE_CLASS_PRECONDITION_FAILED, refused.failureClass)
@@ -388,7 +388,7 @@ class G1AdapterTest {
     @Test
     fun `뜻을 모르는 코드는 UNCLASSIFIED 다 — 지어내지 않는다`() {
         val refused = assertIs<Acceptance.Refused>(
-            adapter(sport = FakeSport(apiError = UnitreeError.UT_ROBOT_LOCO_ERR_INVALID_TASK_ID)).accept("move_relative", move, t0),
+            adapter(sport = FakeSport(apiError = UnitreeError.UT_ROBOT_LOCO_ERR_INVALID_TASK_ID)).accept("t-1", "move_relative", move, t0),
         )
         assertEquals(Refusal.VENDOR_REJECTED, refused.reason)
         assertEquals(FailureClass.FAILURE_CLASS_UNCLASSIFIED, refused.failureClass)
@@ -396,7 +396,7 @@ class G1AdapterTest {
 
     @Test
     fun `전송 실패는 여전히 링크 오류이고 분류가 없다`() {
-        val refused = assertIs<Acceptance.Refused>(adapter(sport = FakeSport(failFrom = 0)).accept("move_relative", move, t0))
+        val refused = assertIs<Acceptance.Refused>(adapter(sport = FakeSport(failFrom = 0)).accept("t-1", "move_relative", move, t0))
         assertEquals(Refusal.LINK_ERROR, refused.reason)
         assertEquals(FailureClass.FAILURE_CLASS_UNSPECIFIED, refused.failureClass)
     }

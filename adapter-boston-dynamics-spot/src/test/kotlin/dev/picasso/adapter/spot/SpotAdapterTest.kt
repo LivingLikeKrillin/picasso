@@ -63,15 +63,15 @@ class SpotAdapterTest {
         // 사실이 프로파일의 스킬 단위 선언과 맞아떨어진다.
         val onlyCommand = adapter(mission = null)
 
-        val refused = assertIs<Acceptance.Refused>(onlyCommand.accept("navigate_to", navigate, t0))
+        val refused = assertIs<Acceptance.Refused>(onlyCommand.accept("t-1", "navigate_to", navigate, t0))
         assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
 
-        assertIs<Acceptance.Accepted>(adapter(mission = null).accept("move_relative", move, t0))
+        assertIs<Acceptance.Accepted>(adapter(mission = null).accept("t-1", "move_relative", move, t0))
     }
 
     @Test
     fun `명령 계층이 없으면 move_relative 가 죽는다`() {
-        val refused = assertIs<Acceptance.Refused>(adapter(command = null).accept("move_relative", move, t0))
+        val refused = assertIs<Acceptance.Refused>(adapter(command = null).accept("t-1", "move_relative", move, t0))
         assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
     }
 
@@ -81,12 +81,12 @@ class SpotAdapterTest {
         // 첫 사례다. 프로파일이 `navigate_to: YES` · `move_relative: NO` 라
         // 선언했고 여기가 그것을 집행한다.
         val onMission = adapter()
-        onMission.accept("navigate_to", navigate, t0)
+        onMission.accept("t-1", "navigate_to", navigate, t0)
         assertEquals(Applied.Ok, onMission.pause())
         assertEquals(TaskState.TASK_STATE_PAUSED, onMission.state)
 
         val onCommand = adapter()
-        onCommand.accept("move_relative", move, t0)
+        onCommand.accept("t-1", "move_relative", move, t0)
         val refused = assertIs<Applied.Refused>(onCommand.pause())
         assertEquals(Refusal.NO_VENDOR_PRIMITIVE, refused.reason)
         assertEquals(TaskState.TASK_STATE_RUNNING, onCommand.state, "거절이 상태를 건드렸다")
@@ -100,7 +100,7 @@ class SpotAdapterTest {
         // `end_time`. 어긋나면 로봇이 일찍 서거나 안 선다.
         val command = FakeCommand()
         SpotAdapter(FakeLink(command, FakeMission(), mapped()), identity)
-            .accept("move_relative", move, t0)
+            .accept("t-1", "move_relative", move, t0)
 
         assertEquals(listOf(t0.plusSeconds(2)), command.velocities.map { it.endTime })
         assertEquals(0.5, command.velocities.single().vx)
@@ -116,7 +116,7 @@ class SpotAdapterTest {
         val mission = FakeMission()
         val graph = FakeGraph("wp-88" to "bay-7")
         SpotAdapter(FakeLink(FakeCommand(), mission, graph), identity)
-            .accept("navigate_to", mapOf("location" to "bay-7"), t0)
+            .accept("t-1", "navigate_to", mapOf("location" to "bay-7"), t0)
 
         assertEquals(listOf("wp-88"), mission.loaded, "이름을 그대로 항법에 넘겼다")
         assertEquals(1, mission.played)
@@ -130,7 +130,7 @@ class SpotAdapterTest {
         val mission = FakeMission()
         val refused = assertIs<Acceptance.Refused>(
             SpotAdapter(FakeLink(FakeCommand(), mission, FakeGraph("wp-1" to "dock-3")), identity)
-                .accept("navigate_to", mapOf("location" to "dock-4"), t0),
+                .accept("t-1", "navigate_to", mapOf("location" to "dock-4"), t0),
         )
 
         assertEquals(Refusal.SITE_NAME_UNKNOWN, refused.reason)
@@ -146,7 +146,7 @@ class SpotAdapterTest {
             SpotAdapter(
                 FakeLink(FakeCommand(), mission, FakeGraph("wp-1" to "dock-3", "wp-2" to "dock-3")),
                 identity,
-            ).accept("navigate_to", navigate, t0),
+            ).accept("t-1", "navigate_to", navigate, t0),
         )
 
         assertEquals(Refusal.SITE_NAME_AMBIGUOUS, refused.reason)
@@ -157,7 +157,7 @@ class SpotAdapterTest {
     fun `지도 계층이 없으면 navigate_to 를 못 든다`() {
         // 미션 계층이 있어도 갈 곳의 이름을 옮길 데가 없다.
         val refused = assertIs<Acceptance.Refused>(
-            adapter(graph = null).accept("navigate_to", navigate, t0),
+            adapter(graph = null).accept("t-1", "navigate_to", navigate, t0),
         )
         assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
     }
@@ -213,7 +213,7 @@ class SpotAdapterTest {
         // 결함이 목록인 이유다. 하나만 내면 먼저 발견한 것이 나머지를 덮는다.
         val link = FakeLink(FakeCommand(reject = LeaseStatus.STATUS_REVOKED), FakeMission(), mapped(), arm = false)
         val a = SpotAdapter(link, identity, expectsArm = true)
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         assertEquals(
             listOf("X_BOSTONDYNAMICS_ARM_ABSENT", "CONTROL_AUTHORITY_LOST"),
@@ -274,7 +274,7 @@ class SpotAdapterTest {
         ).forEach { (reported, expected) ->
             val mission = FakeMission(MissionState(reported))
             val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped()), identity)
-            a.accept("navigate_to", navigate, t0)
+            a.accept("t-1", "navigate_to", navigate, t0)
             assertEquals(expected, a.poll(t0.plusSeconds(1)), "$reported 의 옮김")
         }
     }
@@ -286,7 +286,7 @@ class SpotAdapterTest {
         // RUNNING 이 아니다. 그대로 옮기면 아무도 사람을 부르지 않는다.
         val mission = FakeMission(MissionState(MissionStatus.RUNNING, question = "문을 열까요?"))
         val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped()), identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
 
         assertEquals(TaskState.TASK_STATE_NEEDS_INTERVENTION, a.poll(t0.plusSeconds(1)))
 
@@ -300,7 +300,7 @@ class SpotAdapterTest {
         // `StopCommand` 조차 "provides no feedback" 이라 물어볼 데가 없다.
         // G1과 같은 처지이며, **같은 로봇 안에서 층에 따라 갈린다.**
         val a = adapter()
-        a.accept("move_relative", move, t0)
+        a.accept("t-1", "move_relative", move, t0)
 
         assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusMillis(1_999)))
         assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(t0.plusMillis(2_000)))
@@ -314,7 +314,7 @@ class SpotAdapterTest {
         // 있어도 인증이 없어 이 결함을 낼 근거 자체가 없었다.
         val a = adapter(command = FakeCommand(reject = LeaseStatus.STATUS_REVOKED))
 
-        val refused = assertIs<Acceptance.Refused>(a.accept("move_relative", move, t0))
+        val refused = assertIs<Acceptance.Refused>(a.accept("t-1", "move_relative", move, t0))
         assertEquals(Refusal.CONTROL_AUTHORITY_LOST, refused.reason)
 
         val observed = assertIs<FaultObservation.Observed>(a.faults())
@@ -325,7 +325,7 @@ class SpotAdapterTest {
     fun `권한을 잃은 채 취소하면 취소됐다고 적지 않는다`() {
         val mission = FakeMission()
         val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped()), identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
         mission.reject = LeaseStatus.STATUS_OLDER
 
         val refused = assertIs<Applied.Refused>(a.cancel())
@@ -339,7 +339,7 @@ class SpotAdapterTest {
     fun `취소가 미션을 멈춘다`() {
         val mission = FakeMission()
         val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped()), identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
 
         assertEquals(Applied.Ok, a.cancel())
         assertEquals(1, mission.stopped)
@@ -349,7 +349,7 @@ class SpotAdapterTest {
     @Test
     fun `종착한 태스크는 조작을 거절한다`() {
         val a = adapter(mission = FakeMission(MissionState(MissionStatus.SUCCESS)))
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
         a.poll(t0.plusSeconds(1))
 
         assertEquals(Refusal.TERMINAL_LATCHED, assertIs<Applied.Refused>(a.cancel()).reason)
@@ -360,8 +360,8 @@ class SpotAdapterTest {
     @Test
     fun `이미 도는 태스크가 있으면 받지 않는다`() {
         val a = adapter()
-        assertIs<Acceptance.Accepted>(a.accept("navigate_to", navigate, t0))
-        assertEquals(Refusal.ALREADY_RUNNING, assertIs<Acceptance.Refused>(a.accept("move_relative", move, t0)).reason)
+        assertIs<Acceptance.Accepted>(a.accept("t-1", "navigate_to", navigate, t0))
+        assertEquals(Refusal.ALREADY_RUNNING, assertIs<Acceptance.Refused>(a.accept("t-1", "move_relative", move, t0)).reason)
     }
 
     @Test
@@ -369,7 +369,7 @@ class SpotAdapterTest {
         val blank = AdapterIdentity("boston-dynamics", "", "spot-01")
         assertEquals(
             Refusal.IDENTITY_UNSET,
-            assertIs<Acceptance.Refused>(adapter(identity = blank).accept("move_relative", move, t0)).reason,
+            assertIs<Acceptance.Refused>(adapter(identity = blank).accept("t-1", "move_relative", move, t0)).reason,
         )
     }
 
@@ -380,24 +380,24 @@ class SpotAdapterTest {
         listOf("pick_place").forEach {
             assertEquals(
                 Refusal.UNSUPPORTED_SKILL,
-                assertIs<Acceptance.Refused>(adapter().accept(it, emptyMap(), t0)).reason,
+                assertIs<Acceptance.Refused>(adapter().accept("t-1", it, emptyMap(), t0)).reason,
                 "$it 의 거절",
             )
         }
         assertEquals(
             Refusal.PARAMETER_MISSING,
-            assertIs<Acceptance.Refused>(adapter().accept("inspect", emptyMap(), t0)).reason,
+            assertIs<Acceptance.Refused>(adapter().accept("t-1", "inspect", emptyMap(), t0)).reason,
             "inspect 는 이제 든다 — 파라미터가 없어서 거절되는 것이지 스킬이 없어서가 아니다",
         )
     }
 
     @Test
     fun `필수 파라미터가 빠지면 값을 지어내지 않는다`() {
-        val refused = assertIs<Acceptance.Refused>(adapter().accept("move_relative", move - "duration", t0))
+        val refused = assertIs<Acceptance.Refused>(adapter().accept("t-1", "move_relative", move - "duration", t0))
         assertEquals(Refusal.PARAMETER_MISSING, refused.reason)
         assertTrue("duration" in refused.detail)
 
-        val noLocation = assertIs<Acceptance.Refused>(adapter().accept("navigate_to", emptyMap(), t0))
+        val noLocation = assertIs<Acceptance.Refused>(adapter().accept("t-1", "navigate_to", emptyMap(), t0))
         assertEquals(Refusal.PARAMETER_MISSING, noLocation.reason)
     }
 
@@ -515,7 +515,7 @@ class SpotAdapterTest {
     fun `target 은 세계 모델에 묻고, 취득은 그 이름과 태스크로 묶여 모든 영상 원천으로 간다`() {
         val acquisition = FakeAcquisition()
         val a = adapter(acquisition = acquisition, world = FakeWorld("PUMP-01", "PANEL-3"))
-        val accepted = assertIs<Acceptance.Accepted>(a.accept("inspect", inspect, t0))
+        val accepted = assertIs<Acceptance.Accepted>(a.accept("t-1", "inspect", inspect, t0))
 
         val (actionName, groupName, captures) = acquisition.acquired.single()
         assertEquals("PUMP-01", actionName, "CaptureActionId.action_name 이 대상의 이름이어야 한다 — 결과가 그 이름으로 묶인다")
@@ -527,23 +527,23 @@ class SpotAdapterTest {
     @Test
     fun `세계 모델에 없는 대상은 거절하고 취득하지 않는다`() {
         val acquisition = FakeAcquisition()
-        val refused = assertIs<Acceptance.Refused>(adapter(acquisition = acquisition, world = FakeWorld("PANEL-3")).accept("inspect", inspect, t0))
+        val refused = assertIs<Acceptance.Refused>(adapter(acquisition = acquisition, world = FakeWorld("PANEL-3")).accept("t-1", "inspect", inspect, t0))
         assertEquals(Refusal.SITE_NAME_UNKNOWN, refused.reason)
         assertTrue(acquisition.acquired.isEmpty(), "모르는 대상을 찍었다 — 받아 놓고 아무거나 찍어 성공으로 적는 것이 가장 나쁘다")
     }
 
     @Test
     fun `취득 계층이 없으면 inspect 만 죽고 navigate_to 는 산다 — 층이 셋이다`() {
-        val refused = assertIs<Acceptance.Refused>(adapter(acquisition = null).accept("inspect", inspect, t0))
+        val refused = assertIs<Acceptance.Refused>(adapter(acquisition = null).accept("t-1", "inspect", inspect, t0))
         assertEquals(Refusal.VENDOR_SURFACE_ABSENT, refused.reason)
-        assertIs<Acceptance.Accepted>(adapter(acquisition = null).accept("navigate_to", navigate, t0))
+        assertIs<Acceptance.Accepted>(adapter(acquisition = null).accept("t-1", "navigate_to", navigate, t0))
     }
 
     @Test
     fun `취득이 끝나면 저장된 것의 식별자가 결과 참조다 — 시나리오 ③의 증거 자료 참조`() {
         val acquisition = FakeAcquisition()
         val a = adapter(acquisition = acquisition)
-        val id = assertIs<Acceptance.Accepted>(a.accept("inspect", inspect, t0)).taskId
+        val id = assertIs<Acceptance.Accepted>(a.accept("t-1", "inspect", inspect, t0)).taskId
         acquisition.state = AcquisitionState.STATUS_SAVING
         assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusSeconds(1)))
         assertEquals(null, a.result(), "끝나기 전에 결과가 있다")
@@ -561,13 +561,13 @@ class SpotAdapterTest {
     fun `취득이 시간을 넘기면 COMMAND_TIMED_OUT 이고 데이터 오류는 분류하지 않는다`() {
         val timedOut = FakeAcquisition(state = AcquisitionState.STATUS_TIMEDOUT)
         val a = adapter(acquisition = timedOut)
-        a.accept("inspect", inspect, t0)
+        a.accept("t-1", "inspect", inspect, t0)
         assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
         assertEquals(FailureClass.FAILURE_CLASS_COMMAND_TIMED_OUT, a.failure()!!.failureClass)
 
         val broken = FakeAcquisition(state = AcquisitionState.STATUS_DATA_ERROR, errors = listOf("spot-cam: capture failed"))
         val b = adapter(acquisition = broken)
-        b.accept("inspect", inspect, t0)
+        b.accept("t-1", "inspect", inspect, t0)
         assertEquals(TaskState.TASK_STATE_FAILED, b.poll(t0.plusSeconds(1)))
         assertEquals(FailureClass.FAILURE_CLASS_UNCLASSIFIED, b.failure()!!.failureClass)
         assertTrue(b.failure()!!.vendorDetail.contains("spot-cam: capture failed"), b.failure()!!.vendorDetail)
@@ -577,7 +577,7 @@ class SpotAdapterTest {
     fun `취득의 취소는 벤더가 답한다 — 되면 CANCELLING 뒤 CANCELLED, 거절되면 취득은 계속된다`() {
         val acquisition = FakeAcquisition()
         val a = adapter(acquisition = acquisition)
-        a.accept("inspect", inspect, t0)
+        a.accept("t-1", "inspect", inspect, t0)
         assertEquals(Applied.Ok, a.cancel())
         assertEquals(1, acquisition.cancels)
         assertEquals(TaskState.TASK_STATE_CANCELLING, a.poll(t0.plusSeconds(1)))
@@ -586,7 +586,7 @@ class SpotAdapterTest {
 
         val stubborn = FakeAcquisition(cancelAnswer = CancelAcquisitionStatus.STATUS_FAILED_TO_CANCEL)
         val b = adapter(acquisition = stubborn)
-        b.accept("inspect", inspect, t0)
+        b.accept("t-1", "inspect", inspect, t0)
         val refused = assertIs<Applied.Refused>(b.cancel())
         assertEquals(Refusal.VENDOR_REJECTED, refused.reason)
         assertEquals(TaskState.TASK_STATE_RUNNING, b.poll(t0.plusSeconds(1)), "거절된 취소가 상태를 건드렸다")
@@ -595,7 +595,7 @@ class SpotAdapterTest {
     @Test
     fun `취득에는 일시정지가 없다`() {
         val a = adapter()
-        a.accept("inspect", inspect, t0)
+        a.accept("t-1", "inspect", inspect, t0)
         val refused = assertIs<Applied.Refused>(a.pause())
         assertEquals(Refusal.NO_VENDOR_PRIMITIVE, refused.reason)
     }
@@ -603,7 +603,7 @@ class SpotAdapterTest {
     @Test
     fun `로봇이 AcquireData 를 거절하면 벤더 거절이고 원문이 붙는다`() {
         val refused = assertIs<Acceptance.Refused>(
-            adapter(acquisition = FakeAcquisition(acceptWith = AcquireStatus.STATUS_UNKNOWN_CAPTURE_TYPE)).accept("inspect", inspect, t0),
+            adapter(acquisition = FakeAcquisition(acceptWith = AcquireStatus.STATUS_UNKNOWN_CAPTURE_TYPE)).accept("t-1", "inspect", inspect, t0),
         )
         assertEquals(Refusal.VENDOR_REJECTED, refused.reason)
         assertEquals("AcquireDataResponse.status=STATUS_UNKNOWN_CAPTURE_TYPE", refused.vendorDetail)
@@ -614,7 +614,7 @@ class SpotAdapterTest {
     private fun failedNavigation(feedback: NavigationStatus?, feedbackFails: Boolean = false): SpotAdapter {
         val graph = mapped().also { it.feedback = feedback; it.feedbackFails = feedbackFails }
         val a = adapter(mission = FakeMission(MissionState(MissionStatus.FAILURE)), graph = graph)
-        assertIs<Acceptance.Accepted>(a.accept("navigate_to", navigate, t0))
+        assertIs<Acceptance.Accepted>(a.accept("t-1", "navigate_to", navigate, t0))
         assertEquals(TaskState.TASK_STATE_FAILED, a.poll(t0.plusSeconds(1)))
         return a
     }
@@ -652,7 +652,7 @@ class SpotAdapterTest {
     @Test
     fun `성공한 태스크에는 실패가 없다`() {
         val a = adapter(mission = FakeMission(MissionState(MissionStatus.SUCCESS)))
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
         assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(t0.plusSeconds(1)))
         assertEquals(null, a.failure())
     }
@@ -713,7 +713,7 @@ class SpotAdapterTest {
         // CANCELLED 는 복구까지 마쳤다는 뜻이고 든 채는 그것이 아니다.
         val mission = FakeMission()
         val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped(), gripper = true), identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
 
         assertEquals(Applied.Ok, a.cancel())
         assertEquals(1, mission.stopped)
@@ -723,7 +723,7 @@ class SpotAdapterTest {
     @Test
     fun `못 봤으면 취소됐다고 적되 모른다고 함께 말한다`() {
         val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), gripperFails = true), identity)
-        a.accept("navigate_to", navigate, t0)
+        a.accept("t-1", "navigate_to", navigate, t0)
 
         assertEquals(Applied.Ok, a.cancel())
         assertEquals(TaskState.TASK_STATE_CANCELLED, a.state)

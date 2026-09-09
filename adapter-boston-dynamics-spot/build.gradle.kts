@@ -12,4 +12,10 @@ dependencies {
     // 벤더 원문 대조 검사([VendorManifest]). **원문이 아니라 이름만** 들어온다 —
     // 매니페스트는 `src/test/resources` 의 텍스트 한 장이고 위 문단이 그대로 유지된다.
     testImplementation(testFixtures(project(":adapter-core")))
+    // 끝에서 끝까지 — 미들웨어 → 계약 → 호스트 → 이 어댑터. 기종을 아는 쪽이 조립한다(게이트 7번 밖).
+    testImplementation(project(":adapter-host"))
+    testImplementation(project(":picasso"))
+    testImplementation(project(":client"))
+    testImplementation(project(":profile-model"))
+    testImplementation(libs.grpc.inprocess)
 }

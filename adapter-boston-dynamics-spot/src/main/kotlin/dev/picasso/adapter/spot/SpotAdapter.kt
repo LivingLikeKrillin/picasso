@@ -60,7 +60,6 @@ class SpotAdapter(
 ) : RobotAdapter {
 
     private var task: RunningTask? = null
-    private var issued = 0
     private var authorityLost: LeaseStatus? = null
 
     /**
@@ -86,7 +85,7 @@ class SpotAdapter(
      * `navigate_to`는 미션 계층이다. 그래서 미션 서비스가 없는 기체에서도
      * `move_relative`는 돌고 `navigate_to`만 거절된다 — G1처럼 전부 죽지 않는다.
      */
-    override fun accept(skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
+    override fun accept(taskId: String, skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         if (!identity.complete) {
             return Acceptance.Refused(Refusal.IDENTITY_UNSET, "기체 신원이 비어 있다")
         }
@@ -96,9 +95,9 @@ class SpotAdapter(
         }
 
         return when (skillType) {
-            MOVE -> acceptMove(parameters, startedAt)
-            NAVIGATE -> acceptNavigate(parameters, startedAt)
-            INSPECT -> acceptInspect(parameters, startedAt)
+            MOVE -> acceptMove(taskId, parameters, startedAt)
+            NAVIGATE -> acceptNavigate(taskId, parameters, startedAt)
+            INSPECT -> acceptInspect(taskId, parameters, startedAt)
             else -> Acceptance.Refused(
                 Refusal.UNSUPPORTED_SKILL,
                 "이 어댑터가 드는 스킬은 '$MOVE'·'$NAVIGATE'·'$INSPECT' 셋이다: '$skillType'",
@@ -115,7 +114,7 @@ class SpotAdapter(
      * 묶는다 — 취득이 대상을 겨냥하는 자리가 없으므로(`AcquisitionRequestList` 는 센서를 받지 대상을 안 받는다)
      * *그 자리에 서면 카메라가 대상을 본다* 는 것은 환경 전제다(`environment-preconditions.md` B).
      */
-    private fun acceptInspect(parameters: Map<String, Any>, startedAt: Instant): Acceptance {
+    private fun acceptInspect(taskId: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         val target = parameters[P_TARGET] as? String
             ?: return Acceptance.Refused(Refusal.PARAMETER_MISSING, "필수 파라미터가 없다: [$P_TARGET]")
 
@@ -146,12 +145,11 @@ class SpotAdapter(
             return Acceptance.Refused(Refusal.VENDOR_SURFACE_ABSENT, "취득할 영상 원천이 하나도 없다 — 찍을 것이 없다")
         }
 
-        val id = "${identity.robotId}-${issued + 1}"
-        return when (val result = acquisition.acquire(actionName = target, groupName = id, captures = sources)) {
+        // group_name 은 계약의 task_id 다 — 결과 DataIdentifier 가 상류의 단위와 같은 이름을 단다(15.1).
+        return when (val result = acquisition.acquire(actionName = target, groupName = taskId, captures = sources)) {
             is AcquireResult.Accepted -> {
-                issued += 1
-                task = RunningTask(id, startedAt, Layer.ACQUISITION, durationSeconds = null, state = TaskState.TASK_STATE_RUNNING, requestId = result.requestId)
-                Acceptance.Accepted(id)
+                task = RunningTask(taskId, startedAt, Layer.ACQUISITION, durationSeconds = null, state = TaskState.TASK_STATE_RUNNING, requestId = result.requestId)
+                Acceptance.Accepted(taskId)
             }
 
             is AcquireResult.Rejected -> Acceptance.Refused(
@@ -165,7 +163,7 @@ class SpotAdapter(
         }
     }
 
-    private fun acceptMove(parameters: Map<String, Any>, startedAt: Instant): Acceptance {
+    private fun acceptMove(taskId: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         val missing = MOVE_PARAMS.filterNot { it in parameters }
         if (missing.isNotEmpty()) {
             return Acceptance.Refused(Refusal.PARAMETER_MISSING, "필수 파라미터가 없다: $missing")
@@ -185,6 +183,7 @@ class SpotAdapter(
         val endTime = startedAt.plusMillis((duration * MILLIS_PER_SECOND).toLong())
 
         return start(
+            taskId,
             command.se2Velocity(
                 vx = number(parameters, P_FORWARD) ?: 0.0,
                 vy = number(parameters, P_LATERAL) ?: 0.0,
@@ -197,7 +196,7 @@ class SpotAdapter(
         )
     }
 
-    private fun acceptNavigate(parameters: Map<String, Any>, startedAt: Instant): Acceptance {
+    private fun acceptNavigate(taskId: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         val location = parameters[P_LOCATION] as? String
             ?: return Acceptance.Refused(Refusal.PARAMETER_MISSING, "필수 파라미터가 없다: [$P_LOCATION]")
 
@@ -218,7 +217,7 @@ class SpotAdapter(
         }
 
         loaded(mission.loadNavigateTo(waypointId))?.let { return it }
-        return start(mission.play(), startedAt, Layer.MISSION, durationSeconds = null)
+        return start(taskId, mission.play(), startedAt, Layer.MISSION, durationSeconds = null)
     }
 
     /**
@@ -317,6 +316,7 @@ class SpotAdapter(
     }
 
     private fun start(
+        taskId: String,
         result: LeaseResult,
         startedAt: Instant,
         layer: Layer,
@@ -331,10 +331,8 @@ class SpotAdapter(
             Acceptance.Refused(Refusal.LINK_ERROR, "남쪽 호출이 실패했다: ${result.cause.message}")
 
         is LeaseResult.Ok -> {
-            issued += 1
-            val id = "${identity.robotId}-$issued"
-            task = RunningTask(id, startedAt, layer, durationSeconds, TaskState.TASK_STATE_RUNNING)
-            Acceptance.Accepted(id)
+            task = RunningTask(taskId, startedAt, layer, durationSeconds, TaskState.TASK_STATE_RUNNING)
+            Acceptance.Accepted(taskId)
         }
     }
 
