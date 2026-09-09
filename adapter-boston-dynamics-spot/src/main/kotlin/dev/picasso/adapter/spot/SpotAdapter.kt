@@ -4,6 +4,7 @@ import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
+import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.Fault
@@ -365,8 +366,38 @@ class SpotAdapter(
         return applied(result, onReject = {
             // 멈추라고 시켰는데 권한이 없다. 로봇이 아직 움직이고 있을 수 있다.
             current.state = TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
-        }) { current.state = TaskState.TASK_STATE_CANCELLED }
+        }) { current.state = settledAfterStop() }
     }
+
+    /**
+     * 멈춘 뒤의 종착 — **들고 있으면 복구가 끝난 것이 아니다.**
+     *
+     * `StopMission`·`StopCommand`는 멈추는 것이지 내려놓는 것이 아니다. 그리퍼에
+     * 무언가 있으면 계약이 `CANCELLED`에 건 불변식(§4.4 — 복구까지 마쳤다)을
+     * 만족하지 못하므로 `CANCELLED_RECOVERY_FAILED`다. 못 봤으면 `CANCELLED`로
+     * 적되 [hold]가 `NotObservable`을 말한다 — 모름을 실패로 접지 않는다.
+     */
+    private fun settledAfterStop(): TaskState =
+        if (hold() is HoldObservation.Holding) TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
+        else TaskState.TASK_STATE_CANCELLED
+
+    /**
+     * 잔여 물리 상태(§4.4). 벤더가 불리언을 주므로 옮기기만 한다.
+     *
+     * `objectRef`는 언제나 `null`이다 — 이 어댑터는 대상의 이름을 받는 스킬을
+     * 들지 않으므로(`pick_place`는 PARTIAL, §15.76) 쥐고 있는 것이 무엇인지
+     * 계약의 이름으로 말할 근거가 없다. 짐작해 넣지 않는다. 팔이 없으면
+     * (`manipulator_state` 비어 있음) 쥘 것이 없으니 빈손이다.
+     */
+    fun hold(): HoldObservation = link.gripperHoldingItem().fold(
+        onSuccess = { holding ->
+            when (holding) {
+                true -> HoldObservation.Holding(objectRef = null)
+                false, null -> HoldObservation.Empty
+            }
+        },
+        onFailure = { HoldObservation.NotObservable("그리퍼 상태를 못 읽었다: ${it.message}") },
+    )
 
     private fun applied(
         result: LeaseResult,

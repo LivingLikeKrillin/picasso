@@ -3,6 +3,7 @@ package dev.picasso.adapter.digit
 import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
+import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
@@ -336,6 +337,69 @@ class DigitAdapterTest {
 
     private data class Move(val yawRate: Double, val forward: Double, val lateral: Double, val duration: Double)
 
+    // ── 잔여 물리 상태 (§4.4) — 벤더가 발행하지 않아 실행 트리에서 추론한다
+
+    private fun sequential(vararg children: ExecutionNode) =
+        listOf(ExecutionNode("action-sequential", ActionStatus.RUNNING, children.toList()))
+
+    @Test
+    fun `집기는 성공했고 놓기는 아직이면 든 채다 — 그 대상의 이름으로`() {
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("pick_place", pickPlace, t0)
+        link.tree = sequential(
+            ExecutionNode("action-pick", ActionStatus.SUCCESS),
+            ExecutionNode("action-place", ActionStatus.RUNNING),
+        )
+        assertEquals(HoldObservation.Holding(pickPlace["object_id"] as String), a.hold())
+    }
+
+    @Test
+    fun `놓기까지 성공했으면 빈손이다`() {
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("pick_place", pickPlace, t0)
+        link.tree = sequential(
+            ExecutionNode("action-pick", ActionStatus.SUCCESS),
+            ExecutionNode("action-place", ActionStatus.SUCCESS),
+        )
+        assertEquals(HoldObservation.Empty, a.hold())
+    }
+
+    @Test
+    fun `집기가 아직이면 빈손이다`() {
+        val link = FakeLink(tree = sequential(ExecutionNode("action-pick", ActionStatus.RUNNING)))
+        assertEquals(HoldObservation.Empty, DigitAdapter(link, identity).hold())
+    }
+
+    @Test
+    fun `트리에 집기가 없으면 빈손이 아니라 모른다`() {
+        // 이전 시퀀스가 놓기에 실패한 채 트리가 비워졌을 수 있고 그것을 볼 표면이 없다.
+        val link = FakeLink(tree = listOf(ExecutionNode("action-idle", ActionStatus.RUNNING)))
+        assertIs<HoldObservation.NotObservable>(DigitAdapter(link, identity).hold())
+    }
+
+    @Test
+    fun `트리를 못 읽으면 모른다`() {
+        assertIs<HoldObservation.NotObservable>(DigitAdapter(FakeLink(treeFails = true), identity).hold())
+    }
+
+    @Test
+    fun `든 채 지우면 취소됐다고 적지 않는다`() {
+        // remove-action 은 지우는 것이지 내려놓는 것이 아니다.
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("pick_place", pickPlace, t0)
+        link.tree = sequential(
+            ExecutionNode("action-pick", ActionStatus.SUCCESS),
+            ExecutionNode("action-place", ActionStatus.RUNNING),
+        )
+
+        assertEquals(Applied.Ok, a.cancel())
+        assertEquals(1, link.removed)
+        assertEquals(TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED, a.state)
+    }
+
     private class FakeLink(
         override var privilege: PrivilegeState = PrivilegeState.HELD,
         var reported: ActionStatus? = null,
@@ -346,7 +410,13 @@ class DigitAdapterTest {
         private val listFails: Boolean = false,
         /** 이 id 의 `get-object` 만 실패한다 — **부분 실패**를 만들기 위한 것. */
         private val nameFailsFor: Int? = null,
+        /** `get-execution-state` 의 답. 비어 있으면 어댑터는 파지를 **모른다**고 답해야 한다. */
+        var tree: List<ExecutionNode> = emptyList(),
+        private val treeFails: Boolean = false,
     ) : DigitLink {
+        override fun executionTree(): Result<List<ExecutionNode>> =
+            if (treeFails) Result.failure(IllegalStateException("소켓 끊김")) else Result.success(tree)
+
         val moves = mutableListOf<Move>()
         val gotos = mutableListOf<String>()
         val pickPlaces = mutableListOf<Pair<String, String>>()

@@ -2,6 +2,8 @@ package dev.picasso.mimic.engine
 
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.Fault
+import dev.picasso.contracts.v1.HoldKind
+import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.Lifetime
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.Reference
@@ -29,6 +31,21 @@ class TaskRuntime(
     val pinnedMaxStringLength: Int,
 ) {
     val log = TaskLog()
+
+    /**
+     * 마지막으로 적은 잔여 물리 상태(계약의 `HoldState`, §4.4).
+     *
+     * **상태가 아니라 관측의 기록이다.** [TaskHost.record]가 갱신마다 다시
+     * 정한다. 이전 값을 들고 있는 이유는 `FAILED`·`RETRIABLE`·
+     * `NEEDS_INTERVENTION`이 파지를 바꾸지 않기 때문이다 — 실패했다고
+     * 물건이 내려놓아지지는 않는다. 놓친 것은 [payloadLost]가 따로 말한다.
+     */
+    var hold: HoldState = HoldState.getDefaultInstance()
+        internal set
+
+    /** `PAYLOAD_LOST`가 섰다 — 들고 있던 것을 놓쳤으므로 그 뒤로는 빈손이다. */
+    var payloadLost: Boolean = false
+        internal set
 
     /**
      * §4.4의 래치 위반을 관측했는가.
@@ -343,7 +360,10 @@ class TaskHost(
                         // 원인 없는 실패를 보지 않는다.
                         faults.raise(FailureDraw.faultOf(failure, task.skillType, task.taskId))
                             ?.let { listener.onFault(it, cleared = false) }
-                        halt(task, FailureDraw.resolutionOf(failure.resolution))
+                        halt(
+                            task, FailureDraw.resolutionOf(failure.resolution),
+                            payloadLost = failure.errorType == PAYLOAD_LOST,
+                        )
                     }
                     record(task)
                 }
@@ -437,7 +457,7 @@ class TaskHost(
         val raised = faults.raise(fault)?.also { listener.onFault(it, cleared = false) } != null
 
         if (task != null) {
-            halt(task, FailureDraw.resolutionOf(mode.resolution))
+            halt(task, FailureDraw.resolutionOf(mode.resolution), payloadLost = mode.errorType == PAYLOAD_LOST)
             record(task)
         }
         return ForceOutcome.Raised(raised, task?.machine?.state)
@@ -462,7 +482,9 @@ class TaskHost(
      * 결함이고, 이것은 **복구가 실패했다는 사실의 결과**라 종착보다 먼저
      * 낼 수가 없다.
      */
-    private fun halt(task: TaskRuntime, resolution: Resolution) {
+    private fun halt(task: TaskRuntime, resolution: Resolution, payloadLost: Boolean = false) {
+        // 놓친 것은 되돌아오지 않는다 — 재시도로 다시 집기 전까지는 빈손이다.
+        if (payloadLost) task.payloadLost = true
         task.machine.onSkillHalted(resolution)
         if (task.machine.state != TaskState.CANCELLED_RECOVERY_FAILED) return
         faults.raise(recoveryFailed())?.let { listener.onFault(it, cleared = false) }
@@ -545,14 +567,52 @@ class TaskHost(
         return ViolationOutcome.Seen(before, raised)
     }
 
-    /** 현재 상태를 로그에 한 줄 적는다. */
-    fun record(task: TaskRuntime): TaskUpdate = task.log.record(
-        state = task.machine.state,
-        revision = task.machine.revision,
-        attempt = task.machine.attempt,
-        progress = task.machine.progress(),
-        occurredAt = clock.now(),
-    )
+    /** 현재 상태를 로그에 한 줄 적는다. 잔여 물리 상태도 이때 정한다. */
+    fun record(task: TaskRuntime): TaskUpdate {
+        task.hold = holdOf(task)
+        return task.log.record(
+            state = task.machine.state,
+            revision = task.machine.revision,
+            attempt = task.machine.attempt,
+            progress = task.machine.progress(),
+            occurredAt = clock.now(),
+            hold = task.hold,
+        )
+    }
+
+    /**
+     * §4.4의 잔여 물리 상태 — 미믹의 규칙.
+     *
+     * **대상의 이름을 받는 스킬만 든다.** 어느 파라미터가 대상의 이름인지는
+     * 계약이 `is_object_reference`로 말하고([ObjectReferences]), 프로파일이나
+     * 스킬 이름을 여기서 보지 않는다 — 보면 미믹이 스킬 어휘를 알게 된다.
+     *
+     * 단순화 하나를 적어 둔다: 도는 동안 **내내** 든 것으로 친다. 실제 기체는
+     * 대상까지 걸어가는 구간이 있지만 프로파일이 그 구간을 선언하지 않고,
+     * 우리가 정하면 그것이 관측처럼 보인다. 불변식(`CANCELLED` ⇒ 빈손,
+     * `CANCELLED_RECOVERY_FAILED` ⇒ 든 채 — 놓친 경우만 빼고)은 이 단순화
+     * 아래에서도 성립하며, 그것이 소비자가 기대는 전부다.
+     *
+     * `RUNNING` 갱신(§4.4의 `Halt → Reset → Start`)도 든 채로 지난다 — 그것이
+     * 맞는지는 §15.84 후보 ③으로 열려 있다.
+     */
+    private fun holdOf(task: TaskRuntime): HoldState {
+        val keys = ObjectReferences.keysOf(task.skillType)
+        if (keys.isEmpty() || task.payloadLost) return EMPTY_HANDS
+
+        val ref = task.machine.parameters.firstOrNull { it.key in keys }?.stringValue.orEmpty()
+        val holding = HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_HOLDING).setObjectRef(ref).build()
+
+        // **`when`에 `else`를 쓰지 않는다** — 상태가 늘면 여기서 컴파일이 깨져야 한다.
+        return when (task.machine.state) {
+            TaskState.ACCEPTED, TaskState.SUCCEEDED, TaskState.CANCELLED -> EMPTY_HANDS
+            TaskState.RUNNING, TaskState.PAUSED, TaskState.CANCELLING,
+            TaskState.CANCELLED_RECOVERY_FAILED -> holding
+            // 실패는 파지를 바꾸지 않는다 — 들고 있었으면 든 채다.
+            TaskState.FAILED, TaskState.RETRIABLE, TaskState.NEEDS_INTERVENTION ->
+                if (task.hold.kind == HoldKind.HOLD_KIND_HOLDING) holding else EMPTY_HANDS
+        }
+    }
 
     /**
      * 이 태스크가 얼마나 걸릴지. §10.4 ②의 소요시간 지터가 여기서 붙는다.
@@ -644,6 +704,11 @@ class TaskHost(
          * `READY`라 정지시킬 것이 없다.
          */
         val FAULTABLE = setOf(TaskState.RUNNING, TaskState.PAUSED, TaskState.CANCELLING)
+
+        /** §4.6의 코어 결함 — 들고 있던 것을 놓쳤다. 잔여 물리 상태가 이것만 본다. */
+        const val PAYLOAD_LOST = "PAYLOAD_LOST"
+
+        val EMPTY_HANDS: HoldState = HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_EMPTY).build()
     }
 
     private fun durationOf(skillType: String): Double {

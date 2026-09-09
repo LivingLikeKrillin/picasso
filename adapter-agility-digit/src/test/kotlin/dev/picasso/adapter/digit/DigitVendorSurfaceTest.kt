@@ -38,6 +38,7 @@ class DigitVendorSurfaceTest {
         VendorManifest.load().verify(
             DigitLink::class.java,
             ActionStatus::class.java,
+            ExecutionNode::class.java,
         )
     }
 }

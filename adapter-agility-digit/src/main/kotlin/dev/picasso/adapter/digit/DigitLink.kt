@@ -186,7 +186,25 @@ interface DigitLink {
      */
     @VendorSurface("action-status-changed", "action-status-changed.info")
     fun statusInfo(): String?
+
+    /**
+     * 실행 트리 — `get-execution-state` 의 답.
+     *
+     * **파지 상태는 벤더가 발행하지 않는다.** SDK 메시지 전수에 "쥐고 있다" 가
+     * 없다. 있는 것은 실행 트리이며, 거기서 `action-pick` 이 `success` 이고 뒤의
+     * `action-place` 가 아직 아니면 **든 채라고 추론**한다 — 관측이 아니라
+     * 추론이고, 그 한 단계 낮은 근거 등급을 [DigitAdapter.hold] 가 적어 둔다.
+     */
+    @VendorSurface("get-execution-state", "execution-state", "execution-state.state")
+    fun executionTree(): Result<List<ExecutionNode>>
 }
+
+/** `execution-state-node` — 실행 트리의 마디 하나. `status` 는 노드에 없을 수 있다. */
+data class ExecutionNode(
+    @field:VendorSurface("execution-state-node.action-type") val actionType: String,
+    @field:VendorSurface("execution-state-node.status") val status: ActionStatus?,
+    @field:VendorSurface("execution-state-node.children") val children: List<ExecutionNode> = emptyList(),
+)
 
 /** `remove-action`이 짚는 봉투의 `refnum`. */
 @JvmInline

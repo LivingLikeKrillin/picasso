@@ -4,6 +4,7 @@ import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
+import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.Fault
@@ -107,7 +108,10 @@ class DigitAdapter(
 
         issued += 1
         val id = "${identity.robotId}-$issued"
-        task = RunningTask(id, ref, startedAt, TaskState.TASK_STATE_RUNNING)
+        task = RunningTask(
+            id, ref, startedAt, TaskState.TASK_STATE_RUNNING,
+            objectName = if (skillType == PICK_PLACE) text(parameters, P_OBJECT) else null,
+        )
         return Acceptance.Accepted(id)
     }
 
@@ -185,9 +189,48 @@ class DigitAdapter(
             )
         }
 
-        current.state = TaskState.TASK_STATE_CANCELLED
+        current.state = settledAfterRemove()
         return Applied.Ok
     }
+
+    /**
+     * 지운 뒤의 종착 — **들고 있으면 복구가 끝난 것이 아니다.** `remove-action` 은
+     * 지우는 것이지 내려놓는 것이 아니다(§4.4 의 불변식). 못 봤으면 `CANCELLED`
+     * 로 적되 [hold] 가 `NotObservable` 을 말한다.
+     */
+    private fun settledAfterRemove(): TaskState =
+        if (hold() is HoldObservation.Holding) TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
+        else TaskState.TASK_STATE_CANCELLED
+
+    /**
+     * 잔여 물리 상태(§4.4) — **추론이다.**
+     *
+     * 벤더가 파지를 발행하지 않으므로 실행 트리를 읽는다: 가장 최근 `action-pick`
+     * 이 `success` 이고 그 뒤에 `success` 인 `action-place` 가 없으면 든 채다.
+     * 트리에 `action-pick` 이 없으면 **모른다** — 빈손이 아니다. 이전 시퀀스가
+     * 놓기에 실패한 채 트리가 비워졌을 수 있고 그것을 볼 표면이 없다.
+     *
+     * 든 것의 이름은 지금 태스크가 `pick_place` 일 때만 안다 — 그 태스크의
+     * `object_id` 다. 다른 태스크 중에 든 채면 무엇인지 말하지 않는다.
+     */
+    fun hold(): HoldObservation {
+        val tree = link.executionTree().getOrElse {
+            return HoldObservation.NotObservable("get-execution-state 실패: ${it.message}")
+        }
+        val flat = flatten(tree)
+        val lastPick = flat.indexOfLast { it.actionType == ACTION_PICK }
+        if (lastPick < 0) {
+            return HoldObservation.NotObservable(
+                "실행 트리에 $ACTION_PICK 이 없어 추론할 근거가 없다 — 벤더는 파지를 발행하지 않는다",
+            )
+        }
+        val picked = flat[lastPick].status == ActionStatus.SUCCESS
+        val placed = flat.drop(lastPick + 1).any { it.actionType == ACTION_PLACE && it.status == ActionStatus.SUCCESS }
+        return if (picked && !placed) HoldObservation.Holding(task?.objectName) else HoldObservation.Empty
+    }
+
+    private fun flatten(nodes: List<ExecutionNode>): List<ExecutionNode> =
+        nodes.flatMap { listOf(it) + flatten(it.children) }
 
     /**
      * 일시정지 — 만들 수단이 없다. 언제나 거절한다.
@@ -245,6 +288,8 @@ class DigitAdapter(
         val ref: ActionRef,
         var lastPolledAt: Instant,
         var state: TaskState,
+        /** `pick_place` 면 그 `object_id` — 든 것의 이름을 말할 유일한 근거다. */
+        val objectName: String? = null,
     )
 
     /**
@@ -296,6 +341,10 @@ class DigitAdapter(
         const val P_DURATION = "duration"
         const val P_LOCATION = "location"
         const val P_OBJECT = "object_id"
+
+        /** 실행 트리에서 파지를 추론할 때 보는 벤더의 액션 이름 둘([DigitLink.pickAndPlace] 가 보내는 그것). */
+        const val ACTION_PICK = "action-pick"
+        const val ACTION_PLACE = "action-place"
         const val P_DESTINATION = "destination"
 
         /** 계약이 스킬마다 필수로 둔 것. **이 표가 곧 이 어댑터가 드는 목록이다.** */

@@ -4,6 +4,7 @@ import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
+import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.Fault
@@ -275,6 +276,20 @@ class G1Adapter(
         val startedAt: Instant,
         val durationSeconds: Double,
         var state: TaskState,
+    )
+
+    /**
+     * 잔여 물리 상태(§4.4) — **볼 수 없다.**
+     *
+     * 벤더가 파지 판정을 주지 않는다. 161 심볼에 "쥐고 있다"는 없고, 있는 것은
+     * `HandState_.press_sensor_state` — 원시 압력값이다. 문턱을 우리가 정해
+     * 불리언으로 만들면 그것은 로봇의 답처럼 보이는 우리의 짐작이다(§15.65).
+     * 이 어댑터는 드는 스킬이 `move_relative` 하나라 태스크가 무언가를 쥐게
+     * 만들지도 않지만, 그것이 빈손이라는 뜻은 아니다 — 사람이 쥐여 줬을 수 있다.
+     * 그래서 취소는 `CANCELLED`로 적히고 이 답이 "모른다"를 함께 나른다.
+     */
+    fun hold(): HoldObservation = HoldObservation.NotObservable(
+        "벤더가 파지 판정을 주지 않는다 — HandState_.press_sensor_state 는 원시 압력값이다",
     )
 
     /**

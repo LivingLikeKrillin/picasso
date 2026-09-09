@@ -385,6 +385,15 @@ GetCapabilities(robot_id)              -> Capability    유효 능력의 투영 
 
 **취소는 즉시가 아니고, 복구를 동반한다.** `CancelTask`는 종착이 아니라 `CANCELLING`을 반환한다. 그 구간에 로봇은 **하던 일을 안전하게 되돌린다** — 휴머노이드는 들고 있던 것을 내려놓아야 하므로 즉시 중단이 물리적으로 불가능하다. 복구까지 마치면 `CANCELLED`, 복구가 실패하면 `CANCELLED_RECOVERY_FAILED`다. **둘을 나누는 이유는 후자가 "로봇이 물건을 든 채 멈춰 있다"는 전혀 다른 운영 상황이기 때문이다.** 후자는 거의 언제나 로봇 수준 결함을 동반하며, 그 결함이 `can_accept_new_task=false`를 든다.
 
+**잔여 물리 상태 — `WatchTaskResponse.hold`(0.4.0).** 갱신마다 로봇이 **무엇을 들고 있는가**를 `HoldState{kind, object_ref, reason}`로 싣는다. `kind`는 넷 — `UNSPECIFIED`(옛 발신자) · `NOT_OBSERVABLE`(볼 수 없다, `reason`에 이유) · `EMPTY` · `HOLDING`(그것이 이 태스크의 대상이면 `object_ref`에 그 **이름**, §15.78). 넷인 이유는 `Support`가 3값인 이유와 같다 — 빈손과 볼 수 없음을 접으면 발신자가 거짓말을 하게 된다. **종착 갱신의 것이 취소·실패 뒤의 잔여 상태다.**
+
+| 불변식 | 뜻 |
+|---|---|
+| `CANCELLED` ⇒ `kind ≠ HOLDING` | 복구까지 마쳤다는 말과 들고 있다는 말은 양립하지 않는다. 들고 있으면 `CANCELLED_RECOVERY_FAILED`다 |
+| `CANCELLED_RECOVERY_FAILED` ⇏ `HOLDING` | 역은 성립하지 않는다 — 놓쳐서 실패했을 수 있고, 그때는 `PAYLOAD_LOST`가 같이 서고 손은 비어 있다 |
+
+발신자마다 근거가 다르고 그 차이가 `kind`에 그대로 나타난다 — Spot은 `ManipulatorState.is_gripper_holding_item`(벤더 불리언), Digit은 `get-execution-state`의 노드 상태에서 **추론**(`action-pick` 성공 ∧ `action-place` 미완), G1은 `NOT_OBSERVABLE`(원시 압력값뿐), `mimic`은 대상의 이름을 받는 스킬이 도는 동안 `HOLDING`. **어댑터는 멈춘 뒤 이것을 보고 종착을 정한다** — 들고 있으면 `CANCELLED`로 적지 않는다. 스냅샷에는 넣지 않았다(§15.85). 상세는 §15.85.
+
 Agility Arc가 같은 결론에 도달해 있다 — 워크플로 상태에 `CANCELED_WITH_RECOVERY` / `CANCELED_RUNNING_RECOVERY` / `CANCELED_FAILED_RECOVERY` 세 변종이 있다. 우리는 진행 중(`CANCELLING`)과 결과(둘)로 갈라 같은 것을 두 축으로 표현한다.
 
 **`CancelTask`는 비종착 여섯 전부에서 합법이다.** `RETRIABLE`·`NEEDS_INTERVENTION`에서도 받아야 하는데, 안 그러면 **재시도를 포기한 태스크가 영원히 비종착으로 남아** §9.3의 드레인 판정이 영영 0이 되지 않는다 — 축소가 영구히 막힌다. 그 두 상태에서는 스킬이 이미 `READY`라 되돌릴 것이 없으므로 복구가 즉시 끝나지만, **관측되는 순서는 그래도 `CANCELLING` → 종착이다.** 한 경로로 통일하는 편이 소비자에게 거짓말하지 않는다. `CANCELLING`에서 다시 받으면 멱등이다(응답을 못 받아 재전송한 경우).
@@ -1944,4 +1953,29 @@ mimic/
 
     ### 후보 다섯 — 결정이 아니다
 
-    ① 도달 근거 등급을 결과에 · ② 취소·실패 시 잔여 물리 상태(발신자 있음 — Spot `is_gripper_holding_item`·`CarryState`, G1 `press_sensor_state`, Digit `get-execution-state`) · ③ `RUNNING` 갱신이 물리 상태를 만날 때(부품을 든 채 `Halt → Reset → Start`) · ④ 이벤트 쪽 옛 revision 규칙 · ⑤ 어댑터 재시작 후 매핑. ②는 발신자가 있어 ADR 9 를 통과하므로 가장 먼저 열 수 있고, ①과 함께 **결과 어휘 정준화**의 일부다. 계약에 넣지 않은 이유는 ADR 9 다.
+    ① 도달 근거 등급을 결과에 · ② 취소·실패 시 잔여 물리 상태(발신자 있음 — Spot `is_gripper_holding_item`·`CarryState`, G1 `press_sensor_state`, Digit `get-execution-state`) · ③ `RUNNING` 갱신이 물리 상태를 만날 때(부품을 든 채 `Halt → Reset → Start`) · ④ 이벤트 쪽 옛 revision 규칙 · ⑤ 어댑터 재시작 후 매핑. ②는 발신자가 있어 ADR 9 를 통과하므로 가장 먼저 열 수 있고, ①과 함께 **결과 어휘 정준화**의 일부다. 계약에 넣지 않은 이유는 ADR 9 다. **→ ②는 §15.85에서 열었다**(`WatchTaskResponse.hold`, 0.4.0).
+
+85. **잔여 물리 상태를 계약에 열었다 — 그리고 "취소가 내려놓기가 아니다"가 두 어댑터에서 드러났다.**
+
+    §15.84 후보 ②. `WatchTaskResponse.hold`(`HoldState`, 계약 0.4.0)이 갱신마다 로봇이 무엇을 들고 있는지를 나른다. 발신자 넷(mimic · Spot · Digit · G1)과 소비자(하네스 `HoldOnCancelTest`, 완료 기준 8b의 나머지 반)가 함께 생겼으므로 ADR 9를 통과한다. 불변식은 §4.4에 있다 — `CANCELLED`와 `HOLDING`은 함께 오지 않는다.
+
+    ### 발신자마다 답이 다르고, 그 차이를 값으로 남긴다
+
+    | 발신자 | 근거 | 답 |
+    |---|---|---|
+    | Spot | `ManipulatorState.is_gripper_holding_item` — 벤더가 불리언을 준다. 세 기종 중 유일하다 | `HOLDING`/`EMPTY`. 팔 없음(`manipulator_state` 비어 있음)은 쥘 것이 없으니 `EMPTY`, 읽기 실패는 `NOT_OBSERVABLE`. `object_ref`는 늘 비어 있다 — 대상의 이름을 받는 스킬을 안 든다 |
+    | Digit | `get-execution-state`의 노드 상태 — 벤더는 파지를 **발행하지 않는다**(SDK 메시지 전수) | **추론**: 최근 `action-pick`이 `success`이고 뒤에 `success`인 `action-place`가 없으면 `HOLDING`(지금 태스크가 `pick_place`면 그 `object_id`). 트리에 `action-pick`이 없으면 `NOT_OBSERVABLE` — 빈손이 아니다. 이전 시퀀스가 놓기에 실패한 채 트리가 비워졌을 수 있고 그것을 볼 표면이 없다 |
+    | G1 | 없음 — `HandState_.press_sensor_state`는 원시 압력값 | 언제나 `NOT_OBSERVABLE`. 문턱을 우리가 정해 불리언으로 만들면 로봇의 답처럼 보이는 우리의 짐작이다(§15.65) |
+    | mimic | 계약의 `is_object_reference` — 생성 디스크립터에서 읽는다(`ObjectReferences`). 스킬 이름은 미믹 어디에도 없다 | 대상의 이름을 받는 스킬이 `RUNNING`·`PAUSED`·`CANCELLING`·`CANCELLED_RECOVERY_FAILED`면 `HOLDING`, `ACCEPTED`·`SUCCEEDED`·`CANCELLED`면 `EMPTY`, 실패 셋은 직전 값 유지(실패가 물건을 내려놓지는 않는다), `PAYLOAD_LOST`가 서면 `EMPTY` |
+
+    ### 열면서 드러난 것 — 멈추는 것과 내려놓는 것은 다르다
+
+    Spot의 `StopMission`·`StopCommand`와 Digit의 `remove-action`은 **멈추는** 프리미티브이지 내려놓는 프리미티브가 아니다. 앞 판의 두 어댑터는 멈춤이 성공하면 `CANCELLED`를 적었다 — 계약이 `CANCELLED`에 건 뜻(복구까지 마쳤다)을 확인하지 않고. 이제 멈춘 뒤 `hold()`를 보고 들고 있으면 `CANCELLED_RECOVERY_FAILED`를 적는다. 못 봤으면 `CANCELLED`로 적되 `NOT_OBSERVABLE`을 함께 나른다 — **모름을 실패로 접지 않는다**(§15.65의 다른 얼굴). G1은 볼 수 없으므로 언제나 뒤의 경우다.
+
+    ### 단순화와 미결
+
+    - mimic은 도는 동안 **내내** 든 것으로 친다. 대상까지 걸어가는 구간을 프로파일이 선언하지 않고, 우리가 정하면 그것이 관측처럼 보인다. 불변식은 이 단순화 아래에서도 성립하며 소비자가 기대는 것은 그것뿐이다.
+    - `RUNNING` 갱신(`Halt → Reset → Start`)도 든 채로 지난다 — 부품을 든 채의 `Reset`이 무엇인지는 §15.84 후보 ③ 그대로 열려 있다. 달라진 것은 그 질문을 **값으로** 볼 수 있게 됐다는 것뿐이다.
+    - 스냅샷(`GetSnapshot`)에는 넣지 않았다. 잔여 상태가 필요한 자리는 종착이고 태스크 로그는 축출이 없어 `WatchTask(from_update_index=0)`로 되짚을 수 있다. 중간에 들어온 소비자가 *지금* 들고 있는지를 스냅샷 하나로 알아야 하는 날 다시 본다.
+    - 후보 ①(도달 근거 등급)은 그대로다. `kind`는 E0/E1을 가르지 않는다 — Spot 직결의 `HOLDING`과 플릿 경유의 `HOLDING`이 같은 값이다.
+    - Digit의 추론은 **근거 등급이 한 단계 낮다.** `action-pick` 성공이 곧 쥐고 있음이라는 것은 벤더 매뉴얼의 액션 의미에서 온 것이지 파지 센서에서 온 것이 아니다. 실물이 오면 `press`·`end-effector` 계열 표면에 묻는 것이 먼저다.

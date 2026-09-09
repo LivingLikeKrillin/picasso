@@ -1,5 +1,6 @@
 package dev.picasso.mimic.engine
 
+import dev.picasso.contracts.v1.HoldState
 import java.time.Instant
 
 /**
@@ -17,6 +18,8 @@ data class TaskUpdate(
     val progress: Double,
     val partialResult: String = "",
     val occurredAt: Instant,
+    /** §4.4의 잔여 물리 상태. 기본값(`UNSPECIFIED`)은 "엔진이 정하지 않았다"이며 [TaskHost.record]는 언제나 정한다. */
+    val hold: HoldState = HoldState.getDefaultInstance(),
 )
 
 /**
@@ -44,6 +47,7 @@ class TaskLog {
         progress: Double,
         occurredAt: Instant,
         partialResult: String = "",
+        hold: HoldState = HoldState.getDefaultInstance(),
     ): TaskUpdate {
         val update = TaskUpdate(
             updateIndex = entries.size.toLong(),
@@ -53,6 +57,7 @@ class TaskLog {
             progress = progress,
             partialResult = partialResult,
             occurredAt = occurredAt,
+            hold = hold,
         )
         entries += update
         return update

@@ -80,6 +80,23 @@ interface SpotLink {
     fun armAttached(): Result<Boolean>
 
     /**
+     * 그리퍼가 **무언가를 쥐고 있는가.**
+     *
+     * 벤더가 판정을 준다 — `ManipulatorState.is_gripper_holding_item`. 세 기종
+     * 중 유일하게 파지를 불리언으로 말하는 표면이다(G1은 원시 압력값, Digit은
+     * 발행하지 않는다). `manipulator_state` 자체가 비어 있으면(팔 없음) `null`.
+     *
+     * §4.4의 잔여 물리 상태(`HoldState`)의 근거이며, 멈춘 뒤의 종착을
+     * `CANCELLED`로 적을지 `CANCELLED_RECOVERY_FAILED`로 적을지가 여기 걸린다.
+     */
+    @VendorSurface(
+        "bosdyn.api.RobotStateService.GetRobotState",
+        "bosdyn.api.RobotState.manipulator_state",
+        "bosdyn.api.ManipulatorState.is_gripper_holding_item",
+    )
+    fun gripperHoldingItem(): Result<Boolean?>
+
+    /**
      * 지도 계층(`GraphNavService`). **사이트 이름이 여기 산다.**
      *
      * 미션 계층과 따로 두는 것은 하는 일이 다르기 때문이다 — 미션은 *시키는*

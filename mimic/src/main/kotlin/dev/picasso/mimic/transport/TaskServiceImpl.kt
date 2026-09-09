@@ -345,6 +345,7 @@ class TaskServiceImpl(
         .setAttempt(update.attempt)
         .setProgress(update.progress)
         .setPartialResult(update.partialResult)
+        .setHold(update.hold)
         .build()
 
     private fun handleOf(task: TaskRuntime, hosted: RobotRegistry.Hosted): TaskHandle =

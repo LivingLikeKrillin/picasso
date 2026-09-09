@@ -3,6 +3,7 @@ package dev.picasso.adapter.spot
 import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
+import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
@@ -455,14 +456,69 @@ class SpotAdapterTest {
         }
     }
 
+    // ── 잔여 물리 상태 (§4.4) — 벤더가 불리언을 준다
+
+    @Test
+    fun `그리퍼가 비어 있으면 빈손이다`() {
+        val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), gripper = false), identity)
+        assertEquals(HoldObservation.Empty, a.hold())
+    }
+
+    @Test
+    fun `팔이 없으면 빈손이다 — 쥘 것이 없다`() {
+        val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), gripper = null), identity)
+        assertEquals(HoldObservation.Empty, a.hold())
+    }
+
+    @Test
+    fun `쥐고 있으면 든 채이고 무엇인지는 말하지 않는다`() {
+        val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), gripper = true), identity)
+        assertEquals(HoldObservation.Holding(objectRef = null), a.hold())
+    }
+
+    @Test
+    fun `못 읽었으면 빈손이 아니라 모른다`() {
+        val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), gripperFails = true), identity)
+        assertIs<HoldObservation.NotObservable>(a.hold())
+    }
+
+    @Test
+    fun `쥔 채 멈추면 취소됐다고 적지 않는다`() {
+        // StopMission 은 멈추는 것이지 내려놓는 것이 아니다. §4.4 의 불변식 —
+        // CANCELLED 는 복구까지 마쳤다는 뜻이고 든 채는 그것이 아니다.
+        val mission = FakeMission()
+        val a = SpotAdapter(FakeLink(FakeCommand(), mission, mapped(), gripper = true), identity)
+        a.accept("navigate_to", navigate, t0)
+
+        assertEquals(Applied.Ok, a.cancel())
+        assertEquals(1, mission.stopped)
+        assertEquals(TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED, a.state)
+    }
+
+    @Test
+    fun `못 봤으면 취소됐다고 적되 모른다고 함께 말한다`() {
+        val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), gripperFails = true), identity)
+        a.accept("navigate_to", navigate, t0)
+
+        assertEquals(Applied.Ok, a.cancel())
+        assertEquals(TaskState.TASK_STATE_CANCELLED, a.state)
+        assertIs<HoldObservation.NotObservable>(a.hold())
+    }
+
     private class FakeLink(
         override val command: CommandLayer?,
         override val mission: MissionLayer?,
         override val graph: GraphLayer?,
         /** 널이 아니면 그 답을, 널이면 읽기 실패를 낸다 — **"없다" 와 "못 물어봤다" 를 가른다.** */
         private val arm: Boolean? = true,
+        /** 그리퍼 — `true`/`false`, 팔 없음은 `null`. [gripperFails]면 읽기 실패. */
+        private val gripper: Boolean? = false,
+        private val gripperFails: Boolean = false,
     ) : SpotLink {
         var armAsks = 0
+
+        override fun gripperHoldingItem(): Result<Boolean?> =
+            if (gripperFails) Result.failure(IllegalStateException("상태를 못 받았다")) else Result.success(gripper)
 
         override fun armAttached(): Result<Boolean> {
             armAsks += 1

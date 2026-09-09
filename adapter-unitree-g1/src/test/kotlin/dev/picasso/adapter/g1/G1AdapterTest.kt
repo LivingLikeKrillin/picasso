@@ -3,6 +3,7 @@ package dev.picasso.adapter.g1
 import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
+import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
@@ -363,6 +364,12 @@ class G1AdapterTest {
 
     private class FakeMode(var mode: SportModeState? = null) : SportModeChannel {
         override fun latestSportMode(): SportModeState? = mode
+    }
+
+    @Test
+    fun `무엇을 들었는지는 볼 수 없다 — 빈손이 아니다`() {
+        // 벤더가 파지 판정을 안 준다. 압력값에 문턱을 대면 그것은 우리의 짐작이다.
+        assertIs<HoldObservation.NotObservable>(adapter().hold())
     }
 
     private class FakeLink(
