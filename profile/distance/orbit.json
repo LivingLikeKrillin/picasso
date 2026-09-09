@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0.0",
+  "evidence_grade": "VENDOR_PRIMARY",
+  "survey": "orbit.json",
+  "survey_scope": "게시된 Orbit Web API 5.0.0(경로 35 · 스키마 21)과 벤더의 공식 파이썬 클라이언트(`bosdyn-orbit`, 경로 40)를 **전수로** 봤고, 그 둘에서 뽑은 심볼 251 개가 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt` 에 있다. **본 것이 전부가 아님이 증명돼 있다** — 벤더 산문이 참조하는 work order 엔드포인트가 게시 스펙에 0 건이고, 클라이언트가 치는 경로 40 개 중 9 개가 게시 스펙에 없다. 그리고 인스턴스마다 자기 `/api/v0` 를 서빙하므로 배포본이 게시본보다 넓을 수 있다. 그래서 아래의 `NO` 는 *게시본 + 공식 클라이언트 안에서* 없다는 뜻이다.",
+  "layer": {
+    "vendor_layer": "MISSION",
+    "evidence": "**층이 있다. 다만 우리 계약보다 위에 있다.** Orbit 이 다루는 단위는 *저작된 미션 하나를 어느 기체에 언제 돌릴 것인가* 이고(`Schedule{agent, task, schedule}`), 그것은 계약의 태스크 생명주기와 모양이 같은 층이 아니라 **그 위의 배정 층**이다(ADR 36 의 ③). 그 증거가 셋이다. ① 일을 넣는 문이 캘린더다 — *언제* 를 정하는 자리이지 *지금 이것* 이 아니며, 지금 시키려면 게시 스펙에 없는 경로(`bosdyn-orbit:calendar/mission/dispatch/{nickname}`)로 `schedule.timeMs=1` 을 넣어야 한다. ② 생명주기의 조작이 없다 — 도는 미션을 멈추거나 세우는 문이 게시 스펙 35 경로와 클라이언트 경로 40 개 어디에도 없다(`calendar/disable-enable` 은 일정을 끄는 것이다). ③ 관측이 사후다 — `Run` 은 *끝난 실행* 을 기술하고(`endTime`), 진행률이 없으며 상태는 값 집합 없는 문자열이다.\n\n**Spot 과 나란히 놓으면 이 문서의 값이 나온다.** 같은 로봇이다. 직결하면 `MissionService`(PLAY/PAUSE/STOP)와 `MissionStatus` 열거, `BehaviorFault{Cause, Status}` 를 받는다. Orbit 뒤에서 보면 파견 하나와 자유 문자열 하나와 정수 하나다. **층이 하나 늘 때 잃는 것이 무엇인지가 여기 적혀 있고**, 그것이 ADR 36 결정 5(실행 계층은 상류에 안 드러낸다)의 대가 쪽이다."
+  },
+  "skills": {
+    "navigate_to": {
+      "reachable": "PARTIAL",
+      "vendor_primitive": "저작된 미션의 파견 — 이름으로 `GET /missions` 에서 찾고 `bosdyn-orbit:calendar/mission/dispatch/{robot_nickname}?currentDriverId={driver_id}` 로 그 uuid 를 보낸다.",
+      "missing": [
+        "임의의 목적지 — 갈 수 있는 곳은 **누가 미리 저작해 둔 미션**뿐이고, 계약의 `location` 은 그 미션의 이름으로 읽힌다",
+        "취소·일시정지 — 도는 미션을 멈추는 문이 없다",
+        "진행률 — 실행이 끝나기 전에는 얼마나 갔는지 알 자리가 없다",
+        "종착 어휘 — `Run.missionStatus` 에 `enum` 이 없어 어떤 문자열이 성공인지 벤더가 안 적었다"
+      ],
+      "adapter_must_own": "종착의 판정. 자유 문자열을 짐작하는 대신 `Run.endTime`(끝났는가)과 `RunEvent.error`(오류가 났는가) 둘로 정한다 — 스펙이 뜻을 적어 둔 것이 그 둘뿐이다.",
+      "evidence": "파견 경로가 **게시 스펙 밖**이라 `YES` 가 아니다. 배포본에 그 경로가 있으리라는 보장이 벤더 쪽에 없고, 그래서 어댑터가 그 층을 널로 둘 수 있게 만들어 뒀다. 이름을 미션 이름으로 읽는 것은 ADR 35 를 한 겹 옮긴 것이다 — *사이트 이름은 로봇 안에 산다* 가 여기서는 *플릿 안에 산다* 가 된다."
+    },
+    "inspect": {
+      "reachable": "NO",
+      "vendor_primitive": "없다. 점검은 미션 **안의** 액션이고, 그것을 따로 지목해 시키는 문이 없다.",
+      "missing": [
+        "대상 지목 — 계약의 `target` 에 해당하는 자리가 파견 본문에 없다",
+        "액션 어휘 — `SiteWalk.action`·`actionWrapper` 가 스펙에서 `type: object` 로 열려 있어 필드 이름조차 없다",
+        "결과 참조의 결속 — `RunEvent.actionRunArchiveFileUrl` 이 있으나 우리가 지목한 대상과 묶을 자리가 없다"
+      ],
+      "adapter_must_own": "대상마다 미션을 저작해 두는 일. **그것은 배포 작업이지 어댑터가 할 수 있는 일이 아니다** — 그리고 그렇게 하면 계약의 `target` 이 실은 미션 이름이 되어, 같은 이름 공간에 장소와 대상이 섞인다(§15.78 이 막은 그것).",
+      "evidence": "Spot 직결에서는 `DataAcquisition` 이 `CaptureActionId{action_name, group_name}` 으로 대상을 지목하고 `DataIdentifier` 를 돌려준다(§15.97). 플릿 뒤에서는 그 자리가 통째로 사라진다."
+    },
+    "pick_place": {
+      "reachable": "NO",
+      "vendor_primitive": "없다. 조작 프리미티브가 API 어디에도 없다.",
+      "missing": [
+        "대상 시맨틱 — `object_id` 에 해당하는 자리가 없다",
+        "목적지 — `destination` 을 말할 자리가 없다",
+        "파지 상태 — 잡았는지 놓았는지 나르지 않는다"
+      ],
+      "adapter_must_own": "전부. §1.3 의 비목표이며 플릿 층에서는 더욱 그렇다.",
+      "evidence": "251 심볼 어디에도 조작·그리퍼·팔에 해당하는 이름이 없다. 벤더의 낱말로 다시 물어도(`arm`·`gripper`·`grasp`·`manipulation`) 0 건이다."
+    },
+    "move_relative": {
+      "reachable": "NO",
+      "vendor_primitive": "없다. 속도·변위를 받는 자리가 없다.",
+      "missing": [
+        "속도 명령 — 플릿은 저작물을 돌리지 관절이나 몸을 직접 움직이지 않는다",
+        "지속시간 — 명령의 수명을 말할 자리가 없다"
+      ],
+      "adapter_must_own": "떠안을 수 없다. 이것은 명령 층의 어휘이고 플릿은 그 층에 닿지 않는다.",
+      "evidence": "ADR 36 이 `move_relative` 를 두고 *\"3/3 인 것은 좋은 계약요소가 아니라 너무 저수준이라는 증거\"* 라 적었다. **이 측정이 그 문장의 반대쪽 증거다** — 층이 하나 오르자 3/3 이던 것이 처음으로 `NO` 가 됐고, 낮은 층에서만 보편적인 어휘였음이 드러난다."
+    }
+  },
+  "notes": [
+    "**프로파일을 안 가리킨다.** 다른 셋은 기종의 프로파일에 딸린 측정이고 이것은 **층의 측정**이다 — Orbit 은 기종이 아니라 기체 여럿 위에 있는 서버이며, 같은 기체(Spot)가 `spot-arm.json` 으로도 재어져 있다. 스키마가 `profile` 을 선택으로 둔 자리가 여기서 처음 쓰인다.",
+    "**계약의 스킬 넷 중 하나만, 그것도 PARTIAL 이다.** §15.77 이 *\"못 옮기면 그 층으로는 계약을 못 만족한다고 적는다\"* 고 정했고, 이 문서가 그 적음이다. 억지로 옮기지 않았다 — `pick_place` 를 미션 이름으로 흉내내면 상류는 조작을 시켰다고 믿는데 실제로는 누가 저작해 둔 무엇이 돈다."
+  ]
+}

@@ -16,6 +16,7 @@ import dev.picasso.adapter.core.VendorSurface
  * | 층 | 무엇 | 널이면 |
  * |---|---|---|
  * | [fleet] | 기체 목록 — `GET /robots` | 발견을 못 한다 → 선언으로 내려앉는다(ADR 37 결정 5) |
+ * | [missions] | 저작된 미션의 **이름과 uuid** | 이름으로 일을 못 시킨다 |
  * | [dispatch] | 지금 미션을 시킨다 | **일을 못 시킨다.** 게시 스펙에 없는 경로다 — 아래를 볼 것 |
  * | [runs] | 무엇이 돌았고 어떻게 끝났는가 | 종착을 못 읽는다 |
  *
@@ -44,6 +45,16 @@ interface OrbitLink {
     /** 기체 목록. **널이면 이 배포본이 목록을 안 준다** — 그때 등록은 사람이 적는다(ADR 37 결정 5의 비싼 사분면). */
     @get:VendorSurface("GET /robots", "bosdyn-orbit:robots")
     val fleet: FleetLayer?
+
+    /**
+     * 저작된 미션 목록.
+     *
+     * **ADR 35 가 플릿에서 한 겹 옮겨진 자리다.** 그 ADR 은 *"사이트 이름은 로봇 안에 산다"* 였고, 여기서는
+     * **플릿 안에 산다** — 사람이 저작해 Orbit 에 저장한 미션의 `name` 이 곧 계약이 나르는 사이트 이름이다.
+     * 주인이 사이트라는 것은 그대로이고 사는 곳만 바뀐다.
+     */
+    @get:VendorSurface("GET /missions", "Mission.name")
+    val missions: MissionLayer?
 
     /** 지금 시킨다. **널이 기본값에 가깝다** — 게시 스펙에 없는 경로라 배포본에 있으리라는 보장이 없다. */
     @get:VendorSurface("bosdyn-orbit:calendar/mission/dispatch/{robot_nickname}?currentDriverId={driver_id}")
@@ -80,6 +91,25 @@ data class OrbitRobot(
     /** Orbit 서버의 슬롯 번호(0..최대, 보통 32). 기체의 신원이 아니라 **이 서버에서의 자리**다. */
     @field:VendorSurface("Robot.robotIndex") val robotIndex: Int,
     @field:VendorSurface("Robot.username") val username: String,
+)
+
+/**
+ * 저작된 미션의 이름과 uuid(`GET /missions`).
+ *
+ * **`Mission` 은 스펙에서 `deprecated: true` 다.** 그런데 `Schedule.task.missionId` 는 여전히 그것을 참조하고,
+ * 파견도 그 id 를 받는다 — 벤더 안에서 어긋나 있다. 대체제로 보이는 `SiteWalk` 는 파견 경로가 받는 자리가 없다
+ * (클라이언트가 `dispatchTarget.walk` 로 인라인하는 길이 있으나 그것은 스펙 밖의 스펙 밖이다).
+ */
+interface MissionLayer {
+
+    @VendorSurface("GET /missions")
+    fun missions(): Result<List<OrbitMission>>
+}
+
+/** 저작된 미션 하나. **이름이 사람의 것이고 uuid 가 기계의 것이다** — 계약은 앞의 것을 나른다(ADR 35). */
+data class OrbitMission(
+    @field:VendorSurface("Mission.uuid") val uuid: String,
+    @field:VendorSurface("Mission.name") val name: String,
 )
 
 /**
