@@ -7,7 +7,7 @@
 두 검사가 소스의 구조를 판정해야 한다.
 
 - **5번** — `contracts`가 프로젝트 내 의존을 갖는가(§3.2)
-- **7번** — `client`·`mimic`·`harness` 소스에 기종 식별자가 등장하는가(§11.2, 2단계)
+- **7번** — 지금은 `client`·`mimic`·`harness`·`adapter-core`·`picasso`·`capability`·`adapter-host`·`uplink` 여덟 모듈(원래 셋에서 늘었다, `Check07ModelBranching.kt`의 `MODULES`) 소스에 기종 식별자가 등장하는가(§11.2, 2단계)
 
 정확한 답은 각각 Gradle 빌드 그래프와 Kotlin AST에 있다.
 

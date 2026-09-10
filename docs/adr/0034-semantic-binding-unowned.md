@@ -24,7 +24,7 @@
 
 **어댑터가 그 표를 갖지 않는다.** `location`은 Spot 어댑터에서 웨이포인트 id로 **그대로** 간다 — 옮기는 표가 없고, 없는 것이 의도다.
 
-그 결과로 **결속이 없는 스킬은 선언하지 않는다.** Spot이 넷 중 둘, G1이 넷 중 하나를 선언하는 이유가 그것이다.
+그 결과로 **결속이 없는 스킬은 선언하지 않는다.** Spot이 넷 중 셋(`move_relative`·`navigate_to`·`inspect`), G1이 넷 중 하나를 선언하는 이유가 그것이다. `inspect`는 처음엔 결손으로 잡혔다가 재측정에서 PARTIAL→YES로 올라갔다(`profile/distance/spot-arm.json`).
 
 ## 근거
 

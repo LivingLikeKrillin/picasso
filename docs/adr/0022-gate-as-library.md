@@ -52,7 +52,7 @@
 
 ## 대가
 
-**`registry`가 아직 없어 두 번째 호출 지점이 검증되지 않았다.** 3a에서 붙는다. 그때까지 "같은 코드가 두 곳에서 같은 답을 낸다"는 주장은 **설계상 성립하지만 실측되지 않은 것**이다.
+~~**`registry`가 아직 없어 두 번째 호출 지점이 검증되지 않았다. 3a에서 붙는다.**~~ → **검증됐다.** `registry/build.gradle.kts`가 `implementation(project(":gate"))`로 붙고, `registry/src/test/kotlin/dev/picasso/registry/GateLedgerWiringTest.kt`가 그것을 실제 원장을 상대로 돌린다. "같은 코드가 두 곳에서 같은 답을 낸다"는 주장은 이제 **실측된 것**이다.
 
 그것을 줄이려고 `GateInput`이 두 호출 지점의 차이를 자원 유무로만 표현하게 했다 — `registry`는 `REPO`·`BUF`·`CHANGED_FILES` 없이 문서와 디스크립터를 주고, CI는 `REGISTRY` 없이 나머지를 준다. 코드 경로가 갈라지지 않는다.
 
@@ -60,4 +60,4 @@
 
 - 설계 §11.1·§11.2, §3.1
 - [ADR 23](0023-string-checks-over-ast.md) — 검사 5·7번을 문자열 검사로 둔 것
-- 한계 §15.11·§15.12
+- 한계 §15.11 (§15.12는 닫혔다, §15.111)

@@ -1,7 +1,7 @@
 # ADR 39 — 어댑터의 북쪽은 기종을 모르는 호스트 하나다
 
 - **상태**: 결정됨 (2026-09-10)
-- **관련**: [ADR 29](0029-profile-model-module.md) · [ADR 31](0031-adapter-ownership.md) · [ADR 33](0033-adapter-module-shape.md) · [ADR 37](0037-registration-is-discovery-or-declaration.md) · 설계 §3.2 · §15.77 · §15.98
+- **관련**: [ADR 29](0029-shared-profile-model.md) · [ADR 31](0031-adapter-ownership.md) · [ADR 33](0033-adapter-module-shape.md) · [ADR 37](0037-registration-is-discovery-or-declaration.md) · 설계 §3.2 · §15.77 · §15.98
 
 ## 맥락
 

@@ -215,11 +215,12 @@ class DocumentClaimsTest {
     fun `문서가 가리키는 파일이 전부 실재한다`() {
         // 문서 사이의 링크가 이 저장소에서 유일하게 **자동으로 낡는 것**이다 — 파일 이름을 바꾸면 아무도 안 알려 준다.
         // 숫자를 세는 것과 같은 이유로 여기서 본다.
-        val docs = buildList {
-            add(Repo.path("README.md"))
-            addAll(Repo.list("docs", ".md"))
-            modules().mapTo(this) { Repo.path("$it/README.md") }
-        }
+        //
+        // ★**앞 판은 `Repo.list("docs", ".md")` 를 썼고 그것은 비재귀다**(`Files.list`). 그래서 `docs/adr/` ·
+        // `docs/vendors/` · `docs/superpowers/specs/` 의 링크를 **아예 안 봤고**, ADR 39 가 이름이 바뀐 파일을
+        // 가리키는 채로 초록이었다(실측 2026-09-11). 이제 **주장의 자리 전부**를 훑는다 — 목록이
+        // `ClaimSurface` 한 곳에서 나오므로 새 문서가 생겨도 저절로 들어온다.
+        val docs = ClaimSurface.documents()
         val broken = docs.flatMap { doc ->
             Regex("""\]\(([^)#:]+\.md[^)#]*)\)""").findAll(Files.readString(doc)).map { doc to it.groupValues[1] }
         }.filterNot { (doc, link) -> Files.exists(doc.parent.resolve(link).normalize()) }
