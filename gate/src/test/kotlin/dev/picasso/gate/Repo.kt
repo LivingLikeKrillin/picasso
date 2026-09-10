@@ -49,6 +49,19 @@ object Repo {
 
     fun read(path: Path): String = Files.readString(path.also(::guard)).replace("\r\n", "\n")
 
+    /**
+     * 선언된 입력 아래의 **정규 파일 전부**.
+     *
+     * 여기까지의 문들은 *이 파일을 읽겠다* 는 것이고, 이 문 하나만 *저장소에 무엇이 있는가* 를 묻는다.
+     * 훑는 시험(`PrivateContextTest`)이 쓴다 — 이름을 아는 파일만 훑으면 **새로 생긴 파일은 안 훑는다.**
+     *
+     * 선언 밖은 애초에 나오지 않으므로 `guard` 를 다시 부르지 않는다.
+     */
+    fun declaredFiles(): List<Path> =
+        declared.filter(Files::exists).flatMap { base ->
+            Files.walk(base).use { walk -> walk.filter(Files::isRegularFile).sorted().toList() }
+        }.distinct()
+
     /** 디렉터리의 파일들. 디렉터리가 선언돼 있으면 그 아래는 전부 선언된 것이다. */
     fun list(relative: String, suffix: String = ""): List<Path> =
         Files.list(path(relative)).use { stream ->
