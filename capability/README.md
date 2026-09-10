@@ -19,3 +19,5 @@
 
 `CapabilityProjection`(투영 표가 곧 명세다 — 능력을 하드코딩하면 완료 기준 10 에서 걸린다) ·
 `Negotiator`(`Negotiation.Judged` / `Unparseable` — **읽지 못한 요구는 거절이 아니라 판정 불가**다).
+
+> 마지막 대조: 2026-09-11 · sha256:9c38b255c070 · 열림: 없음

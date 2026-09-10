@@ -49,3 +49,5 @@
 - **`update_index`·`sequence` 가 0 부터**라 헤더에서 미설정과 구별되지 않는다(§15.25). `schema_id` 가 방향을
   말하므로 실질 문제는 없다.
 - **`GetCapabilitiesResponse` 에만 `Rejection` 자리가 없다**(§15.24) — 그 RPC 만 신원 불일치가 gRPC 상태로 나간다.
+
+> 마지막 대조: 2026-09-11 · sha256:6197deb9460b · 열림: §15.24, §15.25, §15.22
