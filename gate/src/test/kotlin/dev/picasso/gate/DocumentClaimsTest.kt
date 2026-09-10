@@ -254,6 +254,20 @@ class DocumentClaimsTest {
     }
 
     @Test
+    fun `계약에 남아 있는 스킬 타입의 수를 계약 문서가 맞게 적는다`() {
+        // ★**"관문을 못 지났다" 를 "계약에 없다" 로 읽으면 안 된다.** 스킬 카탈로그는 ADR 36 이
+        // *양쪽 다 없던 어휘* 로 판정했지만 빼는 것이 major 개정이라 **계약에 그대로 있다.**
+        // 실측(2026-09-11): 문서가 그 둘을 안 갈라 적어 계약에 카탈로그가 없는 것처럼 읽혔다.
+        val actual = Regex("""skill_type_name\) = """)
+            .findAll(read("contracts/proto/picasso/v1/skill_catalog.proto")).count()
+        assertEquals(
+            actual,
+            claimed("""스킬 타입 (\S+)이 거기 있다""", read("docs/contract.md")),
+            "카탈로그의 스킬 타입이 늘거나 줄었는데 contract.md 가 그대로다",
+        )
+    }
+
+    @Test
     fun `레지스트리 문 시험의 수를 검증 근거 표가 맞게 적는다`() {
         // 실측(2026-09-11): 표가 다섯이라 적었는데 넷이었다. 다섯째 후보인 `IngestTokenTest` 는
         // 스스로 *"서버 없이 본다"* 고 적으므로 실물 등급의 증명이 아니다.

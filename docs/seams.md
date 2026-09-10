@@ -86,12 +86,18 @@
 벤더 원문을 저장소에 안 들이는 규칙이 막는다.
 
 **안 고치는 것**: 계약 · 호스트 · 미들웨어 · 다른 기종. **그리고 `@VendorSurface` 인용이 그대로 검사받는다**
-— 새 구현이 다른 벤더 심볼을 짚으면 매니페스트 대조가 잡는다.
+— 새 구현이 원문에 없는 벤더 심볼을 짚으면 매니페스트 대조가 잡는다.
+
+★**범위를 넘겨 읽지 말 것.** 검사에 드는 타입은 **시험이 손으로 적은 목록**이라 새 타입을 목록에 안 넣으면
+안 본다. 그리고 *이름이 있다는 것* 만 보지 그 메시지를 보냈을 때 로봇이 무엇을 하는지는 안 본다(C-3).
+한계 넷이 `VendorManifest` 의 KDoc 에 적혀 있다.
 
 ### 7. 발행(MQTT)
 
-**인터페이스**: `Publisher.publish(Publication)`. 지금 셋이 있다 — `NONE`(아무 데도 안 보냄) ·
-`RecordingPublisher`(시험) · **`MqttPublisher`(실물, Paho)**.
+**인터페이스**: `Publisher.publish(Publication)`. **목적지가 셋이다** — `NONE`(아무 데도 안 보냄) ·
+`RecordingPublisher`(시험) · **`MqttPublisher`(실물, Paho)**. 그 앞에 **감싸는 것이 둘 더 있다** —
+`TransportFaults`(전송 결함 주입)와 `IngestBridge`(적재로 갈라 보냄). 둘 다 같은 면을 구현하므로
+*구현이 셋* 이 아니라 **목적지가 셋**이다.
 
 **바꾸려면**: 이미 실물이 있다. 브로커 주소만 준다.
 
@@ -111,7 +117,11 @@
 
 **인터페이스**: `ProfileSource.load(path)` (파일) · `RegistrySource.binding(robotId)` (레지스트리에서 **당김**).
 
-**바꾸려면**: 이미 둘 다 있다. `mimic --registry <url>` 이 뒤엣것을 문다.
+**바꾸려면**: 이미 둘 다 있다. 뒤엣것을 무는 것은 **하네스**다(`Harness.kt` 가 `registrySource` 를 받는다).
+
+★**`mimic --registry <url>` 은 이 자리가 아니다.** 그것이 만드는 것은 `RegistryLink` — 핸드셰이크와
+태스크를 원장으로 **미는** 쪽이고 방향이 반대다. 미믹 CLI 의 `RobotRegistry` 는 `RegistrySource.NONE` 에
+머문다.
 
 **안 고치는 것**: 엔진. **레지스트리가 미믹에게 밀지 않는다**(§3.2) — 밀면 원장이 런타임 의존이 되고
 레지스트리가 죽는 날 로봇이 멈춘다.
