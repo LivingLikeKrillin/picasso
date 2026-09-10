@@ -25,6 +25,8 @@ class GrpcFixture(
     documents: Map<String, ProfileDocument>,
     val clock: Clock = VirtualClock(Instant.parse("2026-09-06T00:00:00Z")),
     val publisher: RecordingPublisher = RecordingPublisher(),
+    /** 기체가 실제로 발행하는 곳. 기본값은 위의 기록자이고, 단절을 흉내내는 시험만 다른 것을 준다. */
+    sink: dev.picasso.uplink.Publisher = publisher,
     site: String = "default",
     reporter: dev.picasso.uplink.report.HandshakeReporter =
         dev.picasso.uplink.report.HandshakeReporter.NONE,
@@ -32,7 +34,7 @@ class GrpcFixture(
 
     val registry = RobotRegistry(
         documents.map { (id, doc) ->
-            RobotInstance(id, doc, clock, publisher = publisher, site = site)
+            RobotInstance(id, doc, clock, publisher = sink, site = site)
         },
     )
 

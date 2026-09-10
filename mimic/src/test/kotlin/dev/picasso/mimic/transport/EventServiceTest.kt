@@ -217,6 +217,38 @@ class EventServiceTest {
     }
 
     @Test
+    fun `새 세션을 내며 버퍼를 비운 뒤에도 축출로 답한다`() {
+        // 세션 재발급은 버퍼를 통째로 비운다(§10.6). 그때 되짚기가 들어오면
+        // **버퍼가 비어 있는 채로 축출 분기에 들어간다** — 거절 문구를 만들며
+        // 버퍼의 마지막을 집으면 그 자리에서 터지고, 소비자는 거절이 아니라
+        // 정체를 본다.
+        val small = ProfileDocument.parse(
+            "small",
+            TaskMachineFixtures.fixtureRaw.replace("\"replay_buffer_size\": 256", "\"replay_buffer_size\": 2"),
+        ).getOrThrow()
+        val blocked = dev.picasso.uplink.Publisher { error("브로커 없음") }
+
+        GrpcFixture(mapOf("r1" to small), clock, sink = blocked).use { f ->
+            val robot = f.registry.require(GrpcFixture.requestHeader("r1")).instance
+            val before = robot.sessionId
+            // **셋이다.** 셋째가 넘치며 세션이 바뀌고 버퍼가 비는데, 넷째를 내면 그 빈 버퍼가
+            // 다시 차서 이 시험이 보려는 자리가 사라진다.
+            repeat(3) { robot.tasks.start("t$it", 1, "navigate_to", listOf(location())) }
+            assertTrue(robot.sessionId != before, "안 넘쳤다 — 이 시험은 아무것도 안 본다")
+            assertEquals(emptyList(), robot.events.buffered, "버퍼가 안 비었다")
+
+            val responses = f.eventsService
+                .withDeadlineAfter(10, TimeUnit.SECONDS)
+                .replayEvents(
+                    ReplayEventsRequest.newBuilder()
+                        .setHeader(GrpcFixture.requestHeader("r1")).setFromSequence(0).build(),
+                ).asSequence().toList()
+
+            assertEquals(RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED, responses.single().rejection.code)
+        }
+    }
+
+    @Test
     fun `버퍼가 비면 축출이 아니다`() {
         // 아직 아무 일도 없었을 뿐이다. 축출로 답하면 소비자가 스냅샷부터
         // 다시 세우는 헛수고를 한다.

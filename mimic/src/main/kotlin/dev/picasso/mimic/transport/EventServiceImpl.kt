@@ -63,6 +63,9 @@ class EventServiceImpl(
         // 열), "버퍼의 첫 항목보다 앞"은 축출과 같은 말이 아니다 — 그
         // 번호를 다른 스트림이 썼을 수 있다. 그렇게 판정하면 아무것도 안
         // 잃은 소비자에게 스냅샷부터 다시 세우라고 시킨다.
+        // **버퍼가 비어 있을 수 있다.** 세션 재발급이 통째로 비우고 가므로(§10.6) 거절
+        // 문구에서 버퍼의 마지막을 집으면 그 자리에서 터진다 — 소비자는 거절이 아니라
+        // 정체를 본다.
         val evicted = hosted.instance.events.evictedUpTo
         if (evicted != null && request.fromSequence <= evicted) {
             observer.onNext(
@@ -73,7 +76,7 @@ class EventServiceImpl(
                             .setCode(RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED)
                             .setDetail(
                                 "재생 버퍼를 벗어났다: 요청=${request.fromSequence}, " +
-                                    "버퍼=[$oldest, ${buffered.last().header.sequence}] " +
+                                    "버퍼=[$oldest, ${buffered.lastOrNull()?.header?.sequence}] " +
                                     "— GetSnapshot부터 다시 세워라",
                             ),
                     )

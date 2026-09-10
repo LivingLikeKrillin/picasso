@@ -157,6 +157,10 @@ class EventStream(
                 instance.renewSession()
                 // 세션이 바뀌었으니 옛 구간을 다시 밀 뜻이 없다.
                 unsentFrom = null
+                // **비우는 것도 버리는 것이다.** 경계를 첫 하나에 둔 채 비우면
+                // 나머지 번호가 버퍼에도 없고 축출로도 안 적힌 채 사라지고,
+                // 되짚기가 그 번호에 대고 "잃은 것 없다"고 답한다.
+                buffer.lastOrNull()?.let { evictedUpTo = it.header.sequence }
                 buffer.clear()
             }
         }
@@ -278,9 +282,28 @@ class EventStream(
             .setHeader(header(ConnectionMessage.getDescriptor().fullName, sequence))
             .setState(state)
             .build()
-        publisher.publish(
+        publishCurrent(
             Publication(topic(Topics.Stream.connection), message, sequence, retained = true),
         )
+    }
+
+    /**
+     * 현재값을 발행한다 — **못 보내면 버린다.**
+     *
+     * 이벤트와 다른 점이 여기다. 이벤트는 *일어난 사실*이라 재생 버퍼가 들고 있다가 재연결 때 밀지만,
+     * 상태와 연결은 *현재값*이라 다음 것이 대신한다. 큐에 쌓으면 재연결 순간 낡은 현재값이 줄줄이
+     * 나가고 마지막 것만 참이다.
+     *
+     * **예외는 위로 안 간다**(§10.6). 브로커가 죽었다고 로봇이 함께 멈추면 안 된다 — 이벤트 경로가
+     * 이미 그 규율을 지키고 있었고, 기동 발행과 상태 발행만 그러지 않아 **브로커가 없으면 기동 자체가
+     * 실패했다.**
+     */
+    private fun publishCurrent(publication: Publication) {
+        try {
+            publisher.publish(publication)
+        } catch (e: Exception) {
+            // 버린다. 다음 현재값이 대신한다.
+        }
     }
 
     // ── 상태 발행 (§4.7 — 상태와 이벤트 둘 다 발행한다)
@@ -326,7 +349,7 @@ class EventStream(
             .addAllTasks(taskSnapshots())
             .addAllFaults(instance.faults.active())
             .build()
-        publisher.publish(Publication(topic(Topics.Stream.state), message, sequence))
+        publishCurrent(Publication(topic(Topics.Stream.state), message, sequence))
     }
 
     fun taskSnapshots(): List<TaskSnapshot> = instance.tasks.all.map {

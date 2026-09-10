@@ -71,8 +71,15 @@ class HostedRobot(
 ) {
     val capability: Capability = CapabilityProjection.of(document)
 
-    /** 세션 — 프로세스 안에서 유일하면 족하다(미믹과 같은 이유로 난수가 아니라 카운터). */
-    val sessionId: String = "host-${SESSIONS.incrementAndGet()}"
+    /**
+     * 세션 — 프로세스 안에서 유일하면 족하다(미믹과 같은 이유로 난수가 아니라 카운터).
+     *
+     * **불변이 아니다.** 재생 버퍼가 넘쳐 **못 보낸** 이벤트를 버렸을 때 새로 발급한다([emit]) — 그 구간은 소비자에게
+     * 영영 안 가므로, 세션을 바꿔 스냅샷부터 다시 세우게 하는 것이 유일하게 정직한 답이다(§10.6). 단절만으로 바꾸면
+     * 버퍼링이 무의미해지므로 **넘칠 때만** 바꾼다.
+     */
+    var sessionId: String = "host-${SESSIONS.incrementAndGet()}"
+        private set
 
     /** 프로파일이 바뀌지 않는 한 1 이다 — 이 호스트는 아직 런타임 능력 변경을 안 낸다. */
     val capabilityEpoch: Long = 1
@@ -400,12 +407,32 @@ class HostedRobot(
         val event = builder.setHeader(publishHeader(Event.getDescriptor(), sequence)).build()
         // **버퍼에 먼저 넣고 발행한다.** 발행이 막혀도 재생 버퍼에는 남아야 한다(§10.6).
         buffer.addLast(event)
-        while (buffer.size > document.replayBufferSize) {
-            evictedUpTo = buffer.removeFirst().header.sequence
-        }
-        // 못 보낸 구간이 버퍼에서 밀려나면 그 구간은 소비자에게 영영 안 간다. 미믹은 그때 세션을 새로 낸다 — 여기는 세션이
-        // 불변이라 아직 못 한다(§15.99). 축출 경계는 `ReplayEvents` 가 말한다.
+        evict()
         send(Publication(topic(Topics.Stream.event), event, sequence))
+    }
+
+    /**
+     * 버퍼가 넘치면 가장 오래된 것을 버린다.
+     *
+     * **실제로 버린 것만 축출이다** — 버퍼의 첫 항목보다 앞이라는 이유로 축출이라 판정하면 `state`·`connection` 이 쓴
+     * 번호를 요청한 소비자에게 *잃었다* 고 거짓말하게 된다(셋이 같은 `sequence` 축을 쓴다, §5.5).
+     *
+     * **버린 것이 아직 못 보낸 것이면 세션을 새로 낸다**(§10.6). 그러면 옛 구간을 다시 밀 뜻이 없으므로 버퍼를 비우고
+     * 못 보낸 경계도 지운다 — 안 비우면 다음 발행이 **지난 세션의** 이벤트를 소비자에게 민다. 비운 것은 버린 것이니
+     * 축출 경계를 **그 끝까지** 올린다; 첫 하나만 적으면 되짚기가 나머지에 대고 *잃은 것 없다* 고 답한다.
+     */
+    private fun evict() {
+        while (buffer.size > document.replayBufferSize) {
+            val dropped = buffer.removeFirst().header.sequence
+            evictedUpTo = dropped
+            val unsent = unsentFrom
+            if (unsent != null && dropped >= unsent) {
+                sessionId = "host-${SESSIONS.incrementAndGet()}"
+                buffer.lastOrNull()?.let { evictedUpTo = it.header.sequence }
+                buffer.clear()
+                unsentFrom = null
+            }
+        }
     }
 
     /** `ReplayEvents(from)` — 벗어났으면 널(축출), 아니면 그 번호부터. */

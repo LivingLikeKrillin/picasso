@@ -55,6 +55,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -273,6 +275,54 @@ class AdapterHostTest {
             val fine = w.events.replayEvents(ReplayEventsRequest.newBuilder().setHeader(w.header("picasso.v1.ReplayEventsRequest")).setRobotId(ROBOT).setFromSequence(dropped + 1).build()).asSequence().toList()
             assertEquals(2, fine.size)
             assertEquals(listOf(TaskState.TASK_STATE_RUNNING, TaskState.TASK_STATE_SUCCEEDED), fine.map { it.event.taskTransition.to })
+        }
+    }
+
+    @Test
+    fun `못 보낸 구간이 버퍼에서 밀려나면 세션을 새로 낸다`() {
+        // §10.6 — 못 보낸 이벤트가 재생 버퍼에서 밀려나면 그 구간은 소비자에게 **영영** 안 간다. 세션을 새로 내
+        // 스냅샷부터 다시 세우게 하는 것이 유일하게 정직한 답이다(미믹의 `EventStream.evict` 와 같은 규율).
+        val small = Files.readString(PROFILE).replace("\"replay_buffer_size\": 256", "\"replay_buffer_size\": 2")
+        World(small).use { w ->
+            val first = w.robot.sessionId
+            w.flaky.broken = true
+            val handle = w.start().handle // ACCEPTED·RUNNING 이 버퍼에만 남는다
+            assertEquals(2, w.robot.events.size)
+            assertEquals(first, w.robot.sessionId, "아직 아무것도 안 버렸다")
+
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            w.watch(handle) // 셋째가 들어오며 못 보낸 첫 이벤트가 밀려난다
+            assertNotEquals(first, w.robot.sessionId, "못 보낸 구간을 버렸는데 세션이 그대로다")
+
+            // **소비자는 이것으로 안다.** 새 세션이 응답 헤더로 나가고, 그것이 "너에게 안 간 구간이 있다" 를 알리는
+            // 유일한 방법이다.
+            assertEquals(w.robot.sessionId, w.snapshot().header.sessionId)
+
+            // **버린 것을 다 센다.** 못 보낸 구간 전체가 버려지므로 축출 경계도 그 끝이어야 한다 — 첫 하나만 적으면
+            // 되짚기가 나머지에 대고 "잃은 것 없다" 고 답한다.
+            assertEquals(emptyList(), w.robot.events, "옛 구간을 안 비우면 다음 발행이 지난 세션의 이벤트를 민다")
+            val lost = w.robot.evictedUpTo ?: error("아무것도 안 버렸다")
+            assertEquals(w.robot.sequence - 1, lost, "마지막으로 낸 이벤트까지 버렸는데 축출 경계가 그 앞이다")
+            val rejected = w.events.replayEvents(
+                ReplayEventsRequest.newBuilder().setHeader(w.header("picasso.v1.ReplayEventsRequest")).setRobotId(ROBOT).setFromSequence(lost).build(),
+            ).asSequence().toList()
+            assertEquals(RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED, rejected.single().rejection.code)
+        }
+    }
+
+    @Test
+    fun `이미 나간 구간이 밀려나는 것으로는 세션을 안 바꾼다`() {
+        // 단절만으로, 또는 다 나간 구간을 버린 것으로 세션을 바꾸면 **버퍼링이 무의미해진다** — 소비자가 매번
+        // 스냅샷부터 다시 세우게 된다. 넘칠 때만, 그리고 **못 보낸 것을** 버릴 때만 바꾼다.
+        val small = Files.readString(PROFILE).replace("\"replay_buffer_size\": 256", "\"replay_buffer_size\": 2")
+        World(small).use { w ->
+            val first = w.robot.sessionId
+            val handle = w.start().handle
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            w.watch(handle)
+            assertNotNull(w.robot.evictedUpTo, "버린 것이 없으면 이 시험은 아무것도 안 본다")
+            assertEquals(first, w.robot.sessionId)
+            assertEquals(3, w.eventsOut().size, "다 나갔다")
         }
     }
 

@@ -304,6 +304,24 @@ class EventStreamTest {
     }
 
     @Test
+    fun `넘쳐서 새 세션을 낸 뒤에는 버린 것이 통째로 축출로 남는다`() {
+        // 세션을 새로 내면서 버퍼를 비우는데, 축출 경계를 **첫 하나만** 적으면
+        // 나머지 번호는 버퍼에도 없고 축출로도 안 적힌 채 사라진다 — 되짚기가
+        // 그 번호에 대고 "잃은 것 없다"고 답하게 된다.
+        val broker = FlakyPublisher()
+        val robot = instance("r1", document = smallBuffer(), sink = broker)
+
+        broker.connected = false
+        repeat(4) { robot.tasks.start("t$it", 1, "navigate_to", listOf(location())) }
+
+        assertEquals(emptyList(), broker.received, "브로커가 내내 끊겨 있었다 — 나간 것이 있으면 이 시험이 무의미하다")
+        val evicted = robot.events.evictedUpTo ?: error("축출이 없다 — 이 시험은 아무것도 안 본다")
+        val buffered = robot.events.buffered.map { it.header.sequence }.toSet()
+        val unaccounted = (0 until robot.events.nextSequence).filter { it !in buffered && it > evicted }
+        assertEquals(emptyList(), unaccounted, "이 번호들이 버퍼에도 없고 축출로도 안 적혔다 — 소비자에게는 조용한 결손이다")
+    }
+
+    @Test
     fun `넘치기 전에는 세션이 그대로다`() {
         // 반대쪽이 없으면 "언제나 새 세션"이 위 시험을 통과한다.
         val broker = FlakyPublisher()
