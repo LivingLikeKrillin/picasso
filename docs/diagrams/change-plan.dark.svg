@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="720" viewBox="0 0 840 720" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8b949e"/></marker>
+    <marker id="ab" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#58a6ff"/></marker>
+  </defs>
+  <rect x="6" y="6" width="828" height="708" rx="14" fill="#0d1117" stroke="#30363d"/>
+  <text x="32" y="46" font-size="17" font-weight="600" fill="#c9d1d9">변경은 한 번에 안 일어난다</text>
+  <text x="32" y="70" font-size="12.5" fill="#8b949e">능력 하나를 빼는 계획. 단계마다 조건을 보고, 적용할 때 다시 보고, 적용한 뒤에 또 본다.</text>
+  <text x="32" y="92" font-size="11" fill="#8b949e">계획의 의도는 넷이다 — 능력 제거 · major 이행 · 어댑터 판 퇴역 · 프로파일 개정 퇴역. 아래는 첫째의 단계다.</text>
+  <text x="60" y="118" font-size="11" font-weight="700" fill="#8b949e" letter-spacing="1">단계</text>
+  <text x="420" y="118" font-size="11" font-weight="700" fill="#8b949e" letter-spacing="1">넘어가려면 무엇이 참이어야 하나</text>
+  <rect x="60" y="150" width="240" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="180" y="174" font-size="12.5" font-weight="600" fill="#c9d1d9" text-anchor="middle">예고한다</text>
+  <text x="180" y="192" font-size="11" fill="#8b949e" text-anchor="middle">ANNOUNCE</text>
+  <rect x="60" y="236" width="240" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="180" y="260" font-size="12.5" font-weight="600" fill="#c9d1d9" text-anchor="middle">옮겨가는 걸 본다</text>
+  <text x="180" y="278" font-size="11" fill="#8b949e" text-anchor="middle">OBSERVE_MIGRATION</text>
+  <rect x="60" y="322" width="240" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="180" y="346" font-size="12.5" font-weight="600" fill="#c9d1d9" text-anchor="middle">도는 걸 비운다</text>
+  <text x="180" y="364" font-size="11" fill="#8b949e" text-anchor="middle">DRAIN</text>
+  <rect x="60" y="408" width="240" height="56" rx="6" fill="#121d2f" stroke="#58a6ff"/>
+  <text x="180" y="432" font-size="12.5" font-weight="600" fill="#c9d1d9" text-anchor="middle">적용한다</text>
+  <text x="180" y="450" font-size="11" fill="#8b949e" text-anchor="middle">APPLY</text>
+  <rect x="60" y="494" width="240" height="56" rx="6" fill="#0f2f1a" stroke="#3fb950"/>
+  <text x="180" y="518" font-size="12.5" font-weight="600" fill="#c9d1d9" text-anchor="middle">내려갔는지 본다</text>
+  <text x="180" y="536" font-size="11" fill="#8b949e" text-anchor="middle">VERIFY_WITHDRAWAL</text>
+  <polyline points="180,206 180,236" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="180,292 180,322" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="180,378 180,408" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="180,464 180,494" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="420" y="150" width="380" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="610" y="174" font-size="12.5" fill="#8b949e" text-anchor="middle">DEPRECATION_PUBLISHED</text>
+  <text x="610" y="192" font-size="11" fill="#8b949e" text-anchor="middle">예고가 실제로 나갔는가</text>
+  <polyline points="300,178 420,178" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="420" y="236" width="380" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="610" y="260" font-size="12.5" fill="#8b949e" text-anchor="middle">NO_ACTIVE_CONSUMERS</text>
+  <text x="610" y="278" font-size="11" fill="#8b949e" text-anchor="middle">그 능력을 쓰는 소비자가 0 인가</text>
+  <polyline points="300,264 420,264" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="420" y="322" width="380" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="610" y="346" font-size="12.5" fill="#8b949e" text-anchor="middle">NO_INFLIGHT_TASKS</text>
+  <text x="610" y="364" font-size="11" fill="#8b949e" text-anchor="middle">도는 태스크가 0 인가</text>
+  <polyline points="300,350 420,350" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="420" y="408" width="380" height="56" rx="6" fill="#101a28" stroke="#22334d"/>
+  <text x="610" y="432" font-size="12.5" fill="#58a6ff" text-anchor="middle">앞의 셋을 다시 본다</text>
+  <text x="610" y="450" font-size="11" fill="#8b949e" text-anchor="middle">한 번 충족했다고 넘어가지 않는다</text>
+  <polyline points="300,436 420,436" fill="none" stroke="#58a6ff" stroke-width="1.6" marker-end="url(#ab)"/>
+  <rect x="420" y="494" width="380" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="610" y="518" font-size="12.5" fill="#8b949e" text-anchor="middle">CAPABILITY_WITHDRAWN</text>
+  <text x="610" y="536" font-size="11" fill="#8b949e" text-anchor="middle">기체 전부가 새 세대로 보고를 마쳤는가</text>
+  <polyline points="300,522 420,522" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="60" y="586" width="740" height="46" rx="10" fill="#161b22" stroke="#21262d"/>
+  <text x="76" y="606" font-size="11" font-weight="700" fill="#8b949e" letter-spacing="1">왜 적용 뒤에 또 보나</text>
+  <text x="76" y="624" font-size="11" fill="#8b949e">카탈로그에서 사라져도 로봇은 잠시 더 받는다 — 폴링 지연과 불통 중 마지막 능력 유지 때문이다.</text>
+  <rect x="60" y="646" width="740" height="46" rx="10" fill="#101a28" stroke="#22334d"/>
+  <text x="76" y="666" font-size="11" font-weight="700" fill="#58a6ff" letter-spacing="1">조작 거부 조건</text>
+  <text x="76" y="684" font-size="11" fill="#8b949e">조건이 안 맞으면 실행이 거절된다. 계획은 DRAFT 에 머물고 아무것도 안 바뀐다 — registry · ShrinkRefusalTest</text>
+</svg>

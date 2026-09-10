@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="600" viewBox="0 0 840 600" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#57606a"/></marker>
+  </defs>
+  <rect x="6" y="6" width="828" height="588" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="32" y="46" font-size="17" font-weight="600" fill="#1f2328">실물로 바꿀 때 여는 자리</text>
+  <text x="32" y="70" font-size="12.5" fill="#57606a">바깥과 닿는 곳은 전부 이름 붙은 포트다. 가운데는 그 목록에 없다.</text>
+  <text x="36" y="118" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">들어오는 자리</text>
+  <text x="584" y="118" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">나가는 자리</text>
+  <rect x="316" y="140" width="208" height="360" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
+  <text x="420" y="292" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">미들웨어 코어</text>
+  <text x="420" y="316" font-size="11" fill="#57606a" text-anchor="middle">picasso · contracts</text>
+  <text x="420" y="336" font-size="11" fill="#57606a" text-anchor="middle">adapter-host · capability</text>
+  <text x="420" y="356" font-size="11" fill="#57606a" text-anchor="middle">uplink · profile-model</text>
+  <text x="420" y="388" font-size="11" font-weight="700" fill="#1a7f37" text-anchor="middle">여기는 안 뜯는다</text>
+  <rect x="36" y="180" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="146" y="206" font-size="12.5" fill="#1f2328" text-anchor="middle">상류 시스템</text>
+  <text x="146" y="226" font-size="11" fill="#57606a" text-anchor="middle">Middleware 공개 API</text>
+  <polyline points="256,212 316,212" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="36" y="264" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="146" y="290" font-size="12.5" fill="#1f2328" text-anchor="middle">설비 (PLC · WCS)</text>
+  <text x="146" y="310" font-size="11" fill="#57606a" text-anchor="middle">CellSignals — 지금은 대역</text>
+  <polyline points="256,296 316,296" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#am)"/>
+  <rect x="36" y="348" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="146" y="374" font-size="12.5" fill="#1f2328" text-anchor="middle">프로파일 출처</text>
+  <text x="146" y="394" font-size="11" fill="#57606a" text-anchor="middle">ProfileSource · RegistrySource</text>
+  <polyline points="256,380 316,380" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="584" y="160" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="694" y="186" font-size="12.5" fill="#1f2328" text-anchor="middle">로봇</text>
+  <text x="694" y="206" font-size="11" fill="#57606a" text-anchor="middle">RobotPort · RobotAdapter</text>
+  <polyline points="524,192 584,192" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="584" y="244" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="694" y="270" font-size="12.5" fill="#1f2328" text-anchor="middle">AMR 플릿</text>
+  <text x="694" y="290" font-size="11" fill="#57606a" text-anchor="middle">AmrFleetPort — 지금은 대역</text>
+  <polyline points="524,276 584,276" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#am)"/>
+  <rect x="584" y="328" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="694" y="354" font-size="12.5" fill="#1f2328" text-anchor="middle">발행 (MQTT)</text>
+  <text x="694" y="374" font-size="11" fill="#57606a" text-anchor="middle">Publisher — 브로커까지 실물</text>
+  <polyline points="524,360 584,360" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="584" y="412" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="694" y="438" font-size="12.5" fill="#1f2328" text-anchor="middle">원장 적재</text>
+  <text x="694" y="458" font-size="11" fill="#57606a" text-anchor="middle">적재 포트 넷 — HTTP 실물</text>
+  <polyline points="524,444 584,444" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <text x="32" y="546" font-size="11" fill="#57606a">자리 아홉의 인터페이스 목록은 docs/seams.md 에 있고, DocumentClaimsTest 가 그 타입이 실제로 있는지 본다.</text>
+  <text x="32" y="568" font-size="11" fill="#57606a">벤더 링크 넷(SpotLink · DigitLink · G1Link · OrbitLink)은 기종 어댑터 안에 있다 — 코어에서 안 보인다.</text>
+</svg>

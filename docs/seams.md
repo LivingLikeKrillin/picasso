@@ -6,6 +6,11 @@
 
 ---
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/seams.dark.svg">
+  <img alt="미들웨어 코어를 가운데 두고, 바깥과 닿는 자리가 양옆에 포트로 붙어 있다. 왼쪽은 들어오는 자리(상류·설비·프로파일 출처), 오른쪽은 나가는 자리(로봇·AMR 플릿·발행·원장 적재). 코어는 교체 지점 목록에 없다." src="diagrams/seams.svg">
+</picture>
+
 ## 이 자리들이 왜 진짜 교체 지점인가
 
 **포트는 본체에 있고 대역은 시험에 있다.** `CellSignals`·`AmrFleetPort`·`RobotPort` 는
@@ -153,4 +158,4 @@
 
 **상류는 이 표에 없다.** 인터페이스가 아니라 `Middleware` 의 공개 API 이기 때문이고, 그 이유는 위 1 번에 있다.
 
-> 마지막 대조: 2026-09-11 · sha256:bb623e26f158 · 열림: §15.125, §15.34, C-3, §15.5
+> 마지막 대조: 2026-09-11 · sha256:ab2fa4f5070d · 열림: §15.125, §15.34, C-3, §15.5
