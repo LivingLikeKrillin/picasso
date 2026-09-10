@@ -103,6 +103,25 @@ class DocumentClaimsTest {
         assertTrue(listed in design, "설계 §11.2 의 7번 목록이 코드와 다르다 — 코드: $listed")
     }
 
+    @Test
+    fun `문서가 가리키는 파일이 전부 실재한다`() {
+        // 문서 사이의 링크가 이 저장소에서 유일하게 **자동으로 낡는 것**이다 — 파일 이름을 바꾸면 아무도 안 알려 준다.
+        // 숫자를 세는 것과 같은 이유로 여기서 본다.
+        val docs = buildList {
+            add(repo.resolve("README.md"))
+            Files.list(repo.resolve("docs")).use { s -> addAll(s.filter { it.toString().endsWith(".md") }.toList()) }
+            Files.list(repo).use { s ->
+                addAll(s.map { it.resolve("README.md") }.filter { Files.isRegularFile(it) }.toList())
+            }
+        }
+        val broken = docs.flatMap { doc ->
+            Regex("""\]\(([^)#:]+\.md[^)#]*)\)""").findAll(Files.readString(doc)).map { doc to it.groupValues[1] }
+        }.filterNot { (doc, link) -> Files.exists(doc.parent.resolve(link).normalize()) }
+            .map { (doc, link) -> "${repo.relativize(doc)} → $link" }
+
+        assertEquals(emptyList(), broken, "문서가 없는 파일을 가리킨다")
+    }
+
     private companion object {
         /** 이 저장소의 산문은 작은 수를 낱말로 쓴다. 셈은 여기서 한 번만 한다. */
         val NUMERALS = mapOf(

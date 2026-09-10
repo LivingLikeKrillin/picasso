@@ -89,6 +89,9 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 
 | 무엇을 알고 싶은가 | 어디 |
 |---|---|
+| **어디까지가 진짜인가** | [`docs/verification.md`](docs/verification.md) — 구간마다 실물·실 와이어·전송 없음·대역을 가르고, **계약을 누가 지었는지**까지 적는다. 이 저장소에서 가장 먼저 읽을 문서 |
+| 경계가 왜 거기에 있나 | [`docs/architecture.md`](docs/architecture.md) — 층 넷, 데이터의 두 방향, 상태기계 둘, 의존 규칙 |
+| 모듈 안으로 | [`picasso`](picasso/README.md) · [`registry`](registry/README.md) · [`mimic`](mimic/README.md) · [`adapter-host`](adapter-host/README.md) · [`gate`](gate/README.md) |
 | 왜 이렇게 지었나, 전부 | [설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md) — §1 목적과 **비목표**, §3 아키텍처, §4 계약, §7 프로파일, §9 운영 변경, §11 게이트 |
 | **무엇이 틀렸었고 무엇이 아직 안 되나** | 설계 문서 **§15 알려진 한계** — 항목을 지우지 않고 정정을 덧쓰는 운행 기록. 뒤집힌 판정에는 취소선과 정정 포인터가 남아 있다 |
 | 일감 셋이 계약의 어디에 닿나 — 그리고 AMR 의 경계 | [`docs/scenarios.md`](docs/scenarios.md) — 용기 공급(AMR, 계약 밖) · 부품 시퀀싱(`pick_place`) · 설비 점검(`inspect`); 완료 세 계층과 근거 등급; 계약이 아직 못 주는 것 다섯 |

@@ -87,6 +87,16 @@ tasks.withType<Test>().configureEach {
         rootProject.file("profile/vendors"),
         rootProject.file("profile/provenance"),
         rootProject.file("profile/distance"),
+        // **DocumentClaimsTest 가 읽는 것들.** 같은 구멍의 **네 번째**다 — 이 줄이 없는 채로 먼저 들어왔고,
+        // 문서만 고친 변경에서 :gate:test 가 UP-TO-DATE 로 넘어가 **깨진 링크를 넣어도 초록이었다**(실측).
+        // 세는 시험을 만들어 놓고 그 시험이 안 도는 상태였다.
+        rootProject.file("README.md"),
+        rootProject.file("docs"),
+        rootProject.file("picasso/README.md"),
+        rootProject.file("registry/README.md"),
+        rootProject.file("mimic/README.md"),
+        rootProject.file("adapter-host/README.md"),
+        rootProject.file("gate/README.md"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 
