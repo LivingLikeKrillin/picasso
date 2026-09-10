@@ -43,7 +43,7 @@ ExecutionUnit × 4   (슬롯마다 하나)
 TaskHandle
    │                                   여기부터 기체 하나의 이야기다
    ▼  어댑터 : RobotAdapter.accept()
-벤더 호출     (Orbit: POST dispatch · Spot: LoadMission+PlayMission · Digit: add-sequential-actions · G1: SetVelocity)
+벤더 호출     (Orbit: POST dispatch · Spot: LoadMission+PlayMission · Digit: action-sequential · G1: SetVelocity)
 ```
 
 **단위 하나가 태스크 하나다.** 슬롯마다 태스크 하나이므로 *"어느 단위까지 끝났는가"* 를 태스크 자체가 답한다 —
@@ -73,7 +73,7 @@ TaskHandle
 | | 실행 상태 (`picasso`) | 태스크 상태 (계약) |
 |---|---|---|
 | **무엇의 상태인가** | 논리적 능력 하나 = 상류의 일감 하나 | 원자적 태스크 하나 = 기체 하나의 스킬 한 번 |
-| **값** | `REQUESTED`·`RUNNING`·`PARTIAL`·`IN_DOUBT`·`OPERATOR_HOLD`·`PHYSICALLY_DONE`·`UNVERIFIED`·`FAILED`·`CANCELING`·`ABORTED` | `ACCEPTED`·`RUNNING`·`PAUSED`·`SUCCEEDED`·`FAILED`·`RETRIABLE`·`NEEDS_INTERVENTION`·`CANCELLING`·`CANCELLED`·`CANCELLED_RECOVERY_FAILED`·`CONTROL_AUTHORITY_LOST` |
+| **값** | `REQUESTED`·`ACCEPTED`·`RUNNING`·`PARTIAL`·`IN_DOUBT`·`OPERATOR_HOLD`·`PHYSICALLY_DONE`·`UNVERIFIED`·`FAILED`·`CANCELING`·`ABORTED` | `ACCEPTED`·`RUNNING`·`PAUSED`·`SUCCEEDED`·`FAILED`·`RETRIABLE`·`NEEDS_INTERVENTION`·`CANCELLING`·`CANCELLED`·`CANCELLED_RECOVERY_FAILED` |
 | **축이 하나 더** | `upstream_ack`(통보가 갔는가) — **물리와 독립이다** | 없다 |
 | **누가 정하나** | 계약에서 온 것 + **설비 신호**(계약 밖) | 로봇이 말한 것 |
 

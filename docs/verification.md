@@ -21,8 +21,8 @@
 | **없음** | 아무것도 없다. 시험이 그 역할을 대신하거나, 그 자리가 비어 있다 |
 | **문서** | 전송도 코드도 없다. 판정의 근거가 **벤더 원문**이고 **거동은 본 적 없다** |
 
-★**한 구간이 두 등급을 가질 수 있다.** 구간 4 가 그렇다 — 대부분 in-process 인데 실 포트를 지나는 경로가
-둘 있다. **높은 쪽으로 접지 않는다**: 접으면 그 구간 전체가 실 와이어인 것처럼 읽히고, 이 표가 막으려는
+★**한 구간이 두 등급을 가질 수 있다.** 구간 3·4 가 그렇다 — 대부분 in-process 인데 실 포트를 지나는
+경로가 섞여 있다. **높은 쪽으로 접지 않는다**: 접으면 그 구간 전체가 실 와이어인 것처럼 읽히고, 이 표가 막으려는
 것이 정확히 그 오독이다.
 
 그리고 **계약을 누가 지었는가**를 따로 적는다. 등급이 높아도 **상대 계약이 우리 것이면 그 구간의 증명은 우리
@@ -36,12 +36,12 @@
 |---|---|---|---|---|---|
 | 1 | 상류(MES·WMS·SCADA) ↔ `picasso` | **없음** | **우리가 지음** (ISA-95 Job Control 을 근거로) | 상대 시스템이 없다. **시험이 예상 소비자 역할을 한다** — `JobOrder` 를 넣고 `JobResponse` 를 받는다. 실제 ACL 도, MES Mock 도 안 만든다(설계가 선언한 범위) | `SequencingRackTest` · `DeliverContainerTest` · `InspectAssetTest` |
 | 2 | `picasso` ↔ 계약(gRPC) | **실 코드 · 전송 없음** | **우리 계약**(proto, 0.8.0) | 직렬화·서비스 스텁·헤더 열까지 운영과 같은 코드다. 소켓이 없다 | 위와 같음 + `EventStreamTest` |
-| 3 | 계약 ↔ 미믹 | **실 코드 · 전송 없음** | 우리 계약 | 미믹은 **프로파일이 모는 에뮬레이터**다. 로봇의 거동을 흉내내지만 **로봇은 아니다** — 그 한계가 §15.7 이다 | 하네스 전부(`ContractSuite`) |
+| 3 | 계약 ↔ 미믹 | **실 코드 · 전송 없음** + **실 와이어 셋** | 우리 계약 | 미믹은 **프로파일이 모는 에뮬레이터**다. 로봇의 거동을 흉내내지만 **로봇은 아니다** — 그 한계가 §15.7 이다. ★**셋은 실 포트를 지난다** — 미믹 CLI 가 `ServerBuilder.forPort` 로 열고 시험이 `127.0.0.1` 로 붙는다 | 하네스 전부(`ContractSuite`) · 실 포트 셋은 `mimic` · `MainTest` · `연계를 붙이면 협상이 폴백에 쌓인다` · `연계를 붙이면 태스크 전이가 폴백에 쌓인다` 와 `harness` · `MqttBrokerTest` · `CLI가 브로커를 주면 발행이 실제로 나간다` |
 | 4 | 계약 ↔ 어댑터 호스트 | **실 코드 · 전송 없음** + **실 TCP 둘** | 우리 계약 | 대부분 in-process 다. **실 포트를 지나는 경로가 둘 있다** — `OrbitLauncherTest`(소비자가 netty 를 지나 일을 시키고 종착까지 받는다)와 `포트가 열린 뒤에 ONLINE 이 나간다`(§10.2 의 순서는 실 포트로만 물을 수 있다) | `AdapterHostTest` · `HostParityTest` · `OrbitLauncherTest` |
 | 5 | 어댑터 ↔ 벤더 — **Orbit** | **실 와이어 · 세운 상대** | **벤더**(게시 스펙 + 벤더 클라이언트) | HTTP 가 진짜로 지난다 — CSRF 쿠키→헤더, `Bearer`, 응답 봉투 둘, 404 와 전송 실패의 구분. **답하는 서버는 우리가 세운 `com.sun.net.httpserver` 스텁**이고, 그 모양은 벤더 문서에서 읽어 적은 것이다 | `OrbitHttpLinkTest` · `OrbitLauncherTest` |
 | 6 | 어댑터 ↔ 벤더 — **Spot · Digit · G1** | **없음** | **벤더**(SDK proto·매뉴얼·IDL 전수) | **전송이 없다.** 남쪽이 인터페이스이고 구현은 시험의 가짜뿐이다 — 벤더 원문을 저장소에 안 들이는 규칙이 막는다(§15.55). 검사받는 것은 **인용**이다: `@VendorSurface` 가 짚은 이름이 `vendor-manifest.txt` 에 실재하는가 | `*VendorSurfaceTest` 넷 |
 | 7 | 발행(MQTT) | **실물** | 우리 토픽·헤더 열(§5.5) | **진짜 브로커**(mosquitto 컨테이너)에 붙어 발행하고 구독해 되받는다 — retain, Last Will, 토픽 형식, QoS. **기본 스위트는 in-process 발행자**를 쓴다(§12.1 의 결정성) | `MqttBrokerTest` |
-| 8 | 레지스트리 HTTP | **실물** | 우리 API | **진짜 포트에 뜬 Spring Boot** 에 진짜 HTTP 로 묻는다(`RANDOM_PORT` + `TestRestTemplate`) — 상태코드·토큰 문 둘·JSON 까지 | `*EndpointTest` 다섯 |
+| 8 | 레지스트리 HTTP | **실물** | 우리 API | **진짜 포트에 뜬 Spring Boot** 에 진짜 HTTP 로 묻는다(`RANDOM_PORT` + `TestRestTemplate`) — 상태코드·토큰 문 둘·JSON 까지 | `*EndpointTest` 넷 |
 | 9 | 레지스트리 ↔ DB | **실물** | 우리 스키마 | **진짜 PostgreSQL 16**(Testcontainers) + Flyway 마이그레이션 전부. 제약·CHECK·FK 가 실제로 집행된다 | `registry` 시험 전부 |
 | 10 | 설비(PLC/WCS) ↔ `picasso` | **대역** | ★**우리가 지음** | `CellMimic`. 재석·식별·안착을 말하는 신호의 **모양을 우리가 정했다** — 근거는 보고서이지 실제 설비가 아니다. 시간창 δ 안에서 신호를 찾는 규칙은 진짜로 돌지만, **그 신호가 실제 PLC 가 내는 모양이라는 근거는 없다** | `EvidenceWindowTest` |
 | 11 | AMR 플릿 ↔ `picasso` | **대역** | ★**우리가 지음** | `AmrFleetMimic`. **VDA5050 도 아니고 벤더 플릿 API 도 아니다** — 참조 멱등 dispatch/status/cancel 은 우리가 정한 계약이다. 취소의 정리 동작(출발지로 되돌림)도 우리가 정했다 | `DeliverContainerTest` |

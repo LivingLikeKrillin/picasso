@@ -228,6 +228,58 @@ class DocumentClaimsTest {
         assertEquals(emptyList(), broken, "문서가 없는 파일을 가리킨다")
     }
 
+    @Test
+    fun `상태기계 표의 값이 코드와 같다`() {
+        // ★§15.119 와 같은 자리다 — **산문이면 눈에 띌 것이 표의 한 칸에 묻힌다.**
+        // 실측(2026-09-11): 실행 상태에 `ACCEPTED` 가 빠져 있었고, 태스크 상태 칸에 **실패 분류**인
+        // `CONTROL_AUTHORITY_LOST` 가 섞여 있었다. 그 표의 요지가 *"둘은 다른 층이고 하나가 다른 하나를
+        // 대신하지 않는다"* 인데 **표 자신이 셋째 어휘를 들여놓고 있었다.**
+        val row = read("docs/architecture.md").lines().single { it.startsWith("| **값** |") }
+        val cells = row.split("|").map { it.trim() }
+        fun quoted(cell: String) = Regex("`([A-Z_]+)`").findAll(cell).map { it.groupValues[1] }.toList()
+
+        val physical = Regex("""enum class PhysicalState \{([^;]+);""")
+            .find(read("picasso/src/main/kotlin/dev/picasso/middleware/Model.kt"))
+            ?.groupValues?.get(1)
+            ?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+            ?: error("PhysicalState 를 못 읽었다")
+        assertEquals(physical, quoted(cells[2]), "실행 상태 값이 PhysicalState 와 다르다")
+
+        val task = Regex("""TASK_STATE_([A-Z_]+) = \d+""")
+            .findAll(read("contracts/proto/picasso/v1/task.proto"))
+            .map { it.groupValues[1] }
+            .filterNot { it == "UNSPECIFIED" }
+            .toList()
+        assertEquals(task.sorted(), quoted(cells[3]).sorted(), "태스크 상태 값이 계약의 TaskState 와 다르다")
+    }
+
+    @Test
+    fun `레지스트리 문 시험의 수를 검증 근거 표가 맞게 적는다`() {
+        // 실측(2026-09-11): 표가 다섯이라 적었는데 넷이었다. 다섯째 후보인 `IngestTokenTest` 는
+        // 스스로 *"서버 없이 본다"* 고 적으므로 실물 등급의 증명이 아니다.
+        val actual = Repo.declaredFiles().count { it.fileName.toString().endsWith("EndpointTest.kt") }
+        assertEquals(
+            actual,
+            claimed("""`\*EndpointTest` (\S+)""", read("docs/verification.md")),
+            "레지스트리 문 시험이 늘거나 줄었는데 verification.md 가 그대로다",
+        )
+    }
+
+    @Test
+    fun `설계 일지의 마지막 번호를 한계 대장이 맞게 적는다`() {
+        // ★**이 시험이 없어서 물렸다.** `limits.md` 가 *"번호가 106 까지 갔고"* 라 적어 둔 채 124 까지 갔고,
+        // 같은 문서가 §15.123·§15.124 를 대장 행으로 싣고 있었다 — **낡은 산문이 세 줄 아래의
+        // *"산문이 낡는 것을 사람이 훑어 막지 않는다"* 를 바로 반증하고 있었다.**
+        val last = Regex("""(?m)^(\d+)\. \*\*""").findAll(design)
+            .map { it.groupValues[1].toInt() }
+            .maxOrNull() ?: error("설계 일지의 번호를 못 읽었다")
+        assertEquals(
+            last,
+            claimed("""번호가 (\S+) 까지 갔고""", read("docs/limits.md")),
+            "일지가 늘었는데 limits.md 가 그대로다",
+        )
+    }
+
     private companion object {
         /** 이 저장소의 산문은 작은 수를 낱말로 쓴다. 셈은 여기서 한 번만 한다. */
         val NUMERALS = mapOf(
