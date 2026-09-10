@@ -1,5 +1,8 @@
 # picasso — 이기종 로봇 표준 I/F 계약과 운영 변경 체계
 
+[![ci](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml/badge.svg)](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 이기종 모바일 로봇(휴머노이드·4족보행)을 공장 운영 시스템에 연계할 때 필요한 **표준 I/F 계약**을 정의하고, 그 계약을 **실물 없이 검증할 수 있는 상대**(`mimic`)를 만들고, **운영 중 변경을 계산 가능하게** 만든다.
 
 주장은 둘이고, 둘 다 데모가 아니라 **CI 실패 조건 또는 조작 거부 조건**으로 만들어져 있다.
@@ -77,6 +80,11 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 `limits.md` 가 적는다. 가장 큰 것은 **어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다는 것**(C-3)이며,
 그것은 지어서 닫을 수 없다. 무엇이 왜 열려 있는지가 적혀 있는 것까지가 이 저장소가 할 수 있는 일이다.
 
+## 라이선스
+
+[Apache License 2.0](LICENSE). 벤더 SDK 는 이 저장소에 없다 — 남쪽은 포트이고, 들어온 것은 **이름과
+sha256 뿐**이다(`vendor-manifest.txt`). 벤더 원문의 라이선스는 각 벤더의 것이며 여기 담기지 않는다.
+
 ## 빌드와 시험
 
 필요한 것: **JDK 21**, **Docker**(buf 래퍼, Testcontainers 의 PostgreSQL·mosquitto). 전부 Kotlin, Gradle.
@@ -140,4 +148,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입으로 시험을 시험한다.** 못 잡으면 시험 집합의 구멍이고, 주입이 시끄럽지 않았다면 주입부터 의심한다.
 - **조용히 통과하는 것이 실패하는 것보다 나쁘다.** 게이트가 아무 검사도 안 돌리고 종료코드 0 을 낸 적이 있다. 요구 목록(`--require`)과 strict 음성 하네스가 그 대가다.
 
-> 마지막 대조: 2026-09-11 · sha256:fce7c6d7fd23 · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-11 · sha256:79222102747c · 열림: C-3, §15.81
