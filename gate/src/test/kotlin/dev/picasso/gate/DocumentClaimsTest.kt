@@ -109,6 +109,45 @@ class DocumentClaimsTest {
     }
 
     @Test
+    fun `교체 지점의 인터페이스가 전부 실재한다`() {
+        // `seams.md` 는 *"실물로 바꾸려면 어디를 고치나"* 에 답하는 문서다. 거기 적힌 타입이 사라지거나
+        // 파일이 옮겨지면 **그 답이 틀린 답이 된다** — 이름을 바꾼 사람은 문서를 안 본다.
+        val seams = Repo.read("docs/seams.md")
+        val table = seams.lines().dropWhile { !it.startsWith("## 색인") }
+            .filter { it.startsWith("|") }
+            .filterNot { it.startsWith("| 자리 ") || it.startsWith("|---") }
+        val row = Regex("""\| [^|]+ \| `([A-Za-z0-9_]+)` \| `([^`]+\.kt)` \|""")
+
+        // ★**못 읽은 줄을 실패로 적는다.** 앞 판은 맞는 줄만 골라 세고 하한(12줄)만 봤는데, 주입이
+        // 한 줄에서 백틱만 빼도 그 줄이 조용히 빠지고 하한은 그대로 넘는 것을 찾아냈다 — **검사 범위가 준다.**
+        val unreadable = table.filterNot { row.matchEntire(it) != null }
+        assertEquals(emptyList(), unreadable, "색인 줄을 못 읽었다 — 모양이 바뀌면 검사가 그 줄을 건너뛴다")
+
+        // 색인과 본문이 **같은 집합**이어야 한다. 한쪽만 보면 반만 막힌다 — 주입이 그것을 보였다:
+        // 본문에 안 나오는 줄은 통째로 지워도 안 걸렸다(§15.120). 하한은 내가 손으로 적은 숫자지만
+        // 이 대조는 **문서가 스스로 대는 목록**이다.
+        val rows = table.mapNotNull { row.matchEntire(it) }
+        val indexed = rows.map { it.groupValues[1] }.toSet()
+        val named = Regex("""\*\*인터페이스[^*]*\*\*: (.*)""").findAll(seams)
+            .flatMap { Regex("`([A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*)").findAll(it.groupValues[1]) }
+            .map { it.groupValues[1] }.toSet()
+        assertEquals(emptySet<String>(), named - indexed, "본문이 이름 지은 인터페이스가 색인에 없다")
+        assertEquals(emptySet<String>(), indexed - named, "색인에만 있고 본문이 설명 안 하는 자리가 있다")
+
+        val broken = rows.mapNotNull { hit ->
+            val (type, path) = hit.destructured
+            val file = Repo.path(path)
+            when {
+                !Files.isRegularFile(file) -> "$type: 파일이 없다 — $path"
+                !Regex("(fun )?interface " + type + "[^A-Za-z0-9_]").containsMatchIn(Files.readString(file)) ->
+                    "$type: $path 에 그 인터페이스가 없다"
+                else -> null
+            }
+        }
+        assertEquals(emptyList(), broken, "교체 지점 색인이 코드와 다르다")
+    }
+
+    @Test
     fun `문서가 가리키는 파일이 전부 실재한다`() {
         // 문서 사이의 링크가 이 저장소에서 유일하게 **자동으로 낡는 것**이다 — 파일 이름을 바꾸면 아무도 안 알려 준다.
         // 숫자를 세는 것과 같은 이유로 여기서 본다.

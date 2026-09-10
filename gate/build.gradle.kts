@@ -69,18 +69,7 @@ tasks.withType<Test>().configureEach {
         rootProject.file("contracts/build.gradle.kts"),
         rootProject.file("build.gradle.kts"),
         rootProject.file("tools/buf"),
-        // **검사 7이 읽는 것들.** 이것이 없으면 기종 문자열을 출하 소스에
-        // 넣어도 :gate:test가 UP-TO-DATE로 넘어가 BUILD SUCCESSFUL이 난다 —
-        // 그것을 잡는 것이 유일한 일인 검사가 빌드 시스템에 의해 건너뛰어진다
-        // (실측: 확인했다). 이 저장소가 같은 방식으로 두 번 물렸다.
         rootProject.file("profile/profiles"),
-        rootProject.file("client/src/main"),
-        rootProject.file("mimic/src/main"),
-        rootProject.file("harness/src/main"),
-        // 검사 7번이 넷째 모듈을 보게 됐다(ADR 33). 이 줄이 없으면 거기에
-        // 기종 문자열을 넣어도 UP-TO-DATE 로 초록이 난다 — 위 주석이 세 번
-        // 물렸다고 적은 그것이다.
-        rootProject.file("adapter-core/src/main"),
         // NegativeSuiteTest가 ci.yml과 디렉터리 목록을 대조한다.
         rootProject.file(".github/workflows/ci.yml"),
         // **VendorSurveyTest·ProfileProvenanceTest가 읽는 것들.** 앞의 것은
@@ -101,9 +90,17 @@ tasks.withType<Test>().configureEach {
         rootProject.file("settings.gradle.kts"),
         rootProject.file("registry/src/main/kotlin/dev/picasso/registry/web/DiagController.kt"),
     ) +
-        // **모듈 문은 세지 않는다 — 빌드가 아는 목록에서 만든다.** 손으로 적으면 모듈이 늘 때 한쪽만 늘고,
-        // 그것이 이 파일이 반복해 물린 자리다. `DocumentClaimsTest` 가 *모든 모듈에 문이 있는가* 도 본다.
-        rootProject.subprojects.map { rootProject.file("${it.name}/README.md") }
+        // **모듈 문과 출하 소스는 세지 않는다 — 빌드가 아는 목록에서 만든다.**
+        //
+        // ★손으로 적던 시절에 **여섯 번 물렸다.** 마지막이 이것이다: 검사 7번은 여덟 모듈을 훑는데
+        // 입력에는 **넷만** 선언돼 있어서, `picasso/src/main` 에 기종 문자열을 넣어도 :gate:test 가
+        // UP-TO-DATE 로 넘어갔다 — 그것을 잡는 것이 유일한 일인 검사가 빌드에 의해 건너뛰어지고 있었다.
+        //
+        // **대가**: 아무 모듈의 출하 소스가 바뀌어도 :gate:test 가 다시 돈다(음성 하네스 때문에 ~1분).
+        // 그것을 감수한다 — **안 도는 검사보다 늦게 도는 검사가 낫다.**
+        rootProject.subprojects.flatMap {
+            listOf(rootProject.file("${it.name}/README.md"), rootProject.file("${it.name}/src/main"))
+        }
     inputs.files(repoInputs).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 
