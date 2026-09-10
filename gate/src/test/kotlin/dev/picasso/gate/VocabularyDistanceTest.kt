@@ -41,10 +41,10 @@ import kotlin.test.assertTrue
 class VocabularyDistanceTest {
 
     private val mapper = ObjectMapper()
-    private val distanceDir = Path.of("..", "profile", "distance").normalize()
-    private val profilesDir = Path.of("..", "profile", "profiles").normalize()
-    private val surveyDir = Path.of("..", "profile", "vendors").normalize()
-    private val schemaPath = Path.of("..", "profile", "schema", "distance.schema.json")
+    private val distanceDir = Repo.path("profile/distance")
+    private val profilesDir = Repo.path("profile/profiles")
+    private val surveyDir = Repo.path("profile/vendors")
+    private val schemaPath = Repo.path("profile/schema/distance.schema.json")
 
     private fun read(path: Path): JsonNode = mapper.readTree(Files.readString(path))
 

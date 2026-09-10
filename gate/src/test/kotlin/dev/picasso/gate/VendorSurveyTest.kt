@@ -37,8 +37,8 @@ import kotlin.test.assertTrue
 class VendorSurveyTest {
 
     private val mapper = ObjectMapper()
-    private val dir = Path.of("..", "profile", "vendors").normalize()
-    private val schemaPath = Path.of("..", "profile", "schema", "vendor-survey.schema.json")
+    private val dir = Repo.path("profile/vendors")
+    private val schemaPath = Repo.path("profile/schema/vendor-survey.schema.json")
 
     private fun surveys(): List<Pair<String, JsonNode>> =
         Files.list(dir).use { stream ->

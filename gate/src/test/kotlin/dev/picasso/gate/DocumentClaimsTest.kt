@@ -26,10 +26,9 @@ import kotlin.test.assertTrue
  */
 class DocumentClaimsTest {
 
-    private val repo: Path = Path.of("..").normalize()
+    private val repo: Path = Repo.root
 
-    private fun read(relative: String): String =
-        Files.readString(repo.resolve(relative)).replace("\r\n", "\n")
+    private fun read(relative: String): String = Repo.read(relative)
 
     private val readme by lazy { read("README.md") }
     private val design by lazy { read("docs/superpowers/specs/2026-09-05-picasso-design.md") }
@@ -76,9 +75,7 @@ class DocumentClaimsTest {
     @Test
     fun `거리 문서의 수를 README 가 맞게 적는다`() {
         // 거리 문서는 **잰 벤더 표면마다 하나**다. 어댑터가 늘면 여기도 는다.
-        val measured = Files.list(repo.resolve("profile/distance")).use { s ->
-            s.filter { it.fileName.toString().endsWith(".json") }.count().toInt()
-        }
+        val measured = Repo.list("profile/distance", ".json").size
         assertEquals(measured, claimed("""실물 (\S+)이 계약에 얼마나 닿나"""), "거리 문서가 늘었는데 README 가 그대로다")
     }
 
@@ -108,11 +105,12 @@ class DocumentClaimsTest {
         // 문서 사이의 링크가 이 저장소에서 유일하게 **자동으로 낡는 것**이다 — 파일 이름을 바꾸면 아무도 안 알려 준다.
         // 숫자를 세는 것과 같은 이유로 여기서 본다.
         val docs = buildList {
-            add(repo.resolve("README.md"))
-            Files.list(repo.resolve("docs")).use { s -> addAll(s.filter { it.toString().endsWith(".md") }.toList()) }
-            Files.list(repo).use { s ->
-                addAll(s.map { it.resolve("README.md") }.filter { Files.isRegularFile(it) }.toList())
-            }
+            add(Repo.path("README.md"))
+            addAll(Repo.list("docs", ".md"))
+            // 모듈 문 — 선언된 것만 본다. 선언 안 한 모듈 문을 더하면 `Repo` 가 그 자리에서 막는다.
+            listOf("picasso", "registry", "mimic", "adapter-host", "gate")
+                .map { Repo.path("$it/README.md") }
+                .filterTo(this) { Files.isRegularFile(it) }
         }
         val broken = docs.flatMap { doc ->
             Regex("""\]\(([^)#:]+\.md[^)#]*)\)""").findAll(Files.readString(doc)).map { doc to it.groupValues[1] }

@@ -58,7 +58,10 @@ tasks.withType<Test>().configureEach {
     // 음성 하네스가 복사하는 트리 중 검사가 보는 것을 전부 선언한다.
     // 실측으로 확인된 구멍이다 — case.json의 targets를 999로 바꿔도
     // UP-TO-DATE로 초록이었다.
-    inputs.files(
+    // **선언과 시험이 같은 목록을 본다.** 아래 `repoInputs` 하나가 두 곳에 쓰인다 — Gradle 의 입력 선언과,
+    // 시험이 저장소 파일을 읽을 때 그 경로가 선언 안인지 확인하는 `Repo` 의 목록. 두 벌로 두면 어느 날
+    // 한쪽만 늘고, **그것이 이 파일이 네 번 물린 자리다**(§15.115).
+    val repoInputs = listOf(
         rootProject.file("profile/fixtures"),
         rootProject.file("profile/schema"),
         rootProject.file("gate/negative"),
@@ -97,8 +100,23 @@ tasks.withType<Test>().configureEach {
         rootProject.file("mimic/README.md"),
         rootProject.file("adapter-host/README.md"),
         rootProject.file("gate/README.md"),
-    ).withPropertyName("profileInputs")
+        // ★**문을 만들자마자 둘이 더 나왔다.** `DocumentClaimsTest` 가 모듈 수를 `settings.gradle.kts` 에서,
+        // 진단 수를 `DiagController` 에서 세는데 **둘 다 선언 밖이었다** — 모듈을 더하거나 진단을 더해도
+        // 시험이 안 도는 상태였다. 같은 구멍의 다섯째이고, 이번에는 사람이 아니라 `Repo` 가 찾았다.
+        rootProject.file("settings.gradle.kts"),
+        rootProject.file("registry/src/main/kotlin/dev/picasso/registry/web/DiagController.kt"),
+    )
+    inputs.files(repoInputs).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // 시험이 읽는 순간 대조한다. **절대 경로를 안 넘긴다** — 기계마다 달라 태스크 입력이 흔들린다.
+    systemProperty(
+        "picasso.gate.declaredInputs",
+        repoInputs.joinToString("|") {
+            // **구분자를 안 만진다** — Path 의 이름 조각을 이어 붙이면 플랫폼과 무관하다.
+            rootProject.projectDir.toPath().relativize(it.toPath()).joinToString("/")
+        },
+    )
 
     // 하네스가 읽는다. 값이 바뀌면 Test.systemProperties가 태스크 입력이라
     // 다시 돈다.

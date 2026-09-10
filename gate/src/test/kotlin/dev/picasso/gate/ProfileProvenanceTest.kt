@@ -42,10 +42,10 @@ import kotlin.test.assertTrue
 class ProfileProvenanceTest {
 
     private val mapper = ObjectMapper()
-    private val provenanceDir = Path.of("..", "profile", "provenance").normalize()
-    private val profilesDir = Path.of("..", "profile", "profiles").normalize()
-    private val surveyDir = Path.of("..", "profile", "vendors").normalize()
-    private val schemaPath = Path.of("..", "profile", "schema", "provenance.schema.json")
+    private val provenanceDir = Repo.path("profile/provenance")
+    private val profilesDir = Repo.path("profile/profiles")
+    private val surveyDir = Repo.path("profile/vendors")
+    private val schemaPath = Repo.path("profile/schema/provenance.schema.json")
 
     private fun read(path: Path): JsonNode = mapper.readTree(Files.readString(path))
 

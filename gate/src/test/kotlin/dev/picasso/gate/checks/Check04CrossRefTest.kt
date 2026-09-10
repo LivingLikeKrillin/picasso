@@ -25,7 +25,7 @@ class Check04CrossRefTest {
 
     // CRLF 체크아웃이면 \n을 담은 치환이 전부 빗나가고 음성 시험이 조용히 통과한다.
     private val fixtureJson: String by lazy {
-        val p = Path.of("..", "profile", "fixtures", "minimal.json").normalize()
+        val p = dev.picasso.gate.Repo.path("profile/fixtures/minimal.json")
         check(Files.exists(p)) { "픽스처가 없다: ${p.toAbsolutePath()}" }
         Files.readString(p).replace("\r\n", "\n")
     }
