@@ -7,7 +7,7 @@
 두 검사가 소스의 구조를 판정해야 한다.
 
 - **5번** — `contracts`가 프로젝트 내 의존을 갖는가(§3.2)
-- **7번** — `client`·`mimic`·`harness` 소스에 기종 식별자가 등장하는가(§11.2, 2단계)
+- **7번** — 지금은 `client`·`mimic`·`harness`·`adapter-core`·`picasso`·`capability`·`adapter-host`·`uplink` 여덟 모듈(원래 셋에서 늘었다, `Check07ModelBranching.kt`의 `MODULES`) 소스에 기종 식별자가 등장하는가(§11.2, 2단계)
 
 정확한 답은 각각 Gradle 빌드 그래프와 Kotlin AST에 있다.
 
@@ -46,3 +46,5 @@
 
 - 설계 §11.2, 한계 §15.6(7번)·§15.11(5번)
 - [ADR 22](0022-gate-as-library.md) — 게이트의 구조
+
+> 마지막 대조: 2026-09-11 · sha256:d56f256cc12f · 열림: §15.6, §15.11

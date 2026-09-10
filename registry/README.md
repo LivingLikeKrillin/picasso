@@ -7,7 +7,9 @@ Spring Boot + PostgreSQL.
 
 ## 이 모듈의 규칙 하나
 
-★**어느 모듈에도 직접 밀지 않는다**(§3.2). 갱신 반영은 `mimic` 이 **당기고**(5 초 폴링), 관측은 적재 문으로 들어온다.
+★**어느 모듈에도 직접 밀지 않는다**(§3.2). 갱신 반영은 `mimic` 이 **당기고**, 관측은 적재 문으로 들어온다.
+★**주기를 도는 것은 이 저장소에 없다** — 미믹이 배경 스레드를 안 두므로 당김을 부르는 것은 제어 채널이다.
+5 초는 운영값이고 그 지연이 §15.5 다.
 밀기 시작하면 원장이 런타임 의존이 되고 **레지스트리가 죽으면 로봇이 멈춘다.** 그 지연이 §15.5 이고 받아들인 대가다.
 
 ---
@@ -25,7 +27,7 @@ Spring Boot + PostgreSQL.
 | `ingest/` · `observe/` | 적재 — 핸드셰이크 · 생존 · 태스크 · 발견 |
 | `web/` | HTTP. **문 둘로 역할을 가른다** — `/ingest/*`(적재 토큰, 기체마다 배포) · `/operations/*`(운영자 토큰) |
 
-스키마는 Flyway 마이그레이션이 정본이다(`src/main/resources/db/migration/`, V1~V14).
+스키마는 Flyway 마이그레이션이 정본이다(`src/main/resources/db/migration/`, V1~V15).
 
 ---
 
@@ -43,11 +45,12 @@ Spring Boot + PostgreSQL.
 
 - **진짜 PostgreSQL 16**(Testcontainers) 에 대고 돈다. 제약·CHECK·FK 가 실제로 집행된다.
 - **진짜 HTTP**(`RANDOM_PORT` + `TestRestTemplate`) 로 묻는다 — 상태코드·토큰 문 둘·JSON.
-- `web/*EndpointTest` 다섯이 표면을, `binding/`·`plan/`·`ledger/` 시험이 규칙을 본다.
+- `web/*EndpointTest` 넷이 표면을, `binding/`·`plan/`·`ledger/` 시험이 규칙을 본다.
 - 끝에서 끝까지는 `harness` 에 있다 — `LedgerIngestEndToEndTest`(미믹 경로) · `HostIngestEndToEndTest`(어댑터 경로) ·
   `OrbitDiscoveryEndToEndTest`(발견 경로).
 
-**이 모듈은 이 저장소에서 실물에 가장 가까운 자리다** — 상대가 DB 와 HTTP 이고 둘 다 진짜다.
+**이 모듈은 상대가 DB 와 HTTP 이고 둘 다 진짜다.** 등급으로는 `verification.md` 의 **실물**이며,
+발행(7)·게이트(12)도 같은 등급이라 *가장* 가깝다고는 안 적는다.
 
 ---
 
@@ -57,3 +60,5 @@ Spring Boot + PostgreSQL.
 - **관측 적재에 구독기가 없다**(§15.34). 발행은 실제 브로커까지 가는데 그것을 **읽어** 원장에 넣는 것은 아직 아무도
   아니다 — 지금 적재는 발신자가 in-process 로 직접 민다.
 - **원장은 모두가 이 계약을 지날 때만 정확하다**(§15.10). 기술로 강제되지 않는다.
+
+> 마지막 대조: 2026-09-11 · sha256:d7f96e0061dc · 열림: §15.5, §15.10, §15.34, §15.38

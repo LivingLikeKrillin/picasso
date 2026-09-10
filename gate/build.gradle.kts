@@ -83,6 +83,9 @@ tasks.withType<Test>().configureEach {
         // 문서만 고친 변경에서 :gate:test 가 UP-TO-DATE 로 넘어가 **깨진 링크를 넣어도 초록이었다**(실측).
         // 세는 시험을 만들어 놓고 그 시험이 안 도는 상태였다.
         rootProject.file("README.md"),
+        // **모듈이 아닌데 밖을 향한 문서다.** README 의 문서 지도가 직접 링크한다.
+        // 자리로 세는 순간 `Repo` 의 문지기가 던지므로 선언이 함께 필요하다 — 같은 구멍의 일곱째.
+        rootProject.file("tools/vendor-manifest/README.md"),
         rootProject.file("docs"),
         // ★**문을 만들자마자 둘이 더 나왔다.** `DocumentClaimsTest` 가 모듈 수를 `settings.gradle.kts` 에서,
         // 진단 수를 `DiagController` 에서 세는데 **둘 다 선언 밖이었다** — 모듈을 더하거나 진단을 더해도
@@ -107,6 +110,10 @@ tasks.withType<Test>().configureEach {
                 rootProject.file("${it.name}/README.md"),
                 rootProject.file("${it.name}/src/main"),
                 rootProject.file("${it.name}/src/test"),
+                // ★**의존 그림을 빌드에서 읽는다.** `architecture.md` 의 아홉 줄 중 게이트가 집행하던 것은
+                // 둘뿐이었고(검사 5·7) 나머지는 산문이었다 — 그래서 README 가 *"어댑터는 contracts
+                // 하나에만 의존한다"* 를 `adapter-core` 가 생긴 뒤에도 들고 있었다. 같은 구멍의 여덟째.
+                rootProject.file("${it.name}/build.gradle.kts"),
             )
         }
     inputs.files(repoInputs).withPropertyName("profileInputs")

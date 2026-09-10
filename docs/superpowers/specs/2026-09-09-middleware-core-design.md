@@ -8,7 +8,7 @@
 
 ## 0. 무엇이 바뀌는가 — 범위
 
-**만드는 것은 로봇 계약이 아니라 미들웨어다.** 상류(MES·WMS/WCS·SCADA·ERP)와 하류(로봇·설비 어댑터) 양쪽의 연동 계약과 **공통 처리 구조**. 핵심 산출물은 **정준 모델** — 태스크·상태·**실패 분류**·능력 표현. picasso 는 지금까지 그중 하류 절반(로봇 계약 ④, 로봇 쪽 MiMic, 어댑터 셋, 게이트, 운영 변경)을 지었고, 가운데와 위쪽이 없다.
+**만드는 것은 로봇 계약이 아니라 미들웨어다.** 상류(MES·WMS/WCS·SCADA·ERP)와 하류(로봇·설비 어댑터) 양쪽의 연동 계약과 **공통 처리 구조**. 핵심 산출물은 **정준 모델** — 태스크·상태·**실패 분류**·능력 표현. ~~picasso 는 지금까지 그중 하류 절반(로봇 계약 ④, 로봇 쪽 MiMic, 어댑터 셋, 게이트, 운영 변경)을 지었고, 가운데와 위쪽이 없다.~~ → **됐다(2026-09-10).** 하류(로봇 계약 ④, 로봇 쪽 mimic, 어댑터 **넷** — `adapter-agility-digit`·`adapter-boston-dynamics-spot`·`adapter-boston-dynamics-orbit`·`adapter-unitree-g1`, 게이트, 운영 변경)에 더해 **가운데도 있다** — 모듈 `picasso`가 정준 모델과 공통 실행 구조다(ADR 38). 위쪽(상류 ACL·MES/WMS Mock)은 여전히 없고 §0 아래 표가 그 이유를 정한다.
 
 | 본 설계 §1.3 이 비목표로 둔 것 | 이 문서 |
 |---|---|
@@ -56,11 +56,11 @@ execution.upstream_ack   ∈ { NOT_SENT, SENT_UNACKED, ACKED }
 
 | 요소 | 내용 | picasso 지금 |
 |---|---|---|
-| 11.1 입력 스키마 | 용기 ID, 목적지, 허용 오차, 사이클타임 목표 | ISA-95 JobOrder 의 모양으로 `scenarios.md` 에 예시만 |
-| 11.2 완료 조건(사후조건) | 자연어 + 검증 가능한 술어 (`container.location == destination ∧ evidence.level ≥ requested`) | 없음 |
-| 11.3 완료 근거 등급 | 능력이 **제공 가능한 최고 등급**을 선언, 상류가 **요구 등급**을 지정, 미달이면 `UNVERIFIED` | 없음. ADR 37 의 문(직결/플릿)이 E0/E1 을 가르나 어디에도 안 실린다 |
-| 11.4 취소 제약 | 취소 가능 지점, 정리 동작 유무, kill 지원 | 계약: `cancel_support` 3값. kill 은 ADR 32 로 밖. 취소 가능 지점·정리 동작 없음 |
-| 11.5 부분 효과 모델 | 단위별 완료 보고, 파지 중 물체 보고 | `hold` 있음(§15.85). 단위별 완료는 태스크 단위로 |
+| 11.1 입력 스키마 | 용기 ID, 목적지, 허용 오차, 사이클타임 목표 | ~~ISA-95 JobOrder 의 모양으로 `scenarios.md` 에 예시만~~ → **됐다(2026-09-10)** — `SequencingRackTest.kt`가 슬롯마다 실제 `JobOrder` 접수를 돌린다 |
+| 11.2 완료 조건(사후조건) | 자연어 + 검증 가능한 술어 (`container.location == destination ∧ evidence.level ≥ requested`) | ~~없음~~ → **됐다(2026-09-10)** — `SequencingRackTest.kt:103` `assertEquals(Evidence.E2, response.reachedEvidence)`가 술어 충족을 검증한다 |
+| 11.3 완료 근거 등급 | 능력이 **제공 가능한 최고 등급**을 선언, 상류가 **요구 등급**을 지정, 미달이면 `UNVERIFIED` | ~~없음. ADR 37 의 문(직결/플릿)이 E0/E1 을 가르나 어디에도 안 실린다~~ → **됐다(2026-09-10)** — 위와 같은 `reachedEvidence` 판정이 실행 층에 실렸다 |
+| 11.4 취소 제약 | 취소 가능 지점, 정리 동작 유무, kill 지원 | ~~계약: `cancel_support` 3값. kill 은 ADR 32 로 밖. 취소 가능 지점·정리 동작 없음~~ → **됐다(2026-09-10)** — `SequencingRackTest.kt:259` `assertEquals(listOf("RACK-204.S04"), report.notStartedUnits)`(취소 가능 지점), `:260` `assertEquals("done", report.cleanup)`(정리 동작). kill 은 여전히 ADR 32 로 밖 |
+| 11.5 부분 효과 모델 | 단위별 완료 보고, 파지 중 물체 보고 | ~~`hold` 있음(§15.85). 단위별 완료는 태스크 단위로~~ → **됐다(2026-09-10)** — `SequencingRackTest.kt:94` `assertEquals(listOf("RACK-204.S01", …), exec.completedUnits)`가 슬롯 단위 완료를 실행 층에서 모은다 |
 
 **시나리오의 논리적 능력 셋** — 보고서의 이름 그대로, *프로젝트 정의*:
 
@@ -68,7 +68,7 @@ execution.upstream_ack   ∈ { NOT_SENT, SENT_UNACKED, ACKED }
 |---|---|---|---|
 | `DeliverContainer` | ① 용기 공급 | AMR Fleet(D 수준 위임) + 인계 설비 신호 | E1(플릿 완료) + **E2**(PLC 재석·태그) |
 | `PrepareSequencedRack` | ② 부품 시퀀싱 | 슬롯마다 `pick_place` + 셀 검증 장치 | E0(로봇) + **E2**(슬롯 점유·품번) |
-| `InspectAsset` | ③ 점검 순회 | 지점마다 `navigate_to` + `inspect` | E0 또는 E1(플릿) |
+| `InspectAsset` | ③ 점검 순회 | 지점마다 `navigate_to` + `inspect` | ~~E0 또는 E1(플릿)~~ → **E0 뿐이다(2026-09-10)** — `LogicalCapability.kt:236` `override val maxEvidence: Evidence = Evidence.E0`, `InspectAssetTest.kt:104`가 지킨다 |
 
 ### 1.3 근거 등급 E0~E3 (보고서 11.3)
 
@@ -77,7 +77,7 @@ execution.upstream_ack   ∈ { NOT_SENT, SENT_UNACKED, ACKED }
 | E0 로봇 자체 보고 | 로봇 상태 | 어댑터가 **로봇에 직결**(ADR 37 선언) → 계약 종착 |
 | E1 플릿 확인 | 플릿의 완료 | 어댑터가 **플릿에** 붙음(ADR 37 발견) |
 | E2 독립 설비 확인 | PLC 신호(재석·게이트 리더·계량) | **PLC/WCS Mimic** — 로봇 보고와 **시간창 안에서 결합**(12장) |
-| E3 업무 확인 | 상류 스캔 | 상류(예상 소비자 = 통합 시험)의 ack |
+| E3 업무 확인 | 상류 스캔 | ~~상류(예상 소비자 = 통합 시험)의 ack~~ → ★**선언만 있고 발신자도 소비자도 없다.** `picasso/` 안에서 `E3`은 `Model.kt:39`(주석)·`:41`(선언)로만 존재하고, `Middleware.ack()`는 `reached` 등급을 올리지 않는다 — [ADR 9](../../adr/0009-no-declaration-without-consumer.md)가 말리는 바로 그 상황(소비 표면이 없는 선언)이 여기서 실제로 일어나 있다 |
 
 규칙: 능력은 최고 등급을 선언하고, 요청은 요구 등급을 지정하고, 미달이면 `UNVERIFIED`(도달 등급 표기). *"확인 수단이 없으면 제공 불가"* 는 E2 이상을 요구하는 업무에만. **결정(2026-09-09)** — 도달 등급은 **실행 층**이 든다. 계약(④)에는 어댑터의 문 종류(직결/플릿)만 오른다.
 
@@ -172,30 +172,30 @@ ISA-95 Job Control 의 `JobOrder`/`JobResponse` 모양(`scenarios.md` §4.1 의 
 | 하류 | 무엇 | 수준 | picasso |
 |---|---|---|---|
 | 로봇(휴머노이드·4족) | 계약(④) 뒤의 `mimic` — 프로파일 주도 | C(원자 스킬) | 있음 |
-| 로봇 실물 어댑터 | Spot·Digit·G1 | — | 있음(북쪽 없음) |
-| **AMR Fleet Mock** | 용기 운반을 **D 수준으로 위임**받는 하류. **프로젝트용 계약**이며 특정 벤더 API 의 재현이 아니다 | D | **없음 — 만든다** |
-| **PLC/WCS Mimic** | 재석·태그·슬롯 점유·품번 신호. 폴링 모델, 짧은 신호는 래치 비트, 시간창 δ | E2 원천 | **없음 — 만든다** |
+| 로봇 실물 어댑터 | ~~Spot·Digit·G1~~ → **넷 — Spot·Digit·G1·Orbit(플릿)** | — | ~~있음(북쪽 없음)~~ → **북쪽도 있다** — `adapter-host`가 기종을 모르는 호스트 하나로 결정됐다([ADR 39](../../adr/0039-adapter-host.md)) |
+| **AMR Fleet Mock** | 용기 운반을 **D 수준으로 위임**받는 하류. **프로젝트용 계약**이며 특정 벤더 API 의 재현이 아니다 | D | ~~없음 — 만든다~~ → **됐다(2026-09-10)** — `AmrFleetMimic.kt` |
+| **PLC/WCS Mimic** | 재석·태그·슬롯 점유·품번 신호. 폴링 모델, 짧은 신호는 래치 비트, 시간창 δ | E2 원천 | ~~없음 — 만든다~~ → **됐다(2026-09-10)** — `CellMimic.kt` |
 | RB-Y1 실행기 | B 수준 SDK 위의 작업 실행기(PickPart 합성). 공식 시뮬레이터가 실기와 같은 gRPC | B→C | 없음 — **후속 트랙** |
 
-**`scenarios.md` §1 의 AMR 경계 규칙을 고친다.** *"picasso 는 AMR 을 어댑터로 감싸지 않는다"* 는 **벤더 AMR API·VDA 5050 을 구현하지 않는다**로 좁힌다. 미들웨어는 시나리오 ①에서 AMR Fleet Mock 에 운반을 D 수준으로 **위임하고 결과를 받는다** — 그것이 보고서의 배치다. 나머지 둘(들어오는 문은 환경 전제와 설비 신호 / 휴머노이드 파라미터에 AMR 식별자 없음)은 유지.
+~~**`scenarios.md` §1 의 AMR 경계 규칙을 고친다.**~~ → **됐다** — `scenarios.md:32`가 *"picasso 는 AMR 을 어댑터로 감싸지 않는다"* 를 **벤더 AMR API·VDA 5050 을 구현하지 않는다**로 이미 좁혀 놓았다. 미들웨어는 시나리오 ①에서 AMR Fleet Mock 에 운반을 D 수준으로 **위임하고 결과를 받는다** — 그것이 보고서의 배치다. 나머지 둘(들어오는 문은 환경 전제와 설비 신호 / 휴머노이드 파라미터에 AMR 식별자 없음)은 유지.
 
 ---
 
 ## 5. 검증
 
-- **시나리오 ①·② 통합 시험**이 주다. 시험(= 예상 소비자 MES/WMS 의 역할) → `middleware` → mimic(로봇) / AMR Fleet Mock / PLC/WCS Mimic → JobResponse 를 시험이 받는다. 보고서 5·6장의 상황표 전부.
+- **시나리오 ①·② 통합 시험**이 주다. 시험(= 예상 소비자 MES/WMS 의 역할) → `picasso` → mimic(로봇) / AMR Fleet Mock / PLC/WCS Mimic → JobResponse 를 시험이 받는다. 보고서 5·6장의 상황표 전부.
 - 보고서 17장의 열 개를 이 층에서 다시 단언한다 — 특히 3(IN_DOUBT), 4(부분 완료 후 취소), 6(지연 이벤트), 7·8(로봇 보고와 설비 신호의 불일치 → `UNVERIFIED`·운영자), 10(능력군 추가 = ③).
 - 기존 하네스(계약 수준)는 그대로 둔다. `SequencingCellTest`·`InspectionPatrolTest` 는 ④의 시험이고, 이 문서의 시험은 그 위 층이다.
-- 실제 API 에 연결한 구간과 Mock 구간을 표로 구분한다(보고서 8장 "검증 근거").
+- ~~실제 API 에 연결한 구간과 Mock 구간을 표로 구분한다(보고서 8장 "검증 근거").~~ → **됐다** — [`docs/verification.md`](../../verification.md)가 그 표다.
 
 ---
 
 ## 6. 순서 (보고서 19장의 순서를 따른다)
 
 1. ~~정준 모델 스키마 확정~~ **됐다(2026-09-09)** — 도달 등급은 실행 층 · 분류표 그대로 · 모듈 `picasso`. ADR 38 결정됨.
-2. **`middleware` 최소 + 시나리오 ②** — 접수·조합(슬롯마다 `pick_place`)·실행 상태기계·JobResponse. mimic 위에서. 셀 검증은 PLC/WCS Mimic 으로 E2.
+2. ~~**`middleware` 최소 + 시나리오 ②** — 접수·조합(슬롯마다 `pick_place`)·실행 상태기계·JobResponse. mimic 위에서. 셀 검증은 PLC/WCS Mimic 으로 E2.~~ → **됐다(2026-09-10)** — 모듈 `picasso`, `SequencingRackTest.kt:94` `assertEquals(listOf("RACK-204.S01", …), exec.completedUnits)`.
 3. ~~PLC/WCS Mimic + 근거 결합~~ **됐다(2026-09-10, §15.90)** — 시간창 δ · `VERIFYING` 재확인 · 래치 · 12.3 의 셋(무응답 행은 6 에서).
-4. **AMR Fleet Mock + 시나리오 ①** — D 수준 위임, 인계 신호 결합, 응답 유실 후 재전송(통보 재시도 ≠ 명령 재시도).
+4. ~~**AMR Fleet Mock + 시나리오 ①** — D 수준 위임, 인계 신호 결합, 응답 유실 후 재전송(통보 재시도 ≠ 명령 재시도).~~ → **됐다(2026-09-10)** — `DeliverContainerTest.kt:82` `assertEquals(Evidence.E2, unit.reached)`.
 5. ~~정준 실패 분류 → 어댑터 매핑~~ **됐다(2026-09-10, §15.91, 계약 0.6.0)** — `FailureClass` 가 계약을 타고, Spot·Digit·G1·미믹이 옮기며, 원문은 `vendor_detail` 에 동반. 발신자 없는 값 둘(`PERCEPTION_FAILED`·`GRASP_PLANNING_FAILED`)은 §15.91 정직 항목.
 6. ~~IN_DOUBT 해소·지연 이벤트·`OPERATOR_HOLD`~~ **됐다(2026-09-10, §15.92)** — 13.2 의 순서를 `resolveDoubt` 가 집행하고(포트가 조회 능력을 선언, 없으면 운영자·자동 재실행 없음), 옛 버전의 종착은 `lateEvents` 에 보존하고 새 버전의 기대에 대고 다시 본다. 17장 3·6·9.
 7. ~~③ 회귀~~ **됐다(2026-09-10, §15.93)** — `InspectAsset` 은 확장 지점에만, 엔진에는 능력·기종 분기 없이 일반 규칙 셋(등급 상한 거절·결과 참조·취소 거절 노출). 17장 1~9 회귀 초록, 10 의 *미지원 취소 차이 노출* 은 `CancelReport.refusal`.
@@ -210,3 +210,5 @@ RB-Y1 은 이 순서 뒤의 별도 트랙이다.
 - kill(안전 정지). ADR 32.
 - 실제 상위 시스템 어댑터, 그리고 MES·WMS 의 Mock. 상류는 예상 소비자이고 통합 시험이 그 역할까지다.
 - 사업장·일정·조직. 근거는 표준과 벤더 1차 자료뿐이다.
+
+> 마지막 대조: 2026-09-11 · sha256:0fff6e80eed0 · 열림: 시나리오 §8, §15.125, §15.126, ADR 32 · 시나리오 5, C-3, §15.127

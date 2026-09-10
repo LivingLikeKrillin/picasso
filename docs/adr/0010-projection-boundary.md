@@ -62,3 +62,5 @@
 - 설계 §7.2·§7.3, §12.2의 10번
 - [ADR 9](0009-no-declaration-without-consumer.md) — 반대 방향의 같은 규율
 - [ADR 29](0029-shared-profile-model.md) — `NON_PROJECTION`을 공유하는 이유
+
+> 마지막 대조: 2026-09-11 · sha256:9a897041f2dc · 열림: 없음

@@ -43,7 +43,7 @@ ExecutionUnit × 4   (슬롯마다 하나)
 TaskHandle
    │                                   여기부터 기체 하나의 이야기다
    ▼  어댑터 : RobotAdapter.accept()
-벤더 호출     (Orbit: POST dispatch · Spot: LoadMission+PlayMission · Digit: add-sequential-actions · G1: SetVelocity)
+벤더 호출     (Orbit: POST dispatch · Spot: LoadMission+PlayMission · Digit: action-sequential · G1: SetVelocity)
 ```
 
 **단위 하나가 태스크 하나다.** 슬롯마다 태스크 하나이므로 *"어느 단위까지 끝났는가"* 를 태스크 자체가 답한다 —
@@ -73,7 +73,7 @@ TaskHandle
 | | 실행 상태 (`picasso`) | 태스크 상태 (계약) |
 |---|---|---|
 | **무엇의 상태인가** | 논리적 능력 하나 = 상류의 일감 하나 | 원자적 태스크 하나 = 기체 하나의 스킬 한 번 |
-| **값** | `REQUESTED`·`RUNNING`·`PARTIAL`·`IN_DOUBT`·`OPERATOR_HOLD`·`PHYSICALLY_DONE`·`UNVERIFIED`·`FAILED`·`CANCELING`·`ABORTED` | `ACCEPTED`·`RUNNING`·`PAUSED`·`SUCCEEDED`·`FAILED`·`RETRIABLE`·`NEEDS_INTERVENTION`·`CANCELLING`·`CANCELLED`·`CANCELLED_RECOVERY_FAILED`·`CONTROL_AUTHORITY_LOST` |
+| **값** | `REQUESTED`·`ACCEPTED`·`RUNNING`·`PARTIAL`·`IN_DOUBT`·`OPERATOR_HOLD`·`PHYSICALLY_DONE`·`UNVERIFIED`·`FAILED`·`CANCELING`·`ABORTED` | `ACCEPTED`·`RUNNING`·`PAUSED`·`SUCCEEDED`·`FAILED`·`RETRIABLE`·`NEEDS_INTERVENTION`·`CANCELLING`·`CANCELLED`·`CANCELLED_RECOVERY_FAILED` |
 | **축이 하나 더** | `upstream_ack`(통보가 갔는가) — **물리와 독립이다** | 없다 |
 | **누가 정하나** | 계약에서 온 것 + **설비 신호**(계약 밖) | 로봇이 말한 것 |
 
@@ -107,6 +107,38 @@ registry         ← 어느 모듈에도 직접 밀지 않는다. 갱신은 mimi
 로봇이 멈춘다. 대신 `mimic` 이 5 초마다 당긴다 — 그 지연이 §15.5 이고 받아들인 대가다.
 
 ---
+
+## 4b. 출하 의존 — 빌드가 대는 표
+
+★**이 표는 산문이 아니다.** `DocumentClaimsTest` 가 각 모듈의 `build.gradle.kts` 에서 출하 의존을 읽어
+이 표와 댄다. 의존을 하나 더하거나 빼면 여기가 빨개진다 — 위 그림의 아홉 줄 중 게이트가 집행하던 것은
+**둘뿐이었고**(검사 5·7) 나머지는 아무도 안 보고 있었다.
+
+**시험 의존은 안 센다.** 시험이 무엇을 끌어오는지는 다른 이야기이고(하네스가 어댑터를 끌어오는 것이
+정상이다), 섞으면 이 표가 아무것도 못 막는다.
+
+```text
+adapter-agility-digit          → adapter-core · contracts
+adapter-boston-dynamics-orbit  → adapter-core · adapter-host · contracts · profile-model · uplink
+adapter-boston-dynamics-spot   → adapter-core · contracts
+adapter-core                   → contracts
+adapter-host                   → adapter-core · capability · contracts · profile-model · uplink
+adapter-unitree-g1             → adapter-core · contracts
+capability                     → contracts · profile-model
+client                         → contracts · profile-model
+contracts                      → (없음)
+gate                           → profile-model
+harness                        → client · contracts · mimic · profile-model · uplink
+mimic                          → capability · contracts · profile-model · uplink
+picasso                        → client · contracts
+profile-model                  → (없음)
+registry                       → contracts · gate
+uplink                         → contracts
+```
+
+★**`adapter-boston-dynamics-orbit` 이 유일한 예외다.** 다른 어댑터 셋은 `adapter-core · contracts` 뿐인데
+이것만 다섯을 든다 — **기체가 아니라 플릿에 붙고 배치 런처가 계약 서버를 세우기 때문이다**(ADR 37·39).
+그 값은 열림이 아니라 결정이다.
 
 ## 5. 여기 없는 것
 
@@ -149,3 +181,5 @@ registry         ← 어느 모듈에도 직접 밀지 않는다. 갱신은 mimi
 [orbit](../adapter-boston-dynamics-orbit/README.md))은 **판정을 옮겨 적지 않고** `profile/distance/` 를 가리킨다.
 
 시나리오의 **시퀀스 다이어그램**은 [`scenarios.md`](scenarios.md) 안에 있다 — ①·②·③ 과 ①→② 가 만나는 자리.
+
+> 마지막 대조: 2026-09-11 · sha256:e2778b7eebb5 · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126

@@ -215,17 +215,150 @@ class DocumentClaimsTest {
     fun `문서가 가리키는 파일이 전부 실재한다`() {
         // 문서 사이의 링크가 이 저장소에서 유일하게 **자동으로 낡는 것**이다 — 파일 이름을 바꾸면 아무도 안 알려 준다.
         // 숫자를 세는 것과 같은 이유로 여기서 본다.
-        val docs = buildList {
-            add(Repo.path("README.md"))
-            addAll(Repo.list("docs", ".md"))
-            modules().mapTo(this) { Repo.path("$it/README.md") }
-        }
+        //
+        // ★**앞 판은 `Repo.list("docs", ".md")` 를 썼고 그것은 비재귀다**(`Files.list`). 그래서 `docs/adr/` ·
+        // `docs/vendors/` · `docs/superpowers/specs/` 의 링크를 **아예 안 봤고**, ADR 39 가 이름이 바뀐 파일을
+        // 가리키는 채로 초록이었다(실측 2026-09-11). 이제 **주장의 자리 전부**를 훑는다 — 목록이
+        // `ClaimSurface` 한 곳에서 나오므로 새 문서가 생겨도 저절로 들어온다.
+        val docs = ClaimSurface.documents()
         val broken = docs.flatMap { doc ->
             Regex("""\]\(([^)#:]+\.md[^)#]*)\)""").findAll(Files.readString(doc)).map { doc to it.groupValues[1] }
         }.filterNot { (doc, link) -> Files.exists(doc.parent.resolve(link).normalize()) }
             .map { (doc, link) -> "${repo.relativize(doc)} → $link" }
 
         assertEquals(emptyList(), broken, "문서가 없는 파일을 가리킨다")
+    }
+
+    @Test
+    fun `상태기계 표의 값이 코드와 같다`() {
+        // ★§15.119 와 같은 자리다 — **산문이면 눈에 띌 것이 표의 한 칸에 묻힌다.**
+        // 실측(2026-09-11): 실행 상태에 `ACCEPTED` 가 빠져 있었고, 태스크 상태 칸에 **실패 분류**인
+        // `CONTROL_AUTHORITY_LOST` 가 섞여 있었다. 그 표의 요지가 *"둘은 다른 층이고 하나가 다른 하나를
+        // 대신하지 않는다"* 인데 **표 자신이 셋째 어휘를 들여놓고 있었다.**
+        val row = read("docs/architecture.md").lines().single { it.startsWith("| **값** |") }
+        val cells = row.split("|").map { it.trim() }
+        fun quoted(cell: String) = Regex("`([A-Z_]+)`").findAll(cell).map { it.groupValues[1] }.toList()
+
+        val physical = Regex("""enum class PhysicalState \{([^;]+);""")
+            .find(read("picasso/src/main/kotlin/dev/picasso/middleware/Model.kt"))
+            ?.groupValues?.get(1)
+            ?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+            ?: error("PhysicalState 를 못 읽었다")
+        assertEquals(physical, quoted(cells[2]), "실행 상태 값이 PhysicalState 와 다르다")
+
+        val task = Regex("""TASK_STATE_([A-Z_]+) = \d+""")
+            .findAll(read("contracts/proto/picasso/v1/task.proto"))
+            .map { it.groupValues[1] }
+            .filterNot { it == "UNSPECIFIED" }
+            .toList()
+        assertEquals(task.sorted(), quoted(cells[3]).sorted(), "태스크 상태 값이 계약의 TaskState 와 다르다")
+    }
+
+    @Test
+    fun `모듈 의존 그림이 빌드와 같다`() {
+        // ★**`architecture.md` 의 의존 그림 아홉 줄 중 게이트가 집행하던 것은 둘뿐이었다**(검사 5 의
+        // `contracts` 의존 0, 검사 7 의 기종 문자열). 나머지 일곱은 산문이었고, 그래서 `README.md` 가
+        // *"어댑터는 `contracts` 하나에만 의존한다"* 를 **`adapter-core` 가 생긴 뒤에도** 들고 있었다.
+        //
+        // **출하 의존만 센다.** 시험이 무엇을 끌어오는지는 다른 이야기다 — 하네스가 어댑터를 끌어오는 것이
+        // 정상이고, 섞으면 이 표가 아무것도 못 막는다.
+        val declared = Regex("""^\s*(\w+)\s*\(\s*(?:testFixtures\s*\()?\s*project\("[:]([a-z0-9-]+)"\)""")
+        val actual = modules().associateWith { module ->
+            Repo.read("$module/build.gradle.kts").lines()
+                .filterNot { it.trimStart().startsWith("//") }
+                .mapNotNull { declared.find(it) }
+                .filterNot { it.groupValues[1].startsWith("test") }
+                .map { it.groupValues[2] }
+                .toSortedSet()
+        }
+
+        val table = read("docs/architecture.md").substringAfter("## 4b.").substringAfter("```text").substringBefore("```")
+        val documented = table.lines().mapNotNull { line ->
+            val (name, deps) = line.split("→").takeIf { it.size == 2 } ?: return@mapNotNull null
+            name.trim() to deps.trim().takeIf { it != "(없음)" }.orEmpty()
+                .split("·").map { it.trim() }.filter { it.isNotEmpty() }.toSortedSet()
+        }.toMap()
+
+        assertEquals(actual, documented, "의존이 바뀌었는데 architecture.md §4b 가 그대로다")
+    }
+
+    @Test
+    fun `게이트가 계약에 빌드 의존 대신 태스크 의존을 건다`() {
+        // `README.md` 와 `gate/README.md` 가 *"빌드 의존을 안 걸고 디스크립터 바이트를 읽는다 —
+        // `:gate:test` 가 그 태스크에 매달려 있어 손으로 먼저 돌릴 명령이 없다"* 고 적는다.
+        // 앞 절반은 §4b 의 표가 대고(게이트의 출하 의존은 `profile-model` 뿐), 뒤 절반이 이 줄이다.
+        val build = read("gate/build.gradle.kts")
+        assertTrue("dependsOn(\":contracts:generateProto\")" in build, "태스크 의존이 사라졌다 — 손으로 먼저 돌려야 하는 상태가 된다")
+        assertTrue("inputs.files(descriptor)" in build, "디스크립터가 입력 선언에서 빠졌다 — 바뀌어도 UP-TO-DATE 로 넘어간다")
+    }
+
+    @Test
+    fun `모듈 문이 적은 수가 코드와 같다`() {
+        // ★**수 세기가 루트 `README.md` 와 `docs/` 만 보고 있었다.** 그래서 모듈 문의 숫자는 아무도 안
+        // 셌고, 실측(2026-09-11) 셋이 낡아 있었다 — `contracts` 가 proto 를 다섯이라 적었고(여섯),
+        // `registry` 가 마이그레이션을 V14 까지라 적었고(V15), 문 시험을 다섯이라 적었다(넷).
+        assertEquals(
+            Repo.list("contracts/proto/picasso/v1", ".proto").size,
+            claimed("""의 (\S+) 파일이고""", read("contracts/README.md")),
+            "proto 파일이 늘거나 줄었는데 contracts/README.md 가 그대로다",
+        )
+
+        val latestMigration = Repo.declaredFiles()
+            .mapNotNull { Regex("""^V(\d+)__""").find(it.fileName.toString())?.groupValues?.get(1)?.toInt() }
+            .maxOrNull() ?: error("마이그레이션을 못 읽었다")
+        assertEquals(
+            latestMigration,
+            claimed("""V1~V(\S+)\)""", read("registry/README.md")),
+            "마이그레이션이 늘었는데 registry/README.md 가 그대로다",
+        )
+
+        val doors = Repo.declaredFiles().count { it.fileName.toString().endsWith("EndpointTest.kt") }
+        assertEquals(
+            doors,
+            claimed("""`web/\*EndpointTest` (\S+)이""", read("registry/README.md")),
+            "문 시험이 늘거나 줄었는데 registry/README.md 가 그대로다",
+        )
+    }
+
+    @Test
+    fun `계약에 남아 있는 스킬 타입의 수를 계약 문서가 맞게 적는다`() {
+        // ★**"관문을 못 지났다" 를 "계약에 없다" 로 읽으면 안 된다.** 스킬 카탈로그는 ADR 36 이
+        // *양쪽 다 없던 어휘* 로 판정했지만 빼는 것이 major 개정이라 **계약에 그대로 있다.**
+        // 실측(2026-09-11): 문서가 그 둘을 안 갈라 적어 계약에 카탈로그가 없는 것처럼 읽혔다.
+        val actual = Regex("""skill_type_name\) = """)
+            .findAll(read("contracts/proto/picasso/v1/skill_catalog.proto")).count()
+        assertEquals(
+            actual,
+            claimed("""스킬 타입 (\S+)이 거기 있다""", read("docs/contract.md")),
+            "카탈로그의 스킬 타입이 늘거나 줄었는데 contract.md 가 그대로다",
+        )
+    }
+
+    @Test
+    fun `레지스트리 문 시험의 수를 검증 근거 표가 맞게 적는다`() {
+        // 실측(2026-09-11): 표가 다섯이라 적었는데 넷이었다. 다섯째 후보인 `IngestTokenTest` 는
+        // 스스로 *"서버 없이 본다"* 고 적으므로 실물 등급의 증명이 아니다.
+        val actual = Repo.declaredFiles().count { it.fileName.toString().endsWith("EndpointTest.kt") }
+        assertEquals(
+            actual,
+            claimed("""`\*EndpointTest` (\S+)""", read("docs/verification.md")),
+            "레지스트리 문 시험이 늘거나 줄었는데 verification.md 가 그대로다",
+        )
+    }
+
+    @Test
+    fun `설계 일지의 마지막 번호를 한계 대장이 맞게 적는다`() {
+        // ★**이 시험이 없어서 물렸다.** `limits.md` 가 *"번호가 106 까지 갔고"* 라 적어 둔 채 124 까지 갔고,
+        // 같은 문서가 §15.123·§15.124 를 대장 행으로 싣고 있었다 — **낡은 산문이 세 줄 아래의
+        // *"산문이 낡는 것을 사람이 훑어 막지 않는다"* 를 바로 반증하고 있었다.**
+        val last = Regex("""(?m)^(\d+)\. \*\*""").findAll(design)
+            .map { it.groupValues[1].toInt() }
+            .maxOrNull() ?: error("설계 일지의 번호를 못 읽었다")
+        assertEquals(
+            last,
+            claimed("""번호가 (\S+) 까지 갔고""", read("docs/limits.md")),
+            "일지가 늘었는데 limits.md 가 그대로다",
+        )
     }
 
     private companion object {
