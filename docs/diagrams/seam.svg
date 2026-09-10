@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="900" viewBox="0 0 840 900" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#57606a"/></marker>
+    <marker id="ab" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#0969da"/></marker>
+  </defs>
+  <rect x="6" y="6" width="828" height="888" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="32" y="46" font-size="17" font-weight="600" fill="#1f2328">계약 하나가 이음매다</text>
+  <text x="32" y="70" font-size="12.5" fill="#57606a">위는 기종을 모르고, 아래는 갈아 끼워진다 — 둘 다 시험이 지킨다.</text>
+  <rect x="32" y="96" width="776" height="92" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="48" y="116" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">상류</text>
+  <rect x="176" y="124" width="340" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="346" y="146" font-size="12.5" fill="#1f2328" text-anchor="middle">상류 시스템 — MES · WMS · SCADA</text>
+  <text x="346" y="164" font-size="11" fill="#57606a" text-anchor="middle">실물이 없다. 통합 시험이 예상 소비자다</text>
+  <polyline points="346,180 346,228" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="32" y="204" width="776" height="112" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="48" y="224" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">계약 위 — 기종을 모른다</text>
+  <rect x="176" y="232" width="340" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="346" y="254" font-size="12.5" fill="#1f2328" text-anchor="middle">picasso — 미들웨어의 가운데</text>
+  <text x="346" y="272" font-size="11" fill="#57606a" text-anchor="middle">정준 모델 · 공통 실행 구조</text>
+  <rect x="560" y="232" width="248" height="56" rx="10" fill="#eef5ff" stroke="#cfe0f5"/>
+  <text x="576" y="252" font-size="11" font-weight="700" fill="#0969da" letter-spacing="1">CI 실패 조건</text>
+  <text x="576" y="272" font-size="11" fill="#57606a">검사 7 — 공용 여덟 모듈에 기종 이름 금지</text>
+  <polyline points="560,260 516,260" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
+  <polyline points="346,288 346,352" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="32" y="383" width="104" height="2.5" fill="#1a7f37"/>
+  <rect x="556" y="383" width="252" height="2.5" fill="#1a7f37"/>
+  <text x="640" y="374" font-size="11" font-weight="700" fill="#1a7f37" letter-spacing="1">이음매</text>
+  <rect x="136" y="352" width="420" height="64" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
+  <text x="346" y="378" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">contracts — 표준 I/F 계약</text>
+  <text x="346" y="398" font-size="11" fill="#57606a" text-anchor="middle">gRPC 명령·질의 · MQTT 상태·이벤트 — 값과 제약은 안 담는다</text>
+  <rect x="32" y="452" width="776" height="336" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="48" y="472" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">계약 아래 — 갈아 끼워진다</text>
+  <polyline points="204,416 204,488" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="500,416 500,560 588,560 588,584" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="64" y="488" width="280" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="204" y="510" font-size="12.5" fill="#1f2328" text-anchor="middle">adapter-host</text>
+  <text x="204" y="528" font-size="11" fill="#57606a" text-anchor="middle">기종을 모른다 (ADR 39) · 검사 7 대상</text>
+  <polyline points="204,544 204,584" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="64" y="584" width="280" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="204" y="610" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">adapter-&lt;기종&gt; 넷</text>
+  <text x="204" y="630" font-size="11" font-weight="700" fill="#1a7f37" text-anchor="middle">기종을 아는 유일한 자리</text>
+  <polyline points="204,648 204,688" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="64" y="688" width="280" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="204" y="710" font-size="12.5" fill="#1f2328" text-anchor="middle">벤더 남쪽 포트</text>
+  <text x="204" y="728" font-size="11" fill="#57606a" text-anchor="middle">Spot · Digit · G1 · Orbit</text>
+  <rect x="448" y="584" width="280" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="588" y="610" font-size="12.5" fill="#1f2328" text-anchor="middle">mimic — 프로파일 주도 에뮬레이터</text>
+  <text x="588" y="630" font-size="11" fill="#57606a" text-anchor="middle">기종은 JSON 한 장이다. 로봇이 없다</text>
+  <rect x="64" y="800" width="744" height="60" rx="10" fill="#eef5ff" stroke="#cfe0f5"/>
+  <text x="80" y="820" font-size="11" font-weight="700" fill="#0969da" letter-spacing="1">같은 계약을 말한다</text>
+  <text x="80" y="842" font-size="11" fill="#57606a">harness · HostParityTest — 미믹과 어댑터 호스트가 같은 요구에 같은 답을 낸다 (수락 여부 · 거절 목록)</text>
+  <polyline points="64,516 46,516 46,830 64,830" fill="none" stroke="#0969da" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ab)"/>
+  <polyline points="588,648 588,800" fill="none" stroke="#0969da" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ab)"/>
+</svg>
