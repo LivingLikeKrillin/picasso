@@ -12,7 +12,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/seam.dark.svg">
-  <img alt="계약 하나가 이음매다. 상류·picasso·contracts·adapter-host 는 기종을 모르고 게이트 검사 7이 그것을 CI 실패 조건으로 막는다. 계약 아래에는 기종을 아는 어댑터 넷과, 로봇 없이 같은 계약을 말하는 mimic 이 같은 자리에 꽂힌다." src="docs/diagrams/seam.svg">
+  <img alt="계약 하나가 이음매다. 상류·picasso·contracts·adapter-host 는 기종을 모르고 게이트 검사 7이 그것을 CI 실패 조건으로 막는다. 계약 아래에는 기종을 아는 어댑터 넷과, 프로파일 한 장으로 도는 mimic 이 같은 자리에 꽂힌다." src="docs/diagrams/seam.svg">
 </picture>
 
 **기종 이름이 사는 곳은 맨 아래 한 층뿐이다.** 그 위는 상류부터 어댑터 호스트까지 전부 기종을 모르고, 게이트 검사 7이
@@ -157,4 +157,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입으로 시험을 시험한다.** 못 잡으면 시험 집합의 구멍이고, 주입이 시끄럽지 않았다면 주입부터 의심한다.
 - **조용히 통과하는 것이 실패하는 것보다 나쁘다.** 게이트가 아무 검사도 안 돌리고 종료코드 0 을 낸 적이 있다. 요구 목록(`--require`)과 strict 음성 하네스가 그 대가다.
 
-> 마지막 대조: 2026-09-11 · sha256:e2f2b1207db0 · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-11 · sha256:c3aab63e0999 · 열림: C-3, §15.81

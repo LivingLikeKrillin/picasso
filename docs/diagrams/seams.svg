@@ -1,46 +1,93 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="840" height="600" viewBox="0 0 840 600" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
-  <defs>
-    <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#57606a"/></marker>
-  </defs>
-  <rect x="6" y="6" width="828" height="588" rx="14" fill="#ffffff" stroke="#d0d7de"/>
-  <text x="32" y="46" font-size="17" font-weight="600" fill="#1f2328">실물로 바꿀 때 여는 자리</text>
-  <text x="32" y="70" font-size="12.5" fill="#57606a">바깥과 닿는 곳은 전부 이름 붙은 포트다. 가운데는 그 목록에 없다.</text>
-  <text x="36" y="118" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">들어오는 자리</text>
-  <text x="584" y="118" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">나가는 자리</text>
-  <rect x="316" y="140" width="208" height="360" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
-  <text x="420" y="292" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">미들웨어 코어</text>
-  <text x="420" y="316" font-size="11" fill="#57606a" text-anchor="middle">picasso · contracts</text>
-  <text x="420" y="336" font-size="11" fill="#57606a" text-anchor="middle">adapter-host · capability</text>
-  <text x="420" y="356" font-size="11" fill="#57606a" text-anchor="middle">uplink · profile-model</text>
-  <text x="420" y="388" font-size="11" font-weight="700" fill="#1a7f37" text-anchor="middle">여기는 안 뜯는다</text>
-  <rect x="36" y="180" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="146" y="206" font-size="12.5" fill="#1f2328" text-anchor="middle">상류 시스템</text>
-  <text x="146" y="226" font-size="11" fill="#57606a" text-anchor="middle">Middleware 공개 API</text>
-  <polyline points="256,212 316,212" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <rect x="36" y="264" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="146" y="290" font-size="12.5" fill="#1f2328" text-anchor="middle">설비 (PLC · WCS)</text>
-  <text x="146" y="310" font-size="11" fill="#57606a" text-anchor="middle">CellSignals — 지금은 대역</text>
-  <polyline points="256,296 316,296" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#am)"/>
-  <rect x="36" y="348" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="146" y="374" font-size="12.5" fill="#1f2328" text-anchor="middle">프로파일 출처</text>
-  <text x="146" y="394" font-size="11" fill="#57606a" text-anchor="middle">ProfileSource · RegistrySource</text>
-  <polyline points="256,380 316,380" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <rect x="584" y="160" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="694" y="186" font-size="12.5" fill="#1f2328" text-anchor="middle">로봇</text>
-  <text x="694" y="206" font-size="11" fill="#57606a" text-anchor="middle">RobotPort · RobotAdapter</text>
-  <polyline points="524,192 584,192" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <rect x="584" y="244" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="694" y="270" font-size="12.5" fill="#1f2328" text-anchor="middle">AMR 플릿</text>
-  <text x="694" y="290" font-size="11" fill="#57606a" text-anchor="middle">AmrFleetPort — 지금은 대역</text>
-  <polyline points="524,276 584,276" fill="none" stroke="#57606a" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#am)"/>
-  <rect x="584" y="328" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="694" y="354" font-size="12.5" fill="#1f2328" text-anchor="middle">발행 (MQTT)</text>
-  <text x="694" y="374" font-size="11" fill="#57606a" text-anchor="middle">Publisher — 브로커까지 실물</text>
-  <polyline points="524,360 584,360" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <rect x="584" y="412" width="220" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="694" y="438" font-size="12.5" fill="#1f2328" text-anchor="middle">원장 적재</text>
-  <text x="694" y="458" font-size="11" fill="#57606a" text-anchor="middle">적재 포트 넷 — HTTP 실물</text>
-  <polyline points="524,444 584,444" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <text x="32" y="546" font-size="11" fill="#57606a">자리 아홉의 인터페이스 목록은 docs/seams.md 에 있고, DocumentClaimsTest 가 그 타입이 실제로 있는지 본다.</text>
-  <text x="32" y="568" font-size="11" fill="#57606a">벤더 링크 넷(SpotLink · DigitLink · G1Link · OrbitLink)은 기종 어댑터 안에 있다 — 코어에서 안 보인다.</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1112" viewBox="0 0 1000 1112" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+  <rect x="6" y="6" width="988" height="1100" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">실물로 바꿀 때 손대는 자리 아홉</text>
+  <text x="32" y="72" font-size="12.5" fill="#57606a">자리마다 면이 하나다. 그 면 하나를 새로 구현하면 그 자리는 끝난다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#57606a">아홉이 서로를 모른다 — 설비를 실물로 바꿔도 로봇 · 플릿 · 상류는 안 건드린다.</text>
+  <rect x="24" y="118" width="952" height="54" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
+  <text x="44" y="141" font-size="12.5" font-weight="600" fill="#1f2328">미들웨어 코어 — picasso · contracts · adapter-host · capability · uplink · profile-model</text>
+  <text x="44" y="160" font-size="11" fill="#1a7f37">아래 아홉 어디에도 이 여섯이 없다. 실물로 바꾸는 일은 전부 바깥에서 끝난다.</text>
+  <rect x="24" y="184" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="207" font-size="13" font-weight="600" fill="#1f2328">1 · 상류 (MES · WMS · SCADA)</text>
+  <text x="956" y="207" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">들어온다</text>
+  <text x="44" y="226" font-size="10.5" fill="#57606a">Middleware 공개 API — submit · pump · pending · ack · resolve · cancel · release</text>
+  <text x="956" y="226" font-size="10" text-anchor="end" fill="#8b95a1">picasso · middleware/Middleware.kt</text>
+  <text x="44" y="247" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">바꾸려면</text>
+  <text x="112" y="247" font-size="11" fill="#1f2328">상류 프로토콜(OPC UA · REST · 큐)을 받는 인바운드 ACL 하나가 이 API 를 부른다</text>
+  <text x="44" y="265" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">그대로</text>
+  <text x="112" y="265" font-size="11" fill="#1a7f37">picasso 안쪽 전부 — 능력 · 엔진 · 포트 셋</text>
+  <rect x="24" y="278" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="301" font-size="13" font-weight="600" fill="#1f2328">2 · 설비 신호 (PLC · WCS)</text>
+  <text x="956" y="301" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">들어온다</text>
+  <text x="44" y="320" font-size="10.5" fill="#57606a">CellSignals.observe(location): SlotSignal?  —  널이 곧 신호 없음이다</text>
+  <text x="956" y="320" font-size="10" text-anchor="end" fill="#8b95a1">picasso · middleware/Ports.kt</text>
+  <text x="44" y="341" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">바꾸려면</text>
+  <text x="112" y="341" font-size="11" fill="#1f2328">태그나 무전압 접점을 읽어 SlotSignal 로 옮기는 구현 하나. 폴링 주기와 래치는 그쪽 사정이다</text>
+  <text x="44" y="359" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">그대로</text>
+  <text x="112" y="359" font-size="11" fill="#1a7f37">시간창 · 재확인 · UNVERIFIED 판정 — 근거를 묶는 규칙은 엔진에 있다</text>
+  <rect x="24" y="372" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="395" font-size="13" font-weight="600" fill="#1f2328">3 · AMR 플릿</text>
+  <text x="956" y="395" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">나간다</text>
+  <text x="44" y="414" font-size="10.5" fill="#57606a">AmrFleetPort — dispatch · status · cancel · executionLookup, 그리고 아무것도 안 하는 None</text>
+  <text x="956" y="414" font-size="10" text-anchor="end" fill="#8b95a1">picasso · middleware/Ports.kt</text>
+  <text x="44" y="435" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">바꾸려면</text>
+  <text x="112" y="435" font-size="11" fill="#1f2328">벤더 플릿 API 를 그 넷에 옮긴다. DELIVERED 는 도착이 아니라 인수까지다</text>
+  <text x="44" y="453" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">그대로</text>
+  <text x="112" y="453" font-size="11" fill="#1a7f37">E1→E2 결합 · 인계 대기 · 취소가 남긴 것을 치우는 규칙</text>
+  <rect x="24" y="466" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="489" font-size="13" font-weight="600" fill="#1f2328">4 · 로봇 — 소비자 쪽</text>
+  <text x="956" y="489" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">나간다</text>
+  <text x="44" y="508" font-size="10.5" fill="#57606a">RobotPort — capabilities · start · watch · cancel · snapshot · replay</text>
+  <text x="956" y="508" font-size="10" text-anchor="end" fill="#8b95a1">picasso · middleware/Ports.kt</text>
+  <text x="44" y="529" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">바꾸려면</text>
+  <text x="112" y="529" font-size="11" fill="#1f2328">거의 없다. gRPC 배선 ClientRobotPort 가 이미 기본값이다</text>
+  <text x="44" y="547" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">그대로</text>
+  <text x="112" y="547" font-size="11" fill="#1a7f37">전부. 바꿀 것이 남아 있지 않다</text>
+  <rect x="24" y="560" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="583" font-size="13" font-weight="600" fill="#1f2328">5 · 로봇 — 발신자 쪽</text>
+  <text x="956" y="583" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">나간다</text>
+  <text x="44" y="602" font-size="10.5" fill="#57606a">RobotAdapter — 호스트가 어댑터를 보는 면 (ADR 39)</text>
+  <text x="956" y="602" font-size="10" text-anchor="end" fill="#8b95a1">adapter-core · RobotAdapter.kt</text>
+  <text x="44" y="623" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">바꾸려면</text>
+  <text x="112" y="623" font-size="11" fill="#1f2328">미믹 대신 어댑터 호스트를 띄운다. 소비자는 엔드포인트만 바꾼다</text>
+  <text x="44" y="641" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">그대로</text>
+  <text x="112" y="641" font-size="11" fill="#1a7f37">소비자 코드 전부 — 그 말이 맞는지 HostParityTest 가 밖에서 확인한다</text>
+  <rect x="24" y="654" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="677" font-size="13" font-weight="600" fill="#1f2328">6 · 어댑터 남쪽 — 벤더 링크</text>
+  <text x="956" y="677" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">나간다</text>
+  <text x="44" y="696" font-size="10.5" fill="#57606a">SpotLink · DigitLink · G1Link · OrbitLink — 기종마다 하나, 그 모듈 안에서만 산다</text>
+  <text x="956" y="696" font-size="10" text-anchor="end" fill="#8b95a1">adapter-&lt;기종&gt; · SpotLink.kt 외 셋</text>
+  <text x="44" y="717" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">바꾸려면</text>
+  <text x="112" y="717" font-size="11" fill="#1f2328">벤더 SDK 를 물고 그 인터페이스를 구현한다. Orbit 은 HTTP 라 이미 실물이 붙어 있다</text>
+  <text x="44" y="735" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">그대로</text>
+  <text x="112" y="735" font-size="11" fill="#1a7f37">계약 · 호스트 · 미들웨어 · 다른 기종 셋</text>
+  <rect x="24" y="748" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="771" font-size="13" font-weight="600" fill="#1f2328">7 · 발행 (MQTT)</text>
+  <text x="956" y="771" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">나간다</text>
+  <text x="44" y="790" font-size="10.5" fill="#57606a">Publisher.publish(Publication) — 목적지 셋: 없음 · 기록 · Paho 실물</text>
+  <text x="956" y="790" font-size="10" text-anchor="end" fill="#8b95a1">uplink · Publisher.kt</text>
+  <text x="44" y="811" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">바꾸려면</text>
+  <text x="112" y="811" font-size="11" fill="#1f2328">실물이 이미 붙어 있다. 브로커 주소만 준다</text>
+  <text x="44" y="829" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">그대로</text>
+  <text x="112" y="829" font-size="11" fill="#1a7f37">토픽 형식 · 헤더 열 · 재생 버퍼 · 세션 규칙</text>
+  <rect x="24" y="842" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="865" font-size="13" font-weight="600" fill="#1f2328">8 · 원장 적재</text>
+  <text x="956" y="865" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">나간다</text>
+  <text x="44" y="884" font-size="10.5" fill="#57606a">HandshakeReporter · TaskObservations · LivenessObservations · RobotDiscovery</text>
+  <text x="956" y="884" font-size="10" text-anchor="end" fill="#8b95a1">uplink · report/</text>
+  <text x="44" y="905" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">바꾸려면</text>
+  <text x="112" y="905" font-size="11" fill="#1f2328">HTTP 구현이 이미 있다. 주소와 토큰을 준다. 실패한 것은 파일로 남는다</text>
+  <text x="44" y="923" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">그대로</text>
+  <text x="112" y="923" font-size="11" fill="#1a7f37">관측 스키마 · 실패를 FailedObservations 로 떨구는 폴백 규칙</text>
+  <rect x="24" y="936" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="959" font-size="13" font-weight="600" fill="#1f2328">9 · 프로파일 출처</text>
+  <text x="956" y="959" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">들어온다</text>
+  <text x="44" y="978" font-size="10.5" fill="#57606a">ProfileSource.load(path) · RegistrySource.binding(robotId)</text>
+  <text x="956" y="978" font-size="10" text-anchor="end" fill="#8b95a1">mimic · ProfileSource.kt · RegistrySource.kt</text>
+  <text x="44" y="999" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">바꾸려면</text>
+  <text x="112" y="999" font-size="11" fill="#1f2328">둘 다 이미 있다. 하네스가 어느 쪽을 무는지만 고른다</text>
+  <text x="44" y="1017" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">그대로</text>
+  <text x="112" y="1017" font-size="11" fill="#1a7f37">엔진. 레지스트리가 미믹에게 밀지 않는다</text>
+  <rect x="24" y="1036" width="952" height="54" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="44" y="1058" font-size="11" fill="#57606a">면은 본체에 있고 대역은 시험에 있다 — picasso/src/main 의 포트를 picasso/src/test 의 미믹이 채운다. 대역을 지워도 본체가 컴파일된다.</text>
+  <text x="44" y="1077" font-size="11" fill="#57606a">오른쪽 경로는 docs/seams.md 의 색인 표에 전문이 있고, 그 표의 타입이 그 파일에 실재하는지를 DocumentClaimsTest 가 본다.</text>
 </svg>

@@ -2,6 +2,7 @@
 
     python tools/stamp.py docs/architecture.md
     python tools/stamp.py docs/limits.md --open "§15.34" C-3
+    python tools/stamp.py docs/limits.md --open          # 열림을 없음으로 지운다
 
 규칙은 gate/src/test/kotlin/dev/picasso/gate/ClaimSurface.kt 와 한 벌이다:
 도장은 펜스 밖에서만 도장이고, 본문은 펜스 밖 '## 15.' 앞에서 끊기며, LF 로 맞춰 sha256 앞 12자리.
@@ -12,7 +13,7 @@ import hashlib
 import io
 import re
 
-STAMP = re.compile(r'^> 마지막 대조: \d{4}-\d{2}-\d{2} · sha256:[0-9a-f]{12} · 열림: .+$')
+STAMP = re.compile(r'^> 마지막 대조: \d{4}-\d{2}-\d{2} · sha256:[0-9a-f]{12} · 열림: (.+)$')
 JOURNAL = '## 15.'
 
 
@@ -42,13 +43,21 @@ def body(lines, outside):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('path')
-    ap.add_argument('--open', nargs='*', default=[], dest='open_ids')
+    # ★**기본이 '없음' 이면 안 된다.** 그림만 고치고 다시 찍는 흔한 경우에 이 도구가
+    # 열림 인용을 **조용히 지웠다**(실측 2026-09-11: 세 문서에서 11 개). 지워진 수는
+    # limits.md 가 적은 수와 어긋나 시험이 잡아 주지만, 그때는 이미 근거가 사라진 뒤다.
+    # 그래서 안 주면 **원래 도장의 열림을 그대로 옮긴다** — 지우려면 `--open` 을 빈 채로 준다.
+    ap.add_argument('--open', nargs='*', default=None, dest='open_ids')
     a = ap.parse_args()
 
     lines = io.open(a.path, encoding='utf-8').read().replace('\r\n', '\n').split('\n')
     outside = outside_fence(lines)
     sha = hashlib.sha256(body(lines, outside).encode('utf-8')).hexdigest()[:12]
-    ids = ', '.join(a.open_ids) if a.open_ids else '없음'
+    if a.open_ids is None:
+        prev = next((STAMP.match(l) for i, l in enumerate(lines) if outside[i] and STAMP.match(l)), None)
+        ids = prev.group(1).strip() if prev else '없음'
+    else:
+        ids = ', '.join(a.open_ids) if a.open_ids else '없음'
     stamp = '> 마지막 대조: %s · sha256:%s · 열림: %s' % (datetime.date.today(), sha, ids)
 
     # ★펜스 안의 예시는 건드리지 않는다. 안 그러면 형식을 정의하는 문서가 자기 예시를 잃는다.
