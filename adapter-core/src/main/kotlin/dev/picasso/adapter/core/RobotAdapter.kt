@@ -34,7 +34,15 @@ interface RobotAdapter {
 
     fun pause(): Applied
 
-    fun resume(): Applied = Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "이 어댑터에는 재개가 없다")
+    /**
+     * 재개 — **지금 파라미터로** 다시 시작한다.
+     *
+     * [parameters] 를 받는 것이 요점이다. §4.4 는 `PAUSED` 에서 온 갱신을 *파라미터만 갈아 두고 재개 때 적용하라*
+     * 고 하는데, 이 자리가 없으면 호스트가 그 갱신을 아예 못 받는다(§15.113). 멈춘 동안 갱신이 없었으면 접수 때의
+     * 것이 그대로 온다 — 호출자가 두 경우를 가르지 않는다.
+     */
+    fun resume(parameters: Map<String, Any>): Applied =
+        Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "이 어댑터에는 재개가 없다")
 
     fun cancel(): Applied
 
@@ -52,7 +60,9 @@ interface RobotAdapter {
     fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: Instant): Applied =
         Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "이 어댑터는 도는 태스크를 갱신하지 않는다")
 
-    fun retry(): Applied = Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "이 어댑터에는 재시도가 없다")
+    /** 재시도 — [resume] 과 같은 이유로 **지금 파라미터**를 받는다(§4.4 의 `RETRIABLE` 갱신). */
+    fun retry(parameters: Map<String, Any>): Applied =
+        Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "이 어댑터에는 재시도가 없다")
 
     /** 잔여 물리 상태(§4.4). */
     fun hold(): HoldObservation

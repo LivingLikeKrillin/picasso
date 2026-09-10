@@ -28,6 +28,8 @@ import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.ProgressKind
 import dev.picasso.contracts.v1.PauseTaskRequest
 import dev.picasso.contracts.v1.RejectionCode
+import dev.picasso.contracts.v1.ResumeTaskRequest
+import dev.picasso.contracts.v1.RetryTaskRequest
 import dev.picasso.contracts.v1.ReplayEventsRequest
 import dev.picasso.contracts.v1.SkillServiceGrpc
 import dev.picasso.contracts.v1.StartTaskRequest
@@ -93,7 +95,15 @@ class AdapterHostTest {
             return Acceptance.Accepted(taskId)
         }
         override fun poll(now: Instant): TaskState { current = next; return current }
+        var resumeAnswer: Applied = Applied.Ok
+        val resumed = mutableListOf<Map<String, Any>>()
+        val retried = mutableListOf<Map<String, Any>>()
+
         override fun pause(): Applied = pauseAnswer.also { if (it == Applied.Ok) current = TaskState.TASK_STATE_PAUSED }
+        override fun resume(parameters: Map<String, Any>): Applied =
+            resumeAnswer.also { if (it == Applied.Ok) { resumed += parameters; current = TaskState.TASK_STATE_RUNNING } }
+        override fun retry(parameters: Map<String, Any>): Applied =
+            resumeAnswer.also { if (it == Applied.Ok) { retried += parameters; current = TaskState.TASK_STATE_RUNNING } }
         override fun cancel(): Applied = cancelAnswer.also { if (it == Applied.Ok) { current = TaskState.TASK_STATE_CANCELLING; next = TaskState.TASK_STATE_CANCELLED } }
         override fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: Instant): Applied =
             updateAnswer.also { if (it == Applied.Ok) updated += Triple(taskId, skillType, parameters) }
@@ -283,18 +293,66 @@ class AdapterHostTest {
     }
 
     @Test
-    fun `정리 중과 멈춘 상태의 갱신은 이 호스트가 아직 안 든다`() {
+    fun `멈춘 태스크의 갱신은 갈아만 두고, 재개가 새 파라미터로 다시 시작한다`() {
         World().use { w ->
-            w.start()
+            val handle = w.start().handle
             w.adapter.next = TaskState.TASK_STATE_PAUSED
             w.robot.pump()
 
-            // §4.4 는 PAUSED·RETRIABLE·NEEDS_INTERVENTION 에서 **파라미터만 갈아 두고 재개 때 적용하라** 고 한다.
-            // 그러려면 호스트가 대기 파라미터를 들고 어댑터의 재개·재시도에 실어야 하는데 그 자리가 없다.
-            // **그래서 못 한다고 답한다** — 로봇이 못 하는 것이 아니므로 UPDATE_UNSUPPORTED 가 아니다.
+            // §4.4 — 파라미터만 교체하고 `PAUSED` 유지. **로봇에는 아무것도 안 간다.**
+            val bumped = w.start(revision = 2, params = mapOf("object_id" to "SEQ-IN-02.BIN-B", "destination" to "RACK-204.S02"))
+            assertTrue(bumped.hasHandle(), bumped.rejection.toString())
+            assertTrue(w.adapter.updated.isEmpty(), "멈춘 태스크에 갱신 합성을 보냈다")
+            val task = w.robot.task("T-1")!!
+            assertEquals(TaskState.TASK_STATE_PAUSED, task.last.state, "갱신이 상태를 바꿨다")
+            assertEquals(2, task.last.revision, "갱신 자체가 로그 한 줄이다(§4.4)")
+
+            // 그리고 재개할 때 **그 파라미터로** 다시 시작한다. 이 자리가 없으면 갱신이 조용히 버려진다.
+            w.adapter.next = TaskState.TASK_STATE_RUNNING
+            w.tasks.resumeTask(ResumeTaskRequest.newBuilder().setHeader(w.header("picasso.v1.ResumeTaskRequest")).setHandle(handle).build())
+            assertEquals("SEQ-IN-02.BIN-B", w.adapter.resumed.single()["object_id"])
+        }
+    }
+
+    @Test
+    fun `사람을 기다리는 태스크도 파라미터를 받는다 — 그것이 그 상태의 존재 이유다`() {
+        World().use { w ->
+            val handle = w.start().handle
+            w.adapter.next = TaskState.TASK_STATE_NEEDS_INTERVENTION
+            w.robot.pump()
+
+            // **개입한 사람이 파라미터를 고쳐 넣는 경로가 이것이다**(§4.4). 막으면 이 상태가 막다른 길이 된다.
+            val bumped = w.start(revision = 2, params = mapOf("object_id" to "SEQ-IN-02.BIN-C", "destination" to "RACK-204.S03"))
+            assertTrue(bumped.hasHandle(), bumped.rejection.toString())
+            assertEquals(TaskState.TASK_STATE_NEEDS_INTERVENTION, w.robot.task("T-1")!!.last.state)
+
+            w.adapter.next = TaskState.TASK_STATE_RUNNING
+            w.tasks.retryTask(RetryTaskRequest.newBuilder().setHeader(w.header("picasso.v1.RetryTaskRequest")).setHandle(handle).build())
+            assertEquals("SEQ-IN-02.BIN-C", w.adapter.retried.single()["object_id"])
+        }
+    }
+
+    @Test
+    fun `갱신 없이 재개하면 접수 때의 파라미터가 그대로 간다`() {
+        // 호출자가 *갱신이 있었나* 를 가르지 않아도 되게 한다 — 가르면 그 분기가 곧 틀린다.
+        World().use { w ->
+            val handle = w.start().handle
+            w.adapter.next = TaskState.TASK_STATE_PAUSED
+            w.robot.pump()
+            w.tasks.resumeTask(ResumeTaskRequest.newBuilder().setHeader(w.header("picasso.v1.ResumeTaskRequest")).setHandle(handle).build())
+            assertEquals("SEQ-IN-02.BIN-A", w.adapter.resumed.single()["object_id"])
+        }
+    }
+
+    @Test
+    fun `정리 중과 종착의 갱신은 자리가 없다`() {
+        World().use { w ->
+            w.start()
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            w.robot.pump()
+
             val refused = w.start(revision = 2)
             assertEquals(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, refused.rejection.code)
-            assertTrue(refused.rejection.detail.contains("PAUSED"), refused.rejection.detail)
             assertTrue(w.adapter.updated.isEmpty())
         }
     }

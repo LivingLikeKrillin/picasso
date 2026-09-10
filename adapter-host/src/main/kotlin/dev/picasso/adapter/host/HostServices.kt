@@ -162,7 +162,8 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
 
     override fun resumeTask(request: ResumeTaskRequest, observer: StreamObserver<ResumeTaskResponse>) = reply(observer) {
         val robot = routing.enter(request.header)
-        val (state, rejection) = manipulate(robot, request.handle, "resume") { robot.adapter.resume() }
+        // **지금 파라미터로** 다시 시작한다 — 멈춘 동안 갱신이 왔으면 그것이다(§4.4).
+        val (state, rejection) = manipulate(robot, request.handle, "resume") { robot.adapter.resume(it.parameters) }
         ResumeTaskResponse.newBuilder().setHeader(robot.header(ResumeTaskResponse.getDescriptor()))
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
@@ -176,7 +177,7 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
 
     override fun retryTask(request: RetryTaskRequest, observer: StreamObserver<RetryTaskResponse>) = reply(observer) {
         val robot = routing.enter(request.header)
-        val (state, rejection) = manipulate(robot, request.handle, "retry") { robot.adapter.retry() }
+        val (state, rejection) = manipulate(robot, request.handle, "retry") { robot.adapter.retry(it.parameters) }
         RetryTaskResponse.newBuilder().setHeader(robot.header(RetryTaskResponse.getDescriptor()))
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
@@ -187,13 +188,18 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
      * 어댑터가 *수단이 없다* 고 하면 그 조작의 코드(`PAUSE_UNSUPPORTED`·`CANCEL_UNSUPPORTED`)다 — 지원하지 않는 것을
      * 지원하는 것처럼 감추지 않는다. 재개·재시도에는 그런 코드가 없어 `INVALID_TRANSITION` 에 사정을 붙인다.
      */
-    private fun manipulate(robot: HostedRobot, handle: TaskHandle, what: String, apply: () -> Applied): Pair<TaskState?, Rejection?> {
+    private fun manipulate(
+        robot: HostedRobot,
+        handle: TaskHandle,
+        what: String,
+        apply: (HostedRobot.HostedTask) -> Applied,
+    ): Pair<TaskState?, Rejection?> {
         val task = robot.task(handle.taskId)
             ?: throw Status.NOT_FOUND.withDescription("모르는 태스크다: ${handle.taskId}").asRuntimeException()
         if (task.terminal) {
             return null to rejection(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, "${task.taskId} 은 이미 ${task.last.state} 다 — 종착은 되돌아가지 않는다(§4.4)")
         }
-        return when (val applied = apply()) {
+        return when (val applied = apply(task)) {
             Applied.Ok -> {
                 robot.syncCurrent()
                 task.last.state to null

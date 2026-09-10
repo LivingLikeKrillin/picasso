@@ -123,7 +123,19 @@ class HostedRobot(
     private var lastStateAt: Instant? = null
 
     /** 태스크 하나의 기록 — 계약의 `WatchTask` 로그. 종착은 래치된다(§4.4). */
-    class HostedTask internal constructor(val taskId: String, revision: Int, val skillType: String) {
+    class HostedTask internal constructor(
+        val taskId: String,
+        revision: Int,
+        val skillType: String,
+        parameters: Map<String, Any>,
+    ) {
+        /**
+         * **지금 파라미터.** 갱신이 갈고([HostedRobot.update]) 재개·재시도가 이것으로 다시 시작한다 —
+         * §4.4 가 `PAUSED`·`RETRIABLE`·`NEEDS_INTERVENTION` 의 갱신을 *갈아 두고 나중에 적용* 이라 한 그것이다.
+         */
+        var parameters: Map<String, Any> = parameters
+            internal set
+
         /** **갱신이 올린다**(§4.4). 태스크의 신원은 `taskId` 이고 개정판은 그 위에서 바뀐다. */
         var revision: Int = revision
             internal set
@@ -195,7 +207,7 @@ class HostedRobot(
 
         return when (val accepted = adapter.accept(taskId, skillType, parameters, clock())) {
             is Acceptance.Accepted -> {
-                val task = HostedTask(taskId, revision, skillType)
+                val task = HostedTask(taskId, revision, skillType, parameters)
                 book[taskId] = task
                 current = task
                 record(task, TaskState.TASK_STATE_ACCEPTED)
@@ -231,24 +243,31 @@ class HostedRobot(
             )
         }
         val state = task.last.state
-        if (state !in UPDATABLE_STATES) {
+        if (state !in UPDATABLE_STATES && state !in DEFERRED_UPDATE_STATES) {
             return StartOutcome.Rejected(
                 RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                "$state 에서의 갱신은 이 호스트가 아직 안 든다 — 대기 파라미터를 재개·재시도에 실을 자리가 어댑터 포트에 없다",
+                "$state 에서는 파라미터를 바꿀 자리가 없다 — 정리 중이거나 종착이다(§4.4)",
             )
         }
         validate(skillType, parameters)?.let { return it }
 
-        return when (val applied = adapter.update(task.taskId, skillType, parameters, clock())) {
-            Applied.Ok -> {
-                task.revision = revision
-                // **갱신 자체가 로그 한 줄이다**(§4.4) — 상태는 그대로이고 `revision` 이 오른 갱신을 적는다.
-                record(task, state)
-                StartOutcome.Accepted(task)
-            }
+        // **지금 안 보내는 상태가 있다**(§4.4). 멈췄거나 재시도를 기다리거나 사람을 기다리는 태스크는
+        // 파라미터만 갈아 두고 그 상태를 유지한다 — 재개·재시도가 그때 새 파라미터로 다시 시작한다.
+        // 로봇에 아무것도 안 보내므로 **어댑터가 갱신을 못 들어도 이 경로는 된다.**
+        if (state in DEFERRED_UPDATE_STATES) return applied(task, revision, parameters, state)
 
+        return when (val applied = adapter.update(task.taskId, skillType, parameters, clock())) {
+            Applied.Ok -> applied(task, revision, parameters, state)
             is Applied.Refused -> StartOutcome.Rejected(RejectionCode.REJECTION_CODE_UPDATE_UNSUPPORTED, applied.detail)
         }
+    }
+
+    /** 갱신을 적는다 — 파라미터를 갈고 `revision` 을 올리고 **로그 한 줄**(§4.4). 상태는 안 바뀐다. */
+    private fun applied(task: HostedTask, revision: Int, parameters: Map<String, Any>, state: TaskState): StartOutcome {
+        task.parameters = parameters
+        task.revision = revision
+        record(task, state)
+        return StartOutcome.Accepted(task)
     }
 
     /**
@@ -559,7 +578,19 @@ class HostedRobot(
         val ISO: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
         val FAILURE_STATES = setOf(TaskState.TASK_STATE_FAILED, TaskState.TASK_STATE_RETRIABLE, TaskState.TASK_STATE_NEEDS_INTERVENTION)
 
-        /** 갱신을 받아 어댑터까지 보내는 상태. 나머지는 위 [update] 의 주석이 이유를 적는다. */
+        /** 갱신을 받아 **어댑터까지 보내는** 상태 — 로봇이 지금 그 파라미터로 움직이고 있다. */
         val UPDATABLE_STATES = setOf(TaskState.TASK_STATE_ACCEPTED, TaskState.TASK_STATE_RUNNING)
+
+        /**
+         * 갱신을 받되 **갈아만 두는** 상태(§4.4). 재개·재시도가 그때 새 파라미터로 다시 시작한다.
+         *
+         * `NEEDS_INTERVENTION` 이 여기 있는 것이 요점이다 — **개입한 사람이 파라미터를 고쳐 넣는 경로가 그것**이고,
+         * 막으면 그 상태의 존재 이유와 어긋난다.
+         */
+        val DEFERRED_UPDATE_STATES = setOf(
+            TaskState.TASK_STATE_PAUSED,
+            TaskState.TASK_STATE_RETRIABLE,
+            TaskState.TASK_STATE_NEEDS_INTERVENTION,
+        )
     }
 }
