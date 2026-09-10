@@ -107,9 +107,12 @@ sequenceDiagram
     FL-->>MW: DELIVERED = 도착 ∧ 하역 ∧ 인수 ∧ 미보유  (E1)
     MW->>CELL: observe(SEQ-IN-02)  · 시간창 δ 안에서
     CELL-->>MW: 관측 신원 = HU-1042  (E2)
-    MW->>WMS: JobResponse PHYSICALLY_DONE, 도달 E2
+    MW->>WMS: JobResponse PHYSICALLY_DONE, 도달 E2 (아웃박스에 남는다)
     WMS--xMW: ack 유실
-    MW->>WMS: 같은 JobResponse 재전송 (운반은 다시 안 한다)
+    WMS->>MW: 같은 JobOrder 재전송
+    MW-->>WMS: Idempotent — 새 운반 없음
+    Note over MW,WMS: 아웃박스의 **같은 jobResponseId** 가 그대로 남아 있다. 그것을 다시 건네는 것이 통보 재시도다
+    WMS->>MW: ack(jobResponseId)
 ```
 
 **갈리는 자리 셋.** 플릿이 `WAITING_HANDOVER` 면 인계를 기다리고 지연을 보고한다(다른 자리에 안 내려놓는다).
@@ -179,9 +182,9 @@ sequenceDiagram
 
     MES->>MW: JobOrder SEQ-204 v17 (슬롯 넷, 요구 E2)
     Note over MW: 자재 선언과 배정이 어긋나면 접수 자체를 거절
-    MW->>RB: GetCapabilities
-    RB-->>MW: 능력 — 선택 파라미터 verify_grasp 를 드는가
     loop 슬롯마다 (S01 → S04)
+        MW->>RB: GetCapabilities (처음 한 번 — 세대 단위로 캐시)
+        RB-->>MW: 능력 — 선택 파라미터 verify_grasp 를 드는가, 그리고 값의 타입
         MW->>RB: StartTask(SEQ-204#S01, rev=17, pick_place, object_id·destination[·verify_grasp])
         RB-->>MW: TaskHandle
         MW->>RB: WatchTask(handle)
@@ -301,7 +304,7 @@ sequenceDiagram
         RB-->>SUITE: SUCCEEDED
         SUITE->>RB: StartTask(inspect, target)
         alt 정상
-            RB-->>SUITE: SUCCEEDED + partial_result(결과 참조)
+            RB-->>SUITE: SUCCEEDED — partial_result 는 **비어 있다**
         else 위치 상실
             RB-->>SUITE: NEEDS_INTERVENTION + Fault(LOCALIZATION_LOST)
             SUITE->>RB: RetryTask (attempt 가 오른다)
@@ -309,8 +312,10 @@ sequenceDiagram
     end
 ```
 
-**이 시나리오가 고정하는 것은 *없다* 는 사실이다** — 점검 결과를 실을 자리가 `partial_result` 하나뿐이고,
-그 모양은 상류가 정한다. 계약이 스키마를 가지면 그 순간 상류를 하나로 못박는다.
+**이 시나리오가 고정하는 것은 *없다* 는 사실이다** — 점검 결과를 실을 자리가 `partial_result` 하나뿐이고
+**이 경로에서는 아무도 그것을 안 채운다**(`InspectionPatrolTest` 가 비어 있음을 단언한다). 채우는 발신자는
+따로 있다 — Spot 어댑터가 취득의 `DataIdentifier` 를 거기 싣는다(§15.97). 그 모양을 계약이 스키마로 정하면
+그 순간 상류를 하나로 못박는다.
 >
 > **미들웨어 층에서도 돈다** — `picasso/src/test/kotlin/dev/picasso/middleware/InspectAssetTest.kt`(§15.93). 논리적 능력 `InspectAsset` 이 점검 대상 목록을 `navigate_to`+`inspect` 열로 나누고, 공통 엔진은 분기 없이 그대로 돈다(17장 10). 이동 중 취소는 하류가 거절하고 다음 경계에서 멈추며 그 거절이 `CancelReport.refusal` 에 드러난다. 점검 결과를 실을 자리(`JobResponse.results`)는 비어 있고 시험이 그것을 고정한다. 점검 중 위치를 잃으면 계약은 다음 태스크를 막지 않지만 **실행 층이 막는다**(§15.94) — 기체가 새 태스크를 못 받는다고 말하는 동안 다음 지점으로 보내지 않고 `JobResponse.blockedBy` 로 드러내며, 사람이 감수(`release`)해야 이어 간다.
 
@@ -328,6 +333,22 @@ sequenceDiagram
 - Orbit 경유는 `RunEvent.error` 가 정수 하나라 ① 이 갖는 `ManipulationFeedbackState` 류 어휘를 잃는다. 어댑터가 어느 층에 붙었는지는 계약에 새지 않아야 하므로(§15.77), 이 차이는 **결과 어휘의 해상도 차이**로만 나타난다.
 
 **어댑터 가용성이 곧 로봇 거동이다 — Spot 1 차 자료.** `KeepaliveService.Policy` 의 `ActionAfter` 가 `AutoReturn`·`ControlledMotorsOff`·`ImmediateRobotOff`·`LeaseStale` 을 두고, E-Stop 엔드포인트의 `timeout` 초과는 `SETTLE_THEN_CUT`, `cut_power_timeout` 초과는 CUT 이다. 팔에 든 것은 `CarryState` 가 가른다. **어댑터 프로세스가 죽으면 로봇이 앉고 전원이 끊기는 것이 벤더의 기본 거동**이다. ADR 32 는 계약이 안전 기능을 나르지 않는다고 정했고 그것은 유지되지만, 어댑터의 가동률이 물리적 결과를 갖는다는 사실은 배치의 전제로 적어 둔다.
+
+---
+
+### 5.1 이 그림들이 코드와 맞는지 어떻게 아나
+
+**시험이 안 본다.** 문서의 숫자와 링크는 `DocumentClaimsTest` 가 코드에서 세어 대조하지만, **그림의 내용은
+사람이 지킨다.** 그래서 2026-09-10 에 한 번 손으로 훑었고, **둘이 틀려 있었다**(§15.119).
+
+| 무엇 | 그림이 적었던 것 | 코드 |
+|---|---|---|
+| ③ 점검 결과 | `SUCCEEDED + partial_result(결과 참조)` | **비어 있다.** `InspectionPatrolTest` 가 *아무도 안 채운다* 를 단언한다 — 이 시나리오가 고정하려던 사실 자체를 그림이 뒤집고 있었다 |
+| ② 능력 질의 | 슬롯 루프 **앞에서** 한 번 | 첫 `StartTask` **안에서** 한다(그 뒤로는 세대 단위 캐시) |
+| ① 통보 재시도 | 미들웨어가 다시 **민다** | 아웃박스에 **남아 있고** 상류가 `ack` 로 닫는다 |
+
+★셋 중 첫째가 뼈아프다 — **그림이 제일 하고 싶었던 말을 그림이 배반하고 있었다.** 텍스트 다이어그램이라
+낡지는 않지만, **처음부터 틀린 것은 낡음과 다른 문제**다.
 
 ---
 
