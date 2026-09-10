@@ -174,6 +174,24 @@ class DocumentClaimsTest {
     }
 
     @Test
+    fun `ISA-95 대조가 코드와 같은 타입을 대고, 근거 등급이 계약으로 안 샌다`() {
+        // 대조표의 값은 **표준의 타입 이름**이다. 코드 주석이 짚는 것과 다르면 둘 중 하나가 낡은 것이다.
+        val names = Regex("""ISA95[A-Za-z]+DataType""")
+        val inDoc = names.findAll(Repo.read("docs/isa95.md")).map { it.value }.toSet()
+        val inCode = Repo.list("picasso/src/main/kotlin/dev/picasso/middleware", ".kt")
+            .flatMap { file -> names.findAll(Repo.read(file)).map { it.value } }.toSet()
+        assertTrue(inCode.size >= 4, "코드가 짚는 표준 타입이 사라졌다: $inCode")
+        assertEquals(inCode, inDoc, "ISA-95 타입 이름이 문서와 코드에서 다르다")
+
+        // ★**§4 의 논거 전체가 이 한 줄에 매달려 있다.** 근거 등급이 계약 면으로 나가면 로봇이 자기 완료의
+        // 신뢰도를 자기가 선언하게 되고 — 확인하려는 대상에게 확인을 맡기는 것이 된다.
+        val leaked = Repo.list("contracts/proto/picasso/v1", ".proto")
+            .filter { Repo.read(it).contains("evidence", ignoreCase = true) }
+            .map { it.fileName.toString() }
+        assertEquals(emptyList(), leaked, "근거 등급이 계약 proto 로 샜다 — isa95.md §4 의 논거가 무너진다")
+    }
+
+    @Test
     fun `문서가 가리키는 파일이 전부 실재한다`() {
         // 문서 사이의 링크가 이 저장소에서 유일하게 **자동으로 낡는 것**이다 — 파일 이름을 바꾸면 아무도 안 알려 준다.
         // 숫자를 세는 것과 같은 이유로 여기서 본다.
