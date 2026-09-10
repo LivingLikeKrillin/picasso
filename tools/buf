@@ -26,12 +26,24 @@ export MSYS2_ARG_CONV_EXCL='*'
 # **원격이 생기기 전까지 CI 가 돈 적이 없어 이 자리가 한 번도 안 드러났다** —
 # 로컬(Windows·Docker Desktop)에서는 마운트가 root 소유로 보여 재현되지 않는다.
 #
-# 파일을 안 쓰고 환경변수로 준다(`GIT_CONFIG_COUNT` 규약). 컨테이너는 매번
-# 버려지고 저장소 하나만 마운트되므로 `*` 로 둔다.
-exec docker run --rm \
-  -e GIT_CONFIG_COUNT=1 \
-  -e GIT_CONFIG_KEY_0=safe.directory \
-  -e GIT_CONFIG_VALUE_0='*' \
+# ★**`GIT_CONFIG_*` 환경변수로는 못 고친다.** `safe.directory` 는 git 이
+# *protected configuration*(시스템·전역 설정)에서만 읽는다 — 명령줄과
+# `GIT_CONFIG_COUNT` 로 준 것은 **의도적으로 무시한다**(그러지 않으면 공격자가
+# 주입할 수 있다). 첫 판이 그것으로 고치려다 CI 에서 같은 자리에 다시 걸렸다.
+#
+# 그래서 **시스템 설정 파일(`/etc/gitconfig`)로 마운트한다.** 컨테이너는 매번
+# 버려지고 저장소 하나만 보이므로 `*` 로 둔다.
+GITCONFIG="$(mktemp)"
+printf '[safe]\n\tdirectory = *\n' > "$GITCONFIG"
+GITCONFIG_HOST="$GITCONFIG"
+if command -v cygpath >/dev/null 2>&1; then
+  GITCONFIG_HOST="$(cygpath -m "$GITCONFIG")"
+fi
+trap 'rm -f "$GITCONFIG"' EXIT
+
+# **`exec` 를 안 쓴다** — 임시 설정 파일을 지워야 하므로 종료코드를 받아 넘긴다.
+docker run --rm \
+  -v "${GITCONFIG_HOST}:/etc/gitconfig:ro" \
   -v "${HOST_ROOT}:/workspace" \
   -w "/workspace/${REL}" \
   "bufbuild/buf:${BUF_VERSION}" "$@"
