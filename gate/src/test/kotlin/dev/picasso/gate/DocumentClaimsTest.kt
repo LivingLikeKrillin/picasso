@@ -60,6 +60,14 @@ class DocumentClaimsTest {
     }
 
     @Test
+    fun `모듈마다 문이 있다`() {
+        // **모듈 나무가 이름을 적는 것과 그 안으로 들어갈 문이 있는 것은 다르다.** 모듈이 늘면 문도 늘어야 하고,
+        // 그것을 사람이 기억하지 않는다.
+        val missing = modules().filterNot { Files.isRegularFile(Repo.path("$it/README.md")) }
+        assertEquals(emptyList(), missing, "이 모듈에는 README.md 가 없다")
+    }
+
+    @Test
     fun `게이트 검사의 수를 README 가 맞게 적는다`() {
         assertEquals(GateChecks.all().size, claimed("""검사 (\S+)이 있고"""), "검사가 늘었는데 README 가 그대로다")
     }
@@ -107,10 +115,7 @@ class DocumentClaimsTest {
         val docs = buildList {
             add(Repo.path("README.md"))
             addAll(Repo.list("docs", ".md"))
-            // 모듈 문 — 선언된 것만 본다. 선언 안 한 모듈 문을 더하면 `Repo` 가 그 자리에서 막는다.
-            listOf("picasso", "registry", "mimic", "adapter-host", "gate")
-                .map { Repo.path("$it/README.md") }
-                .filterTo(this) { Files.isRegularFile(it) }
+            modules().mapTo(this) { Repo.path("$it/README.md") }
         }
         val broken = docs.flatMap { doc ->
             Regex("""\]\(([^)#:]+\.md[^)#]*)\)""").findAll(Files.readString(doc)).map { doc to it.groupValues[1] }

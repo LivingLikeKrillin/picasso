@@ -95,17 +95,15 @@ tasks.withType<Test>().configureEach {
         // 세는 시험을 만들어 놓고 그 시험이 안 도는 상태였다.
         rootProject.file("README.md"),
         rootProject.file("docs"),
-        rootProject.file("picasso/README.md"),
-        rootProject.file("registry/README.md"),
-        rootProject.file("mimic/README.md"),
-        rootProject.file("adapter-host/README.md"),
-        rootProject.file("gate/README.md"),
         // ★**문을 만들자마자 둘이 더 나왔다.** `DocumentClaimsTest` 가 모듈 수를 `settings.gradle.kts` 에서,
         // 진단 수를 `DiagController` 에서 세는데 **둘 다 선언 밖이었다** — 모듈을 더하거나 진단을 더해도
         // 시험이 안 도는 상태였다. 같은 구멍의 다섯째이고, 이번에는 사람이 아니라 `Repo` 가 찾았다.
         rootProject.file("settings.gradle.kts"),
         rootProject.file("registry/src/main/kotlin/dev/picasso/registry/web/DiagController.kt"),
-    )
+    ) +
+        // **모듈 문은 세지 않는다 — 빌드가 아는 목록에서 만든다.** 손으로 적으면 모듈이 늘 때 한쪽만 늘고,
+        // 그것이 이 파일이 반복해 물린 자리다. `DocumentClaimsTest` 가 *모든 모듈에 문이 있는가* 도 본다.
+        rootProject.subprojects.map { rootProject.file("${it.name}/README.md") }
     inputs.files(repoInputs).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 

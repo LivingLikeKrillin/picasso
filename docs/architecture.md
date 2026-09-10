@@ -132,6 +132,16 @@ registry         ← 어느 모듈에도 직접 밀지 않는다. 갱신은 mimi
 | 이 일감을 시키려면 현장에 무엇이 있어야 하나 | [`environment-preconditions.md`](environment-preconditions.md) |
 | 전부, 순서대로 | [설계 문서](superpowers/specs/2026-09-05-picasso-design.md) — §15 는 일지이므로 뒤에서부터 읽어도 된다 |
 
-모듈 안으로 들어가려면 각 모듈의 `README.md` 가 그 문 앞에 있다 —
-[`picasso`](../picasso/README.md) · [`registry`](../registry/README.md) · [`mimic`](../mimic/README.md) ·
-[`adapter-host`](../adapter-host/README.md) · [`gate`](../gate/README.md).
+**모듈마다 `README.md` 가 있다** — KDoc 을 옮기지 않고, 그 모듈의 *규칙 하나 · 경계 · 없는 것 · 어느 시험이
+무엇을 증명하나* 만 적는다. 처음이면 이 순서가 좋다:
+
+[`contracts`](../contracts/README.md) — 무엇을 약속했나 →
+[`picasso`](../picasso/README.md) — 그 위에서 무엇을 결정하나 →
+[`adapter-host`](../adapter-host/README.md) — 그 아래로 어떻게 내려가나 →
+[`mimic`](../mimic/README.md) · [`registry`](../registry/README.md) · [`gate`](../gate/README.md) — 나머지 셋의 일.
+
+기종별 어댑터 넷([spot](../adapter-boston-dynamics-spot/README.md) ·
+[digit](../adapter-agility-digit/README.md) · [g1](../adapter-unitree-g1/README.md) ·
+[orbit](../adapter-boston-dynamics-orbit/README.md))은 **판정을 옮겨 적지 않고** `profile/distance/` 를 가리킨다.
+
+시나리오의 **시퀀스 다이어그램**은 [`scenarios.md`](scenarios.md) 안에 있다 — ①·②·③ 과 ①→② 가 만나는 자리.

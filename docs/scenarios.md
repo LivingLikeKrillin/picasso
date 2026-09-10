@@ -86,6 +86,36 @@ ADR 36 의 층 넷에 참여자를 놓는다.
 | 출발 위치의 용기 ID 가 요청과 다름 | 인수하지 않고 불일치 보고 | WMS 가 할당·현장 재고 확인 |
 | 물리적 인계 후 WMS 응답 유실 | **같은 완료 이벤트를 재전송**하고 반영 상태 조회. 운반 자체를 다시 실행하지 않음 | WMS 가 중복 없이 확정 |
 
+### 3.1 시퀀스 — 누가 언제 말하나
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant WMS as 상류 (WMS)
+    participant MW as picasso (층 ③)
+    participant FL as AMR 플릿
+    participant CELL as 인계 설비 (PLC/WCS)
+
+    WMS->>MW: JobOrder WT-781 (HU-1042, OUT-07→SEQ-IN-02, 요구 E2)
+    Note over MW: 능력의 최고 등급이 요구 미만이면 여기서 거절
+    MW->>FL: dispatch(참조=HU-1042, 출발, 도착)
+    Note over MW,FL: 같은 참조는 같은 운반 — 재전송이 운반을 둘로 만들지 않는다
+    loop pump 마다
+        MW->>FL: status(참조)
+        FL-->>MW: PICKED_UP / IN_TRANSIT / WAITING_HANDOVER …
+    end
+    FL-->>MW: DELIVERED = 도착 ∧ 하역 ∧ 인수 ∧ 미보유  (E1)
+    MW->>CELL: observe(SEQ-IN-02)  · 시간창 δ 안에서
+    CELL-->>MW: 관측 신원 = HU-1042  (E2)
+    MW->>WMS: JobResponse PHYSICALLY_DONE, 도달 E2
+    WMS--xMW: ack 유실
+    MW->>WMS: 같은 JobResponse 재전송 (운반은 다시 안 한다)
+```
+
+**갈리는 자리 셋.** 플릿이 `WAITING_HANDOVER` 면 인계를 기다리고 지연을 보고한다(다른 자리에 안 내려놓는다).
+`REJECTED_AT_SOURCE` 면 출발지의 용기가 요청과 달라 **인수하지 않은** 것이다. 설비가 시간창 안에 아무 말이 없으면
+`UNVERIFIED` — 플릿의 E1 까지만 도달했고 재작업이 아니라 운영자 확인이다.
+
 **picasso 에서 이 시나리오가 남기는 것은 한 줄이다.** *"`SEQ-IN-02` 에 `HU-1042` 가 있다"* — ② 의 환경 전제. 그것을 누가 확인하는가는 §2 의 E2 이고 계약 밖이다.
 
 ---
@@ -136,6 +166,40 @@ ADR 36 의 층 넷에 참여자를 놓는다.
 - **슬롯은 이름으로 온다.** 좌표가 없다. 그 이름이 로봇 안에 등록돼 있어야 한다(ADR 35, 전제 B).
 - `EquipmentUse` 의 `destination`·`source` 는 **우리가 지은 말**이다. 표준이 *"does not define any standardized entries for EquipmentRequirements"* 라고 명시했고, 그 빈 자리가 ADR 36 층 ② 다.
 - 슬롯 순서는 업무 요구이지 로봇의 동작 순서가 아니다. 층 ③ 이 허용하면 가까운 것부터 집어도 된다.
+
+### 4.1b 시퀀스 — 슬롯 하나가 지나는 길
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant MES as 상류 (MES)
+    participant MW as picasso (층 ③)
+    participant RB as 로봇 (계약 ④)
+    participant CELL as 셀 검증 장치
+
+    MES->>MW: JobOrder SEQ-204 v17 (슬롯 넷, 요구 E2)
+    Note over MW: 자재 선언과 배정이 어긋나면 접수 자체를 거절
+    MW->>RB: GetCapabilities
+    RB-->>MW: 능력 — 선택 파라미터 verify_grasp 를 드는가
+    loop 슬롯마다 (S01 → S04)
+        MW->>RB: StartTask(SEQ-204#S01, rev=17, pick_place, object_id·destination[·verify_grasp])
+        RB-->>MW: TaskHandle
+        MW->>RB: WatchTask(handle)
+        RB-->>MW: RUNNING … SUCCEEDED  (E0)
+        MW->>CELL: observe(RACK-204.S01) · 시간창 δ 안에서
+        alt 기대한 부품
+            CELL-->>MW: A형 → E2, 슬롯 완료
+        else 다른 부품
+            CELL-->>MW: B형 → VERIFICATION_MISMATCH, 운영자
+        else 말이 없다
+            CELL-->>MW: (침묵) → UNVERIFIED, 재작업 금지
+        end
+    end
+    MW->>MES: JobResponse — 완료 슬롯 · 미확인 슬롯 · 운영자 필요 여부
+```
+
+**버전이 바뀌면**(v17 → v18) 종착한 슬롯은 종착에 머물고(래치), 미시작 슬롯은 파라미터만 갈리며, 도는 슬롯은
+`Halt → Reset → Start` 로 다시 선다. 옛 버전의 뒤늦은 종착은 **폐기하지 않고 보존**하고 새 버전의 기대에 대고 다시 본다.
 
 ### 4.2 층 ③ → 계약 — 슬롯마다 `StartTask` 하나
 
@@ -188,9 +252,65 @@ picasso 의 `(task_id, revision)` 이 그 짝이다. 요청 쪽 규칙은 §4.4 
 
 ---
 
+### 4.6 ① 과 ② 가 만나는 자리
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant MW as picasso
+    participant FL as AMR 플릿
+    participant RB as 로봇
+    participant CELL as 설비
+
+    rect rgb(238, 244, 250)
+        Note over MW,FL: 시나리오 ①
+        MW->>FL: 용기 HU-1042 를 SEQ-IN-02 로
+        FL-->>MW: DELIVERED (E1) → 설비 확인 (E2)
+    end
+    Note over MW: 남는 것은 한 줄 — "SEQ-IN-02 에 HU-1042 가 있다"
+    rect rgb(245, 245, 238)
+        Note over MW,CELL: 시나리오 ②
+        MW->>RB: pick_place(object_id = SEQ-IN-02.BIN-A, …)
+        RB-->>MW: SUCCEEDED (E0)
+        MW->>CELL: observe(RACK-204.S01)
+        alt ① 이 있었다
+            CELL-->>MW: A형 → E2
+        else ① 이 없었다
+            CELL-->>MW: (확인할 것이 없다) → UNVERIFIED
+        end
+    end
+```
+
+★**로봇은 두 경우에 똑같이 성공이라 말한다.** 갈리는 것은 설비이고, 그것이 두 시나리오가 **근거로** 이어져
+있다는 증거다(`ScenarioChainTest`, §15.117).
+
+---
+
 ## 5. 시나리오 ③ — 설비 점검 순회 (4족, `inspect`)
 
 > **이 시나리오는 하네스가 돌린다** — `harness/src/test/kotlin/dev/picasso/harness/InspectionPatrolTest.kt`(4족 픽스처). 지점마다 `navigate_to` + `inspect`, 일시정지·재개, 위치 상실 뒤 개입과 재시도, 취소, 그리고 **점검 결과를 실을 자리가 없다**는 사실을 고정한다. 첫 시험이 미믹의 결함 하나를 잡았다 — 점검은 대상을 참조할 뿐 쥐지 않는다(`grasps_object`, §15.87).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant SUITE as 소비자 (하네스)
+    participant RB as 로봇 (계약 ④)
+
+    loop 점검 지점마다
+        SUITE->>RB: StartTask(navigate_to, location)
+        RB-->>SUITE: SUCCEEDED
+        SUITE->>RB: StartTask(inspect, target)
+        alt 정상
+            RB-->>SUITE: SUCCEEDED + partial_result(결과 참조)
+        else 위치 상실
+            RB-->>SUITE: NEEDS_INTERVENTION + Fault(LOCALIZATION_LOST)
+            SUITE->>RB: RetryTask (attempt 가 오른다)
+        end
+    end
+```
+
+**이 시나리오가 고정하는 것은 *없다* 는 사실이다** — 점검 결과를 실을 자리가 `partial_result` 하나뿐이고,
+그 모양은 상류가 정한다. 계약이 스키마를 가지면 그 순간 상류를 하나로 못박는다.
 >
 > **미들웨어 층에서도 돈다** — `picasso/src/test/kotlin/dev/picasso/middleware/InspectAssetTest.kt`(§15.93). 논리적 능력 `InspectAsset` 이 점검 대상 목록을 `navigate_to`+`inspect` 열로 나누고, 공통 엔진은 분기 없이 그대로 돈다(17장 10). 이동 중 취소는 하류가 거절하고 다음 경계에서 멈추며 그 거절이 `CancelReport.refusal` 에 드러난다. 점검 결과를 실을 자리(`JobResponse.results`)는 비어 있고 시험이 그것을 고정한다. 점검 중 위치를 잃으면 계약은 다음 태스크를 막지 않지만 **실행 층이 막는다**(§15.94) — 기체가 새 태스크를 못 받는다고 말하는 동안 다음 지점으로 보내지 않고 `JobResponse.blockedBy` 로 드러내며, 사람이 감수(`release`)해야 이어 간다.
 
