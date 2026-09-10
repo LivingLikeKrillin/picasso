@@ -149,3 +149,5 @@ registry         ← 어느 모듈에도 직접 밀지 않는다. 갱신은 mimi
 [orbit](../adapter-boston-dynamics-orbit/README.md))은 **판정을 옮겨 적지 않고** `profile/distance/` 를 가리킨다.
 
 시나리오의 **시퀀스 다이어그램**은 [`scenarios.md`](scenarios.md) 안에 있다 — ①·②·③ 과 ①→② 가 만나는 자리.
+
+> 마지막 대조: 2026-09-11 · sha256:f2b7fb7b3227 · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.125, §15.126
