@@ -361,6 +361,36 @@ class DocumentClaimsTest {
         )
     }
 
+    @Test
+    fun `그림이 인용한 벤더 심볼과 실패 분류가 코드에 실재한다`() {
+        // ★**그림도 주장이다.** 산문에 걸어 둔 규율을 그림에도 건다 — `skill-mapping.svg` 는 벤더 심볼
+        // 다섯을, `mission.svg` 는 능력마다의 실패 분류 이름을 **그대로 적는다.** 심볼이 바뀌거나 분류가
+        // 개명되면 얼굴에 걸린 그림이 없는 것을 가리킨 채 남고, **그림은 아무도 grep 하지 않는다.**
+        val mapping = read("docs/diagrams/skill-mapping.svg")
+        val spotLink = read(
+            "adapter-boston-dynamics-spot/src/main/kotlin/dev/picasso/adapter/spot/SpotLink.kt",
+        )
+        val symbols = Regex("""bosdyn\.api\.[A-Za-z_.]+""").findAll(mapping)
+            .map { it.value }.distinct().toList()
+        assertTrue(symbols.size >= 5, "그림에서 벤더 심볼을 못 읽었다 — 정규식이 낡았나: $symbols")
+        assertEquals(
+            emptyList(),
+            symbols.filterNot { """VendorSurface("$it")""" in spotLink },
+            "그림이 든 벤더 심볼이 SpotLink 의 @VendorSurface 인용에 없다",
+        )
+
+        // 이름은 밑줄 대문자다. 세 글자짜리(MES·WMS)가 안 걸리게 일곱 자 이상만 본다.
+        val mission = read("docs/diagrams/mission.svg")
+        val capability = read("picasso/src/main/kotlin/dev/picasso/middleware/LogicalCapability.kt")
+        val names = Regex("""[A-Z][A-Z_]{6,}""").findAll(mission).map { it.value }.distinct().toList()
+        assertTrue(names.size >= 3, "그림에서 이름을 못 읽었다 — 정규식이 낡았나: $names")
+        assertEquals(
+            emptyList(),
+            names.filterNot { it in capability },
+            "그림이 든 이름이 LogicalCapability 에 없다",
+        )
+    }
+
     private companion object {
         /** 이 저장소의 산문은 작은 수를 낱말로 쓴다. 셈은 여기서 한 번만 한다. */
         val NUMERALS = mapOf(

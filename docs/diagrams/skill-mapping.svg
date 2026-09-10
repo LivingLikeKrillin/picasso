@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="756" viewBox="0 0 1000 756" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#57606a"/></marker>
+    <marker id="aq" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#0969da"/></marker>
+  </defs>
+  <rect x="6" y="6" width="988" height="744" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">계약 스킬 하나가 벤더 호출이 되는 자리</text>
+  <text x="32" y="72" font-size="12.5" fill="#57606a">매핑은 스킬 단위가 아니라 표면 단위다. 스킬 하나가 표면 둘을 쓰기도 하고, 그중 하나는 시키지 않고 묻기만 한다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#57606a">그래서 표면 하나가 없으면 그것을 쓰는 스킬만 못 든다 — 나머지는 그대로 돈다.</text>
+  <rect x="24" y="118" width="468" height="66" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="42" y="142" font-size="12" font-weight="600" fill="#1f2328">① 기종이 무엇을 드는지는 JSON 한 장이 선언한다</text>
+  <text x="42" y="160" font-size="10.5" fill="#0969da">skill_type · major.minor · parameters[key, value_type, optional, unit]</text>
+  <text x="42" y="175" font-size="10.5" fill="#0969da">pause_support · cancel_support · protocol_limits — profile/profiles/*.json</text>
+  <rect x="508" y="118" width="468" height="66" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="526" y="142" font-size="12" font-weight="600" fill="#1f2328">② 요구와 선언을 맞춰 보는 것은 순수 함수 하나다</text>
+  <text x="526" y="160" font-size="10.5" fill="#0969da">Negotiator.negotiate(capability, header, requirement)</text>
+  <text x="526" y="175" font-size="10.5" fill="#0969da">안 맞는 것을 한 번에 전부 돌려준다 — 미믹과 어댑터 호스트가 같은 함수를 부른다</text>
+  <rect x="24" y="200" width="952" height="46" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="42" y="220" font-size="12" font-weight="600" fill="#1f2328">③ RobotAdapter.accept(taskId, skillType, parameters, startedAt)</text>
+  <text x="42" y="237" font-size="10.5" fill="#57606a">when (skillType) 하나가 계층을 고른다. 판단은 여기 없다 — 어댑터는 로봇이 말한 것을 계약의 낱말로 옮길 뿐이다.</text>
+  <text x="32" y="278" font-size="11" font-weight="700" letter-spacing="1" fill="#8b95a1">Spot 을 예로 — 계약 스킬 셋이 벤더 표면 다섯에 어떻게 걸리나</text>
+  <text x="960" y="278" font-size="10" text-anchor="end" fill="#8b95a1">파란 점선 = 묻기만 한다   ·   회색 실선 = 시킨다</text>
+  <rect x="40" y="291" width="232" height="46" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="56" y="311" font-size="12.5" font-weight="600" fill="#1f2328">move_relative</text>
+  <text x="56" y="327" font-size="9.5" fill="#8b95a1">속도 셋과 duration — 넷 다 필수</text>
+  <polyline points="272,314 312,314 312,314 508,314" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="40" y="381" width="232" height="46" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="56" y="401" font-size="12.5" font-weight="600" fill="#1f2328">navigate_to</text>
+  <text x="56" y="417" font-size="9.5" fill="#8b95a1">location (필수)</text>
+  <polyline points="272,404 312,404 312,374 508,374" fill="none" stroke="#0969da" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#aq)"/>
+  <polyline points="272,404 346,404 346,434 508,434" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="40" y="501" width="232" height="46" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="56" y="521" font-size="12.5" font-weight="600" fill="#1f2328">inspect</text>
+  <text x="56" y="537" font-size="9.5" fill="#8b95a1">target (필수) · mode (선택)</text>
+  <polyline points="272,524 312,524 312,494 508,494" fill="none" stroke="#0969da" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#aq)"/>
+  <polyline points="272,524 346,524 346,554 508,554" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="508" y="290" width="468" height="48" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="524" y="310" font-size="11.5" font-weight="600" fill="#1f2328">command  ·  시킨다 — 속도 명령을 그대로 보낸다</text>
+  <text x="524" y="327" font-size="9.5" fill="#8b95a1">bosdyn.api.RobotCommandService</text>
+  <text x="960" y="327" font-size="10" text-anchor="end" fill="#9a6700">없으면 move_relative 를 못 든다</text>
+  <rect x="508" y="350" width="468" height="48" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="524" y="370" font-size="11.5" font-weight="600" fill="#1f2328">graph  ·  묻는다 — 사이트 이름을 웨이포인트 id 로</text>
+  <text x="524" y="387" font-size="9.5" fill="#0969da">bosdyn.api.graph_nav.GraphNavService</text>
+  <text x="960" y="387" font-size="10" text-anchor="end" fill="#9a6700">없으면 이름을 못 옮긴다</text>
+  <rect x="508" y="410" width="468" height="48" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="524" y="430" font-size="11.5" font-weight="600" fill="#1f2328">mission  ·  시킨다 — LoadMission 뒤 PlayMission</text>
+  <text x="524" y="447" font-size="9.5" fill="#8b95a1">bosdyn.api.mission.MissionService</text>
+  <text x="960" y="447" font-size="10" text-anchor="end" fill="#9a6700">없으면 navigate_to 를 못 든다</text>
+  <rect x="508" y="470" width="468" height="48" rx="6" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="524" y="490" font-size="11.5" font-weight="600" fill="#1f2328">world  ·  묻는다 — 그 이름의 대상이 있는지</text>
+  <text x="524" y="507" font-size="9.5" fill="#0969da">bosdyn.api.WorldObjectService</text>
+  <text x="960" y="507" font-size="10" text-anchor="end" fill="#9a6700">없으면 살필 대상을 못 찾는다</text>
+  <rect x="508" y="530" width="468" height="48" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="524" y="550" font-size="11.5" font-weight="600" fill="#1f2328">acquisition  ·  시킨다 — 광고하는 영상 원천 전부로</text>
+  <text x="524" y="567" font-size="9.5" fill="#8b95a1">bosdyn.api.DataAcquisitionService</text>
+  <text x="960" y="567" font-size="10" text-anchor="end" fill="#9a6700">없으면 못 찍는다</text>
+  <rect x="24" y="602" width="952" height="62" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
+  <text x="44" y="626" font-size="12.5" font-weight="600" fill="#1f2328">표면이 없으면 그 표면을 쓰는 스킬만 거절된다 — Refusal.VENDOR_SURFACE_ABSENT.</text>
+  <text x="44" y="647" font-size="11" fill="#1a7f37">명령 계층만 있는 Spot 은 navigate_to 를 못 들지만 move_relative 는 여전히 받는다. 거절 사유가 그 문장을 그대로 담고 나간다.</text>
+  <rect x="24" y="680" width="952" height="54" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="44" y="702" font-size="11" fill="#57606a">G1 은 미션 계층이 아예 없고 sport 서비스가 명령만 준다 — 기종 사이의 거리는 스킬마다 다른 것이 아니라 계층이 어긋난 것이다.</text>
+  <text x="44" y="721" font-size="11" fill="#57606a">위 심볼은 @VendorSurface 인용이고, 벤더 매니페스트 대조가 그것을 검사한다 — 원문에 없는 심볼을 짚으면 빌드가 빨개진다.</text>
+</svg>
