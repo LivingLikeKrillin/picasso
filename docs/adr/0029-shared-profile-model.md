@@ -47,3 +47,5 @@ mimic         → profile-model, contracts
 
 - 설계 §3.1·§3.2(그래프), §7.2(투영 경계 — [ADR 10](0010-projection-boundary.md)), §7.3, §12.2의 10번
 - [ADR 30](0030-codegen-outside-buf.md) — 같은 청크에서 내린 도구 배선 결정
+
+> 마지막 대조: 2026-09-11 · sha256:b265d75508f5 · 열림: 없음
