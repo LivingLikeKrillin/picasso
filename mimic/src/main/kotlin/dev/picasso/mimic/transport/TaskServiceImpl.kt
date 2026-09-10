@@ -7,6 +7,8 @@ import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.PauseTaskRequest
 import dev.picasso.contracts.v1.PauseTaskResponse
 import dev.picasso.contracts.v1.Reference
+import dev.picasso.contracts.v1.ProgressBasis
+import dev.picasso.contracts.v1.ProgressKind
 import dev.picasso.contracts.v1.Rejection
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.ResumeTaskRequest
@@ -344,6 +346,13 @@ class TaskServiceImpl(
         .setRevision(update.revision)
         .setAttempt(update.attempt)
         .setProgress(update.progress)
+        // **미믹은 언제나 잰다**(계약 0.8.0). 프로파일이 선언한 소요시간 대비 경과 비율이 그 근거이고,
+        // 그래서 여기에는 *못 잰다* 가 없다 — 그것은 실물에서만 나온다(§15.112).
+        .setProgressBasis(
+            ProgressBasis.newBuilder()
+                .setKind(ProgressKind.PROGRESS_KIND_MEASURED)
+                .setBasis("경과 시간 비율"),
+        )
         .setPartialResult(update.partialResult)
         .setHold(update.hold)
         // 종착이 실패인 경우에만 채워진다(계약 주석). 정준 분류가 상류에 닿는 자리다.

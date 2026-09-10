@@ -177,6 +177,16 @@ data class ExecutionUnit(
     var rechecks: Int = 0,
     /** 하류에 요청을 보낸 시각. `IN_DOUBT` 관측 창의 기준이다. */
     var requestedAt: Instant? = null,
+    /** 마지막으로 **올라간** 진행률과 그 시각. 정체 판정의 기준이다(계약 0.8.0). */
+    var progress: Double = 0.0,
+    var progressAt: Instant? = null,
+    /**
+     * 이 기체가 이 단위의 진행률을 **잴 수 있는가.** 널이면 아직 갱신을 못 봤다.
+     * 거짓이면 정체 판정을 하지 않는다 — 0 을 멈춤으로 읽지 않는다.
+     */
+    var progressObservable: Boolean? = null,
+    /** 이미 정체로 알렸는가. 한 번만 알린다 — 같은 사실을 되풀이하면 운영자가 곧 무시한다. */
+    var progressStalled: Boolean = false,
     /** `IN_DOUBT` 에서 같은 참조로 다시 물은 횟수(13.2 ①). */
     var lookups: Int = 0,
     /**

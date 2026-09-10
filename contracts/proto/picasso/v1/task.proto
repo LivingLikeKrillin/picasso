@@ -140,6 +140,37 @@ message HoldState {
   string reason = 3;
 }
 
+// 진행률의 **근거** — `WatchTaskResponse.progress` 의 숫자가 무엇을 센 것인가.
+//
+// 값을 두 곳에 두지 않는다: 분수는 `progress` 하나이고 이것은 그 분수를 **자격 짓는다**
+// (`HoldState.kind`가 `object_ref`를 자격 짓는 것과 같은 모양).
+//
+// 이것이 없으면 **못 재는 기체와 아직 아무것도 안 한 기체가 `0.0` 으로 같아 보인다.**
+// 진행 정체로 개입을 판단하는 소비자에게 그 둘은 정반대다 — 앞은 판정할 근거가 없는
+// 것이고 뒤는 판정해야 할 것이다. 접으면 진행률을 안 내는 기종이 **언제나 멈춰 있는
+// 것으로** 보인다(설계 §15.112).
+enum ProgressKind {
+  // 옛 발신자. `progress`의 뜻을 모른다 — **측정된 것으로 읽지 않는다.**
+  PROGRESS_KIND_UNSPECIFIED = 0;
+
+  // 이 기체·이 스킬은 진행률을 낼 근거가 없다. `progress`의 0.0은 값이 아니다.
+  PROGRESS_KIND_NOT_OBSERVABLE = 1;
+
+  // `progress`가 유효하다. 무엇을 세었는지는 `basis`가 말한다.
+  PROGRESS_KIND_MEASURED = 2;
+}
+
+message ProgressBasis {
+  ProgressKind kind = 1;
+
+  // 무엇을 세었는가. 사람이 읽는다 — "행동 3/7", "실행 트리 잎 1/2", "경과 시간 비율".
+  // 기종마다 세는 단위가 다르다는 사실을 숨기지 않으려는 것이다.
+  string basis = 2;
+
+  // NOT_OBSERVABLE의 이유. 사람이 읽는다.
+  string reason = 3;
+}
+
 message WatchTaskResponse {
   MessageHeader header = 1;
 
@@ -151,6 +182,9 @@ message WatchTaskResponse {
 
   // 0.0..1.0. 단조 비감소는 (task_id, revision, attempt)가 같은 구간
   // 안에서만 성립하는 불변식이다.
+  //
+  // **이 숫자만으로는 부족하다** — 아래 progress_basis가 그것이 측정된
+  // 값인지 말한다(0.8.0).
   double progress = 5;
 
   string partial_result = 6;
@@ -161,6 +195,10 @@ message WatchTaskResponse {
   // 이 갱신 시점의 잔여 물리 상태. **종착 갱신의 것이 취소·실패 뒤의
   // 잔여 상태다.** 위 HoldState 의 불변식이 여기 걸린다.
   HoldState hold = 8;
+
+  // 위 progress가 무엇을 센 것인가(0.8.0). 비우면 UNSPECIFIED이고,
+  // 소비자는 그것을 "측정되지 않았다"로 읽는다 — 막는 방향이다(§15.41).
+  ProgressBasis progress_basis = 9;
 }
 
 message RetryTaskRequest {

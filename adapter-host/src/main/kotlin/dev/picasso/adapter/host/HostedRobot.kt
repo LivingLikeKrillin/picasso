@@ -16,6 +16,8 @@ import dev.picasso.contracts.v1.FaultEvent
 import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.ProfileRef
+import dev.picasso.contracts.v1.ProgressBasis
+import dev.picasso.contracts.v1.ProgressKind
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskSnapshot
@@ -140,6 +142,8 @@ class HostedRobot(
         val progress: Double,
         val partialResult: String,
         val hold: HoldState,
+        /** 위 [progress] 가 무엇을 센 것인가 — 계약 0.8.0. 못 재는 기체는 여기서 그렇게 말한다. */
+        val progressBasis: ProgressBasis,
         val fault: Fault?,
         val occurredAt: Instant,
     )
@@ -426,6 +430,7 @@ class HostedRobot(
             revision = task.revision,
             attempt = 0,
             progress = progressOf(task, state),
+            progressBasis = basisOf(state),
             partialResult = result,
             hold = adapter.hold().toProto(),
             fault = failure,
@@ -462,6 +467,26 @@ class HostedRobot(
             else -> (adapter.progress() as? ProgressObservation.Fraction)?.fraction?.coerceIn(0.0, 1.0) ?: 0.0
         }
         return maxOf(floor, measured)
+    }
+
+    /**
+     * 계약의 `progress_basis`(0.8.0) — **숫자가 무엇을 센 것인지**.
+     *
+     * 어댑터의 [ProgressObservation] 을 그대로 옮긴다. 종착이 성공이면 셀 것이 없어도 1.0 이 사실이므로
+     * 측정된 것으로 낸다 — 그때의 근거는 *종착* 이다.
+     */
+    private fun basisOf(state: TaskState): ProgressBasis {
+        val builder = ProgressBasis.newBuilder()
+        if (state == TaskState.TASK_STATE_SUCCEEDED) {
+            return builder.setKind(ProgressKind.PROGRESS_KIND_MEASURED).setBasis("성공 종착").build()
+        }
+        return when (val observed = adapter.progress()) {
+            is ProgressObservation.Fraction ->
+                builder.setKind(ProgressKind.PROGRESS_KIND_MEASURED).setBasis(observed.basis).build()
+
+            is ProgressObservation.NotObservable ->
+                builder.setKind(ProgressKind.PROGRESS_KIND_NOT_OBSERVABLE).setReason(observed.reason).build()
+        }
     }
 
     private fun faultEvent(fault: Fault, cleared: Boolean): Event.Builder =

@@ -25,6 +25,7 @@ import dev.picasso.contracts.v1.NegotiateRequest
 import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.ProtocolLimits
 import dev.picasso.contracts.v1.ParameterValue
+import dev.picasso.contracts.v1.ProgressKind
 import dev.picasso.contracts.v1.PauseTaskRequest
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.ReplayEventsRequest
@@ -408,6 +409,42 @@ class AdapterHostTest {
 
             w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
             assertEquals(1.0, w.watch(handle).last().progress, 1e-9)
+        }
+    }
+
+    @Test
+    fun `진행률의 근거가 계약에 실린다 — 못 재는 것과 아직 아무것도 안 한 것이 갈린다`() {
+        World().use { w ->
+            // 못 재는 기체. **`progress = 0.0` 은 값이 아니다** — 계약이 그것을 말할 자리를 갖는다(0.8.0).
+            // 근거는 **갱신이 적히는 순간** 정해지므로 접수보다 먼저 정한다.
+            w.adapter.reportedProgress = ProgressObservation.NotObservable("국면만 있다")
+            val handle = w.start().handle
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            val updates = w.watch(handle)
+            val running = updates.first { it.state == TaskState.TASK_STATE_RUNNING }
+            assertEquals(ProgressKind.PROGRESS_KIND_NOT_OBSERVABLE, running.progressBasis.kind)
+            assertEquals("국면만 있다", running.progressBasis.reason)
+            assertEquals(0.0, running.progress)
+
+            // 성공 종착의 1.0 은 셀 것이 없어도 사실이다 — 그때의 근거는 종착이다.
+            val done = updates.last()
+            assertEquals(ProgressKind.PROGRESS_KIND_MEASURED, done.progressBasis.kind)
+            assertEquals(1.0, done.progress)
+        }
+    }
+
+    @Test
+    fun `세는 기체는 무엇을 셌는지까지 싣는다`() {
+        World().use { w ->
+            w.adapter.reportedProgress = ProgressObservation.Fraction(0.4, "행동 2/5")
+            val handle = w.start().handle
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            val running = w.watch(handle).first { it.state == TaskState.TASK_STATE_RUNNING }
+
+            assertEquals(ProgressKind.PROGRESS_KIND_MEASURED, running.progressBasis.kind)
+            // **숫자만 내면 그것이 무엇을 센 것인지 아무도 모른다.** 기종마다 세는 단위가 다르다.
+            assertEquals("행동 2/5", running.progressBasis.basis)
+            assertEquals(0.4, running.progress, 1e-9)
         }
     }
 

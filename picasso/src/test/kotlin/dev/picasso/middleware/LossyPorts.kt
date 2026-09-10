@@ -1,6 +1,7 @@
 package dev.picasso.middleware
 
 import dev.picasso.contracts.v1.CancelTaskResponse
+import dev.picasso.contracts.v1.ProgressBasis
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.WatchTaskResponse
@@ -73,3 +74,27 @@ class LossyFleet(
     override fun status(handle: TransportHandle): TransportStatus = delegate.status(handle)
     override fun cancel(handle: TransportHandle): Boolean = delegate.cancel(handle)
 }
+
+/**
+ * 진행률의 **근거**를 갈아 끼우는 포트 — 실물의 두 갈래를 미믹 위에서 만든다.
+ *
+ * 미믹은 언제나 잰다(경과 시간 비율). 실물은 그렇지 않다 — Orbit·Digit 은 세고 Spot·G1 은 못 잰다(§15.108).
+ * 그 둘을 미들웨어에 보이려면 여기서 만드는 수밖에 없다. **값을 지어내는 것이 아니라 계약의 자격 필드를
+ * 갈아 끼우는 것**이며, 실물이 그 자리에 무엇을 싣는지는 어댑터 시험이 따로 본다.
+ */
+class ProgressPort(
+    private val delegate: RobotPort,
+    /** 널이면 하류가 낸 것을 그대로 둔다. */
+    private val basis: ProgressBasis?,
+    /** 널이 아니면 진행률을 이 값에 **묶는다** — 재는데 안 움직이는 기체를 만든다. */
+    private val pinned: Double? = null,
+) : RobotPort by delegate {
+    override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
+        delegate.watch(robotId, handle).map { response ->
+            response.toBuilder()
+                .also { b -> basis?.let(b::setProgressBasis) }
+                .also { b -> pinned?.let(b::setProgress) }
+                .build()
+        }
+}
+

@@ -27,6 +27,18 @@ interface LogicalCapability {
      */
     val inDoubtGrace: Duration get() = Duration.ofSeconds(60)
 
+    /**
+     * **진행 정체를 사람에게 보이기까지의 유예.** 도는 단위의 진행률이 이만큼 안 움직이면 자취에 적고 상류에 알린다.
+     *
+     * **실패가 아니고 자동 조치도 없다** — 느린 것과 멈춘 것을 우리가 못 가르므로 판단은 사람이 한다. 이 층이 하는
+     * 것은 *보이게* 하는 것까지다.
+     *
+     * ★**못 재는 기체에는 이 판정을 아예 안 한다**(계약 0.8.0 의 `ProgressBasis`). 진행률의 `0.0` 을 정체로 읽으면
+     * 진행률을 안 내는 기종이 **언제나 멈춰 있는 것으로** 보이고, 그러면 운영자가 그 경보를 곧 무시하게 된다.
+     * 그 구분을 읽는 소비자가 여기이며, 계약이 그 자리를 만든 이유다(§15.112).
+     */
+    val stallWindow: Duration get() = Duration.ofMinutes(5)
+
     /** 상류 요청을 원자 단위 열로. 계획이지 실행이 아니다. */
     fun plan(order: JobOrder): List<ExecutionUnit>
 }

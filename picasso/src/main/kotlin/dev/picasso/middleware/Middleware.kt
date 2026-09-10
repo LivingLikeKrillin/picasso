@@ -6,10 +6,12 @@ import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.HoldState
+import dev.picasso.contracts.v1.ProgressKind
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.WatchTaskResponse
+import java.time.Duration
 import java.time.Instant
 import java.time.format.DateTimeParseException
 
@@ -458,6 +460,49 @@ class Middleware(
     }
 
     /** @return 단위가 이 펌프에서 종착(또는 검증 대기로 이행)해 active 에서 내려와도 되는가. */
+    /**
+     * 진행률을 읽고 **정체를 보이게 한다**(계약 0.8.0 의 `progress_basis` 를 읽는 자리).
+     *
+     * 규칙 둘이다.
+     *
+     * 1. **못 재는 기체는 판정하지 않는다.** `NOT_OBSERVABLE` 이면 그 사실을 자취에 **한 번** 적고 끝이다 —
+     *    진행률의 `0.0` 을 정체로 읽으면 진행률을 안 내는 기종(Spot·G1)이 언제나 멈춰 있는 것으로 보이고,
+     *    그러면 이 경보 자체가 곧 무시된다. 옛 발신자(`UNSPECIFIED`)도 같게 다룬다 — **막는 방향**이다(§15.41).
+     * 2. **잴 수 있는데 안 움직이면 알린다.** 실패로 적지 않고 상태도 안 바꾼다. 느린 것과 멈춘 것을 우리가
+     *    못 가르기 때문이고, 그래서 판단은 사람의 것이다.
+     */
+    private fun noteProgress(execution: Execution, unit: ExecutionUnit, update: WatchTaskResponse) {
+        val basis = update.progressBasis
+        val measured = basis.kind == ProgressKind.PROGRESS_KIND_MEASURED
+        if (unit.progressObservable == null) {
+            unit.progressObservable = measured
+            if (!measured) {
+                val why = basis.reason.ifBlank { "기체가 진행률의 근거를 안 낸다(kind=${basis.kind.name})" }
+                execution.trail("PROGRESS_NOT_OBSERVABLE", "${unit.unitId}: $why — 정체 판정을 하지 않는다")
+            }
+        }
+        if (!measured) return
+
+        val at = now()
+        if (unit.progressAt == null || update.progress > unit.progress) {
+            unit.progress = update.progress
+            unit.progressAt = at
+            unit.progressStalled = false
+            return
+        }
+        if (unit.progressStalled) return
+        val window = execution.capability.stallWindow
+        if (Duration.between(unit.progressAt, at) < window) return
+
+        unit.progressStalled = true
+        unit.annotate("진행률이 $window 동안 안 움직였다 (${basis.basis})")
+        execution.trail(
+            "PROGRESS_STALLED",
+            "${unit.unitId}: ${basis.basis} at ${update.progress} — 느린 것과 멈춘 것은 이 층이 못 가른다. 사람이 본다",
+        )
+        notify(execution)
+    }
+
     private fun pumpRobotUnit(execution: Execution, unit: ExecutionUnit): Boolean {
         val updates = robots.watch(execution.robotId, execution.handle!!)
         // **결과 이벤트는 (실행, 버전)으로 맞춘다**(15.1). 이 단위의 지금 버전보다 낮은 버전의 종착은 지연 이벤트로
@@ -468,6 +513,7 @@ class Middleware(
             ?: return late.lastOrNull { it.state.isTerminal() }?.let { settleLate(execution, unit, it) } ?: false
         unit.hold = last.hold
         if (!last.state.isTerminal()) {
+            noteProgress(execution, unit, last)
             execution.physicalState = when {
                 execution.cancelRequested -> PhysicalState.CANCELING
                 execution.linkBroken -> PhysicalState.IN_DOUBT

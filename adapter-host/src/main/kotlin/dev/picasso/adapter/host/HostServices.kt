@@ -233,6 +233,7 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
             .setProgress(update.progress)
             .setPartialResult(update.partialResult)
             .setHold(update.hold)
+            .setProgressBasis(update.progressBasis)
             .also { b -> update.fault?.let(b::setFault) }
             .build()
 
