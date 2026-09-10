@@ -148,6 +148,32 @@ class DocumentClaimsTest {
     }
 
     @Test
+    fun `계약이 적은 담보마다 그것을 지키는 시험이 실재한다`() {
+        // **시험이 없는 담보는 담보가 아니라 희망이다.** `contract.md` 는 담보마다 그것을 지키는 시험을
+        // 이름으로 댄다. 시험을 지우거나 이름을 바꾼 사람은 그 문서를 안 보므로 여기서 맞댄다.
+        val doc = Repo.read("docs/contract.md")
+        val cite = Regex("""`([a-z0-9-]+)` · `([A-Za-z0-9]+Test)` · `([^`]+)`""")
+
+        // 담보 표의 **모든 줄**이 시험을 대야 한다. 증명 칸을 비워 두면 주장만 남는다.
+        val rows = doc.lines().dropWhile { !it.startsWith("| 담보 |") }.drop(2).takeWhile { it.startsWith("|") }
+        assertTrue(rows.size >= 15, "담보 표가 비었거나 모양이 바뀌었다: ${rows.size} 줄")
+        assertEquals(emptyList(), rows.filterNot { cite.containsMatchIn(it) }, "담보를 적고 지키는 시험을 안 댔다")
+
+        val broken = cite.findAll(doc).mapNotNull { hit ->
+            val (module, cls, name) = hit.destructured
+            val file = Files.walk(Repo.path("$module/src/test")).use { walk ->
+                walk.filter { it.fileName.toString() == "$cls.kt" }.findFirst().orElse(null)
+            }
+            when {
+                file == null -> "$module · $cls: 그런 시험 파일이 없다"
+                !Repo.read(file).contains("fun `$name`(") -> "$module · $cls: `$name` 이 없다"
+                else -> null
+            }
+        }.toList()
+        assertEquals(emptyList(), broken, "계약 문서가 대는 시험이 코드에 없다")
+    }
+
+    @Test
     fun `문서가 가리키는 파일이 전부 실재한다`() {
         // 문서 사이의 링크가 이 저장소에서 유일하게 **자동으로 낡는 것**이다 — 파일 이름을 바꾸면 아무도 안 알려 준다.
         // 숫자를 세는 것과 같은 이유로 여기서 본다.

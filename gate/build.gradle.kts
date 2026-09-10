@@ -98,8 +98,16 @@ tasks.withType<Test>().configureEach {
         //
         // **대가**: 아무 모듈의 출하 소스가 바뀌어도 :gate:test 가 다시 돈다(음성 하네스 때문에 ~1분).
         // 그것을 감수한다 — **안 도는 검사보다 늦게 도는 검사가 낫다.**
+        //
+        // **시험 소스도 같은 이유로 들어온다.** `docs/contract.md` 가 담보마다 *그것을 지키는 시험* 을
+        // 이름으로 대고, 그 이름이 실재하는지 `DocumentClaimsTest` 가 본다 — 시험을 지운 사람은 그 문서를
+        // 안 본다. 대조가 시험 소스를 읽으므로 그것도 선언돼 있어야 한다.
         rootProject.subprojects.flatMap {
-            listOf(rootProject.file("${it.name}/README.md"), rootProject.file("${it.name}/src/main"))
+            listOf(
+                rootProject.file("${it.name}/README.md"),
+                rootProject.file("${it.name}/src/main"),
+                rootProject.file("${it.name}/src/test"),
+            )
         }
     inputs.files(repoInputs).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
