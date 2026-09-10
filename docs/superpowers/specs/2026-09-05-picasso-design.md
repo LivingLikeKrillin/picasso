@@ -160,6 +160,7 @@ picasso/
   registry/           개정판·어댑터·원장·변경 계획·카탈로그    8·9절
   mimic/              프로파일 주도 에뮬레이터 + 제어 채널      C-2
   client/             계약 소비자 — 완료 기준 증명용
+  picasso/            미들웨어의 가운데 — 정준 모델과 공통 실행 구조. **기종을 모른다** (ADR 38)
   adapter-core/       어댑터들이 공유하는 계약 쪽 어휘와 `RobotAdapter`. **기종을 모른다** (ADR 33)
   adapter-host/       어댑터 하나를 계약의 gRPC 서비스 뒤에 세우는 서버. **기종을 모른다** (ADR 39)
   adapter-<vendor>-<model>/
@@ -178,29 +179,26 @@ picasso/
 
 **`contracts/`는 프로젝트 내 의존이 0이다.** openTCS `opentcs-api-base`와 같은 구조다. §11.2의 5번 검사가 CI로 강제한다.
 
-**빌드 의존:**
+**빌드 의존.** ★정본은 `docs/architecture.md` §4b다 — `DocumentClaimsTest`가 각 모듈의 `build.gradle.kts`와
+대조하는 기계 검증 표라서, 여기서 같은 숫자를 다시 베끼지 않는다(두 곳에 쓰면 드리프트한다). 아래는 그
+표만 봐서는 안 드러나는 단서만 남긴다.
 
-```
-profile-model → (없음)
-gate          → profile-model   ※ 아래 단서
-registry      → gate, contracts
-mimic         → profile-model, contracts
-client        → contracts, profile-model   ※ 아래 단서
-harness       → mimic, client, contracts, uplink
-adapter-core  → contracts
-capability    → contracts, profile-model   ※ grpc 를 안 쓴다 — 판정 불가는 타입이고 전송 매핑은 서비스가 한다
-uplink        → contracts   ※ registry 는 모른다 — 그 방향은 HTTP 다(아래 표)
-adapter-host  → contracts, adapter-core, profile-model, capability, uplink   ※ 어댑터 모듈은 모른다 — 조립은 기종을 아는 쪽(ADR 39)
-mimic         → profile-model, capability, contracts, uplink   ※ 2026-09-10 에 투영·협상 판정은 capability 로, 발행·적재는 uplink 로 나갔다
-adapter-<v>-<m> → contracts, adapter-core    ※ 아래 단서
-```
+- `capability` ※ grpc 를 안 쓴다 — 판정 불가는 타입이고 전송 매핑은 서비스가 한다
+- `uplink` ※ registry 는 모른다 — 그 방향은 HTTP 다(아래 표)
+- `adapter-host` ※ 어댑터 모듈은 모른다 — 조립은 기종을 아는 쪽(ADR 39)
+- `mimic` ※ 2026-09-10 에 투영·협상 판정은 capability 로, 발행·적재는 uplink 로 나갔다
+- `client`·`adapter-<v>-<m>` ※ 아래 단서
 
-**`adapter-*`는 기종마다 모듈 하나다(ADR 33).** 게이트 7번이 보는 셋
-(`client`·`mimic`·`harness`) **밖**에 두는 것이 요점이며, 기종 지식이 갈 곳이
-정확히 거기라서 나머지가 기종을 모를 수 있다. 의존이 `contracts` 하나인 것도
-같은 이유다 — 어댑터가 `registry`를 알면 §3.2의 순환 회피 규칙이 깨지고,
-`profile-model`을 알면 어댑터가 자기 프로파일을 읽는 쪽이 되어 선언과 구현이
-같은 곳에서 나온다. **벤더 SDK도 아직 여기 없다**(§15.55).
+**`adapter-*`는 기종마다 모듈 하나다(ADR 33).** 게이트 7번이 보는 여덟
+(`client`·`mimic`·`harness`·`adapter-core`·`picasso`·`capability`·`adapter-host`·`uplink`) **밖**에 두는 것이 요점이며, 기종 지식이 갈 곳이
+정확히 거기라서 나머지가 기종을 모를 수 있다. ~~의존이 `contracts` 하나인 것도
+같은 이유다~~ → **로봇 어댑터 셋(`adapter-agility-digit`·`adapter-boston-dynamics-spot`·`adapter-unitree-g1`)만
+그렇다** — 의존이 `adapter-core`·`contracts` 뿐인 것이 같은 이유다: 어댑터가 `registry`를 알면 §3.2의
+순환 회피 규칙이 깨지고, `profile-model`을 알면 어댑터가 자기 프로파일을 읽는 쪽이 되어 선언과 구현이
+같은 곳에서 나온다. **`adapter-boston-dynamics-orbit`는 예외다** — 기체가 아니라 **플릿**에 붙고 배치
+런처가 계약 서버를 세우므로 `adapter-core`·`adapter-host`·`contracts`·`profile-model`·`uplink`를 든다
+(ADR 37·39; `adapter-boston-dynamics-orbit/build.gradle.kts:26` `implementation(project(":profile-model"))`).
+**벤더 SDK도 아직 여기 없다**(§15.55).
 
 **`adapter-core`는 두 번째 어댑터에서 생겼다.** ADR 33이 대가로 적어 둔 것 — *"두 번째 어댑터가 생길 때 중복이 보이면 공통을 뽑아야 하는데, 그 공통 모듈은 다시 기종을 몰라야 하고 그때 검사 7번의 목록에 더해야 한다"* — 이 그대로 일어났다. 게이트 7번의 목록이 그때부터 계속 자랐고 지금은 여덟이다 — `client` · `mimic` · `harness` · `adapter-core` · `picasso` · `capability` · `adapter-host` · `uplink`. **어댑터 모듈 자체는 여전히 그 목록에 없다** — 기종을 아는 것이 그것의 일이다. **정본은 코드다**(`Check07ModelBranching.MODULES`); 이 문장은 그것을 옮긴 것이고, `DocumentClaimsTest` 가 둘이 어긋나면 빨개진다.
 
@@ -236,9 +234,14 @@ adapter-<v>-<m> → contracts, adapter-core    ※ 아래 단서
 
 - **`contracts/`** — 런타임에 로봇이 말해야 하는 것의 구조, **그리고 그 구조를 채우는 규칙** — §5.5의 헤더 표와 계약 신원(`contract_digest`·`contract_semver`). 헤더 표를 발신자 쪽에만 두면 `client`가 요청 열을 두 번째로 옮겨 적게 되므로 계약이 갖는다. 값이나 제약은 담지 않는다.
 - **`profile/`** — 기종을 기술하는 선언 형식과 실제 프로파일들. 값과 제약만 담는다.
+- **`capability/`** — 능력의 투영과 판정 — 프로파일 → `Capability`, 요구 집합 대 `Capability` 협상. `mimic`·`adapter-host` 공유, 전송을 모른다.
+- **`uplink/`** — 발신자의 위쪽 결선 — 브로커 발행과 레지스트리 적재(핸드셰이크·태스크·생존·폴백). `mimic`·`adapter-host` 공유.
 - **`registry/`** — 개정판·어댑터의 수명주기, 바인딩, **의존 원장, 변경 계획, 능력 카탈로그**, 진단 표면.
 - **`mimic/`** — 프로파일을 읽어 계약을 구현하는 서비스 가상화 계층. "어댑터 + 로봇" 한 쌍을 대신한다.
 - **`client/`** — 계약을 두드려 완료 기준을 증명하는 얇은 소비자. **오케스트레이터가 아니다.**
+- **`picasso/`** — 미들웨어의 가운데. 정준 모델과 공통 실행 구조(접수·능력 선택·실행 상태기계·근거 결합·취소·결과 통보). 기종을 모른다(ADR 38).
+- **`adapter-core/`** — 어댑터들이 공유하는 계약 쪽 어휘와 `RobotAdapter`. 기종을 모른다(ADR 33).
+- **`adapter-host/`** — 어댑터 하나를 계약의 gRPC 서비스 뒤에 세우는 서버. 기종을 모른다(ADR 39).
 - **`gate/`** — 검증 규칙의 단일 구현. CI와 `registry`가 기준선만 달리해 같은 코드를 호출한다.
 - **`harness/`** — 지정한 프로파일로 `mimic`을 띄우고 `client`로 계약 스위트를 돌린 뒤 결과를 보고한다.
 
@@ -716,7 +719,9 @@ VDA5050 `factsheet.schema`의 구조를 따른다. **투영에 들어가는 것�
 
 ### 7.4 이번에 만드는 프로파일
 
-`profile/profiles/`에 `humanoid-a`와 `quadruped-b` 둘. 차이의 종류를 의도적으로 갖춘다.
+~~`profile/profiles/`에 `humanoid-a`와 `quadruped-b` 둘.~~ → **여섯이 됐다**: `humanoid-a`·`quadruped-b`
+(시험용 가상 기종, `vendor: picasso-ref`) · `quadruped-c`(같은 시험용 가상 기종, §12.2의 C-2로 추가) ·
+`agility-digit`·`spot-arm`·`unitree-g1`(실물 벤더의 1차 자료에서 파생, ADR 31의 어댑터 셋과 짝). 차이의 종류를 의도적으로 갖춘다.
 
 | 차이의 종류 | 시험하는 것 |
 |---|---|
@@ -1387,8 +1392,14 @@ mimic/
 | [33](../../adr/0033-adapter-module-shape.md) | **어댑터 모듈이 기종을 알아도 되는 유일한 자리** — ADR 31이 어댑터의 주인은 정했으나 둘 곳을 정하지 않았고, 그 공백이 게이트 7번과 부딪쳤다 | → §15.55·§15.56 |
 | [34](../../adr/0034-semantic-binding-unowned.md) | **시맨틱 결속은 어댑터가 갖지 않는다** — 실물 둘을 재고 나서야 계약이 층 하나를 주인 없이 전제하고 있다는 것이 보였다 | → §15.59·§15.60 |
 | [35](../../adr/0035-site-names-live-in-the-robot.md) | **사이트 이름은 로봇 안에 산다** — 계약은 사이트의 이름을 나르고 등록은 사이트 작업이며 `registry`는 그 사실을 상태로만 갖는다 | → §15.68 |
+| [36](../../adr/0036-work-first-assignment-vs-execution.md) | **일감이 먼저다: 배정 어휘와 실행 계약을 가른다** — `skill_catalog.proto`가 겸업하던 두 일을 나눴다 | — |
+| [37](../../adr/0037-registration-is-discovery-or-declaration.md) | **등록이 두 갈래다: 발견과 선언** | — |
+| [38](../../adr/0038-mission-layer-schema-is-ours.md) | **미션 계층의 스키마와 PoC 엔진은 우리 범위다** — [미들웨어 중앙 설계](2026-09-09-middleware-core-design.md)와 함께 결정 | — |
+| [39](../../adr/0039-adapter-host.md) | **어댑터의 북쪽은 기종을 모르는 호스트 하나다** | — |
 
 기록은 `docs/adr/`에 있고 번호가 이 표의 행 번호다. **이미 내려서 코드에 박힌 것만 쓴다** — 3a·3b가 만들 것(11~21)은 그때 쓴다. 결정하지 않은 것을 미리 적어 두면 그것이 결정처럼 보인다.
+
+> 마지막 대조: 2026-09-11 · sha256:7369d93bd6fc · 열림: C-3, §15.7, §15.126, ADR 32 · 시나리오 5, §15.4, §15.5, §15.6 · §15.11 · §15.28, §15.8, §15.9, §15.10, §15.1, §15.2, §15.33, §15.87
 
 ## 15. 알려진 한계
 
@@ -3111,3 +3122,22 @@ mimic/
     레지스트리는 이름 대신 **개수만** 받는다(ADR 35 — 이름은 로봇 안에 산다). 그래서 *"셋을 등록했다"* 와 *"셋을 안다"* 가 맞으면 통과하고, 그중 하나가 오타여도 수가 같으면 안 걸린다. `CONTRADICTED` 가 잡는 것은 *못 한다면서 개수를 냈다* 는 모순이지 이름의 내용이 아니다.
 
     ★**닫으려면 이름을 받아야 하는데, 그것은 ADR 35 를 뒤집는 것이다.** 그래서 이 행은 값이 싸지 않다 — 적어 두는 것이 지금 할 수 있는 전부다.
+
+130. **완료 조건을 만족한다 — 그리고 그 값이 얼마였는지도 함께 적는다.**
+
+    자리 **47** 전부가 도장을 갖고, 밖을 향한 문서가 드는 열림은 **117** 이며, 셋 중 어느 것도 아닌 문장이 **0** 이다. 게이트 시험 242, 실패 0.
+
+    **감사가 실제로 잡은 것: 문서가 코드와 어긋난 자리 스물 몇.** 무거운 순서로 셋만 —
+    ① `architecture.md` 의 상태기계 표가 **태스크 상태 칸에 실패 분류를 섞어** 놓고 있었다. 그 표의 요지가 *"둘은 다른 층이고 하나가 다른 하나를 대신하지 않는다"* 인데 표 자신이 셋째 어휘를 들여놨다.
+    ② `seams.md` 가 *"`mimic --registry` 로 프로파일 출처를 바꾼다"* 고 적었는데 **방향이 반대**였다 — 교체 지점 문서가 교체하는 방법을 틀리게 적고 있었다.
+    ③ `README.md` 가 *"어댑터는 `contracts` 하나에만 의존한다"* 를 `adapter-core` 가 생긴 뒤에도 들고 있었다.
+
+    ★**§4.2 가 실제로 물었다.** 셋째 것은 갈래 2 열림으로만 정당화되는 문장이었고, README 는 그런 열림을 못 든다. 그래서 **지어야 했다** — 각 모듈의 `build.gradle.kts` 에서 출하 의존을 읽어 `architecture.md` §4b 의 표와 대는 시험. 지어 보니 **그 문장은 애초에 거짓이었다.** 규칙이 없었으면 열림으로 남아 계속 거짓이었을 것이다.
+
+    ★**왜 이것들이 살아 있었나 — 구조가 나왔다.** 도장 없는 문서는 해시 검사도 유령 id 검사도 `?: return@mapNotNull null` 로 **조용히 건너뛴다.** 그래서 `environment-preconditions.md` 가 대장에 없는 `§15.79` 를 근거로 대고도 초록이었다. 그리고 링크 검사가 `Files.list`(비재귀)라 **`docs/adr/` 를 아예 안 봤다** — 재귀로 바꾸자마자 죽은 링크를 정확히 하나 잡았다.
+
+    ★**대장은 색인인데 정본을 다 싣지 않고 있었다.** §15.4·7·22·38·79 가 일지에 살아 있는 한계인데 행이 없었고, **대장에 없으면 열림으로 못 대고 못 대면 삭제 대상이 된다.** 참인 문장이 색인 누락 때문에 지워질 뻔했다. 행 열둘을 더했다(색인 다섯 + 신설 일곱).
+
+    **정직하게 적는 값.** 이 조건의 유지비는 싸지 않다 — 문서를 고칠 때마다 도장을 다시 찍어야 하고, 열림 하나를 옮기면 `limits.md` 의 수가 따라와야 한다. 사용자가 진행 중에 *"작업을 위한 작업을 하고 있는 것 같다"* 고 물었고 **그것은 맞는 지적이었다.** 값이 있던 것은 **결함 스물 몇과 안티로트 시험 아홉**이고, 도장·해시·117 을 맞추는 사슬은 그 자체로는 저장소를 좋게 만들지 않는다. ★**다음에 이런 조건을 세울 때는 조건의 유지비가 조건이 잡는 결함보다 싼지를 먼저 본다.**
+
+    **닫히지 않은 채로 끝난다.** `limits.md` 는 117 개의 열림 표기를 든 채 남고, 그것이 이 조건의 요점이다 — **안 비는 대장으로 끝날 수 있다.** C-3(실물 미검증)은 지어서 못 닫으므로 열린 채 선언한다.

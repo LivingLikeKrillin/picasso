@@ -255,6 +255,44 @@ class DocumentClaimsTest {
     }
 
     @Test
+    fun `모듈 의존 그림이 빌드와 같다`() {
+        // ★**`architecture.md` 의 의존 그림 아홉 줄 중 게이트가 집행하던 것은 둘뿐이었다**(검사 5 의
+        // `contracts` 의존 0, 검사 7 의 기종 문자열). 나머지 일곱은 산문이었고, 그래서 `README.md` 가
+        // *"어댑터는 `contracts` 하나에만 의존한다"* 를 **`adapter-core` 가 생긴 뒤에도** 들고 있었다.
+        //
+        // **출하 의존만 센다.** 시험이 무엇을 끌어오는지는 다른 이야기다 — 하네스가 어댑터를 끌어오는 것이
+        // 정상이고, 섞으면 이 표가 아무것도 못 막는다.
+        val declared = Regex("""^\s*(\w+)\s*\(\s*(?:testFixtures\s*\()?\s*project\("[:]([a-z0-9-]+)"\)""")
+        val actual = modules().associateWith { module ->
+            Repo.read("$module/build.gradle.kts").lines()
+                .filterNot { it.trimStart().startsWith("//") }
+                .mapNotNull { declared.find(it) }
+                .filterNot { it.groupValues[1].startsWith("test") }
+                .map { it.groupValues[2] }
+                .toSortedSet()
+        }
+
+        val table = read("docs/architecture.md").substringAfter("## 4b.").substringAfter("```text").substringBefore("```")
+        val documented = table.lines().mapNotNull { line ->
+            val (name, deps) = line.split("→").takeIf { it.size == 2 } ?: return@mapNotNull null
+            name.trim() to deps.trim().takeIf { it != "(없음)" }.orEmpty()
+                .split("·").map { it.trim() }.filter { it.isNotEmpty() }.toSortedSet()
+        }.toMap()
+
+        assertEquals(actual, documented, "의존이 바뀌었는데 architecture.md §4b 가 그대로다")
+    }
+
+    @Test
+    fun `게이트가 계약에 빌드 의존 대신 태스크 의존을 건다`() {
+        // `README.md` 와 `gate/README.md` 가 *"빌드 의존을 안 걸고 디스크립터 바이트를 읽는다 —
+        // `:gate:test` 가 그 태스크에 매달려 있어 손으로 먼저 돌릴 명령이 없다"* 고 적는다.
+        // 앞 절반은 §4b 의 표가 대고(게이트의 출하 의존은 `profile-model` 뿐), 뒤 절반이 이 줄이다.
+        val build = read("gate/build.gradle.kts")
+        assertTrue("dependsOn(\":contracts:generateProto\")" in build, "태스크 의존이 사라졌다 — 손으로 먼저 돌려야 하는 상태가 된다")
+        assertTrue("inputs.files(descriptor)" in build, "디스크립터가 입력 선언에서 빠졌다 — 바뀌어도 UP-TO-DATE 로 넘어간다")
+    }
+
+    @Test
     fun `모듈 문이 적은 수가 코드와 같다`() {
         // ★**수 세기가 루트 `README.md` 와 `docs/` 만 보고 있었다.** 그래서 모듈 문의 숫자는 아무도 안
         // 셌고, 실측(2026-09-11) 셋이 낡아 있었다 — `contracts` 가 proto 를 다섯이라 적었고(여섯),

@@ -14,6 +14,20 @@ class CompletionCriterionTest {
     }
 
     @Test
+    fun `주장의 자리 전부가 도장을 갖는다`() {
+        // ★**이 시험이 조건의 문이다.** 도장 없는 문서는 아래 두 검사가 `?: return@mapNotNull null` 로
+        // **조용히 건너뛴다** — 해시도 안 보고 유령 id 도 안 본다. 그래서 감사가 끝나기 전까지
+        // `environment-preconditions.md` 는 대장에 없는 `§15.79` 를 근거로 대고도 초록이었다.
+        //
+        // **마지막에 켰다.** 처음부터 켰으면 47 문서가 통째로 빨개진 채 감사 내내 남았을 것이고,
+        // 이 저장소의 규율대로 **빨간 시험은 곧 꺼진다.**
+        val unstamped = ClaimSurface.documents()
+            .filter { ClaimSurface.stamp(it) == null }
+            .map { ClaimSurface.relative(it) }
+        assertEquals(emptyList(), unstamped, "도장이 없다 — 훑고 python tools/stamp.py 로 찍어라")
+    }
+
+    @Test
     fun `도장이 있는 문서는 해시가 본문과 같다`() {
         val stale = ClaimSurface.documents().mapNotNull { doc ->
             val stamp = ClaimSurface.stamp(doc) ?: return@mapNotNull null

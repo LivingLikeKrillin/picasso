@@ -110,6 +110,10 @@ tasks.withType<Test>().configureEach {
                 rootProject.file("${it.name}/README.md"),
                 rootProject.file("${it.name}/src/main"),
                 rootProject.file("${it.name}/src/test"),
+                // ★**의존 그림을 빌드에서 읽는다.** `architecture.md` 의 아홉 줄 중 게이트가 집행하던 것은
+                // 둘뿐이었고(검사 5·7) 나머지는 산문이었다 — 그래서 README 가 *"어댑터는 contracts
+                // 하나에만 의존한다"* 를 `adapter-core` 가 생긴 뒤에도 들고 있었다. 같은 구멍의 여덟째.
+                rootProject.file("${it.name}/build.gradle.kts"),
             )
         }
     inputs.files(repoInputs).withPropertyName("profileInputs")

@@ -7,7 +7,7 @@
 
 **원문은 이 저장소에 안 들인다.** `@VendorSurface` + `vendor-manifest.txt` 와 같은 규율이며, 여기 적는 것은 심볼 이름과 해시뿐이다.
 
-> **2026-09-10 — 매니페스트가 됐다.** 위 두 원본을 다시 받아 **해시가 같음을 확인**하고(페이지 `7563e16e…`, 클라이언트 `19c7f980…`) 심볼 **251 개**를 뽑아 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt` 에 고정했다. 추출기는 `tools/vendor-manifest/openapi_symbols.py` 이고, 이제 남쪽 포트의 인용이 이 목록에 대고 검사받는다(`OrbitVendorSurfaceTest`). 조사의 기계 판독본은 `profile/vendors/orbit.json`.
+> **2026-09-10 — 매니페스트가 됐다.** 위 두 원본을 다시 받아 **해시가 같음을 확인**하고(페이지 `7563e16e…`, 클라이언트 `19c7f980…`) 심볼 **323 개**를 뽑아 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt` 에 고정했다. 추출기는 `tools/vendor-manifest/openapi_symbols.py` 이고, 이제 남쪽 포트의 인용이 이 목록에 대고 검사받는다(`OrbitVendorSurfaceTest`). 조사의 기계 판독본은 `profile/vendors/orbit.json`.
 >
 > 그때 **산문으로 적혀 있던 것 하나가 숫자가 됐다** — 아래 "스펙 밖 경로" 는 하나(파견)로 적혀 있었으나, 클라이언트가 치는 경로 40 개를 전부 세니 **아홉**이 게시 스펙에 없다: 파견 · `graph/send-robot` · `robot-session/{nickname}/session` · `site_walks/archive` · `site_walks/export_as_walk` · `site_walks/import_from_walk` · `settings/system-time` · `version` · `backup_tasks/{id}`. 게시본이 불완전하다는 판정이 사례 하나가 아니라 **아홉 분의 하나** 위에 선다.
 >
@@ -208,3 +208,5 @@ work order 템플릿이 **`bosdyn.api.DictParamSpec` 모양**이라고 명시된
 3. **Work Order 엔드포인트의 실제 모양** — 게시 스펙에 없다. 인스턴스에 붙기 전에는 `UNKNOWN`.
 4. **인스턴스 표면** — 게시본보다 넓은지 여부. 붙어 보기 전에는 못 닫는다.
 5. **Atlas·Stretch 의 접속 경로** — 위 절의 `INFERRED` 를 닫으려면 비공개 SDK 유무를 확인해야 한다. 확인 전까지 어느 쪽으로도 설계를 굳히지 않는다.
+
+> 마지막 대조: 2026-09-11 · sha256:92f4272c4c85 · 열림: C-3
