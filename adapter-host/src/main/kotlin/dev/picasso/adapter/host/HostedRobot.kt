@@ -3,6 +3,7 @@ package dev.picasso.adapter.host
 import com.google.protobuf.Descriptors
 import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.FaultObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.contracts.v1.Capability
@@ -380,7 +381,7 @@ class HostedRobot(
             state = state,
             revision = task.revision,
             attempt = 0,
-            progress = if (state == TaskState.TASK_STATE_SUCCEEDED) 1.0 else 0.0,
+            progress = progressOf(task, state),
             partialResult = result,
             hold = adapter.hold().toProto(),
             fault = failure,
@@ -397,6 +398,25 @@ class HostedRobot(
                 ),
         )
         onUpdate.forEach { it(task, update) }
+    }
+
+    /**
+     * 계약의 `progress` — **어댑터가 셀 수 있을 때만 움직인다.**
+     *
+     * 규칙 셋이 여기 모여 있다. ① 성공 종착은 1.0 이다(§4.4). ② 값은 `(task_id, revision, attempt)` 안에서
+     * **단조 비감소**이므로 앞의 값이 바닥이다 — 벤더가 개수를 다시 세면 숫자가 내려갈 수 있고, 실패 종착도
+     * *거기서 멈춘 것*이지 아무것도 안 한 것이 아니다. ③ 범위 밖은 자른다.
+     *
+     * **못 재는 기종은 0.0 에 머문다.** 계약에 *못 잰다* 를 실을 자리가 없어 [ProgressObservation.NotObservable]
+     * 이 여기서 접히며, 그것이 지금의 한계다(§15.108).
+     */
+    private fun progressOf(task: HostedTask, state: TaskState): Double {
+        val floor = task.log.lastOrNull()?.progress ?: 0.0
+        val measured = when {
+            state == TaskState.TASK_STATE_SUCCEEDED -> 1.0
+            else -> (adapter.progress() as? ProgressObservation.Fraction)?.fraction?.coerceIn(0.0, 1.0) ?: 0.0
+        }
+        return maxOf(floor, measured)
     }
 
     private fun faultEvent(fault: Fault, cleared: Boolean): Event.Builder =

@@ -12,6 +12,7 @@
   "exclusive_control_required": "YES",
   "pause_support": "UNKNOWN",
   "cancel_support": "UNKNOWN",
+  "progress_support": "YES",
   "terminal_latches": "UNKNOWN",
   "coverage": {
     "model_identity": {
@@ -47,6 +48,7 @@
     "**로봇이 아니라 플릿이다.** 다른 셋은 기체 하나의 표면을 잰 것이고 이것은 기체 여럿을 아는 서버를 잰 것이다. 그래서 이 조사에서만 *발견*(어댑터가 로봇 목록을 얻는다)이 성립한다(ADR 37).",
     "**게시본이 전부가 아님이 증명돼 있다.** 벤더의 산문 문서가 참조하는 work order 엔드포인트가 게시 스펙에 0 건이고, 클라이언트가 치는 경로 40 개 중 **9 개가 게시 스펙에 없다**(파견·`graph/send-robot`·`robot-session`·`site_walks/archive`·`export_as_walk`·`import_from_walk`·`settings/system-time`·`version`·`backup_tasks/{id}`). 그래서 이 문서의 `NONE` 은 *게시본 안에서* 없다는 뜻이고, 3값은 `UNKNOWN` 으로 남겼다.",
     "**일을 지금 시키는 문이 게시 스펙에 없다.** 스펙 안에서 작업 투입구는 캘린더 항목(`POST /calendar/schedule`)뿐이고 그것은 *언제* 를 정한다. 지금 시키려면 클라이언트에만 있는 `calendar/mission/dispatch/{nickname}` 을 쳐야 하며, 벤더가 공개 API 로 약속한 적이 없다. 매니페스트에서 그 이름은 `bosdyn-orbit:` 접두사로 갈려 있다.",
-    "**직결의 이점이 여기서 사라진다.** Spot 에 직접 붙으면 `MissionStatus` 열거와 `BehaviorFault{Cause,Status}` 를 받는데, 같은 로봇을 Orbit 뒤에서 보면 자유 문자열 하나와 정수 하나다. 층이 하나 늘 때 결과 어휘가 얼마나 얇아지는지가 이 조사의 값이다(ADR 36 의 실행 층)."
+    "**직결의 이점이 여기서 사라진다.** Spot 에 직접 붙으면 `MissionStatus` 열거와 `BehaviorFault{Cause,Status}` 를 받는데, 같은 로봇을 Orbit 뒤에서 보면 자유 문자열 하나와 정수 하나다. 층이 하나 늘 때 결과 어휘가 얼마나 얇아지는지가 이 조사의 값이다(ADR 36 의 실행 층).",
+    "**진행률을 낼 수 있다.** `Run.actionCount` 와 `Run.pendingActionCount` 가 개수 둘을 주므로 끝난 액션 수를 세는 것은 유도이지 발명이 아니다. 넷 중 이것과 Digit 만 그렇다(§15.108)."
   ]
 }

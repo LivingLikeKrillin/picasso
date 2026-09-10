@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
@@ -66,6 +67,9 @@ class OrbitAdapter(
         var failure: Fault? = null,
         /** 벤더의 자유 문자열. 판정에 안 쓰고 진단에만 싣는다. */
         var vendorStatus: String? = null,
+        /** 마지막으로 본 실행의 액션 개수 둘. 실행을 아직 못 봤으면 널 — **0 이 아니다.** */
+        var actionCount: Int? = null,
+        var pendingActionCount: Int? = null,
     )
 
     private var task: RunningTask? = null
@@ -145,6 +149,8 @@ class OrbitAdapter(
         // **그 가정을 여기 적어 둔다**: 다른 사람이 같은 기체에 일을 시키면 그 실행을 우리 것으로 읽는다.
         current.runUuid = current.runUuid ?: run.uuid
         current.vendorStatus = run.missionStatus
+        current.actionCount = run.actionCount
+        current.pendingActionCount = run.pendingActionCount
 
         // **종착의 판정은 endTime 하나다.** 자유 문자열을 안 믿는다.
         if (run.endTime.isNullOrBlank()) return current.state
@@ -176,6 +182,28 @@ class OrbitAdapter(
             )
         }
         return current.state
+    }
+
+    /**
+     * 진행률 — **플릿이 개수를 세어 준다.**
+     *
+     * `Run.actionCount` 와 `Run.pendingActionCount` 가 벤더의 자원에 있는 값이므로, 끝난 액션 수를 세는 것은
+     * 유도이지 발명이 아니다. 같은 층에서 국면(예: Spot 취득의 열한 상태)을 분수로 바꾸는 것은 다른 종류이고
+     * 그것은 안 한다 — 국면 사이의 거리를 우리가 정하는 순간 숫자에 근거가 없어진다.
+     *
+     * 셋을 못 잰다로 둔다: 실행을 아직 못 봤을 때, 개수가 0 일 때(나눌 수 없다), 그리고 남은 것이 전체보다 많을 때
+     * (벤더의 두 값이 어긋난 것이므로 짐작하지 않는다).
+     */
+    override fun progress(): ProgressObservation {
+        val current = task ?: return ProgressObservation.NotObservable("도는 태스크가 없다")
+        val total = current.actionCount ?: return ProgressObservation.NotObservable("아직 이 태스크의 실행을 못 봤다")
+        val pending = current.pendingActionCount ?: return ProgressObservation.NotObservable("플릿이 남은 액션 수를 안 줬다")
+        if (total <= 0) return ProgressObservation.NotObservable("플릿이 액션 개수를 $total 로 준다 — 나눌 수 없다")
+        if (pending > total) {
+            return ProgressObservation.NotObservable("플릿의 개수가 어긋난다: 남은 $pending / 전체 $total")
+        }
+        val done = total - pending
+        return ProgressObservation.Fraction(done.toDouble() / total, "행동 $done/$total")
     }
 
     override fun failure(): Fault? = task?.failure

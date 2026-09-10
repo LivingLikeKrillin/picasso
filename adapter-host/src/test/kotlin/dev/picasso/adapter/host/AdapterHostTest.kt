@@ -4,6 +4,7 @@ import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
@@ -78,6 +79,7 @@ class AdapterHostTest {
         var failureToReport: Fault? = null
         var resultToReport: String? = null
         var siteNames: SiteNames = SiteNames.Known(listOf("dock-3", "bay-7"))
+        var reportedProgress: ProgressObservation = ProgressObservation.NotObservable("각본이 안 정했다")
         private var current: TaskState = TaskState.TASK_STATE_UNSPECIFIED
 
         override val state: TaskState get() = current
@@ -95,6 +97,7 @@ class AdapterHostTest {
         override fun failure(): Fault? = failureToReport
         override fun result(): String? = resultToReport
         override fun knownSiteNames(): SiteNames = siteNames
+        override fun progress(): ProgressObservation = reportedProgress
     }
 
     /** 브로커가 막힌 것을 흉내낸다 — 막힌 동안 받은 것은 던지고 기록하지 않는다. */
@@ -275,6 +278,59 @@ class AdapterHostTest {
             val fine = w.events.replayEvents(ReplayEventsRequest.newBuilder().setHeader(w.header("picasso.v1.ReplayEventsRequest")).setRobotId(ROBOT).setFromSequence(dropped + 1).build()).asSequence().toList()
             assertEquals(2, fine.size)
             assertEquals(listOf(TaskState.TASK_STATE_RUNNING, TaskState.TASK_STATE_SUCCEEDED), fine.map { it.event.taskTransition.to })
+        }
+    }
+
+    @Test
+    fun `진행률은 어댑터가 낼 때만 움직이고, 못 재는 기종은 0 에 머문다`() {
+        // **`watch` 는 종착까지 막힌다** — 그래서 도는 동안의 갱신은 로그로 본다. 마지막에 종착시키고 나서
+        // 계약 면으로 한 번 확인한다.
+        World().use { w ->
+            val handle = w.start().handle
+            val log = { w.robot.task("T-1")?.last ?: error("태스크가 없다") }
+            // **못 재는 기종이 기본이다.** 계약에는 *못 잰다* 를 실을 자리가 없어 0 으로 접히고, 그것이 지금의 한계다.
+            assertEquals(0.0, log().progress)
+
+            w.adapter.reportedProgress = ProgressObservation.Fraction(0.4, "행동 2/5")
+            w.adapter.next = TaskState.TASK_STATE_PAUSED
+            w.robot.pump()
+            assertEquals(0.4, log().progress, 1e-9)
+
+            // **되감기지 않는다**(§4.4 의 단조 비감소). 플릿이 개수를 다시 세는 날 숫자가 내려갈 수 있다.
+            w.adapter.reportedProgress = ProgressObservation.Fraction(0.1, "행동 1/10")
+            w.adapter.next = TaskState.TASK_STATE_RUNNING
+            w.robot.pump()
+            assertEquals(0.4, log().progress, 1e-9)
+
+            // 범위 밖은 자른다 — 벤더 개수가 어긋나도 계약의 0..1 은 지킨다.
+            w.adapter.reportedProgress = ProgressObservation.Fraction(7.0, "행동 7/5")
+            w.adapter.next = TaskState.TASK_STATE_PAUSED
+            w.robot.pump()
+            assertEquals(1.0, log().progress, 1e-9)
+
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            assertEquals(1.0, w.watch(handle).last().progress, 1e-9)
+        }
+    }
+
+    @Test
+    fun `실패로 끝나도 진행률이 되감기지 않는다`() {
+        World().use { w ->
+            val handle = w.start().handle
+            w.adapter.reportedProgress = ProgressObservation.Fraction(0.6, "행동 3/5")
+            w.adapter.next = TaskState.TASK_STATE_PAUSED
+            w.robot.pump()
+
+            // **실행이 끝나면 셀 것이 없어진다** — 플릿의 실행이 사라지면 어댑터는 못 잰다고 답한다.
+            // 그때 마지막 값을 안 들고 있으면 진행률이 0 으로 되감긴다.
+            w.adapter.reportedProgress = ProgressObservation.NotObservable("실행이 끝나 셀 것이 없다")
+
+            // 실패는 **거기서 멈춘 것**이지 아무것도 안 한 것이 아니다. 0 으로 되돌리면 되감기이고,
+            // 소비자가 재시도 여부를 그 숫자로 가늠할 때 사실을 잃는다.
+            w.adapter.next = TaskState.TASK_STATE_FAILED
+            val last = w.watch(handle).last()
+            assertEquals(TaskState.TASK_STATE_FAILED, last.state)
+            assertEquals(0.6, last.progress, 1e-9)
         }
     }
 

@@ -43,6 +43,14 @@ interface RobotAdapter {
     /** 잔여 물리 상태(§4.4). */
     fun hold(): HoldObservation
 
+    /**
+     * 진행률 — 벤더가 **셀 수 있는 근거**를 줄 때만 낸다.
+     *
+     * 기본값이 *못 잰다* 인 것이 요점이다. 진행률은 지어낼 수 있는 유일한 값이라(상태와 달리 아무 숫자나 그럴듯하다)
+     * 국면을 분수로 바꾸고 싶은 유혹이 있는데, 그 순간 상류가 보는 숫자에 근거가 없어진다.
+     */
+    fun progress(): ProgressObservation = ProgressObservation.NotObservable("이 어댑터는 진행률을 안 낸다")
+
     /** 기체 수준 결함(§4.6). */
     fun faults(): FaultObservation
 

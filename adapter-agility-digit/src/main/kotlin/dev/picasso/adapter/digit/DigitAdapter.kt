@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
@@ -282,6 +283,31 @@ class DigitAdapter(
         val picked = flat[lastPick].status == ActionStatus.SUCCESS
         val placed = flat.drop(lastPick + 1).any { it.actionType == ACTION_PLACE && it.status == ActionStatus.SUCCESS }
         return if (picked && !placed) HoldObservation.Holding(task?.objectName) else HoldObservation.Empty
+    }
+
+    /**
+     * 진행률 — **같은 트리를 다른 각도로 읽는다**([hold] 와 같은 근거, 같은 등급).
+     *
+     * 벤더가 마디마다 `action-status` 를 주므로 잎 중 `success` 인 것을 세는 것은 유도이지 발명이 아니다.
+     * **묶는 마디는 안 센다** — `action-sequential` 자신에게도 상태가 있고 그것까지 세면 분모가 늘어 숫자의
+     * 뜻이 흐려진다.
+     *
+     * ## 트리가 우리 것이라고 단정하지 못한다
+     *
+     * [hold] 가 적어 둔 것과 같은 한계다. 우리는 트리를 보내지만 그것이 지금 로봇이 든 트리 전부인지 확인할
+     * 표면이 없고, 이전 시퀀스가 남아 있으면 그 마디까지 센다. 그래서 [ProgressObservation.Fraction.basis] 에
+     * *실행 트리* 라 적는다 — 우리 태스크의 행동 수라고 하지 않는다.
+     */
+    override fun progress(): ProgressObservation {
+        val tree = link.executionTree().getOrElse {
+            return ProgressObservation.NotObservable("get-execution-state 실패: ${it.message}")
+        }
+        val leaves = flatten(tree).filter { it.children.isEmpty() }
+        if (leaves.isEmpty()) {
+            return ProgressObservation.NotObservable("실행 트리에 셀 마디가 없다 — 0 이 아니라 근거가 없다")
+        }
+        val done = leaves.count { it.status == ActionStatus.SUCCESS }
+        return ProgressObservation.Fraction(done.toDouble() / leaves.size, "실행 트리 잎 $done/${leaves.size}")
     }
 
     private fun flatten(nodes: List<ExecutionNode>): List<ExecutionNode> =

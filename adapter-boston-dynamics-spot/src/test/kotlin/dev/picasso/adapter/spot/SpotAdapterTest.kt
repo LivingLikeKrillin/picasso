@@ -4,6 +4,7 @@ import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
@@ -679,6 +680,15 @@ class SpotAdapterTest {
         val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), behaviorFails = true), identity)
         val observed = assertIs<FaultObservation.Observed>(a.faults())
         assertTrue(observed.faults.any { it.errorType == "X_BOSTONDYNAMICS_BEHAVIOR_FAULTS_UNKNOWN" })
+    }
+
+    @Test
+    fun `진행률은 국면뿐이라 못 낸다`() {
+        // 취득의 열한 상태와 명령 피드백의 둘은 **순서이지 분수가 아니다.** 국면에 숫자를 붙이면
+        // 국면 사이의 거리를 우리가 정한 것이 된다.
+        val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped()), identity)
+        val blind = assertIs<ProgressObservation.NotObservable>(a.progress())
+        assertTrue("IN_PROGRESS/COMPLETE" in blind.reason, blind.reason)
     }
 
     // ── 잔여 물리 상태 (§4.4) — 벤더가 불리언을 준다

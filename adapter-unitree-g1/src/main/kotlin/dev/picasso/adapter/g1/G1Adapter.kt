@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
@@ -326,6 +327,16 @@ class G1Adapter(
      */
     override fun hold(): HoldObservation = HoldObservation.NotObservable(
         "벤더가 파지 판정을 주지 않는다 — HandState_.press_sensor_state 는 원시 압력값이다",
+    )
+
+    /**
+     * 진행률 — **셀 것이 없다.**
+     *
+     * 심볼 161 개 전수에 태스크의 진척을 말하는 것이 없다. 있는 퍼센트는 `AgvBmsState_.battery_percentage`
+     * 하나이고 그것은 배터리이지 일이 아니다. 시간으로 나누면 그 숫자는 우리가 지은 것이다(§15.108).
+     */
+    override fun progress(): ProgressObservation = ProgressObservation.NotObservable(
+        "벤더 표면에 태스크 진척이 없다 — 퍼센트는 AgvBmsState_.battery_percentage 뿐이고 그것은 배터리다",
     )
 
     /**

@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
@@ -633,6 +634,21 @@ class SpotAdapter(
      * 계약의 이름으로 말할 근거가 없다. 짐작해 넣지 않는다. 팔이 없으면
      * (`manipulator_state` 비어 있음) 쥘 것이 없으니 빈손이다.
      */
+    /**
+     * 진행률 — **국면은 있고 분수는 없다.**
+     *
+     * 명령 피드백은 `STATUS_IN_PROGRESS`/`STATUS_COMPLETE` 둘이고, 취득은 `GetStatusResponse.Status` 열한
+     * 값이 `ACQUIRING`→`SAVING`→`COMPLETE` 로 간다. **그것은 순서이지 분수가 아니다** — 국면에 숫자를 붙이면
+     * 국면 사이의 거리를 우리가 정한 것이고, 상류가 보는 숫자에 근거가 없어진다.
+     *
+     * 셀 수 있는 것이 벤더에게 없지는 않다: 미션 층의 `State.NodeStatesAtTick.node_states` 는 마디마다 결과를
+     * 준다. 그런데 `Repeat`·`Switch`·`Condition` 이 있어 **분모가 고정되지 않고**(§15.80), 이 어댑터는 미션
+     * 층을 쓰지도 않는다. Digit 이 같은 종류의 트리에서 분수를 내는 이유가 바로 그 차이다(§15.108).
+     */
+    override fun progress(): ProgressObservation = ProgressObservation.NotObservable(
+        "국면만 있다 — 명령 피드백은 IN_PROGRESS/COMPLETE 둘이고 취득의 열한 상태는 순서이지 분수가 아니다",
+    )
+
     override fun hold(): HoldObservation = link.gripperHoldingItem().fold(
         onSuccess = { holding ->
             when (holding) {

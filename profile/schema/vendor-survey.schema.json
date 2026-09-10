@@ -15,6 +15,7 @@
     "exclusive_control_required",
     "pause_support",
     "cancel_support",
+    "progress_support",
     "terminal_latches",
     "coverage"
   ],
@@ -54,6 +55,10 @@
       "enum": ["YES", "NO", "UNKNOWN"]
     },
     "cancel_support": {
+      "enum": ["YES", "NO", "UNKNOWN"]
+    },
+    "progress_support": {
+      "description": "벤더가 **분수를 낼 근거**를 주는가 — 계약의 `WatchTaskResponse.progress`(0..1)를 채울 수 있는가. `pause_support` 와 같은 3값이며 같은 규율이 걸린다. **국면은 분수가 아니다**: 순서 있는 상태 열거(Spot 취득의 열한 상태)로부터 숫자를 만들면 국면 사이의 거리를 우리가 정한 것이므로 발명이다. 셀 수 있는 것(액션 개수, 잎 마디)이 있어야 `YES` 다.",
       "enum": ["YES", "NO", "UNKNOWN"]
     },
     "terminal_latches": {

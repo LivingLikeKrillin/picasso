@@ -115,6 +115,18 @@ class VendorSurveyTest {
     }
 
     @Test
+    fun `진행률을 낼 수 있는 기종과 없는 기종이 갈린다`() {
+        // **국면은 분수가 아니다.** 갈리는 자리는 *셀 수 있는가* 이고, 더 정확히는 **분모가 고정되는가** 다 —
+        // Digit 과 Spot 이 둘 다 마디 상태를 주는데 판정이 갈리는 이유가 거기다(§15.108).
+        val byModel = surveys().associate { (_, n) -> value(n, "model") to value(n, "progress_support") }
+
+        assertEquals("YES", byModel["Orbit"], "Run.actionCount 와 pendingActionCount 가 개수 둘이다")
+        assertEquals("YES", byModel["Digit"], "마디마다 status 가 오고 조건·분기가 없어 잎의 수가 분모가 된다")
+        assertEquals("NO", byModel["Spot"], "국면과 마디는 있으나 분기가 있어 분모가 안 선다")
+        assertEquals("NO", byModel["G1"], "전수에 태스크 진척이 없다 — 퍼센트는 배터리뿐이다")
+    }
+
+    @Test
     fun `부재를 단정하려면 1차 근거가 있어야 한다`() {
         // 거리 문서와 같은 규칙이다. **`NONE` 과 `NO` 는 부재의 단정**이고,
         // 제3자 코드나 짐작으로는 거기까지 갈 수 없다 — Digit 의
@@ -239,6 +251,7 @@ class VendorSurveyTest {
             "exclusive_control_required",
             "pause_support",
             "cancel_support",
+            "progress_support",
             "terminal_latches",
         )
 

@@ -4,6 +4,7 @@ import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
@@ -409,6 +410,14 @@ class G1AdapterTest {
         val overheat = observed.faults.single { it.errorType == "X_UNITREE_MOTOR_OVERHEAT" }
         assertEquals(FailureClass.FAILURE_CLASS_HARDWARE_FAULT, overheat.failureClass)
         assertEquals("MotorState_.temperature=91", overheat.vendorDetail)
+    }
+
+    @Test
+    fun `진행률도 볼 수 없다 — 0 이 아니다`() {
+        // 심볼 전수에 태스크 진척이 없다. 시간으로 나누면 그 숫자는 우리가 지은 것이고,
+        // **거절 사유가 어느 벤더 심볼을 세어 본 결과인지**까지 적혀 있어야 판정이 검사받는다.
+        val blind = assertIs<ProgressObservation.NotObservable>(adapter().progress())
+        assertTrue("battery_percentage" in blind.reason, blind.reason)
     }
 
     @Test

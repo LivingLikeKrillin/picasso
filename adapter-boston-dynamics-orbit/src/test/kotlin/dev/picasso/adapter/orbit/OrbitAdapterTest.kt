@@ -5,6 +5,7 @@ import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.FailureClass
@@ -56,10 +57,15 @@ class OrbitAdapterTest {
         override val runs: RunLayer? = null,
     ) : OrbitLink
 
-    private fun run(end: String? = null, status: String? = "unknown-to-us") = OrbitRun(
+    private fun run(
+        end: String? = null,
+        status: String? = "unknown-to-us",
+        actions: Int = 3,
+        pending: Int = 0,
+    ) = OrbitRun(
         uuid = "run-1", robotNickname = NICKNAME, robotSerial = "sn-1",
         missionName = "DOCK-3", missionStatus = status, endTime = end,
-        actionCount = 3, pendingActionCount = 0,
+        actionCount = actions, pendingActionCount = pending,
     )
 
     private fun world(
@@ -88,6 +94,37 @@ class OrbitAdapterTest {
     fun `아는 이름은 플릿의 미션 이름이다`() {
         val (adapter, _, _) = world(FakeMissions(listOf(OrbitMission("m-2", "BAY-7"), OrbitMission("m-1", "DOCK-3"))))
         assertEquals(SiteNames.Known(listOf("BAY-7", "DOCK-3")), adapter.knownSiteNames())
+    }
+
+    @Test
+    fun `진행률은 플릿이 세어 주는 액션 개수 둘에서 온다`() {
+        // **벤더가 개수를 준다** — `Run.actionCount` 와 `Run.pendingActionCount`. 국면을 분수로 지어내는 것과
+        // 다른 종류이며, 그래서 이 어댑터는 진행률을 낼 수 있다.
+        val (adapter, _, runs) = world()
+        adapter.accept("t-1", "navigate_to", mapOf("location" to "DOCK-3"), NOW)
+
+        // 아직 실행을 못 봤다. **0 이 아니라 못 잰다다.**
+        assertIs<ProgressObservation.NotObservable>(adapter.progress())
+
+        runs!!.run = run(actions = 4, pending = 3)
+        adapter.poll(NOW)
+        val quarter = assertIs<ProgressObservation.Fraction>(adapter.progress())
+        assertEquals(0.25, quarter.fraction, 1e-9)
+        assertEquals("행동 1/4", quarter.basis, "무엇을 셌는지 안 적으면 그 숫자가 무슨 뜻인지 아무도 모른다")
+
+        runs.run = run(actions = 4, pending = 0)
+        adapter.poll(NOW)
+        assertEquals(1.0, assertIs<ProgressObservation.Fraction>(adapter.progress()).fraction, 1e-9)
+    }
+
+    @Test
+    fun `액션 개수가 0 이면 못 잰다고 한다`() {
+        // 나눌 수 없다. 0 을 답하면 *아직 아무것도* 로 읽히고, 1 을 답하면 다 된 것으로 읽힌다.
+        val (adapter, _, runs) = world()
+        adapter.accept("t-1", "navigate_to", mapOf("location" to "DOCK-3"), NOW)
+        runs!!.run = run(actions = 0, pending = 0)
+        adapter.poll(NOW)
+        assertIs<ProgressObservation.NotObservable>(adapter.progress())
     }
 
     // ── 안 드는 것 — 이것이 측정 결과다

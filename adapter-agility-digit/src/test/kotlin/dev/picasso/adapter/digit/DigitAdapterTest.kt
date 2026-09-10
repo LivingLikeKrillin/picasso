@@ -4,6 +4,7 @@ import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.AdapterIdentity
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
@@ -456,6 +457,51 @@ class DigitAdapterTest {
         // 이전 시퀀스가 놓기에 실패한 채 트리가 비워졌을 수 있고 그것을 볼 표면이 없다.
         val link = FakeLink(tree = listOf(ExecutionNode("action-idle", ActionStatus.RUNNING)))
         assertIs<HoldObservation.NotObservable>(DigitAdapter(link, identity).hold())
+    }
+
+    // ── 진행률 — 같은 트리를 다른 각도로 읽는다
+
+    @Test
+    fun `진행률은 실행 트리의 잎을 세어 나온다`() {
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("t-1", "pick_place", pickPlace, t0)
+
+        link.tree = sequential(
+            ExecutionNode("action-pick", ActionStatus.SUCCESS),
+            ExecutionNode("action-place", ActionStatus.RUNNING),
+        )
+        val half = assertIs<ProgressObservation.Fraction>(a.progress())
+        assertEquals(0.5, half.fraction, 1e-9)
+        // **무엇을 셌는지 적는다.** 기종마다 세는 단위가 다르다는 사실이 숨으면 안 된다.
+        assertEquals("실행 트리 잎 1/2", half.basis)
+
+        link.tree = sequential(
+            ExecutionNode("action-pick", ActionStatus.SUCCESS),
+            ExecutionNode("action-place", ActionStatus.SUCCESS),
+        )
+        assertEquals(1.0, assertIs<ProgressObservation.Fraction>(a.progress()).fraction, 1e-9)
+    }
+
+    @Test
+    fun `묶는 마디는 안 센다 — 잎만 센다`() {
+        // `action-sequential` 자신에게도 status 가 있다. 그것까지 세면 분모가 늘어 진행률이 늦어지고,
+        // 그 숫자가 무엇을 센 것인지가 흐려진다.
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("t-1", "pick_place", pickPlace, t0)
+        link.tree = sequential(
+            ExecutionNode("action-pick", ActionStatus.SUCCESS),
+            ExecutionNode("action-place", ActionStatus.SUCCESS),
+        )
+        assertEquals("실행 트리 잎 2/2", assertIs<ProgressObservation.Fraction>(a.progress()).basis)
+    }
+
+    @Test
+    fun `트리가 비었거나 못 읽으면 진행률도 못 잰다`() {
+        // 0 이 아니다 — 빈 트리는 *아무것도 안 됐다* 가 아니라 *셀 근거가 없다* 다.
+        assertIs<ProgressObservation.NotObservable>(DigitAdapter(FakeLink(), identity).progress())
+        assertIs<ProgressObservation.NotObservable>(DigitAdapter(FakeLink(treeFails = true), identity).progress())
     }
 
     @Test
