@@ -339,7 +339,7 @@ OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조를 언어 �
 | 표면 | 코드 |
 |---|---|
 | `Negotiate` (다섯) | `MAJOR_MISMATCH`, `SKILL_ABSENT`, `REQUIRED_OPTIONAL_MISSING`, `LIMIT_EXCEEDED`, `IDENTITY_MISMATCH` |
-| 태스크 RPC (여덟) | `CAPABILITY_WITHDRAWN`, `CANCEL_UNSUPPORTED`, `PAUSE_UNSUPPORTED`, `OUTDATED_REVISION`, `INVALID_TRANSITION`, `SKILL_ABSENT`, `IDENTITY_MISMATCH`, `PARAMETER_INVALID` |
+| 태스크 RPC (아홉) | `CAPABILITY_WITHDRAWN`, `CANCEL_UNSUPPORTED`, `PAUSE_UNSUPPORTED`, `OUTDATED_REVISION`, `INVALID_TRANSITION`, `SKILL_ABSENT`, `IDENTITY_MISMATCH`, `PARAMETER_INVALID`, `UPDATE_UNSUPPORTED`(0.7.0, §15.109) |
 | `ReplayEvents` (하나) | `SEQUENCE_EVICTED` |
 
 **`CAPABILITY_WITHDRAWN`은 핸드셰이크 이후 능력이 사라진 스킬로 `StartTask`가 왔을 때 반환**하며, 응답에 현재 `capability_epoch`를 실어 클라이언트가 능력을 다시 가져오게 한다. **애초에 선언한 적 없는 스킬은 `SKILL_ABSENT`다** — 전자는 소비자가 캐시를 다시 세우면 되고 후자는 요구 집합이 틀린 것이라 대응이 다르다.
@@ -433,7 +433,7 @@ Agility Arc가 같은 결론에 도달해 있다 — 워크플로 상태에 `CAN
 | 갱신을 받은 상태 | 처리 |
 |---|---|
 | `ACCEPTED` | 파라미터만 교체. 스킬 전이 없음 |
-| `RUNNING` | 스킬을 `Halt` → `Reset` → 새 파라미터로 `Start`. 태스크는 `RUNNING` 유지 |
+| `RUNNING` | 스킬을 `Halt` → `Reset` → 새 파라미터로 `Start`. 태스크는 `RUNNING` 유지. **그 합성을 못 드는 기체는 `UPDATE_UNSUPPORTED`** (§15.109) |
 | `PAUSED` | 파라미터만 교체하고 `PAUSED` 유지. `ResumeTask` 때 새 파라미터로 `Start` |
 | `RETRIABLE` | 파라미터만 교체하고 `RETRIABLE` 유지. `RetryTask` 때 새 파라미터로 `Start` |
 | `NEEDS_INTERVENTION` | 같다. **개입한 사람이 파라미터를 고쳐 넣는 경로가 이것이다** — 막으면 이 상태의 존재 이유와 어긋난다 |
@@ -2303,7 +2303,7 @@ mimic/
     ### 정직하게 적어 둘 것
 
     - ~~**MQTT 발행·레지스트리 적재·`Negotiate` 가 없다.** 계약의 gRPC 면만 세웠다.~~ → 발행과 적재는 §15.99, 협상은 §15.100 에서 닫혔다. ADR 37 의 등록 절차는 열려 있다.
-    - **도는 태스크의 갱신을 안 한다** — 어댑터 셋 중 아무도 Halt→Reset→Start 를 안 들어 `INVALID_TRANSITION` 에 사정을 붙여 거절한다. 미들웨어는 그 코드를 *이미 종착* 으로 읽고 지연 이벤트를 기다리므로(§15.92), 호스트 위에서 버전 갱신을 쓰면 그 단위는 원래 버전으로 끝나고 새 기대에 대고 검증된다. 시험은 없다.
+    - ~~도는 태스크의 갱신을 안 한다.~~ → §15.109 에서 닫혔다. **그 진술의 전제도 틀렸다** — 어댑터 셋 중 셋이 그 합성을 든다.
     - 어댑터의 거절 중 *로봇이 지금 못 받는다*(`VENDOR_REJECTED`·`CONTROL_AUTHORITY_LOST`·`ALREADY_RUNNING`)는 계약에 자리가 없어 `INVALID_TRANSITION` 에 분류와 원문을 붙인다 — 거절 코드 하나가 후보다(ADR 9: 발신자가 이제 있다).
     - 진행률은 종착 전 0, 성공 1 이다. 어댑터가 진행률을 안 낸다.
     - 결함 주입 일곱(결과 참조 누락 · 멱등 재수신을 새 요청으로 · 못 본 결함을 없음으로 · 축출 망각 · 취소 거절 코드 뒤바꿈 · 종착 래치 제거 · 실패에 fault 미부착) 전부 겨냥한 시험이 잡았다. 첫 실행에서 하나가 *"모든 겨냥 시험이 잡지는 않음"* 으로 나왔는데 — e2e 시험이 컴파일되지 않은 채였고 러너가 *시험 0건* 을 초록으로 읽었다. 러너의 초록 판정에 *시험이 하나라도 돌았는가* 를 더했다.
@@ -2632,3 +2632,43 @@ mimic/
     - **Orbit 의 개수는 실행이 생긴 뒤에만 있다.** 파견 직후 첫 폴 전까지는 *못 잰다* 이고, 그것을 0 으로 접지 않는다.
     - Spot·G1 의 `progress()` 는 기본값과 같은 답을 내므로 **거동이 아니라 사유만 다르다.** 그래서 시험이 사유의 벤더 심볼을 확인한다 — 그러지 않으면 재어 본 판정과 안 재고 기본값에 기댄 것이 구별되지 않는다.
     - 결함 주입 열을 겨냥한 시험이 전부 잡았다. ★그중 둘이 **시험 하나가 약하다는 것을 먼저 알려 줬다** — 각본 어댑터가 실패 뒤에도 같은 분수를 계속 답해서, 바닥을 없애는 주입이 통과했다. 실물의 거동(실행이 끝나면 셀 것이 없어진다)을 각본에 넣고서야 그 시험이 일을 했다.
+
+109. **도는 태스크의 갱신 — 조사부터 했더니 계획의 전제가 반대였다(트랙 B3, 계약 0.7.0).**
+
+    계획은 이 단계를 *"먼저 조사다. 셋(넷) 중 그 합성을 드는 기종이 있는지 확인하고, **없으면 짓지 않고** 계약 쪽 제안으로 돌린다"* 로 적어 뒀다. 세어 보니 **셋이 든다.**
+
+    | 기종 | 갱신을 만드는 방법 | 판정 |
+    |---|---|---|
+    | **Spot**(미션) | `StopMission` → `LoadMission` → `PlayMission` | **YES** — 벤더가 셋을 이름으로 다 준다 |
+    | **Spot**(명령) | `se2Velocity` 새 값 하나 | **YES** — 아래 |
+    | **Spot**(취득) | `CancelAcquisition` 이 **거절할 수 있다** | **NO** |
+    | **Digit** | `remove-action` → `add-sequential-actions` | **YES** |
+    | **G1** | `SetVelocity` 새 값 하나 | **YES** |
+    | **Orbit** | 도는 미션을 멈추는 문이 없다 | **NO** — 넷 중 하나 |
+
+    ### 갈리는 자리는 *멈춤이 보장되는가* 다
+
+    §4.4 는 갱신을 `Halt` → `Reset` → `Start` 의 **합성**으로 적었다. 그 첫 칸이 없으면(Orbit) 갱신이 성립하지 않고, 첫 칸이 **거절될 수 있으면**(Spot 취득의 `STATUS_FAILED_TO_CANCEL`) 갱신이 둘을 돌린다. 그래서 조사 스키마의 `update_support` 가 묻는 것은 *멈출 수 있는가* 이지 *다시 시킬 수 있는가* 가 아니다.
+
+    ★**그리고 지시값 층에서는 셋이 한 칸으로 접힌다.** `se2Velocity`·`SetVelocity` 는 지시값이라 새 값이 곧 지금의 지시다 — 멈췄다 다시 시킬 필요가 없고, 거절되면 앞 지시가 그대로 산다. §4.4 의 세 칸은 **미션·액션 층의 모양**이었고 계약이 그것을 일반 규칙처럼 적어 둔 것이다(ADR 36 의 층 차이가 또 나왔다). G1 에서는 이 사실이 이미 코드에 있었다 — 그 어댑터의 **취소가 `SetVelocity(0,0,0)`** 이다. 갈아서 멈출 수 있으면 갈아서 다르게 갈 수도 있다.
+
+    ### 계약이 자란다 — `UPDATE_UNSUPPORTED`(0.7.0)
+
+    계획은 *아무도 안 들면* 거절 코드를 제안하려 했는데, 실제로는 **드는 기체가 있어서** 코드가 필요해졌다. 못 드는 기체(Orbit)의 거절을 `INVALID_TRANSITION` 에 접으면 소비자가 *지금 상태가 안 받는다*(정리 중·종착)와 *이 로봇은 원래 못 한다* 를 구별하지 못한다 — 앞은 기다렸다 다시 보내면 되고 뒤는 취소한 뒤 새 `task_id` 로 가야 한다. `CANCEL_UNSUPPORTED`·`PAUSE_UNSUPPORTED` 가 따로 있는 것과 같은 이유이고, ADR 9 를 통과한다: 발신자는 Orbit 어댑터이고 소비자는 미들웨어다(§15.92 가 갱신 거절을 *이미 종착* 으로 읽고 지연 이벤트를 기다리는데, 원인이 *못 하는 기체* 이면 그 이벤트는 영원히 안 온다).
+
+    ### 호스트가 규칙을 든다
+
+    `ACCEPTED`·`RUNNING` 만 어댑터로 보낸다. **실물에서 `ACCEPTED` 는 이미 명령이 나간 상태다** — 어댑터의 `accept` 가 곧 벤더 호출이라, 미믹의 *아직 시작 전* 과 다르다. 갱신은 같은 핸들의 `revision` 을 올리고 **로그에 한 줄을 더 적으며**(상태는 그대로), 진행률은 새 구간에서 0 부터 다시 센다 — 단조 비감소의 바닥이 `(task_id, revision, attempt)` 안에서만 유효하다는 §4.4 를 B2 의 바닥 규칙과 맞물리게 고쳤다. 스킬 교체는 막는다(그것은 다른 태스크다).
+
+    **미믹과 답이 같은지 밖에서 확인한다** — `HostParityTest` 에 협상 밖의 첫 동치 시험이 생겼다(갱신·낮은 개정판·스킬 교체 셋의 답).
+
+    ### 합성은 원자가 아니다
+
+    ★멈춤은 됐는데 적재나 재시작이 거절되면 **로봇은 멈춰 있고 아무것도 안 돈다.** 조용히 `RUNNING` 으로 두면 상류가 가고 있다고 믿으므로 `NEEDS_INTERVENTION` + `X_*_UPDATE_HALF_APPLIED` 로 사람을 부른다(취소가 반만 될 때 `CANCELLED_RECOVERY_FAILED` 를 적는 것과 같은 규율). 순서도 규칙이다 — Spot 은 **이름을 먼저 옮기고** 그 다음에 멈춘다. 반대로 하면 모르는 이름 하나에 로봇이 멈춰 선다. Digit 은 지운 뒤 `action-status` 가 아직 `running` 이면 새 액션을 **안 얹는다**(매뉴얼이 예고한 컨테이너 거동 — 얹으면 둘이 겹쳐 돈다).
+
+    ### 정직하게 적어 둘 것
+
+    - **`PAUSED`·`RETRIABLE`·`NEEDS_INTERVENTION` 의 갱신은 아직 안 든다.** §4.4 는 *파라미터만 갈아 두고 재개·재시도 때 적용하라* 고 하는데, 그러려면 호스트가 대기 파라미터를 들고 어댑터의 `resume`·`retry` 에 실어야 하고 그 자리가 포트에 없다. **로봇이 못 하는 것이 아니므로 `UPDATE_UNSUPPORTED` 로 답하지 않는다** — `INVALID_TRANSITION` 에 그 사정을 적는다. **닫는 조건**: 포트의 `resume`·`retry` 가 파라미터를 받고, 그것을 쓰는 소비자가 생기면.
+    - **`Applied.Refused` 에는 정준 분류 칸이 없다.** 조작의 거절은 계약에서 코드와 사정 문자열로만 나가므로 G1 이 로봇에게 받은 에러 코드를 사정에 붙인다. 접수 쪽 거절(`Acceptance.Refused`)과 비대칭이고, 그것을 고칠 소비자가 아직 없다.
+    - **Spot 명령 계층의 갱신은 실물에서 확인한 바 없다** — 지시값이 대체된다는 것은 API 의 모양에서 읽은 것이다.
+    - 결함 주입 열일곱을 겨냥한 시험이 전부 잡았다. ★그중 하나가 **시험 하나가 약하다는 것을 먼저 알려 줬다** — G1 의 시계 시험이 갱신에서 *지속시간을 늘려* 있었고, 그러면 시각을 안 다시 세도 늘어난 길이만으로 통과한다. 길이를 같게 두고서야 그 시험이 일을 했고, 같은 구멍이 Spot 명령 계층에도 있어 함께 메웠다.

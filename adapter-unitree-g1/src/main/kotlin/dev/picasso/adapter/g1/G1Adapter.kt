@@ -173,6 +173,48 @@ class G1Adapter(
     }
 
     /**
+     * **도는 태스크의 갱신**(§4.4) — 여기서는 **지시값 하나다.**
+     *
+     * `SetVelocity(vx, vy, omega, duration)` 은 지시값이므로 새 값을 보내면 그것이 지금의 지시다. §4.4 가 갱신을
+     * `Halt` → `Reset` → `Start` 로 적은 것은 미션·액션 층의 모양이고, 지시값 층에서는 그 셋이 한 칸으로 접힌다
+     * (Spot 의 명령 계층과 같다, §15.109). 그래서 반만 적용되는 자리가 없다 — 거절되면 앞 지시가 그대로 산다.
+     *
+     * **[cancel] 이 이미 이 사실 위에 서 있었다**: 이 어댑터의 취소가 `SetVelocity(0,0,0)` 이다. 지시값을 갈아
+     * 멈추는 것이 되면, 갈아 다르게 가는 것도 된다.
+     */
+    override fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: Instant): Applied {
+        val current = task ?: return Applied.Refused(Refusal.NO_TASK, "조작할 태스크가 없다")
+        if (current.state.isTerminal) {
+            return Applied.Refused(Refusal.TERMINAL_LATCHED, "${current.id} 은 이미 ${current.state} 다")
+        }
+        val sport = link.sport ?: return Applied.Refused(Refusal.VENDOR_SURFACE_ABSENT, "고수준 서비스가 없다")
+
+        val numbers = REQUIRED.associateWith { (parameters[it] as? Number)?.toDouble() }
+        numbers.filterValues { it == null }.keys.takeIf { it.isNotEmpty() }?.let {
+            return Applied.Refused(Refusal.PARAMETER_MISSING, "수가 아닌 파라미터: $it")
+        }
+        val duration = numbers.getValue(P_DURATION)!!
+        val outcome = sport.setVelocity(
+            vx = numbers.getValue(P_FORWARD)!!,
+            vy = numbers.getValue(P_LATERAL)!!,
+            omega = numbers.getValue(P_YAW)!!,
+            durationSeconds = duration,
+        )
+        outcome.exceptionOrNull()?.let {
+            // **[Applied.Refused] 에는 정준 분류 칸이 없다** — 조작의 거절은 계약에서 코드와 사정 문자열로만
+            // 나가므로(호스트가 그것만 옮긴다) 로봇이 준 코드를 사정에 붙인다. 접수 쪽 거절과 다른 점이다.
+            val refused = if (it is UnitreeApiException) vendorRejected(it) else null
+            return Applied.Refused(
+                refused?.reason ?: Refusal.LINK_ERROR,
+                refused?.detail ?: "SetVelocity 가 실패했다: ${it.message}",
+            )
+        }
+        current.startedAt = at
+        current.durationSeconds = duration
+        return Applied.Ok
+    }
+
+    /**
      * 취소한다.
      *
      * **벤더에게 취소 프리미티브가 없다.** `StopMove()`가 실은
@@ -310,8 +352,9 @@ class G1Adapter(
 
     private class RunningTask(
         val id: String,
-        val startedAt: Instant,
-        val durationSeconds: Double,
+        /** **갱신이 다시 센다** — 이 기종은 태스크가 시계로 종착하므로 새 지시는 새 시각에서 시작한다. */
+        var startedAt: Instant,
+        var durationSeconds: Double,
         var state: TaskState,
     )
 

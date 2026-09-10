@@ -127,6 +127,18 @@ class VendorSurveyTest {
     }
 
     @Test
+    fun `도는 태스크의 갱신은 셋이 들고 하나가 못 든다`() {
+        // 계획은 *아무도 안 들 것* 으로 보고 계약 쪽 제안만 준비했었다. 표면을 세어 보니 **반대였다** —
+        // 갈리는 자리는 **멈춤이 보장되는가** 이고, 지시값 층에서는 그 칸이 아예 필요 없다(§15.109).
+        val byModel = surveys().associate { (_, n) -> value(n, "model") to value(n, "update_support") }
+
+        assertEquals("YES", byModel["Spot"], "StopMission → LoadMission → PlayMission")
+        assertEquals("YES", byModel["Digit"], "remove-action → add-sequential-actions")
+        assertEquals("YES", byModel["G1"], "SetVelocity 는 지시값이라 새 값 하나로 접힌다")
+        assertEquals("NO", byModel["Orbit"], "도는 미션을 멈추는 문이 없어 첫 칸이 비었다")
+    }
+
+    @Test
     fun `부재를 단정하려면 1차 근거가 있어야 한다`() {
         // 거리 문서와 같은 규칙이다. **`NONE` 과 `NO` 는 부재의 단정**이고,
         // 제3자 코드나 짐작으로는 거기까지 갈 수 없다 — Digit 의
@@ -252,6 +264,7 @@ class VendorSurveyTest {
             "pause_support",
             "cancel_support",
             "progress_support",
+            "update_support",
             "terminal_latches",
         )
 

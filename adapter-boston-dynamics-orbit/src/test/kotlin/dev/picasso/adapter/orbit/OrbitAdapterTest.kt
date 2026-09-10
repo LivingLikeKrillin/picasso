@@ -130,6 +130,17 @@ class OrbitAdapterTest {
     // ── 안 드는 것 — 이것이 측정 결과다
 
     @Test
+    fun `갱신은 첫 칸이 없어 안 든다 — 조사한 넷 중 여기뿐이다`() {
+        val (adapter, _, _) = world()
+        adapter.accept("t-1", "navigate_to", mapOf("location" to "DOCK-3"), NOW)
+
+        val refused = assertIs<Applied.Refused>(adapter.update("t-1", "navigate_to", mapOf("location" to "BAY-7"), NOW))
+        assertEquals(Refusal.NO_VENDOR_PRIMITIVE, refused.reason)
+        // 파견만 다시 하면 앞 미션이 계속 도는 채로 새것이 붙는지 플릿이 거절하는지 알 방법이 없다.
+        assertTrue("멈추는 문이 없어" in refused.detail, refused.detail)
+    }
+
+    @Test
     fun `스킬 넷 중 셋은 플릿 층에 프리미티브가 없다`() {
         val (adapter, dispatch, _) = world()
         listOf("pick_place", "inspect", "move_relative").forEach { skill ->

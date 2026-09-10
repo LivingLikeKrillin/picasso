@@ -87,25 +87,7 @@ class DigitAdapter(
             return Acceptance.Refused(Refusal.ALREADY_RUNNING, "이미 도는 태스크가 있다: ${it.id}")
         }
 
-        val sent = when (skillType) {
-            MOVE -> link.moveFor(
-                yawRate = number(parameters, P_YAW),
-                forward = number(parameters, P_FORWARD),
-                lateral = number(parameters, P_LATERAL),
-                durationSeconds = number(parameters, P_DURATION),
-            )
-
-            // **이름이 그대로 간다.** 옮기는 표가 없는 것이 ADR 34의 결정이고,
-            // 그 이름을 로봇이 알게 만드는 것은 ADR 35의 사이트 작업이다.
-            NAVIGATE -> link.gotoNamed(text(parameters, P_LOCATION))
-
-            else -> link.pickAndPlace(
-                objectName = text(parameters, P_OBJECT),
-                destinationName = text(parameters, P_DESTINATION),
-            )
-        }
-
-        val ref = sent.getOrElse {
+        val ref = send(skillType, parameters).getOrElse {
             return Acceptance.Refused(Refusal.LINK_ERROR, "액션 전송이 실패했다: ${it.message}")
         }
 
@@ -115,6 +97,28 @@ class DigitAdapter(
             objectName = if (skillType == PICK_PLACE) text(parameters, P_OBJECT) else null,
         )
         return Acceptance.Accepted(taskId)
+    }
+
+    /**
+     * 스킬을 벤더 액션으로 보낸다. **접수와 갱신이 같은 자리를 쓴다** — 갱신은 *지우고 다시 보내는 것*이므로
+     * 보내는 쪽이 두 벌이면 둘이 어긋나는 날 갱신만 옛 모양으로 보낸다.
+     */
+    private fun send(skillType: String, parameters: Map<String, Any>): Result<ActionRef> = when (skillType) {
+        MOVE -> link.moveFor(
+            yawRate = number(parameters, P_YAW),
+            forward = number(parameters, P_FORWARD),
+            lateral = number(parameters, P_LATERAL),
+            durationSeconds = number(parameters, P_DURATION),
+        )
+
+        // **이름이 그대로 간다.** 옮기는 표가 없는 것이 ADR 34의 결정이고,
+        // 그 이름을 로봇이 알게 만드는 것은 ADR 35의 사이트 작업이다.
+        NAVIGATE -> link.gotoNamed(text(parameters, P_LOCATION))
+
+        else -> link.pickAndPlace(
+            objectName = text(parameters, P_OBJECT),
+            destinationName = text(parameters, P_DESTINATION),
+        )
     }
 
     /**
@@ -216,6 +220,57 @@ class DigitAdapter(
      * 것처럼 보인다*고 적었으므로 응답만으로 멈췄다고 적을 수 없다 —
      * `pick_place`가 바로 그 컨테이너(`action-sequential`)다.
      */
+    /**
+     * **도는 태스크의 갱신**(§4.4) — `remove-action` → 새 파라미터로 다시 보낸다.
+     *
+     * 조사한 넷 중 이 합성을 이름으로 갖는 것은 여기와 Spot 뿐이다(§15.109). 지우기와 보내기가 둘 다 있으므로
+     * 갱신이 성립한다 — 다만 벤더가 *지웠다고 답하고도 아직 돈다* 는 컨테이너 거동을 예고했으므로(매뉴얼),
+     * [cancel] 과 같은 확인을 여기서도 한다: **지운 뒤에도 `running` 이면 새 액션을 보내지 않는다.** 보내면
+     * 둘이 겹쳐 돌고, 로봇이 무엇을 하고 있는지 아무도 모른다.
+     *
+     * ★그리고 이 합성도 원자가 아니다. 지우기는 됐는데 새 액션 전송이 실패하면 로봇은 아무것도 안 하고 있다.
+     * 조용히 `RUNNING` 으로 두면 상류가 앞 파라미터로 가고 있다고 믿으므로 **사람을 부른다.**
+     */
+    override fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: Instant): Applied {
+        val current = task ?: return Applied.Refused(Refusal.NO_TASK, "조작할 태스크가 없다")
+        if (current.state.isTerminal) {
+            return Applied.Refused(Refusal.TERMINAL_LATCHED, "${current.id} 은 이미 ${current.state} 다")
+        }
+        if (link.privilege != PrivilegeState.HELD) {
+            current.state = TaskState.TASK_STATE_FAILED
+            current.failure = authorityLostFault()
+            return Applied.Refused(Refusal.CONTROL_AUTHORITY_LOST, "권한이 없어 갱신도 못 한다")
+        }
+
+        link.removeAction(current.ref).exceptionOrNull()?.let {
+            return Applied.Refused(Refusal.LINK_ERROR, "remove-action 이 실패했다: ${it.message}")
+        }
+        if (link.status() == ActionStatus.RUNNING) {
+            // **여기서 멈춘다.** 새 액션을 얹으면 지워지지 않은 것과 함께 돈다.
+            return Applied.Refused(
+                Refusal.LINK_ERROR,
+                "remove-action 이 성공했다는데 액션이 아직 running 이다(컨테이너 거동) — 겹쳐 돌지 않게 갱신을 멈춘다",
+            )
+        }
+
+        val sent = send(skillType, parameters)
+        val ref = sent.getOrElse {
+            // 지웠는데 새것을 못 보냈다. 로봇은 아무것도 안 한다.
+            current.state = TaskState.TASK_STATE_NEEDS_INTERVENTION
+            current.failure = classifiedFault(
+                errorType = "X_AGILITYROBOTICS_UPDATE_HALF_APPLIED",
+                failureClass = FailureClass.FAILURE_CLASS_UNCLASSIFIED,
+                vendorDetail = it.message ?: "",
+                errorHint = "앞 액션은 지웠는데 새 액션을 보내지 못했습니다. 로봇은 아무것도 하지 않습니다 — 현장을 확인한 뒤 새 태스크로 다시 시키십시오.",
+                canAcceptNewTask = true,
+            )
+            return Applied.Refused(Refusal.LINK_ERROR, "액션 전송이 실패했다: ${it.message}")
+        }
+        current.ref = ref
+        current.objectName = if (skillType == PICK_PLACE) text(parameters, P_OBJECT) else null
+        return Applied.Ok
+    }
+
     override fun cancel(): Applied {
         val current = task ?: return Applied.Refused(Refusal.NO_TASK, "조작할 태스크가 없다")
         if (current.state.isTerminal) {
@@ -363,13 +418,14 @@ class DigitAdapter(
 
     private class RunningTask(
         val id: String,
-        val ref: ActionRef,
+        /** **갱신이 바꾼다** — 지운 뒤 새로 보낸 액션의 참조가 그때부터 이 태스크의 것이다. */
+        var ref: ActionRef,
         var lastPolledAt: Instant,
         var state: TaskState,
         /** 실패를 액션 종류로 가를 때 본다 — 계약의 스킬 이름이지 벤더의 것이 아니다. */
         val skillType: String,
-        /** `pick_place` 면 그 `object_id` — 든 것의 이름을 말할 유일한 근거다. */
-        val objectName: String? = null,
+        /** `pick_place` 면 그 `object_id` — 든 것의 이름을 말할 유일한 근거다. 갱신이 함께 바꾼다. */
+        var objectName: String? = null,
         /** 종착이 실패일 때의 계약 `Fault` — 정준 분류 + 벤더 원문. */
         var failure: Fault? = null,
     )

@@ -16,6 +16,7 @@
     "pause_support",
     "cancel_support",
     "progress_support",
+    "update_support",
     "terminal_latches",
     "coverage"
   ],
@@ -59,6 +60,10 @@
     },
     "progress_support": {
       "description": "벤더가 **분수를 낼 근거**를 주는가 — 계약의 `WatchTaskResponse.progress`(0..1)를 채울 수 있는가. `pause_support` 와 같은 3값이며 같은 규율이 걸린다. **국면은 분수가 아니다**: 순서 있는 상태 열거(Spot 취득의 열한 상태)로부터 숫자를 만들면 국면 사이의 거리를 우리가 정한 것이므로 발명이다. 셀 수 있는 것(액션 개수, 잎 마디)이 있어야 `YES` 다.",
+      "enum": ["YES", "NO", "UNKNOWN"]
+    },
+    "update_support": {
+      "description": "**도는 태스크의 갱신**(설계 §4.4)을 벤더 표면으로 만들 수 있는가. 미션·액션 층에서는 `Halt`→`Reset`→`Start` 의 합성이고(멈춤이 **보장**돼야 한다 — 거절될 수 있는 멈춤 위에서는 갱신이 둘을 돌린다), 지시값 층에서는 새 값 하나로 접힌다. 못 드는 기체는 계약이 `UPDATE_UNSUPPORTED` 로 답한다(0.7.0).",
       "enum": ["YES", "NO", "UNKNOWN"]
     },
     "terminal_latches": {

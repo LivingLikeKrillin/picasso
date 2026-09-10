@@ -74,6 +74,8 @@ class AdapterHostTest {
         var next: TaskState = TaskState.TASK_STATE_RUNNING
         var pauseAnswer: Applied = Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "없다")
         var cancelAnswer: Applied = Applied.Ok
+        var updateAnswer: Applied = Applied.Ok
+        val updated = mutableListOf<Triple<String, String, Map<String, Any>>>()
         var holding: HoldObservation = HoldObservation.Empty
         var observedFaults: FaultObservation = FaultObservation.Observed(emptyList())
         var failureToReport: Fault? = null
@@ -92,6 +94,8 @@ class AdapterHostTest {
         override fun poll(now: Instant): TaskState { current = next; return current }
         override fun pause(): Applied = pauseAnswer.also { if (it == Applied.Ok) current = TaskState.TASK_STATE_PAUSED }
         override fun cancel(): Applied = cancelAnswer.also { if (it == Applied.Ok) { current = TaskState.TASK_STATE_CANCELLING; next = TaskState.TASK_STATE_CANCELLED } }
+        override fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: Instant): Applied =
+            updateAnswer.also { if (it == Applied.Ok) updated += Triple(taskId, skillType, parameters) }
         override fun hold(): HoldObservation = holding
         override fun faults(): FaultObservation = observedFaults
         override fun failure(): Fault? = failureToReport
@@ -185,18 +189,112 @@ class AdapterHostTest {
     }
 
     @Test
-    fun `같은 요청은 같은 핸들이고, 도는 태스크의 갱신은 되는 척하지 않는다`() {
+    fun `같은 요청은 같은 핸들이고, 낮은 revision 은 거절이다`() {
         World().use { w ->
             val first = w.start().handle
             val again = w.start()
             assertEquals(first, again.handle)
             assertEquals(1, w.adapter.accepted.size, "재전송이 로봇에 두 번 갔다")
             assertEquals(2, w.robot.task("T-1")!!.updates.size, "멱등 재수신이 로그를 늘렸다")
-
-            val bumped = w.start(revision = 2)
-            assertEquals(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, bumped.rejection.code)
-            assertTrue(bumped.rejection.detail.contains("갱신하지 않는다"), bumped.rejection.detail)
             assertEquals(RejectionCode.REJECTION_CODE_OUTDATED_REVISION, w.start(revision = 0).rejection.code)
+        }
+    }
+
+    // ── 도는 태스크의 갱신 (§4.4 — Halt → Reset → Start)
+
+    @Test
+    fun `높은 revision 은 어댑터의 갱신 합성으로 가고, 같은 핸들에 RUNNING 한 줄이 더 적힌다`() {
+        World().use { w ->
+            val handle = w.start().handle
+            val before = w.robot.task("T-1")!!.updates.size
+
+            val bumped = w.start(revision = 2, params = mapOf("object_id" to "SEQ-IN-02.BIN-B", "destination" to "RACK-204.S02"))
+            assertTrue(bumped.hasHandle(), bumped.rejection.toString())
+            // **핸들은 `(task_id, revision)` 이다** — 태스크의 신원은 그대로이고 개정판만 오른다(미믹과 같다).
+            assertEquals(handle.taskId, bumped.handle.taskId, "갱신이 태스크의 신원을 바꿨다")
+            assertEquals(2, bumped.handle.revision)
+
+            // **합성이 로봇까지 갔다** — 새 파라미터로.
+            assertEquals(1, w.adapter.updated.size)
+            assertEquals("SEQ-IN-02.BIN-B", w.adapter.updated.single().third["object_id"])
+            assertEquals(1, w.adapter.accepted.size, "갱신이 접수로 다시 갔다")
+
+            // **갱신 자체가 로그 한 줄이다**(§4.4) — 상태는 그대로 RUNNING 이고 revision 이 올랐다.
+            val task = w.robot.task("T-1")!!
+            assertEquals(before + 1, task.updates.size)
+            assertEquals(TaskState.TASK_STATE_RUNNING, task.last.state)
+            assertEquals(2, task.last.revision)
+            assertEquals(2, task.revision)
+        }
+    }
+
+    @Test
+    fun `갱신은 진행률을 새 revision 에서 0 부터 다시 센다`() {
+        World().use { w ->
+            // 갱신은 도는 태스크에만 가므로 상태를 안 바꾸고 진행률을 실어야 한다 — 접수 직후의 RUNNING 이 그 자리다.
+            w.adapter.reportedProgress = ProgressObservation.Fraction(0.8, "행동 4/5")
+            w.start()
+            assertEquals(TaskState.TASK_STATE_RUNNING, w.robot.task("T-1")!!.last.state)
+            assertEquals(0.8, w.robot.task("T-1")!!.last.progress, 1e-9)
+
+            // 단조 비감소는 `(task_id, revision, attempt)` 안에서만 성립한다(§4.4). 구간이 바뀌면 바닥도 바뀐다 —
+            // 안 그러면 앞 revision 의 값이 새 구간의 바닥이 되어 **갱신 뒤 진행률이 내려갈 수 없게** 된다.
+            w.adapter.reportedProgress = ProgressObservation.NotObservable("다시 시작했다")
+            w.start(revision = 2)
+            assertEquals(0.0, w.robot.task("T-1")!!.last.progress, 1e-9)
+        }
+    }
+
+    @Test
+    fun `갱신 합성을 못 드는 기체는 UPDATE_UNSUPPORTED 다`() {
+        World().use { w ->
+            w.start()
+            w.adapter.updateAnswer = Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "플릿에 도는 미션을 멈추는 문이 없다")
+
+            val refused = w.start(revision = 2)
+            // **INVALID_TRANSITION 에 접지 않는다.** 소비자는 *지금 상태가 안 받는다* 와 *이 로봇은 원래 못 한다* 에
+            // 다르게 대응한다 — 앞은 기다렸다 다시 보내고 뒤는 취소한 뒤 새 task_id 로 간다(계약 0.7.0).
+            assertEquals(RejectionCode.REJECTION_CODE_UPDATE_UNSUPPORTED, refused.rejection.code)
+            assertTrue(refused.rejection.detail.contains("멈추는 문이 없다"), refused.rejection.detail)
+            assertEquals(1, w.robot.task("T-1")!!.revision, "거절인데 revision 이 올랐다")
+        }
+    }
+
+    @Test
+    fun `갱신으로 스킬을 바꿀 수는 없다`() {
+        World().use { w ->
+            w.start()
+            val refused = w.start(revision = 2, skill = "navigate_to", params = mapOf("location" to "DOCK-3"))
+            assertEquals(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, refused.rejection.code)
+            assertTrue(refused.rejection.detail.contains("스킬"), refused.rejection.detail)
+            assertTrue(w.adapter.updated.isEmpty(), "스킬이 바뀐 갱신이 로봇에 갔다")
+        }
+    }
+
+    @Test
+    fun `갱신도 프로파일의 선언에 대고 검사받는다`() {
+        World().use { w ->
+            w.start()
+            val refused = w.start(revision = 2, params = mapOf("object_id" to "x"))
+            assertEquals(RejectionCode.REJECTION_CODE_REQUIRED_OPTIONAL_MISSING, refused.rejection.code)
+            assertTrue(w.adapter.updated.isEmpty(), "선언을 어긴 갱신이 로봇에 갔다")
+        }
+    }
+
+    @Test
+    fun `정리 중과 멈춘 상태의 갱신은 이 호스트가 아직 안 든다`() {
+        World().use { w ->
+            w.start()
+            w.adapter.next = TaskState.TASK_STATE_PAUSED
+            w.robot.pump()
+
+            // §4.4 는 PAUSED·RETRIABLE·NEEDS_INTERVENTION 에서 **파라미터만 갈아 두고 재개 때 적용하라** 고 한다.
+            // 그러려면 호스트가 대기 파라미터를 들고 어댑터의 재개·재시도에 실어야 하는데 그 자리가 없다.
+            // **그래서 못 한다고 답한다** — 로봇이 못 하는 것이 아니므로 UPDATE_UNSUPPORTED 가 아니다.
+            val refused = w.start(revision = 2)
+            assertEquals(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, refused.rejection.code)
+            assertTrue(refused.rejection.detail.contains("PAUSED"), refused.rejection.detail)
+            assertTrue(w.adapter.updated.isEmpty())
         }
     }
 

@@ -14,6 +14,7 @@
   "pause_support": "NO",
   "cancel_support": "NO",
   "progress_support": "NO",
+  "update_support": "YES",
   "terminal_latches": "UNKNOWN",
 
   "coverage": {
@@ -53,6 +54,7 @@
     "exclusive_control_required 를 YES 로 적었으나 강제되지 않는다. lease id 는 있지만 인증이 없어 네트워크 도달이 곧 전권이다(§4.9·§6.3).",
     "공식 시뮬레이터(unitree_mujoco)가 있으나 **저수준만 흉내낸다** — README 가 'Current version only supports low-level development' 라 못박는다. LowCmd_/LowState_ 는 답하지만 스킬이 올라탈 sport 서비스(ai_sport)는 실물에서만 돈다. 처음에 'SDK2 인터페이스를 그대로 노출한다' 고 적은 것을 2026-09-08 조사에서 고쳤다.",
     "그래서 실물 없이 어댑터를 **돌려 보는** 것은 이 기종으로도 안 된다. CycloneDDS 에 Java 바인딩이 없고(C·C++·Python 뿐) 시뮬레이터는 Ubuntu 전용이라는 것이 그 위에 더 얹힌다. 어댑터가 검증되는 범위는 계약 쪽 거동까지이며 적합성(C-3)은 열려 있다.",
-    "**진행률의 근거가 없다.** 심볼 161 개 전수에 태스크의 진척을 말하는 것이 없다 — 있는 퍼센트는 `AgvBmsState_.battery_percentage` 하나이고 그것은 배터리다(§15.108)."
+    "**진행률의 근거가 없다.** 심볼 161 개 전수에 태스크의 진척을 말하는 것이 없다 — 있는 퍼센트는 `AgvBmsState_.battery_percentage` 하나이고 그것은 배터리다(§15.108).",
+    "**지시값 하나다.** `SetVelocity(vx, vy, omega, duration)` 은 지시값이라 새 값이 곧 지금의 지시이고, 갱신에 멈춤이 끼지 않는다. 이 어댑터의 취소가 이미 `SetVelocity(0,0,0)` 이라는 사실이 그 근거다 — 갈아서 멈출 수 있으면 갈아서 다르게 갈 수도 있다(§15.109)."
   ]
 }

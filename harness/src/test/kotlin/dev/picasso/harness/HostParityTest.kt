@@ -2,6 +2,7 @@ package dev.picasso.harness
 
 import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.Applied
+import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.Refusal
@@ -45,6 +46,9 @@ class HostParityTest {
 
     /** 기종이 없는 어댑터 — 협상은 프로파일의 투영에 대고 하므로 어댑터가 무엇을 들든 상관없다. */
     private class PlainAdapter : RobotAdapter {
+        /** 갱신 합성을 드는 기체 노릇 — 셋 중 셋이 든다(§15.109). */
+        override fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: java.time.Instant) = Applied.Ok
+
         override val state: TaskState get() = TaskState.TASK_STATE_UNSPECIFIED
         override fun accept(taskId: String, skillType: String, parameters: Map<String, Any>, startedAt: Instant) =
             Acceptance.Accepted(taskId)
@@ -130,6 +134,31 @@ class HostParityTest {
         assertSame("전부", broken, expected = false)
         val (fromMimic, _) = both(broken)
         assertTrue(fromMimic.rejectionsList.size >= 4, "전제가 무너졌다 — 여럿을 어겼는데 거절이 ${fromMimic.rejectionsList.size} 건이다")
+    }
+
+    @Test
+    fun `도는 태스크의 갱신에 둘이 같은 답을 낸다`() {
+        // 협상 밖의 첫 동치 시험이다. §4.4 의 갱신은 규칙이 여러 칸(핸들·revision·로그 한 줄)이라, 어느 한 칸이
+        // 갈리면 소비자가 미믹에서 되던 버전 갱신을 실물에서 잃는다 — §15.92 의 버전 갱신 경로가 그 위에 선다.
+        val params = listOf(ParameterValue.newBuilder().setKey("object_id").setStringValue("SEQ-IN-02.BIN-A").build(),
+            ParameterValue.newBuilder().setKey("destination").setStringValue("RACK-204.S01").build())
+        val next = listOf(ParameterValue.newBuilder().setKey("object_id").setStringValue("SEQ-IN-02.BIN-B").build(),
+            ParameterValue.newBuilder().setKey("destination").setStringValue("RACK-204.S02").build())
+
+        val answers = listOf(mimic.client(CLIENT), hostClient).map { client ->
+            client.start(ROBOT, "t-1", revision = 1, skillType = "pick_place", parameters = params)
+            val bumped = client.start(ROBOT, "t-1", revision = 2, skillType = "pick_place", parameters = next)
+            // 낮은 개정판과 스킬 교체의 답까지 함께 본다 — 수락만 대면 거절 쪽이 갈리는 것을 놓친다.
+            val outdated = client.start(ROBOT, "t-1", revision = 1, skillType = "pick_place", parameters = params)
+            val swapped = client.start(ROBOT, "t-1", revision = 3, skillType = "navigate_to", parameters = params)
+            listOf(
+                "갱신=${bumped.hasHandle()}|${bumped.handle.revision}|${bumped.rejection.code.name}",
+                "낮음=${outdated.hasHandle()}|${outdated.rejection.code.name}",
+                "스킬교체=${swapped.hasHandle()}|${swapped.rejection.code.name}",
+            )
+        }
+        assertEquals(answers[0], answers[1], "미믹과 호스트의 갱신 답이 갈렸다")
+        assertTrue(answers[0][0].startsWith("갱신=true|2|"), "전제가 무너졌다 — 미믹이 갱신을 안 받는다: ${answers[0]}")
     }
 
     private companion object {

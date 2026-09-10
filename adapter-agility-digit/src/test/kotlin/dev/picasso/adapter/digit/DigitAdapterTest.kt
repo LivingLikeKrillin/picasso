@@ -459,6 +459,67 @@ class DigitAdapterTest {
         assertIs<HoldObservation.NotObservable>(DigitAdapter(link, identity).hold())
     }
 
+    // ── 도는 태스크의 갱신 (§4.4 — 지우고 다시 보낸다)
+
+    @Test
+    fun `갱신은 지우고 새 파라미터로 다시 보낸다`() {
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("t-1", "navigate_to", mapOf("location" to "dock-3"), t0)
+
+        assertEquals(Applied.Ok, a.update("t-1", "navigate_to", mapOf("location" to "bay-7"), t0))
+        assertEquals(1, link.removed, "지우지 않고 새것을 얹었다")
+        assertEquals(listOf("dock-3", "bay-7"), link.gotos)
+
+        // **참조가 새것으로 돈다.** 안 그러면 그 뒤의 취소가 이미 지운 액션을 지우고, 도는 것은 그대로 돈다.
+        a.cancel()
+        assertEquals(listOf(ActionRef(1), ActionRef(2)), link.removedRefs)
+    }
+
+    @Test
+    fun `지웠다는데 아직 돌면 새 액션을 얹지 않는다`() {
+        // 매뉴얼이 예고한 컨테이너 거동이다. 얹으면 지워지지 않은 것과 겹쳐 돈다.
+        val link = FakeLink(reported = ActionStatus.RUNNING)
+        val a = DigitAdapter(link, identity)
+        a.accept("t-1", "navigate_to", mapOf("location" to "dock-3"), t0)
+
+        val refused = assertIs<Applied.Refused>(a.update("t-1", "navigate_to", mapOf("location" to "bay-7"), t0))
+        assertEquals(Refusal.LINK_ERROR, refused.reason)
+        assertEquals(listOf("dock-3"), link.gotos, "겹쳐 돌 액션을 보냈다")
+    }
+
+    @Test
+    fun `지운 뒤 못 보내면 사람을 부른다 — 합성은 원자가 아니다`() {
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("t-1", "navigate_to", mapOf("location" to "dock-3"), t0)
+
+        link.sendFails = true
+        val refused = assertIs<Applied.Refused>(a.update("t-1", "navigate_to", mapOf("location" to "bay-7"), t0))
+        assertEquals(Refusal.LINK_ERROR, refused.reason)
+        // **로봇은 아무것도 안 한다.** 조용히 RUNNING 으로 두면 상류가 앞 파라미터로 가고 있다고 믿는다.
+        assertEquals(TaskState.TASK_STATE_NEEDS_INTERVENTION, a.state)
+        assertEquals("X_AGILITYROBOTICS_UPDATE_HALF_APPLIED", a.failure()!!.errorType)
+    }
+
+    @Test
+    fun `권한이 없으면 갱신도 못 한다`() {
+        val link = FakeLink(privilege = PrivilegeState.LOST)
+        val a = DigitAdapter(link, identity)
+        // 접수는 권한이 있을 때 했다고 두고, 그 뒤에 잃는다.
+        val held = FakeLink()
+        val b = DigitAdapter(held, identity)
+        b.accept("t-1", "navigate_to", mapOf("location" to "dock-3"), t0)
+        held.privilege = PrivilegeState.LOST
+
+        assertEquals(Refusal.NO_TASK, assertIs<Applied.Refused>(a.update("t-1", "navigate_to", mapOf("location" to "x"), t0)).reason)
+        assertEquals(
+            Refusal.CONTROL_AUTHORITY_LOST,
+            assertIs<Applied.Refused>(b.update("t-1", "navigate_to", mapOf("location" to "bay-7"), t0)).reason,
+        )
+        assertEquals(0, held.removed, "권한이 없는데 지우려 했다")
+    }
+
     // ── 진행률 — 같은 트리를 다른 각도로 읽는다
 
     @Test
@@ -546,9 +607,14 @@ class DigitAdapterTest {
         val gotos = mutableListOf<String>()
         val pickPlaces = mutableListOf<Pair<String, String>>()
         var removed = 0
+        val removedRefs = mutableListOf<ActionRef>()
         private var next = 0
 
+        /** **다음 전송부터 실패한다.** 지우기는 됐는데 새 액션을 못 보낸 상태를 만드는 자리다. */
+        var sendFails = false
+
         private fun issue(): Result<ActionRef> {
+            if (sendFails) return Result.failure(IllegalStateException("소켓 끊김"))
             next += 1
             return Result.success(ActionRef(next))
         }
@@ -576,6 +642,7 @@ class DigitAdapterTest {
         override fun removeAction(ref: ActionRef): Result<Unit> {
             if (removeFails) return Result.failure(IllegalStateException("소켓 끊김"))
             removed += 1
+            removedRefs += ref
             return Result.success(Unit)
         }
 

@@ -21,10 +21,12 @@ plugins {
 // 0.5.0 — 카탈로그 옵션 grasps_object 추가. 대상을 참조하는 스킬과 쥐는 스킬을
 //         가른다(§15.87). 추가이므로 major는 그대로다.
 // 0.6.0 — Fault.failure_class(FailureClass 열다섯)·Fault.vendor_detail 추가.
+// 0.7.0 — RejectionCode.UPDATE_UNSUPPORTED 추가. 갱신 합성을 못 드는 기체가
+//         *상태가 안 받는다* 와 구별되게 답한다(§15.109).
 //         정준 실패 분류가 계약을 탄다 — 어댑터가 벤더 코드를 옮기고 상류는
 //         이것으로만 분기한다(미들웨어 중앙 설계 §1.4, §15.91). 추가이므로
 //         major는 그대로다.
-val contractSemver = "0.6.0"
+val contractSemver = "0.7.0"
 
 // 이 모듈은 proto 파일과 거기서 나온 것, 그리고 **그 구조를 채우는 규칙**을
 // 담는다 — §5.5의 헤더 표와 계약 신원이다. 발신자 쪽에만 두면 client가 요청

@@ -559,6 +559,112 @@ class SpotAdapter(
     }
 
     /**
+     * **도는 태스크의 갱신**(§4.4) — `Halt` → `Reset` → 새 파라미터로 `Start`.
+     *
+     * 벤더가 셋을 다 준다: `StopMission` → `LoadMission` → `PlayMission`. 조사한 넷 중 이 합성을 이름으로 갖는
+     * 것은 여기와 Digit 뿐이다(§15.109).
+     *
+     * ## 층마다 다르다 — 그리고 둘은 안 든다
+     *
+     * - **미션**: 든다. 아래.
+     * - **취득**: 안 든다. `CancelAcquisition` 이 `STATUS_FAILED_TO_CANCEL` 로 **거절할 수 있고**, 그러면 멈춤이
+     *   안 된 채 새 취득이 붙어 둘이 돈다. 멈춤이 보장되지 않는 층에서는 합성이 성립하지 않는다.
+     * - **명령**: 안 든다. `StopCommand` 는 있으나 피드백이 없어 멈췄는지 모르고, *새 명령이 앞 명령을
+     *   대체한다* 는 것을 **심볼 목록이 말해 주지 않는다.** 그것을 가정하면 근거 등급 위에 판정을 얹는
+     *   §15.65 의 실수를 되풀이한다.
+     */
+    override fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: Instant): Applied {
+        val current = task ?: return Applied.Refused(Refusal.NO_TASK, "조작할 태스크가 없다")
+        if (current.state.isTerminal) {
+            return Applied.Refused(Refusal.TERMINAL_LATCHED, "${current.id} 은 이미 ${current.state} 다")
+        }
+        return when (current.layer) {
+            Layer.MISSION -> updateMission(current, parameters)
+            Layer.ACQUISITION -> Applied.Refused(
+                Refusal.NO_VENDOR_PRIMITIVE,
+                "취득은 멈춤이 보장되지 않는다 — CancelAcquisition 이 STATUS_FAILED_TO_CANCEL 로 거절할 수 있고, " +
+                    "그러면 갱신이 취득 둘을 만든다",
+            )
+            Layer.COMMAND -> updateCommand(current, parameters, at)
+        }
+    }
+
+    /**
+     * 미션 갱신 — **이름을 먼저 옮기고 그 다음에 멈춘다.**
+     *
+     * 순서가 규칙이다. 멈춘 뒤에 이름을 옮기다 실패하면 로봇이 **아무것도 안 하는 채로** 남고, 상류는 갱신이
+     * 거절됐으니 앞 목적지로 가고 있다고 믿는다.
+     *
+     * ★**그래도 이 합성은 원자가 아니다.** 멈춤은 됐는데 적재나 재시작이 리스로 거절되면 로봇은 멈춰 있고 아무
+     * 미션도 안 돈다. 그때 조용히 `RUNNING` 으로 두면 상류가 가고 있다고 믿으므로 **사람을 부른다**
+     * (`NEEDS_INTERVENTION`) — 취소가 반만 되면 `CANCELLED_RECOVERY_FAILED` 를 적는 것과 같은 규율이다.
+     */
+    private fun updateMission(current: RunningTask, parameters: Map<String, Any>): Applied {
+        val location = parameters[P_LOCATION] as? String
+            ?: return Applied.Refused(Refusal.PARAMETER_MISSING, "필수 파라미터가 없다: [$P_LOCATION]")
+        val mission = link.mission
+            ?: return Applied.Refused(Refusal.VENDOR_SURFACE_ABSENT, "미션 계층이 사라졌다")
+
+        val waypointId = when (val resolved = resolve(location)) {
+            is Resolved.Ok -> resolved.waypointId
+            is Resolved.Refused -> return Applied.Refused(resolved.acceptance.reason, resolved.acceptance.detail)
+        }
+
+        applied(mission.stop()) { }.let { if (it != Applied.Ok) return it }
+        halfApplied(current, mission.loadNavigateTo(waypointId), "멈췄는데 새 미션을 못 적재했다")?.let { return it }
+        halfApplied(current, mission.play(), "멈추고 적재까지 했는데 다시 못 시켰다")?.let { return it }
+        return Applied.Ok
+    }
+
+    /**
+     * 명령 계층의 갱신 — **합성이 아니라 한 번의 호출이다.**
+     *
+     * `se2Velocity(vx, vy, omega, endTime)` 은 **지시값**이다. 새 값을 보내면 그것이 지금의 지시이고, 종료 시각도
+     * 함께 새것이 된다 — 멈췄다 다시 시킬 필요가 없다. §4.4 가 갱신을 `Halt` → `Reset` → `Start` 로 적은 것은
+     * **미션·액션 층의 모양**이고, 지시값 층에서는 그 셋이 한 칸으로 접힌다(ADR 36 의 층 차이가 여기서도 나온다).
+     *
+     * 그래서 이 층의 갱신에는 반만 적용되는 자리가 없다 — 거절되면 앞 지시가 그대로 살아 있다.
+     */
+    private fun updateCommand(current: RunningTask, parameters: Map<String, Any>, at: Instant): Applied {
+        val missing = MOVE_PARAMS.filterNot { it in parameters }
+        if (missing.isNotEmpty()) return Applied.Refused(Refusal.PARAMETER_MISSING, "필수 파라미터가 없다: $missing")
+        val command = link.command ?: return Applied.Refused(Refusal.VENDOR_SURFACE_ABSENT, "명령 계층이 사라졌다")
+        val duration = number(parameters, P_DURATION)
+            ?: return Applied.Refused(Refusal.PARAMETER_MISSING, "$P_DURATION 이 수가 아니다")
+
+        val result = command.se2Velocity(
+            vx = number(parameters, P_FORWARD) ?: 0.0,
+            vy = number(parameters, P_LATERAL) ?: 0.0,
+            omega = number(parameters, P_YAW) ?: 0.0,
+            endTime = at.plusMillis((duration * MILLIS_PER_SECOND).toLong()),
+        )
+        return applied(result) {
+            // 시계도 다시 센다 — 안 그러면 갱신한 태스크가 앞 태스크의 시각에 종착한다.
+            current.startedAt = at
+            current.durationSeconds = duration
+        }
+    }
+
+    /** 합성의 뒷부분이 실패했다 — 로봇은 멈춰 있다. 성공이면 널. */
+    private fun halfApplied(current: RunningTask, result: LeaseResult, what: String): Applied? {
+        val applied = applied(result) { }
+        if (applied == Applied.Ok) return null
+        current.state = TaskState.TASK_STATE_NEEDS_INTERVENTION
+        val refusal = applied as Applied.Refused
+        current.failure = classifiedFault(
+            errorType = "X_BOSTONDYNAMICS_UPDATE_HALF_APPLIED",
+            failureClass = when (refusal.reason) {
+                Refusal.CONTROL_AUTHORITY_LOST -> FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST
+                else -> FailureClass.FAILURE_CLASS_UNCLASSIFIED
+            },
+            vendorDetail = refusal.detail,
+            errorHint = "$what — 로봇은 멈춰 있고 아무 미션도 돌지 않습니다. 현장을 확인한 뒤 새 태스크로 다시 시키십시오.",
+            canAcceptNewTask = true,
+        )
+        return applied
+    }
+
+    /**
      * 취소.
      *
      * 두 계층 모두 수단이 있다 — 미션은 `StopMission`, 명령은 `StopCommand`.
@@ -804,9 +910,10 @@ class SpotAdapter(
 
     private class RunningTask(
         val id: String,
-        val startedAt: Instant,
+        /** **갱신이 다시 센다** — 명령 계층은 시계로 종착을 판정하므로(§4.4 의 갱신은 재시작이다). */
+        var startedAt: Instant,
         val layer: Layer,
-        val durationSeconds: Double?,
+        var durationSeconds: Double?,
         var state: TaskState,
         var question: String? = null,
         /** 종착이 실패일 때의 계약 `Fault` — 정준 분류 + 벤더 원문. */

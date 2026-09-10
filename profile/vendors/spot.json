@@ -14,6 +14,7 @@
   "pause_support": "YES",
   "cancel_support": "YES",
   "progress_support": "NO",
+  "update_support": "YES",
   "terminal_latches": "UNKNOWN",
 
   "coverage": {
@@ -56,6 +57,7 @@
     "**벤더 자신의 API 에도 같은 비대칭이 있다.** manipulation_cmd oneof 의 여섯이 전부 pick 이나 walk-to 인데 피드백 열거에는 MANIP_STATE_MOVING_TO_PLACE·PLACE_SUCCEEDED·PLACE_FAILED 가 있다. 놓기의 결과는 선언하면서 놓으라는 요청이 없고, 미션 노드에도 없다. 벤더의 답은 RemoteGrpc(네 서비스를 불러라)다.",
     "**CONTROL_AUTHORITY_LOST 의 근거가 여기 있다.** LeaseUseResult.Status 에 STATUS_REVOKED·STATUS_OLDER·STATUS_WRONG_EPOCH 가 있어 §4.9 를 기계적으로 채울 수 있다. G1 은 lease id 가 있어도 인증이 없어 같은 것을 못 채운다.",
     "**어댑터 가용성이 로봇 거동이다 (2026-09-09, 매니페스트 대조).** `KeepaliveService.Policy` 의 `ActionAfter` 가 `AutoReturn`·`ControlledMotorsOff`·`ImmediateRobotOff`·`LeaseStale` 을 두고, E-Stop 엔드포인트의 `timeout` 초과는 `SETTLE_THEN_CUT`, `cut_power_timeout` 초과는 CUT 이다. 팔에 든 것은 `CarryState` 가 가른다. 어댑터 프로세스가 죽으면 로봇이 앉고 전원이 끊기는 것이 벤더의 기본 거동이며, ADR 32(계약은 안전 기능을 안 나른다)는 유지하되 배치의 전제로 적는다. `docs/scenarios.md` §5.",
-    "**국면은 있고 분수는 없다.** 명령 피드백은 `STATUS_IN_PROGRESS`/`STATUS_COMPLETE` 둘이고 취득은 `GetStatusResponse.Status` 열한 값(ACQUIRING→SAVING→COMPLETE)인데 그것은 순서이지 분수가 아니다. 미션 층의 `State.NodeStatesAtTick.node_states` 는 셀 수 있으나 `Repeat`·`Switch`·`Condition` 이 있어 **분모가 고정되지 않는다**. 국면에 숫자를 붙이면 국면 사이의 거리를 우리가 정한 것이다(§15.108)."
+    "**국면은 있고 분수는 없다.** 명령 피드백은 `STATUS_IN_PROGRESS`/`STATUS_COMPLETE` 둘이고 취득은 `GetStatusResponse.Status` 열한 값(ACQUIRING→SAVING→COMPLETE)인데 그것은 순서이지 분수가 아니다. 미션 층의 `State.NodeStatesAtTick.node_states` 는 셀 수 있으나 `Repeat`·`Switch`·`Condition` 이 있어 **분모가 고정되지 않는다**. 국면에 숫자를 붙이면 국면 사이의 거리를 우리가 정한 것이다(§15.108).",
+    "**갱신의 합성을 이름으로 다 갖는다.** 미션 층은 `MissionService.StopMission`→`LoadMission`→`PlayMission`, 명령 층은 `se2Velocity` 가 지시값이라 새 값 하나로 접힌다. **취득 층만 못 한다** — `CancelAcquisition` 이 `STATUS_FAILED_TO_CANCEL` 로 거절할 수 있어 멈춤이 보장되지 않고, 그 위에서 갱신하면 취득 둘이 돈다(§15.109)."
   ]
 }

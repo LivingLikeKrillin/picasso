@@ -13,6 +13,7 @@
   "pause_support": "NO",
   "cancel_support": "YES",
   "progress_support": "YES",
+  "update_support": "YES",
   "terminal_latches": "NO",
 
   "coverage": {
@@ -57,6 +58,7 @@
     "**action-move 자체에는 지속시간이 없지만 action-duration{action, duration, after_success} 이 아무 액션이나 감싼다.** 그래서 지속시간은 필드가 아니라 **합성으로** 표현되며 로봇이 그것을 집행한다 — 어댑터가 시계를 들 필요가 없고 실패 방향도 다른 둘과 같다. 처음에 '어댑터가 스스로 멈춰야 하고 실패 방향이 반대' 라고 적은 것은 제3자 코드에 action-duration 이 없어서 생긴 오독이었다.",
     "**대상을 이름으로 지시한다 — 조사한 셋 중 유일하다.** ObjectSelector 가 name·has_attributes·april_tag_id·descendant_of·include/exclude·map_name 을 받는 **질의 가능한 세계 모델의 선택자**이고, action-goto 의 reference_frame 과 action-pick 의 object 가 둘 다 그것이다. add-object·add-landmarks·set-floorplan-map 으로 그 모델을 채운다. Spot 은 웨이포인트 id 문자열 하나였고 G1 은 아무것도 없었는데 **여기는 선택자다.** ADR 35('사이트 이름은 로봇 안에 산다')의 가장 강한 증거이며, 처음에 '목적지가 좌표뿐' 이라 적은 것은 제3자 코드가 special_frame 만 써서 생긴 오독이었다.",
     "**시맨틱 집기·놓기를 파는 유일한 기종이다.** action-pick{object: ObjectSelector} 과 action-place{pose, reference_frame: ObjectSelector} 가 둘 다 있다. Spot 은 집기를 픽셀·3D 점으로만 받고 놓기는 요청 자리가 아예 없다 — 그래서 '가장 능력 있는 벤더도 시맨틱 집기·놓기를 안 판다' 는 앞선 판단은 **Spot 에 대해서만 참이고 전체로는 거짓이었다.**",
-    "**진행률을 낼 수 있다 — 그리고 분모가 고정된다.** `execution-state-node.status` 가 마디마다 오고, Digit 에는 조건·분기가 0 건이라(§15.80) 트리가 평평한 순서열이다. 그래서 잎의 수가 분모가 된다. Spot 이 같은 종류의 트리를 갖고도 `NO` 인 이유가 바로 그 차이다(§15.108)."
+    "**진행률을 낼 수 있다 — 그리고 분모가 고정된다.** `execution-state-node.status` 가 마디마다 오고, Digit 에는 조건·분기가 0 건이라(§15.80) 트리가 평평한 순서열이다. 그래서 잎의 수가 분모가 된다. Spot 이 같은 종류의 트리를 갖고도 `NO` 인 이유가 바로 그 차이다(§15.108).",
+    "**지우고 다시 보낸다.** `remove-action` 과 `add-sequential-actions` 가 둘 다 있다. 다만 매뉴얼이 *지웠다고 답하고도 아직 돈다* 는 컨테이너 거동을 예고하므로, 지운 뒤 `action-status` 가 아직 `running` 이면 새 액션을 얹지 않는다 — 얹으면 둘이 겹쳐 돈다(§15.109)."
   ]
 }

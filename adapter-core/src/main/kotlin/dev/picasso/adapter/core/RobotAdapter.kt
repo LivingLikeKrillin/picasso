@@ -38,6 +38,20 @@ interface RobotAdapter {
 
     fun cancel(): Applied
 
+    /**
+     * **도는 태스크의 갱신** — §4.4 의 `Halt` → `Reset` → 새 파라미터로 `Start`.
+     *
+     * 태스크의 신원은 그대로다([taskId] 가 같다). 벤더 쪽에서는 대개 *멈추고 다시 시킨다* 이고, 그래서 이것은
+     * **합성**이다 — 셋을 다 들어야 갱신이 된다. Spot 은 `StopMission`→`LoadMission`→`PlayMission`, Digit 은
+     * `remove-action`→`add-sequential-actions` 로 든다. 플릿(Orbit)에는 도는 미션을 멈추는 문이 없고 G1 에는
+     * 멈춤 프리미티브가 없으므로 **기본값이 *수단이 없다*** 이며, 호스트가 그것을 계약의
+     * `UPDATE_UNSUPPORTED` 로 옮긴다(§15.109).
+     *
+     * 스킬 타입이 바뀌는 갱신은 호스트가 먼저 막는다 — 여기 오는 것은 같은 스킬의 새 파라미터뿐이다.
+     */
+    fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: Instant): Applied =
+        Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "이 어댑터는 도는 태스크를 갱신하지 않는다")
+
     fun retry(): Applied = Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "이 어댑터에는 재시도가 없다")
 
     /** 잔여 물리 상태(§4.4). */

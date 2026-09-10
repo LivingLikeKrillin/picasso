@@ -412,6 +412,39 @@ class G1AdapterTest {
         assertEquals("MotorState_.temperature=91", overheat.vendorDetail)
     }
 
+    // ── 도는 태스크의 갱신 (§4.4 — 지시값 층에서는 한 칸이다)
+
+    @Test
+    fun `갱신은 새 지시값 하나다 — 멈춤이 끼지 않는다`() {
+        val sport = FakeSport()
+        val a = adapter(sport)
+        a.accept("t-1", "move_relative", move, t0)
+
+        val faster = mapOf("forward_speed" to 0.9, "lateral_speed" to 0.0, "yaw_rate" to 0.0, "duration" to 5.0)
+        assertEquals(Applied.Ok, a.update("t-1", "move_relative", faster, t0.plusSeconds(1)))
+
+        // 지시값 둘뿐이다 — 그 사이에 `SetVelocity(0,0,0)`(이 어댑터의 취소) 이 끼지 않는다.
+        assertEquals(2, sport.velocities.size)
+        assertEquals(0.9, sport.velocities.last().vx)
+        assertEquals(5.0, sport.velocities.last().duration)
+    }
+
+    @Test
+    fun `갱신은 시계를 다시 센다`() {
+        val sport = FakeSport()
+        val a = adapter(sport)
+        // **지속시간을 같게 둔다.** 길이가 달라지면 늘어난 길이만으로도 시험이 통과하고, *시각을 다시 센다* 는
+        // 것은 확인되지 않는다 — 주입이 그것을 먼저 알려 줬다(길이만 바꾼 첫 판을 결함이 통과했다).
+        val four = mapOf("forward_speed" to 0.4, "lateral_speed" to 0.0, "yaw_rate" to 0.0, "duration" to 4.0)
+        a.accept("t-1", "move_relative", four, t0)
+
+        a.update("t-1", "move_relative", four, t0.plusSeconds(3))
+
+        // 갱신 시각 + 4 = t0+7 이다. 시각을 안 다시 세면 t0+4 에 종착해 버린다.
+        assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(t0.plusSeconds(5)), "갱신 전 시각으로 종착했다")
+        assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(t0.plusSeconds(8)))
+    }
+
     @Test
     fun `진행률도 볼 수 없다 — 0 이 아니다`() {
         // 심볼 전수에 태스크 진척이 없다. 시간으로 나누면 그 숫자는 우리가 지은 것이고,

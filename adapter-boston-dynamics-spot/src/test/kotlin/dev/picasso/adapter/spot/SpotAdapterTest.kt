@@ -439,8 +439,14 @@ class SpotAdapterTest {
         var paused = 0
         var stopped = 0
 
+        /** **이 호출 번호부터 리스가 거절한다.** 반만 적용된 갱신(멈췄는데 다시 못 시킴)을 만드는 자리다. */
+        var rejectFrom: Int? = null
+        private var calls = 0
+
         private fun gate(body: () -> Unit): LeaseResult {
+            calls += 1
             reject?.let { return LeaseResult.Rejected(it) }
+            rejectFrom?.let { if (calls >= it) return LeaseResult.Rejected(LeaseStatus.STATUS_OLDER) }
             body()
             return LeaseResult.Ok
         }
@@ -680,6 +686,82 @@ class SpotAdapterTest {
         val a = SpotAdapter(FakeLink(FakeCommand(), FakeMission(), mapped(), behaviorFails = true), identity)
         val observed = assertIs<FaultObservation.Observed>(a.faults())
         assertTrue(observed.faults.any { it.errorType == "X_BOSTONDYNAMICS_BEHAVIOR_FAULTS_UNKNOWN" })
+    }
+
+    // ── 도는 태스크의 갱신 (§4.4 — 벤더가 셋을 다 준다)
+
+    @Test
+    fun `미션 계층은 멈추고 새 목적지를 적재하고 다시 시작한다`() {
+        val mission = FakeMission()
+        val a = adapter(mission = mission, graph = FakeGraph("wp-1" to "dock-3", "wp-2" to "bay-7"))
+        a.accept("t-1", "navigate_to", navigate, t0)
+
+        assertEquals(Applied.Ok, a.update("t-1", "navigate_to", mapOf("location" to "bay-7"), t0))
+        // **셋이 다 갔다** — StopMission → LoadMission → PlayMission. 하나라도 빠지면 갱신이 아니다.
+        assertEquals(1, mission.stopped)
+        assertEquals(listOf("wp-1", "wp-2"), mission.loaded, "새 목적지의 id 로 다시 적재하지 않았다")
+        assertEquals(2, mission.played)
+        assertEquals(TaskState.TASK_STATE_RUNNING, a.state, "갱신은 태스크를 종착시키지 않는다")
+    }
+
+    @Test
+    fun `갱신도 이름을 먼저 옮긴다 — 모르는 이름이면 로봇을 멈추지 않는다`() {
+        val mission = FakeMission()
+        val a = adapter(mission = mission)
+        a.accept("t-1", "navigate_to", navigate, t0)
+
+        val refused = assertIs<Applied.Refused>(a.update("t-1", "navigate_to", mapOf("location" to "nowhere"), t0))
+        assertEquals(Refusal.SITE_NAME_UNKNOWN, refused.reason)
+        // **순서가 규칙이다.** 이름을 옮기기 전에 멈추면, 옮기다 실패했을 때 로봇이 아무것도 안 하는 채로 남는다.
+        assertEquals(0, mission.stopped, "이름을 확인하기 전에 멈췄다")
+    }
+
+    @Test
+    fun `멈춘 뒤 다시 못 시키면 사람을 부른다 — 합성은 원자가 아니다`() {
+        val mission = FakeMission()
+        val a = adapter(mission = mission, graph = FakeGraph("wp-1" to "dock-3", "wp-2" to "bay-7"))
+        a.accept("t-1", "navigate_to", navigate, t0)
+
+        // 접수가 적재·재시작으로 둘을 썼다. 넷째부터 거절하면 **멈춤은 되고 적재가 거절된다.**
+        mission.rejectFrom = 4
+        val refused = assertIs<Applied.Refused>(a.update("t-1", "navigate_to", mapOf("location" to "bay-7"), t0))
+        assertEquals(Refusal.CONTROL_AUTHORITY_LOST, refused.reason)
+        // **로봇은 멈춰 있고 아무 미션도 안 돈다.** 조용히 RUNNING 으로 두면 상류가 가고 있다고 믿는다.
+        assertEquals(TaskState.TASK_STATE_NEEDS_INTERVENTION, a.state)
+        assertEquals(FailureClass.FAILURE_CLASS_CONTROL_AUTHORITY_LOST, a.failure()!!.failureClass)
+    }
+
+    @Test
+    fun `취득 계층은 멈춤이 보장되지 않아 갱신하지 않는다`() {
+        val acquisition = FakeAcquisition(cancelAnswer = CancelAcquisitionStatus.STATUS_FAILED_TO_CANCEL)
+        val a = adapter(acquisition = acquisition)
+        a.accept("t-1", "inspect", inspect, t0)
+
+        val refused = assertIs<Applied.Refused>(a.update("t-1", "inspect", inspect, t0))
+        assertEquals(Refusal.NO_VENDOR_PRIMITIVE, refused.reason)
+        // 멈춤을 거절할 수 있는 층에서 갱신을 하면 취득 둘이 돌 수 있다.
+        assertTrue("FAILED_TO_CANCEL" in refused.detail, refused.detail)
+    }
+
+    @Test
+    fun `명령 계층의 갱신은 지시값 하나다 — 멈췄다 다시 시키지 않는다`() {
+        val command = FakeCommand()
+        val a = adapter(command = command)
+        a.accept("t-1", "move_relative", move, t0)
+
+        val later = t0.plusSeconds(1)
+        val faster = mapOf<String, Any>("forward_speed" to 0.9, "lateral_speed" to 0.0, "yaw_rate" to 0.0, "duration" to 5.0)
+        assertEquals(Applied.Ok, a.update("t-1", "move_relative", faster, later))
+
+        // **멈춤이 없다.** `se2Velocity` 는 지시값이라 새 값이 지금의 지시가 된다 — 합성 셋이 한 칸으로 접힌다.
+        assertEquals(0, command.stopped, "지시값 층에서 멈췄다 다시 시켰다")
+        assertEquals(2, command.velocities.size)
+        assertEquals(0.9, command.velocities.last().vx)
+        // 종료 시각도 새것이다 — 안 그러면 갱신한 태스크가 앞 태스크의 시각에 종착한다. 벤더에게 보낸 시각과
+        // **우리 쪽 시계** 둘 다 봐야 한다: 앞엣것만 보면 어댑터가 자기 시계를 안 고쳐도 통과한다.
+        assertEquals(later.plusSeconds(5), command.velocities.last().endTime)
+        assertEquals(TaskState.TASK_STATE_RUNNING, a.poll(later.plusSeconds(4)), "갱신 전 시각으로 종착했다")
+        assertEquals(TaskState.TASK_STATE_SUCCEEDED, a.poll(later.plusSeconds(6)))
     }
 
     @Test

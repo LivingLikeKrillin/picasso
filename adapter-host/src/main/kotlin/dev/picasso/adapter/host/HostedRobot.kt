@@ -2,6 +2,7 @@ package dev.picasso.adapter.host
 
 import com.google.protobuf.Descriptors
 import dev.picasso.adapter.core.Acceptance
+import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
@@ -120,7 +121,11 @@ class HostedRobot(
     private var lastStateAt: Instant? = null
 
     /** 태스크 하나의 기록 — 계약의 `WatchTask` 로그. 종착은 래치된다(§4.4). */
-    class HostedTask internal constructor(val taskId: String, val revision: Int, val skillType: String) {
+    class HostedTask internal constructor(val taskId: String, revision: Int, val skillType: String) {
+        /** **갱신이 올린다**(§4.4). 태스크의 신원은 `taskId` 이고 개정판은 그 위에서 바뀐다. */
+        var revision: Int = revision
+            internal set
+
         internal val log = mutableListOf<TaskUpdate>()
         val updates: List<TaskUpdate> get() = log.toList()
         val last: TaskUpdate get() = log.last()
@@ -171,12 +176,7 @@ class HostedRobot(
                     RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
                     "${existing.taskId} 은 이미 ${existing.last.state} 다 — 종착은 되돌아가지 않는다(§4.4)",
                 )
-                // **도는 태스크의 갱신은 아직 안 한다.** §4.4 의 RUNNING 갱신은 Halt → Reset → Start 인데 어댑터
-                // 셋 중 아무도 그 합성을 들지 않는다(§15.98 정직 항목). 지어서 되는 척하지 않는다.
-                else -> StartOutcome.Rejected(
-                    RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                    "이 호스트는 도는 태스크를 갱신하지 않는다 — 취소한 뒤 새 task_id 로 다시 요청하라",
-                )
+                else -> update(existing, revision, skillType, parameters)
             }
         }
 
@@ -200,6 +200,50 @@ class HostedRobot(
             }
 
             is Acceptance.Refused -> refused(accepted)
+        }
+    }
+
+    /**
+     * **도는 태스크의 갱신**(§4.4) — 파라미터를 갈고 태스크의 신원은 그대로 둔다.
+     *
+     * 벤더 쪽에서 이것은 `Halt` → `Reset` → 새 파라미터로 `Start` 의 **합성**이고, 그 셋을 다 드는 기체만 갱신을
+     * 할 수 있다. 어댑터가 못 든다 하면 계약의 `UPDATE_UNSUPPORTED` 다 — `INVALID_TRANSITION` 에 접으면
+     * 소비자가 *지금 상태가 안 받는다* 와 *이 로봇은 원래 못 한다* 를 구별하지 못한다(계약 0.7.0).
+     *
+     * ## 상태별로 다르다 — 그리고 셋은 아직 안 든다
+     *
+     * `ACCEPTED`·`RUNNING` 만 든다. **실물에서 `ACCEPTED` 는 이미 로봇에 명령이 나간 상태다** — 어댑터의
+     * `accept` 가 곧 벤더 호출이므로, 미믹의 *아직 시작 전* 과 달라 여기서도 합성이 필요하다.
+     *
+     * `PAUSED`·`RETRIABLE`·`NEEDS_INTERVENTION` 은 §4.4 가 *파라미터만 갈아 두고 재개·재시도 때 적용하라* 고
+     * 하는데, 그러려면 호스트가 대기 파라미터를 들고 [RobotAdapter.resume]·[RobotAdapter.retry] 에 실어야 하고
+     * 그 자리가 포트에 없다. **로봇이 못 하는 것이 아니므로 `UPDATE_UNSUPPORTED` 로 답하지 않는다.**
+     */
+    private fun update(task: HostedTask, revision: Int, skillType: String, parameters: Map<String, Any>): StartOutcome {
+        if (skillType != task.skillType) {
+            return StartOutcome.Rejected(
+                RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
+                "갱신은 파라미터를 갈는 것이지 스킬을 바꾸는 것이 아니다: ${task.skillType} → $skillType — 새 task_id 로 요청하라",
+            )
+        }
+        val state = task.last.state
+        if (state !in UPDATABLE_STATES) {
+            return StartOutcome.Rejected(
+                RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
+                "$state 에서의 갱신은 이 호스트가 아직 안 든다 — 대기 파라미터를 재개·재시도에 실을 자리가 어댑터 포트에 없다",
+            )
+        }
+        validate(skillType, parameters)?.let { return it }
+
+        return when (val applied = adapter.update(task.taskId, skillType, parameters, clock())) {
+            Applied.Ok -> {
+                task.revision = revision
+                // **갱신 자체가 로그 한 줄이다**(§4.4) — 상태는 그대로이고 `revision` 이 오른 갱신을 적는다.
+                record(task, state)
+                StartOutcome.Accepted(task)
+            }
+
+            is Applied.Refused -> StartOutcome.Rejected(RejectionCode.REJECTION_CODE_UPDATE_UNSUPPORTED, applied.detail)
         }
     }
 
@@ -411,7 +455,8 @@ class HostedRobot(
      * 이 여기서 접히며, 그것이 지금의 한계다(§15.108).
      */
     private fun progressOf(task: HostedTask, state: TaskState): Double {
-        val floor = task.log.lastOrNull()?.progress ?: 0.0
+        // **바닥은 같은 구간 안에서만 유효하다.** `revision` 이 오르면(갱신) 진행률은 0 에서 다시 센다(§4.4).
+        val floor = task.log.lastOrNull()?.takeIf { it.revision == task.revision }?.progress ?: 0.0
         val measured = when {
             state == TaskState.TASK_STATE_SUCCEEDED -> 1.0
             else -> (adapter.progress() as? ProgressObservation.Fraction)?.fraction?.coerceIn(0.0, 1.0) ?: 0.0
@@ -488,5 +533,8 @@ class HostedRobot(
         val SESSIONS = AtomicLong()
         val ISO: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
         val FAILURE_STATES = setOf(TaskState.TASK_STATE_FAILED, TaskState.TASK_STATE_RETRIABLE, TaskState.TASK_STATE_NEEDS_INTERVENTION)
+
+        /** 갱신을 받아 어댑터까지 보내는 상태. 나머지는 위 [update] 의 주석이 이유를 적는다. */
+        val UPDATABLE_STATES = setOf(TaskState.TASK_STATE_ACCEPTED, TaskState.TASK_STATE_RUNNING)
     }
 }

@@ -250,6 +250,19 @@ class OrbitAdapter(
     override fun cancel(): Applied =
         Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "플릿에 도는 미션을 취소하는 문이 없다 — 게시 스펙과 클라이언트 경로를 다 세어도 없다")
 
+    /**
+     * 갱신 — **없다. 멈출 수 없으니 다시 시킬 수도 없다.**
+     *
+     * §4.4 의 갱신은 `Halt` → `Reset` → `Start` 의 합성이고, 그 첫 칸이 여기 없다([cancel] 과 같은 이유다).
+     * 파견만 다시 하면 앞 미션이 계속 도는 채로 새 미션이 붙거나 플릿이 거절하는데, **어느 쪽인지 알 방법이
+     * 없다.** 그래서 시도하지 않는다 — 호스트가 이것을 계약의 `UPDATE_UNSUPPORTED` 로 옮긴다(§15.109).
+     */
+    override fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: Instant): Applied =
+        Applied.Refused(
+            Refusal.NO_VENDOR_PRIMITIVE,
+            "플릿에 도는 미션을 멈추는 문이 없어 갱신의 첫 칸이 없다 — 취소한 뒤(그것도 없다) 새 태스크로 가야 한다",
+        )
+
     /** 진단이 읽는 벤더 원문. 판정에 안 쓴다. */
     fun vendorStatus(): String? = task?.vendorStatus
 
