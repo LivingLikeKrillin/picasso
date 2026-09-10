@@ -111,6 +111,30 @@ class SequencingRackTest {
     }
 
     @Test
+    fun `자재 선언과 배정이 어긋난 주문은 받지 않는다`() {
+        // 상류가 A형 둘이라 해 놓고 슬롯이 셋을 요구하면 그 주문은 자기 안에서 모순이다.
+        // **재고 판단이 아니다** — 그것은 WMS 의 일이고, 여기서 보는 것은 주문의 정합성이다.
+        val broken = order().let { o ->
+            o.copy(materialRequirements = o.materialRequirements.map { m ->
+                if (m.materialDefinitionId == "ENGINE-COVER-A") m.copy(quantity = 3) else m
+            })
+        }
+        world().use { w ->
+            val rejected = assertIs<Middleware.Submission.Rejected>(w.mw.submit(broken, ROBOT))
+            assertTrue("선언" in rejected.reason && "배정" in rejected.reason, rejected.reason)
+            // **받아 놓고 돌리면** 어긋남이 로봇이 실패한 뒤에야 보인다. 그때는 이미 움직인 뒤다.
+            assertEquals(emptyList(), w.tasks(), "거절인데 로봇에 갔다")
+        }
+    }
+
+    @Test
+    fun `자재 선언이 없으면 검사하지 않는다 — 없는 것과 어긋나는 것은 다르다`() {
+        world().use { w ->
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(order().copy(materialRequirements = emptyList()), ROBOT))
+        }
+    }
+
+    @Test
     fun `요구 등급이 E0 이면 셀 장치를 묻지 않는다`() {
         world().use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(required = Evidence.E0), ROBOT)).execution

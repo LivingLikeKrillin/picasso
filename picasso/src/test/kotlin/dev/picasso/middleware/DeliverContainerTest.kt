@@ -31,7 +31,9 @@ class DeliverContainerTest {
         workMasterId = DeliverContainer.WORK_MASTER,
         version = 1,
         requiredEvidence = required,
-        parameters = mapOf("request_id" to "REQ-781-1", "due_by" to "…"),
+        // **요청 식별자와 납기를 안 싣는다.** 시나리오 ① 의 표에는 있지만 이 층이 쓸 자리가 없다 —
+        // 재전송 구분은 `(jobOrderId, version)` 이 이미 하고(두 키로 같은 질문에 답하면 어긋나는 날이 온다),
+        // 납기는 배차의 입력인데 배차는 밖이다(§1.3). 안 쓰는 값을 나르지 않는 것이 ADR 9 다(§15.117).
         equipmentRequirements = listOf(
             EquipmentRequirement(SOURCE, EquipmentUse.SOURCE, mapOf(EquipmentUse.PROP_CONTAINER to CONTAINER)),
             EquipmentRequirement(DEST, EquipmentUse.DESTINATION),

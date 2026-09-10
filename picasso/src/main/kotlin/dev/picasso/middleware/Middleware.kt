@@ -168,17 +168,39 @@ class Middleware(
         val existing = executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }
         if (existing != null) return revise(existing, order)
 
+        val planned = capability.plan(order)
+        inconsistent(order, planned)?.let { return Submission.Rejected(it) }
+
         val execution = Execution(
             executionId = "exec-${executions.size + 1}",
             order = order,
             robotId = robotId,
             capability = capability,
-            units = capability.plan(order).toMutableList(),
+            units = planned.toMutableList(),
         )
         execution.units.forEach { it.revision = order.version }
         execution.physicalState = PhysicalState.ACCEPTED
         executions[execution.executionId] = execution
         return Submission.Accepted(execution)
+    }
+
+    /**
+     * 주문이 **스스로 어긋나는가** — 선언한 자재 수량과 배정된 단위 수가 타입마다 같은가.
+     *
+     * 상류가 *A형 둘* 이라 선언했는데 슬롯이 셋을 요구하면 그 주문은 자기 안에서 모순이다. **정책이 아니라
+     * 정합성**이다 — 우리가 재고를 판단하는 것이 아니라(그것은 WMS 의 일이다) 서로 안 맞는 주문을 안 받는 것이다.
+     *
+     * 받아 놓고 돌리면 어느 슬롯이 계획 밖이었는지가 **로봇이 실패한 뒤에야** 보인다. 그때는 이미 물리적으로
+     * 움직인 뒤다.
+     *
+     * `MaterialRequirements` 를 안 싣는 주문(운반 ①)은 검사하지 않는다 — 없는 것과 어긋나는 것은 다르다.
+     */
+    private fun inconsistent(order: JobOrder, planned: List<ExecutionUnit>): String? {
+        if (order.materialRequirements.isEmpty()) return null
+        val declared = order.materialRequirements.associate { it.materialDefinitionId to it.quantity }
+        val assigned = planned.mapNotNull { it.expectedIdentity }.groupingBy { it }.eachCount()
+        if (declared == assigned) return null
+        return "자재 선언과 배정이 어긋난다: 선언=$declared, 배정=$assigned — 주문이 자기 안에서 안 맞는다"
     }
 
     private fun revise(execution: Execution, order: JobOrder): Submission {
