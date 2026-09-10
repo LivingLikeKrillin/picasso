@@ -118,7 +118,6 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | 벤더가 무엇을 선언하나 | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) |
 | 이 일감을 시키려면 현장에 무엇이 있어야 하나 | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) — 로봇 쓰는 공장·창고를 짓는 쪽이 읽는 제약이자 제안 |
 | 남쪽 포트의 벤더 인용을 어떻게 대조하나 | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) |
-| 어떤 순서로 지었나 | [`docs/superpowers/plans/`](docs/superpowers/plans) |
 | **지금 무엇이 열려 있나** | [`docs/limits.md`](docs/limits.md) — 한계 대장. 의도적 밖 / 안에서 닫는다 / 밖에서 닫는다 로 갈리고, 열린 것마다 **무엇이 있어야 닫히나** 가 한 줄 |
 
 ## 지금 상태

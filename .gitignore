@@ -3,3 +3,9 @@ build/
 *.class
 .idea/
 .kotlin/
+
+# Claude 의 작업 공간과 로컬 전용 문서.
+# .claude/ 는 워크트리·세션 부산물이고, CLAUDE.local.md 는 저장소에 안 들이기로 한 것을
+# 적는 자리다 — 둘 다 git add -A 에 걸리면 안 된다. CLAUDE.md 는 저장소의 것이라 추적한다.
+.claude/
+CLAUDE.local.md
