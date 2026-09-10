@@ -218,7 +218,10 @@ class Middleware(
                         unit.source = fresh.source
                         unit.destination = fresh.destination
                         try {
-                            val response = robots.start(execution.robotId, unit.taskId, order.version, unit.skillType, fresh.parameters)
+                            val response = robots.start(
+                                execution.robotId, unit.taskId, order.version, unit.skillType,
+                                withOptionals(execution, unit, fresh.parameters),
+                            )
                             when {
                                 response.hasHandle() -> if (unit.state == UnitState.IN_DOUBT) {
                                     execution.handle = response.handle
@@ -640,7 +643,10 @@ class Middleware(
     /** 13.2 ① — 같은 참조로 다시 묻는다. 돌아오면 핸들을 잡고 참, 거절이면 단위를 실패로 적고 거짓, 답이 없으면 던진다. */
     private fun lookupDownstream(execution: Execution, unit: ExecutionUnit): Boolean = when (unit.route) {
         Route.ROBOT -> {
-            val response = robots.start(execution.robotId, unit.taskId, unit.revision, unit.skillType, unit.parameters)
+            val response = robots.start(
+                execution.robotId, unit.taskId, unit.revision, unit.skillType,
+                withOptionals(execution, unit, unit.parameters),
+            )
             if (response.hasHandle()) {
                 execution.handle = response.handle
                 true
@@ -727,6 +733,39 @@ class Middleware(
         } else {
             HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_EMPTY).build()
         }
+
+    /**
+     * 능력이 쓰고 싶다는 **선택 파라미터**를 붙인다 — **로봇이 선언한 것만.**
+     *
+     * 선택 필드는 기종마다 있고 없다. 안 드는 기종에 보내면 코어 키는 fail-closed 라 태스크 자체가
+     * `PARAMETER_INVALID` 로 거절되고(§5.3), 그러면 선택 필드 하나 때문에 그 기종에서 이 능력을 못 쓴다 —
+     * 실측으로 그런 기종이 있다 — 어느 것인지는 이 모듈이 알 자리가 아니다(게이트 7번).
+     *
+     * ★**뺐다는 사실을 적는다.** 조용히 빼면 *파지 확인을 요구했다* 와 *못 해서 안 했다* 가 같아 보이고,
+     * 그것은 이 저장소가 진행률·결함·파지에서 반복해 거절한 접기다. 기체마다 한 번만 적는다.
+     *
+     * 능력을 **못 물어봤으면 안 붙인다** — 널은 *아무것도 안 든다* 가 아니라 *모른다* 이고, 모를 때는
+     * 막는 방향이다(§15.41).
+     */
+    private fun withOptionals(execution: Execution, unit: ExecutionUnit, base: Map<String, String>): Map<String, String> {
+        val wanted = execution.capability.preferredOptionals
+        if (wanted.isEmpty()) return base
+
+        val declared = robots.capabilities(execution.robotId)
+            ?.skillsList?.firstOrNull { it.skillType == unit.skillType }
+            ?.parametersList?.map { it.key }?.toSet()
+
+        val kept = if (declared == null) emptyMap() else wanted.filterKeys { it in declared }
+        (wanted.keys - kept.keys).forEach { key ->
+            if (!droppedOptionals.add(execution.robotId to key)) return@forEach
+            val why = if (declared == null) "능력을 못 물어봤다" else "이 기종이 선언하지 않는다"
+            execution.trail("OPTIONAL_NOT_SENT", "$key: $why — 요구하지 않고 보낸다")
+        }
+        return base + kept
+    }
+
+    /** 이미 적은 (기체, 선택 키). 같은 사실을 되풀이하면 운영자가 곧 무시한다. */
+    private val droppedOptionals = mutableSetOf<Pair<String, String>>()
 
     private fun startUnit(execution: Execution, unit: ExecutionUnit) {
         // 재작업은 새 정체성이다 — 같은 task_id 는 계약이 같은(종착한) 핸들로 돌려준다.

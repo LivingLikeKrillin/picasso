@@ -3,10 +3,12 @@ package dev.picasso.middleware
 import dev.picasso.client.PicassoClient
 import dev.picasso.client.TaskFollower
 import dev.picasso.contracts.v1.CancelTaskResponse
+import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
+import dev.picasso.contracts.v1.ValueType
 import dev.picasso.contracts.v1.WatchTaskResponse
 import java.time.Instant
 
@@ -23,6 +25,14 @@ interface RobotPort {
      * 벤더가 참조 키를 안 받아도 어댑터가 매핑을 들어 이 답을 지킨다(어댑터 재시작은 밖, §1.3 B-1).
      */
     val executionLookup: ExecutionLookup get() = ExecutionLookup.CLIENT_REFERENCE
+
+    /**
+     * 이 기체가 **무엇을 드는가**(계약 `GetCapabilities`).
+     *
+     * **널은 못 물어봤다**이지 *아무것도 안 든다* 가 아니다. 선택 파라미터를 붙일지 판정하는 데만 쓰므로,
+     * 널이면 **안 붙인다** — 막는 방향이다(§15.41).
+     */
+    fun capabilities(robotId: String): Capability? = null
 
     fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse
     fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse>
@@ -42,13 +52,41 @@ interface RobotPort {
 /** [PicassoClient] 위의 [RobotPort]. 핸들마다 팔로워 하나를 붙여 두고 그것을 읽는다. */
 class ClientRobotPort(private val client: PicassoClient) : RobotPort {
 
+    /** `PicassoClient` 가 이미 세대별로 캐시한다 — 여기서 또 들면 두 캐시가 어긋난다. */
+    override fun capabilities(robotId: String): Capability? = runCatching { client.capabilities(robotId) }.getOrNull()
+
     private val followers = mutableMapOf<String, TaskFollower>()
 
     override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse =
         client.start(
             robotId, taskId, revision, skillType,
-            parameters.map { (k, v) -> ParameterValue.newBuilder().setKey(k).setStringValue(v).build() },
+            parameters.map { (k, v) -> typed(robotId, skillType, k, v) },
         )
+
+    /**
+     * 문자열 하나를 **계약이 선언한 타입**으로 옮긴다.
+     *
+     * 미들웨어의 파라미터가 전부 문자열인 것은 상류 때문이다 — ISA-95 의 `Value` 가 문자열이고, 층 ③ 은 그것을
+     * 그대로 나른다. 계약은 타입이 있다(`ValueType`). **그 경계가 여기다.**
+     *
+     * 타입을 모르면(능력을 못 물어봤거나 선언에 없는 키) 문자열로 보낸다 — 선언에 없는 코어 키는 어차피
+     * 로봇이 거절하고(§5.3 fail-closed), 그 거절이 조용한 변환보다 낫다.
+     *
+     * ★이 자리가 없던 동안 미들웨어가 보내던 것은 전부 문자열 파라미터였다. `verify_grasp`(BOOL)가 처음으로
+     * 타입이 다른 것이었고, 문자열로 보내니 **태스크가 통째로 `PARAMETER_INVALID` 로 죽었다**(§15.116).
+     */
+    private fun typed(robotId: String, skillType: String, key: String, value: String): ParameterValue {
+        val builder = ParameterValue.newBuilder().setKey(key)
+        val declared = capabilities(robotId)
+            ?.skillsList?.firstOrNull { it.skillType == skillType }
+            ?.parametersList?.firstOrNull { it.key == key }
+        return when (declared?.valueType) {
+            ValueType.VALUE_TYPE_BOOL -> builder.setBoolValue(value.toBooleanStrict()).build()
+            ValueType.VALUE_TYPE_NUMBER -> builder.setNumberValue(value.toDouble()).build()
+            ValueType.VALUE_TYPE_INTEGER -> builder.setIntegerValue(value.toLong()).build()
+            else -> builder.setStringValue(value).build()
+        }
+    }
 
     override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
         followers.getOrPut(handle.taskId) { client.follow(robotId, handle, from = 0) }.updates

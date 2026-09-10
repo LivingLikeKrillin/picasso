@@ -39,6 +39,19 @@ interface LogicalCapability {
      */
     val stallWindow: Duration get() = Duration.ofMinutes(5)
 
+    /**
+     * 이 능력이 **쓰고 싶은 선택 파라미터**(계약 §5.3 의 선택 필드).
+     *
+     * 필수와 다르다 — 로봇이 선언하지 않았으면 **안 보낸다.** 보내면 코어 키는 fail-closed 라 태스크가
+     * `PARAMETER_INVALID` 로 거절되고(§5.3), 그러면 선택 필드 하나 때문에 그 기종에서 이 능력을 못 쓴다.
+     * **실제로 갈린다** — 조사한 실물 중에 `pick_place` 를 들면서 `verify_grasp` 는 선언하지 않는 기종이 있다.
+     * (어느 기종인지는 이 모듈이 알 자리가 아니다 — 게이트 7번이 그것을 막는다. `profile/profiles/` 를 보라.)
+     *
+     * **안 보냈다는 사실은 적는다**(§15.116). 조용히 빼면 *파지 확인을 요구했다* 와 *못 해서 안 했다* 가
+     * 같아 보인다.
+     */
+    val preferredOptionals: Map<String, String> get() = emptyMap()
+
     /** 상류 요청을 원자 단위 열로. 계획이지 실행이 아니다. */
     fun plan(order: JobOrder): List<ExecutionUnit>
 }
@@ -77,6 +90,14 @@ class PrepareSequencedRack : LogicalCapability {
 
     override val maxEvidence: Evidence = Evidence.E2
 
+    /**
+     * **파지 확인을 요구한다**(시나리오 ② §4.2 의 요청 모양).
+     *
+     * 이 능력은 집어서 놓는 일이고, 집었는지를 로봇이 확인해 주면 E0 의 값이 올라간다. 계약이 그것을
+     * 선택 파라미터로 두었으므로 **드는 기종에만** 간다.
+     */
+    override val preferredOptionals: Map<String, String> = mapOf(P_VERIFY_GRASP to "true")
+
     override fun plan(order: JobOrder): List<ExecutionUnit> {
         val sources = order.equipmentRequirements
             .filter { it.equipmentUse == EquipmentUse.SOURCE }
@@ -112,6 +133,9 @@ class PrepareSequencedRack : LogicalCapability {
         const val SKILL = "pick_place"
         const val P_OBJECT = "object_id"
         const val P_DESTINATION = "destination"
+
+        /** 계약 카탈로그 `PickPlaceV1.verify_grasp` — 선택 파라미터다. */
+        const val P_VERIFY_GRASP = "verify_grasp"
 
         /** 그 타입을 제시하는 자리가 주문에 없다 — 부품 부족의 미들웨어 쪽 이름. */
         const val NO_SOURCE = "NO_SOURCE_FOR_MATERIAL"
