@@ -68,23 +68,11 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 
 필요한 것: **JDK 21**, **Docker**(buf 래퍼, Testcontainers 의 PostgreSQL·mosquitto). 전부 Kotlin, Gradle.
 
-**순서가 계약이다.** `gate` 는 `contracts` 에 빌드 의존을 걸지 않고 `buf build` 가 만든 디스크립터 바이트를 읽는다. 그래서 `buf build` 가 먼저다. 새 클론에서 순서를 어기면 시험이 만드는 법을 찍고 실패한다.
-
-```bash
-mkdir -p contracts/build && ( cd contracts && ../tools/buf build -o build/descriptor.binpb )
-```
-
-같은 것을 Gradle 로(셸 래퍼 없이 Docker 직접 호출 — Windows 에서도 돈다). proto 를 고쳤으면 이것부터:
-
-```bash
-./gradlew :contracts:bufDescriptor
-```
-
 ```bash
 ./gradlew build -Dpicasso.negative.strict=true -Dpicasso.buf="$PWD/tools/buf"
 ```
 
-> **proto 를 고쳤으면 첫 명령을 다시 돌려야 한다.** 디스크립터 재생성은 Gradle 배선 밖에 있어서, 낡은 디스크립터는 낡은 코드와 사이좋게 초록이다(설계 §15.22).
+`gate` 는 `contracts` 에 빌드 의존을 걸지 않고 **디스크립터 바이트**를 런타임 입력으로 읽는다. 그 바이트를 만드는 것은 `protoc`(Gradle) 이고 **런타임 신원(`picasso.desc`)과 같은 파일**이며, `:gate:test` 가 그 태스크에 매달려 있다 — 손으로 먼저 돌릴 명령이 없다. 예전에는 `tools/buf build` 를 손으로 돌려야 했고 **안 돌리면 낡은 디스크립터가 낡은 코드와 사이좋게 초록이었다**(§15.22 → §15.111 에서 닫힘).
 
 CI 는 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 이 같은 순서로 돌리고, PR 에서는 기준선을 뽑아 파괴 변경 검사(2·6번)와 소스 변경 없는 기종 추가 검사(8번)까지 요구한다.
 

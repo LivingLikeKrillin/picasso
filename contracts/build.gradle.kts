@@ -86,8 +86,12 @@ protobuf {
             generateDescriptorSet = true
             descriptorSetOptions.includeSourceInfo = false
             descriptorSetOptions.includeImports = true
-            descriptorSetOptions.path =
-                "${layout.buildDirectory.get().asFile}/contract-descriptor/picasso.desc"
+
+            // **이 파일 하나가 계약의 디스크립터다.** 예전에는 둘이었다 — 여기서 만든 `picasso.desc`(런타임 신원과
+            // `registry` 의 교차검증)와 `tools/buf build` 가 손으로 만드는 `descriptor.binpb`(게이트가 읽는 것).
+            // 뒤의 것은 빌드 배선 밖이라 **낡은 디스크립터가 낡은 코드와 사이좋게 초록이었다**(§15.22 의 실측).
+            // 하나로 합치면 그 구멍이 사라지고, 게이트 시험이 Gradle 태스크에 매달릴 수 있다(§15.111).
+            descriptorSetOptions.path = "${layout.buildDirectory.get().asFile}/descriptor.binpb"
         }
     }
 }
@@ -96,7 +100,7 @@ protobuf {
 val contractIdentityDir = layout.buildDirectory.dir("generated/contract-identity")
 
 val contractIdentity = tasks.register("contractIdentity") {
-    val descriptor = layout.buildDirectory.file("contract-descriptor/picasso.desc")
+    val descriptor = layout.buildDirectory.file("descriptor.binpb")
     val outDir = contractIdentityDir
     val semver = contractSemver
 
@@ -129,28 +133,6 @@ sourceSets {
     }
 }
 
-// ── 게이트가 읽는 디스크립터를 buf 로 만든다 — `tools/buf` 와 같은 컨테이너, 같은 인자. **`build` 에 안 걸려 있다.**
-//
-// 게이트는 `contracts` 에 빌드 의존을 걸지 않고 `build/descriptor.binpb` 의 바이트를 읽는다(설계 §3.2, README).
-// 그 순서를 Gradle 이 강제하지 않는 것은 설계의 결정이라 그대로 두되, proto 를 고친 뒤 **어디서든 한 명령으로**
-// 다시 만들 수 있게 한다 — `tools/buf` 는 bash 라 Windows 의 CreateProcess 로는 못 부르고(§15.85), 그래서
-// 여기서는 셸 래퍼 없이 docker 를 직접 부른다. Docker 가 없으면 이 태스크가 실패하고 게이트 시험이 만드는 법을 찍는다.
-//
-//     ./gradlew :contracts:bufDescriptor
-val bufVersion = providers.environmentVariable("BUF_VERSION").orElse("1.47.2")
-tasks.register<Exec>("bufDescriptor") {
-    group = "contract"
-    description = "buf build → build/descriptor.binpb (게이트 입력). tools/buf 와 같은 컨테이너·인자."
-    val repoRoot = rootProject.layout.projectDirectory.asFile.absolutePath.replace('\\', '/')
-    inputs.dir(layout.projectDirectory.dir("proto"))
-    inputs.file(layout.projectDirectory.file("buf.yaml"))
-    outputs.file(layout.buildDirectory.file("descriptor.binpb"))
-    doFirst { layout.buildDirectory.get().asFile.mkdirs() }
-    commandLine(
-        "docker", "run", "--rm",
-        "-v", "$repoRoot:/workspace",
-        "-w", "/workspace/contracts",
-        "bufbuild/buf:${bufVersion.get()}",
-        "build", "-o", "build/descriptor.binpb",
-    )
-}
+// **`bufDescriptor` 태스크는 지웠다.** 게이트가 읽는 디스크립터를 buf 로 따로 만들던 자리인데, 위에서 protoc 이
+// 만드는 것과 **같은 파일**을 가리키게 되면서 할 일이 없어졌다. 남겨 두면 언젠가 누가 돌려 두 번째 디스크립터가
+// 다시 생기고, 그때 §15.22 의 구멍이 되돌아온다. `buf` 는 여전히 lint·breaking(게이트 1·2번)과 음성 하네스가 쓴다.

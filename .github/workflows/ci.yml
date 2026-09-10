@@ -24,12 +24,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       # 게이트가 --require 에 CONTRACT_DESCRIPTOR 를 넣으므로 먼저 만들어야 한다.
-      # gate는 contracts에 빌드 의존을 걸지 않으므로(설계 §3.2의 단서) 이
-      # 순서를 강제하는 것은 Gradle이 아니라 이 스텝 순서다.
-      - name: buf build (descriptor)
-        run: |
-          mkdir -p contracts/build
-          cd contracts && ../tools/buf build -o build/descriptor.binpb
+      # **디스크립터는 이제 protoc 이 만든다** — 런타임 신원(picasso.desc)과 게이트가
+      # 읽는 것이 같은 파일이고, `:gate:test` 는 Gradle 태스크 의존으로 그것을 본다
+      # (§15.111). 여기서는 게이트 **CLI** 가 쓸 것을 미리 만들어 둔다.
+      - name: 계약 디스크립터
+        run: ./gradlew :contracts:generateProto -q
 
       - name: 기준선 준비
         id: baseline

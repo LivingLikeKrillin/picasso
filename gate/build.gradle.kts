@@ -34,11 +34,15 @@ tasks.withType<Test>().configureEach {
     // 테스트가 실제 contracts 디스크립터를 읽는다.
     // 픽스처를 커밋하면 proto가 바뀔 때 조용히 낡기 때문이다.
     //
-    // 그래서 buf build가 ./gradlew build보다 먼저 돌아야 한다:
-    //   mkdir -p contracts/build && ( cd contracts && ../tools/buf build -o build/descriptor.binpb )
-    // Gradle 태스크 의존이 아니라 순서에 기댄다 — gate는 contracts에
-    // 빌드 의존을 걸지 않는다(설계 §3.2의 단서). 순서를 어기면 테스트가
-    // 만드는 법을 찍고 실패한다.
+    // **이제 Gradle 이 그 순서를 강제한다.** 예전에는 `tools/buf build` 를 손으로 먼저
+    // 돌려야 했고, 안 돌리면 **낡은 디스크립터가 낡은 코드와 사이좋게 초록이었다**
+    // (§15.22 의 실측 — 옵션을 더하고 시험을 돌렸는데 옛 판정이 나왔다).
+    //
+    // **이것은 `project(":contracts")` 의존이 아니다.** 태스크 순서 하나이고 `gate` 의
+    // 클래스패스에는 아무것도 안 들어온다 — §3.2 가 막는 것은 뒤엣것이다(게이트 5번이
+    // 그 자리를 계속 지킨다). 대신 얻는 것은 *proto 를 고치면 게이트 시험이 그것을 본다* 는
+    // 보장이고, 그것이 없으면 이 모듈의 시험 전부가 조용히 낡는다.
+    dependsOn(":contracts:generateProto")
     val descriptor = rootProject.file("contracts/build/descriptor.binpb")
 
     // inputs 선언이 없으면 디스크립터가 깨지거나 바뀌어도 테스트가

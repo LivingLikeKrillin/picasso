@@ -68,7 +68,7 @@ class VocabularyDistanceTest {
         check(Files.exists(path)) {
             "디스크립터가 없다: $property\n" +
                 "먼저 만들어라:\n" +
-                "  mkdir -p contracts/build && ( cd contracts && ../tools/buf build -o build/descriptor.binpb )"
+                "  ./gradlew :contracts:generateProto   (`:gate:test` 이 이미 여기 매달려 있다)"
         }
         ContractIndex.from(Files.readAllBytes(path)).skillTypes().toSet()
     }

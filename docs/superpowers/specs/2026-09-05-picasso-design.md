@@ -208,7 +208,7 @@ adapter-<v>-<m> → contracts, adapter-core    ※ 아래 단서
 
 **`client → profile-model`은 2단계 Chunk 3a에서 더했다.** §5.4가 요구 집합을 "코드가 아니라 설정"이라 못박았고 그 파일을 읽는 코드가 `client`(만드는 쪽)와 `mimic`(판정하는 쪽) 양쪽에 필요한데, `client → mimic`은 이 표가 금지한다. ADR 29가 `profile-model`을 만든 것과 같은 이유다. **대가는 `ProfileDocument`(기종 저작 형식)가 `client`의 클래스패스에 들어온다는 것이고**, 얇은 소비자가 그것을 읽기 시작하면 §11.2의 7번이 막으려는 바로 그것이 된다 — `ClientBoundaryTest`가 그 선을 지킨다.
 
-**`gate`는 `contracts`에 빌드 의존을 걸지 않는다(1단계 실측 반영).** `buf.gen.yaml`이 Java를 생성하지 않으므로 의존해 봐야 클래스패스에 얹힐 것이 없고, `gate`가 필요한 것은 생성 코드가 아니라 `buf build`가 만든 `FileDescriptorSet` **바이트**다. 그것은 런타임 입력(`Resource.CONTRACT_DESCRIPTOR`)으로 받는다. 이 선택의 대가는 **`buf build`가 `./gradlew build`보다 먼저 돌아야 한다**는 것이고, 새 클론에서 그 순서를 어기면 `ContractIndexTest`가 만드는 법을 찍고 실패한다. Gradle 태스크 의존이 아니라 순서에 기대는 것이므로 CI의 스텝 순서가 그 계약이다.
+**`gate`는 `contracts`에 빌드 의존을 걸지 않는다(1단계 실측 반영).** `buf.gen.yaml`이 Java를 생성하지 않으므로 의존해 봐야 클래스패스에 얹힐 것이 없고, `gate`가 필요한 것은 생성 코드가 아니라 `buf build`가 만든 `FileDescriptorSet` **바이트**다. 그것은 런타임 입력(`Resource.CONTRACT_DESCRIPTOR`)으로 받는다. 그 바이트를 만드는 것은 **`protoc`(Gradle)이고 런타임 신원(`picasso.desc`)과 같은 파일**이며, `:gate:test` 가 `:contracts:generateProto` 에 태스크로 매달려 있다(§15.111). **태스크 의존은 `project(":contracts")` 의존이 아니다** — `gate` 의 클래스패스에는 아무것도 안 들어오고, 게이트 5번이 그 자리를 계속 지킨다. 예전에는 `buf build` 를 손으로 먼저 돌려야 했고 그 순서를 어기면 낡은 디스크립터가 조용히 쓰였다.
 
 여기서 검사 5번이 이 불일치를 잡지 못한다는 점을 적어 둔다 — 5번은 `contracts`의 의존만 센다.
 
@@ -1416,7 +1416,7 @@ mimic/
 10. **원장은 소비자가 우리를 거쳐 갈 때만 정확하다.** `OBSERVED`는 핸드셰이크를 하는 소비자만 잡는다. 우리를 우회해 로봇에 직접 붙는 경로가 생기면 원장이 조용히 거짓말을 하고, 그 위에 선 축소 판정도 함께 틀린다. **원장의 정확성은 "모든 접근이 이 계약을 지난다"는 조직적 합의에 의존하며 기술로 강제되지 않는다.**
 
 11. **게이트 5번도 문자열 검사다.** 7번과 같은 이유이며(Gradle을 부르면 `gate → Gradle → gate`가 된다) 대가가 셋이다. 관례 플러그인이나 별도 `.gradle.kts`가 주입하는 프로젝트 의존은 **못 잡고**, 블록 주석(`/* … */`) 안의 `project(` 와 루트가 **자기 자신을 위해** 갖는 의존은 **거짓 실패**다. 잡는 형태는 `project(":x")`·`project(path = ":x")`·`projects.x` 셋이며, 넷째 형태가 생기면 이 검사를 고쳐야 한다.
-12. **`gate`는 `contracts`에 빌드 의존을 걸지 않는다**(§3.2의 단서). 그래서 `buf build`가 `./gradlew build`보다 먼저 돌아야 하고, 그 순서를 강제하는 것은 Gradle이 아니라 CI의 스텝 순서다. 검사 5번은 이 불일치를 잡지 못한다 — `contracts`의 의존만 세기 때문이다.
+12. ~~**`gate`는 `contracts`에 빌드 의존을 걸지 않아 `buf build`가 먼저 돌아야 한다.**~~ **(닫힘, §15.111)** 라이브러리 의존은 여전히 없지만 `:gate:test` 가 `:contracts:generateProto` 에 **태스크로** 매달렸고, 디스크립터를 만드는 것이 buf 가 아니라 protoc 이라 순서가 Gradle 안에 있다.
 13. **proto 파일 하나가 나쁘면 `ContractIndex`가 통째로 실패한다.** 게이트는 빨간불이 되므로 안전한 방향이지만, 나머지 스킬들의 대조 결과를 함께 잃는다.
 14. **게이트 6번이 분류하지 않는 파괴가 있다.** 허용값 축소·문자열 길이 축소·수치 범위 축소는 §5.2가 열거하지 않아 **경고로만** 낸다. 실제로 클라이언트를 깰 수 있으므로 사양이 이를 분류하면 그때 오류로 올린다. 반대로 §5.2의 "성공 판정 기준 변경"은 프로파일에 담기지 않아 6번이 볼 수 없다 — 그것은 위 1번과 같은 성격이다.
 15. **음성 하네스의 케이스 1·2는 Docker가 있어야 돈다.** 없으면 건너뛰며, `picasso.negative.strict=true`(CI)일 때만 실패한다. 로컬은 Docker 없이 나머지 일곱을 돈다.
@@ -1428,7 +1428,7 @@ mimic/
 19. **`mimic`이 게이트가 거절할 프로파일로 기동할 수 있다.** `ProfileSource`는 JSON Schema만 보고 게이트 검사 3번의 구조 규칙 넷(발행 간격 뒤집힘, `(skill_type, major)` 중복, 스킬 내 `key` 중복, 어댑터 전용 `error_type`)은 보지 않는다. §10.2가 요구하는 것이 스키마 검증뿐이라 사양 위반은 아니지만, `--profile <path>`가 임의 경로를 받으므로 실제로 가능한 비대칭이다.
 20. **proto 코드 생성과 디스크립터를 서로 다른 도구가 만든다**(ADR 30). Gradle protobuf 플러그인의 protoc와 `buf` 내장본이 버전이 달라 생성 코드와 디스크립터가 미세하게 다를 수 있다. 쓰는 것이 메시지 구성이라 실질 영향은 없다. 그리고 protobuf-gradle-plugin 0.9.4는 **Gradle 10에서 깨진다** — legacy `Usage` 속성과 다중 문자열 의존 표기가 플러그인 내부에서 나오므로 우리가 못 고친다. Gradle 10 이전에 플러그인 버전을 올려야 한다.
 21. **`session_id`가 §5.5의 ULID가 아니라 기동 카운터다.** ULID의 난수부를 시드에서 뽑으면 §12.1의 결정성 규율("시드 + 가상 시계 고정 = 동일 이벤트 시퀀스")과 "재기동하면 새 세션"이 충돌하고, `UUID.randomUUID()`를 쓰면 결정성이 깨진다. 세션의 요건은 "온라인이 될 때마다 새것"이므로 프로세스 내 카운터로 족하다. **대가는 프로세스를 재기동하면 카운터가 0으로 돌아간다는 것**이다 — 같은 밀리초에 재기동하면 세션이 겹칠 수 있다. `mimic`은 PoC이므로 감수한다. **어댑터 호스트도 같은 카운터를 쓴다**(`host-N`) — 계획은 실물에서 ULID 였으나 그렇게 하지 않았고, 그래서 이 한계는 발신자 **둘**의 것이다(`docs/limits.md`).
-22. **`contract_digest`가 `buf` 모듈 다이제스트가 아니라 디스크립터 셋의 SHA-256이다.** `buf`는 Docker 래퍼이고 게이트는 CI가 `buf build`를 먼저 돌리는 순서에 기대고 있는데, 런타임 헤더까지 거기 매달면 `mimic`이 Docker 없이 기동하지 못한다. `includeSourceInfo = false`라 주석만 고친 커밋에서는 변하지 않는다(실측). **역은 성립하지 않는다** — `includeImports = true`가 `descriptor.proto`를 끌고 오므로 protobuf나 플러그인 버전을 올리면 계약이 그대로여도 다이제스트가 바뀐다. **그리고 그 순서 의존이 로컬에서 물었다 (2026-09-09).** 디스크립터가 **둘**이다 — `contracts` 의 Gradle 이 `contract_digest` 용으로 만드는 `picasso.desc` 와, 게이트 시험이 읽는 `contracts/build/descriptor.binpb`. 뒤의 것은 `tools/buf build` 를 **손으로** 돌려야 갱신되고 Gradle 은 그 존재만 확인한다(`gate/build.gradle.kts`). `skill_catalog.proto` 에 옵션을 더하고 게이트 시험을 돌리니 빨개지지 않고 **옛 판정**이 나왔다 — 낡은 디스크립터는 낡은 코드와 사이좋게 초록이다. 재생성은 여전히 빌드 배선 밖에 있다.
+22. **`contract_digest`가 `buf` 모듈 다이제스트가 아니라 디스크립터 셋의 SHA-256이다.** `buf`는 Docker 래퍼이고 게이트는 CI가 `buf build`를 먼저 돌리는 순서에 기대고 있는데, 런타임 헤더까지 거기 매달면 `mimic`이 Docker 없이 기동하지 못한다. `includeSourceInfo = false`라 주석만 고친 커밋에서는 변하지 않는다(실측). **역은 성립하지 않는다** — `includeImports = true`가 `descriptor.proto`를 끌고 오므로 protobuf나 플러그인 버전을 올리면 계약이 그대로여도 다이제스트가 바뀐다. **그리고 그 순서 의존이 로컬에서 물었다 (2026-09-09).** 디스크립터가 **둘**이었다 — Gradle 이 `contract_digest` 용으로 만드는 `picasso.desc` 와, 게이트 시험이 읽는 `contracts/build/descriptor.binpb`. 뒤의 것은 `tools/buf build` 를 **손으로** 돌려야 갱신됐고, `skill_catalog.proto` 에 옵션을 더하고 게이트 시험을 돌리니 빨개지지 않고 **옛 판정**이 나왔다 — 낡은 디스크립터는 낡은 코드와 사이좋게 초록이다. **→ 디스크립터가 하나가 되면서 닫혔다(§15.111).** 남은 것은 다이제스트의 계산 방법이 `buf` 모듈 다이제스트가 아니라는 것뿐이고, 그것은 그대로다.
 23. **`MAJOR_MISMATCH`가 minor 부족까지 덮는다.** §12.2의 13번이 협상 거절을 다섯으로 못박았고 버전 불만족을 뜻하는 코드가 그것뿐이다. `detail`이 무엇이 부족한지 말하지만 코드 이름은 실제보다 좁다.
 24. **`GetCapabilitiesResponse`에 `Rejection` 자리가 없다.** 그래서 그 RPC만 신원 불일치가 응답 `oneof`가 아니라 gRPC 상태로 나간다 — "요청을 해석하지 못했으면 gRPC 상태, 해석했는데 거절하면 `oneof`"라는 규칙의 유일한 예외다.
 25. **`update_index`가 0부터 시작해 헤더에서 미설정과 구별되지 않는다.** `capability_epoch`는 1에서 시작해 피했지만 `task.proto`가 `update_index`를 0부터라고 못박았다. `schema_id`가 방향을 말하므로 실질 문제는 없다. **`sequence`도 같다**(§4.8이 0부터를 못박았다).
@@ -2253,7 +2253,7 @@ mimic/
 
     ### 정직하게 적어 둘 것
 
-    - `bufDescriptor` 는 Docker 가 있어야 돈다. 없으면 실패하고 게이트 시험이 만드는 법을 찍는다 — 앞과 같다. Docker 없는 대안(protoc 가 이미 만드는 `contract-descriptor/picasso.desc` 를 쓰는 것)은 게이트의 입력을 바꾸는 일이라 여기서 안 했다.
+    - ~~`bufDescriptor` 는 Docker 가 있어야 돈다. Docker 없는 대안(protoc 가 이미 만드는 `contract-descriptor/picasso.desc` 를 쓰는 것)은 게이트의 입력을 바꾸는 일이라 여기서 안 했다.~~ → **그 대안이 답이었다**(§15.111). 태스크는 지웠다.
     - `KnownSiteNamesTest` 의 잘림 시험은 `protocol_limits.max_array_length` 가 40 보다 클 수도 있어 조건부 단언이다 — 잘리면 `total_count` 가 말한다는 것만 고정한다.
 
 97. **Spot 이 `inspect` 를 든다 — 취득 계층 위에서, 대상의 이름은 세계 모델에 묻고, 결과는 `DataIdentifier` 참조로.**
@@ -2710,3 +2710,25 @@ mimic/
     - **대장이 §15 를 대신하지 않는다.** 일지가 정본이고 대장은 색인이다 — 두 곳에 같은 상태를 적으면 곧 어긋난다. 그 규칙을 대장 마지막 절에 적어 뒀다.
     - **대장에 없는 한계가 있을 수 있다.** §15 뒤쪽 일지의 *정직하게 적어 둘 것* 불릿을 전수로 옮기지는 않았다 — 옮긴 것은 지금도 참인 것으로 확인한 것들이다.
     - `DocumentClaimsTest` 는 **셀 수 있는 것만** 본다. *"어느 어댑터도 실물에 붙여 보지 못했다"* 같은 진술은 여전히 사람이 지킨다.
+
+111. **디스크립터가 하나가 됐다 — 그리고 게이트 시험이 proto 를 다시 본다(대장 1순위).**
+
+    `docs/limits.md` 의 첫 줄이었다. 게이트 시험이 읽는 `contracts/build/descriptor.binpb` 는 `tools/buf build` 를 **손으로** 돌려야 갱신됐고, 안 돌리면 **낡은 디스크립터가 낡은 코드와 사이좋게 초록이었다**(§15.22 의 실측: `skill_catalog.proto` 에 옵션을 더하고 시험을 돌렸는데 옛 판정이 나왔다).
+
+    ### 대가를 치를 줄 알았는데 안 쳐도 됐다
+
+    대장은 닫는 법을 *"Gradle 태스크가 만들고 `:gate:test` 가 거기 의존하면"* 이라 적고 대가를 *"Docker 의존이 `:gate:test` 로 번진다"* 라 적어 뒀다. **그 대가가 필요 없었다.** 디스크립터가 **둘**이라는 것이 문제의 절반이었기 때문이다 — `protoc`(Gradle)이 만드는 `picasso.desc` 는 이미 있었고, 런타임 신원(`contract_digest`)과 `registry` 의 교차검증이 그것을 읽고 있었다. 게이트만 buf 의 것을 읽었다.
+
+    그래서 **protoc 의 출력을 `contracts/build/descriptor.binpb` 로 내보내고 buf 로 만들던 태스크를 지웠다.** 이제 디스크립터가 하나이고, 셋(런타임 신원 · `registry` · 게이트)이 같은 바이트를 본다. `:gate:test` 는 `:contracts:generateProto` 에 매달린다 — **Docker 는 늘지 않았다.**
+
+    ★**§3.2 를 어긴 것이 아니다.** 태스크 의존은 `project(":contracts")` 의존이 아니다 — `gate` 의 클래스패스에는 아무것도 안 들어오고 게이트 5번이 그 자리를 계속 지킨다. §3.2 가 막는 것은 *게이트가 계약의 생성 코드를 쓰는 것* 이고, 여기서 생긴 것은 *게이트 시험이 최신 바이트를 본다* 는 순서 하나다.
+
+    ### 닫혔다는 것을 어떻게 아나
+
+    §15.22 가 적어 둔 **그 실측을 그대로 다시 했다** — `skill_catalog.proto` 에 아무 프로파일도 선언하지 않는 스킬을 하나 더하고 `:gate:test` 만 돌렸다. 예전에는 초록이었다. 지금은 **셋이 빨개진다**: `ContractIndexTest`(카탈로그 스킬 넷 → 다섯) · `VocabularyDistanceTest` 둘(계약의 모든 스킬을 실물마다 재는데 안 잰 것이 생겼다, 대조 횟수 20 → 16). 손으로 돌린 명령은 없다.
+
+    ### 정직하게 적어 둘 것
+
+    - **`buf` 가 필요 없어진 것이 아니다.** 게이트 1·2 번(lint·breaking)과 음성 하네스가 여전히 쓴다. 사라진 것은 *디스크립터를 buf 로 만드는 자리* 하나다.
+    - **`contract_digest` 의 계산 방법은 그대로다**(디스크립터 셋의 SHA-256, `buf` 모듈 다이제스트가 아님, §15.22 의 앞부분). 바이트가 바뀌지 않았으므로 다이제스트도 안 바뀌었다 — 소비자에게 경보가 안 간다.
+    - **protoc 과 buf 의 미세한 차이(§15.20)가 게이트 경로에서 사라졌다.** 두 도구가 만든 디스크립터를 서로 다른 곳이 읽던 자리가 없어졌기 때문이고, 그 차이가 실제로 문제였던 적은 없다.

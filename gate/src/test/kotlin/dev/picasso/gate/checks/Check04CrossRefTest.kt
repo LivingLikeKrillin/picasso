@@ -18,7 +18,7 @@ class Check04CrossRefTest {
         val path = Path.of(p)
         check(Files.exists(path)) {
             "디스크립터가 없다: $p\n" +
-                "  mkdir -p contracts/build && ( cd contracts && ../tools/buf build -o build/descriptor.binpb )"
+                "  ./gradlew :contracts:generateProto   (`:gate:test` 이 이미 여기 매달려 있다)"
         }
         Files.readAllBytes(path)
     }
