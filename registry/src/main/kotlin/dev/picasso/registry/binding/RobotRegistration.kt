@@ -104,27 +104,93 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
             when (val outcome = register(c, robot.robotId, siteId, robot.serialNumber, robot.displayName, null, RobotOrigin.DISCOVERED, actor, instanceId)) {
                 is RobotRegistrationOutcome.Registered, is RobotRegistrationOutcome.Updated -> recorded += robot.robotId
                 is RobotRegistrationOutcome.WrongDoor -> refused[robot.robotId] = outcome.detail
+                // 퇴역한 기체가 아직 플릿에 보이는 것은 **정상이다** — 원장에서 내렸다고 현장에서 사라지지
+                // 않는다. 사유를 주고 넘어가며, 그 어긋남은 진단이 따로 보여 준다.
+                is RobotRegistrationOutcome.RetiredAlready -> refused[robot.robotId] = outcome.detail
                 is RobotRegistrationOutcome.Rejected -> refused[robot.robotId] = outcome.detail
             }
         }
         DiscoveryOutcome(recorded, refused)
     }
 
+    /**
+     * 기체를 **퇴역시킨다** — 조작 문이다.
+     *
+     * ★**적재 문으로는 못 한다.** 어댑터가 *"플릿에서 안 보인다"* 고 해서 퇴역이 되면 **네트워크 단절이 퇴역이
+     * 된다.** 안 보이는 것은 관측이고 떠난 것은 판단이며, 그 둘을 접으면 케이블 한 번 빠진 날 기체가 원장에서
+     * 사라진다. ADR 37 이 들어오는 문을 가른 것과 같은 이유로 나가는 문은 하나다.
+     *
+     * **지우지 않는다.** 행은 남고 목록에서만 빠진다 — 태스크 관측·감사 로그·바인딩 이력이 이 기체에 매달려
+     * 있고, 지난달 그 라인에서 무엇이 돌았는지 물으면 답이 있어야 한다.
+     *
+     * @param reason **요구한다.** 판단은 이유가 있어야 되짚을 수 있고, 감사 로그만 남기면 아무도 안 뒤진다.
+     */
+    fun retire(robotId: String, reason: String, actor: String): RetirementOutcome = db.transaction { c ->
+        blank(robotId, "robot_id")?.let { return@transaction RetirementOutcome.Rejected(it.detail) }
+        blank(reason, "reason")?.let { return@transaction RetirementOutcome.Rejected(it.detail) }
+        blank(actor, "actor")?.let { return@transaction RetirementOutcome.Rejected(it.detail) }
+
+        val existing = rowOf(c, robotId) ?: return@transaction RetirementOutcome.Unknown(robotId)
+        // **이미 퇴역한 것을 다시 퇴역시켜도 첫 사유와 시각을 안 덮는다.** 덮으면 *"언제 떠났나"* 의 답이
+        // 마지막으로 누른 버튼의 시각이 된다.
+        if (existing.retiredAt != null) return@transaction RetirementOutcome.Retired(alreadyWas = true)
+
+        c.prepareStatement(
+            "UPDATE robot SET retired_at = ?, retired_by = ?, retired_reason = ? WHERE robot_id = ?",
+        ).use { s ->
+            s.setTimestamp(1, java.sql.Timestamp.from(now())); s.setString(2, actor)
+            s.setString(3, reason); s.setString(4, robotId)
+            s.executeUpdate()
+        }
+        audit(c, "ROBOT_RETIRED", actor, robotId, """{"reason":"${quoted(reason)}"}""")
+        RetirementOutcome.Retired(alreadyWas = false)
+    }
+
+    /**
+     * 퇴역을 **되돌린다** — 같은 조작 문이다.
+     *
+     * 되돌아온 기체는 실제로 있다. 다만 그것을 **어댑터가 정하게 두지 않는다**: 발견이 퇴역한 기체를 자동으로
+     * 되살리면 운영자가 내린 판단을 현장의 프로세스가 매번 덮는다.
+     */
+    fun reinstate(robotId: String, actor: String): RetirementOutcome = db.transaction { c ->
+        blank(robotId, "robot_id")?.let { return@transaction RetirementOutcome.Rejected(it.detail) }
+        blank(actor, "actor")?.let { return@transaction RetirementOutcome.Rejected(it.detail) }
+
+        val existing = rowOf(c, robotId) ?: return@transaction RetirementOutcome.Unknown(robotId)
+        if (existing.retiredAt == null) return@transaction RetirementOutcome.Reinstated(wasRetired = false)
+
+        c.prepareStatement(
+            "UPDATE robot SET retired_at = NULL, retired_by = NULL, retired_reason = NULL WHERE robot_id = ?",
+        ).use { s -> s.setString(1, robotId); s.executeUpdate() }
+        audit(c, "ROBOT_REINSTATED", actor, robotId, """{"was_retired_at":"${existing.retiredAt}"}""")
+        RetirementOutcome.Reinstated(wasRetired = true)
+    }
+
     /** 이 기체의 등록 상태. 그런 기체가 없으면 `null` — 없는 것과 문 밖에서 들어온 것은 다르다. */
     fun statusOf(robotId: String): RobotStatus? = db.transaction { c -> rowOf(c, robotId)?.status }
 
-    /** 진단 9번이 읽는다. */
-    fun list(siteId: String? = null): List<RegisteredRobot> = db.open().use { c ->
+    /**
+     * 진단 9번이 읽는다.
+     *
+     * @param includeRetired 기본은 **현역만**이다. 퇴역이 쌓이면 목록의 대부분이 지난 것이 되고, 그러면
+     *   아무도 그 목록을 안 읽는다. 이력을 볼 때만 켠다.
+     */
+    fun list(siteId: String? = null, includeRetired: Boolean = false): List<RegisteredRobot> = db.open().use { c ->
         val sql = buildString {
             append(
                 """
                 SELECT r.robot_id, r.site_id, r.serial_number, r.display_name, r.origin, r.endpoint,
-                       r.registered_at, r.registered_by, l.last_reported_at, r.discovered_by
+                       r.registered_at, r.registered_by, l.last_reported_at, r.discovered_by,
+                       r.retired_at, r.retired_by, r.retired_reason
                 FROM robot r
                 LEFT JOIN robot_liveness l ON l.robot_id = r.robot_id
                 """.trimIndent(),
             )
-            if (siteId != null) append("\nWHERE r.site_id = ?")
+            val where = buildList {
+                if (siteId != null) add("r.site_id = ?")
+                if (!includeRetired) add("r.retired_at IS NULL")
+            }
+            if (where.isNotEmpty()) append("\nWHERE " + where.joinToString(" AND "))
             append("\nORDER BY r.robot_id")
         }
         c.prepareStatement(sql).use { s ->
@@ -133,6 +199,8 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
                 buildList {
                     while (rs.next()) {
                         val origin = rs.getString(5)?.let(RobotOrigin::valueOf)
+                        val reported = rs.getTimestamp(9)?.toInstant()
+                        val retired = rs.getTimestamp(11)?.toInstant()
                         add(
                             RegisteredRobot(
                                 robotId = rs.getString(1),
@@ -143,9 +211,15 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
                                 endpoint = rs.getString(6),
                                 registeredAt = rs.getTimestamp(7)?.toInstant()?.toString(),
                                 registeredBy = rs.getString(8),
-                                lastReportedAt = rs.getTimestamp(9)?.toInstant()?.toString(),
-                                status = statusOf(origin, answered = rs.getTimestamp(9) != null),
+                                lastReportedAt = reported?.toString(),
+                                status = statusOf(origin, answered = reported != null, retired = retired != null),
                                 discoveredBy = rs.getString(10),
+                                retiredAt = retired?.toString(),
+                                retiredBy = rs.getString(12),
+                                retiredReason = rs.getString(13),
+                                // **운영자가 시각 둘을 눈으로 비교하게 두지 않는다.** 이 어긋남이 이 목록에서
+                                // 가장 알아야 할 사실이다 — 원장에서 내렸는데 현장에서는 아직 보고가 온다.
+                                reportingAfterRetirement = retired != null && reported != null && reported > retired,
                             ),
                         )
                     }
@@ -179,6 +253,15 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
         blank(actor, "actor")?.let { return it }
 
         val existing = rowOf(c, robotId)
+
+        // **퇴역한 기체는 어느 문으로도 다시 안 들어온다.** 발견이 되살리면 운영자의 판단을 현장 프로세스가
+        // 매번 덮고, 선언이 되살리면 *"복귀" 라는 사건이 등록과 구별되지 않는다.* 복귀는 따로 누른다.
+        if (existing?.retiredAt != null) {
+            return RobotRegistrationOutcome.RetiredAlready(
+                "${'$'}robotId 은 ${'$'}{existing.retiredAt} 에 퇴역한 기체다 — 되돌리려면 복귀시킨다",
+            )
+        }
+
         if (existing != null && existing.origin != null && existing.origin != origin) {
             // **출처가 두 번째 진실이 되면 "이 기체가 왜 여기 있는가" 에 답할 수 없다.** 갱신하지 않고 거절한다 —
             // 정말로 출처가 바뀐 것이라면 그것은 등록이 아니라 사람이 판단할 일이다.
@@ -241,7 +324,7 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
             s.executeUpdate()
         }
 
-        val status = statusOf(origin, answered = existing?.answered == true)
+        val status = statusOf(origin, answered = existing?.answered == true, retired = false)
         return if (existing == null) {
             RobotRegistrationOutcome.Registered(status)
         } else {
@@ -252,17 +335,36 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
     private fun blank(value: String, what: String): RobotRegistrationOutcome.Rejected? =
         if (value.isBlank()) RobotRegistrationOutcome.Rejected("$what 가 비었다") else null
 
-    private class Row(val origin: RobotOrigin?, val answered: Boolean) {
-        val status: RobotStatus get() = statusOf(origin, answered)
+    /**
+     * 감사 로그의 JSON 에 사람이 친 문자열을 넣는다. **따옴표와 역슬래시를 지운다**(코드 34·92) — 이 값은
+     * 단서이지 데이터가 아니라 몇 글자 잃어도 되고, 안 지우면 깨진 JSON 이 `?::jsonb` 에서 터진다.
+     */
+    private fun quoted(value: String): String = value.filter { it.code != 34 && it.code != 92 }
+
+    private class Row(val origin: RobotOrigin?, val answered: Boolean, val retiredAt: Instant?) {
+        val status: RobotStatus get() = statusOf(origin, answered, retiredAt != null)
     }
 
     private fun rowOf(c: Connection, robotId: String): Row? = c.prepareStatement(
-        "SELECT r.origin, l.robot_id IS NOT NULL FROM robot r " +
+        "SELECT r.origin, l.robot_id IS NOT NULL, r.retired_at FROM robot r " +
             "LEFT JOIN robot_liveness l ON l.robot_id = r.robot_id WHERE r.robot_id = ?",
     ).use { s ->
         s.setString(1, robotId)
         s.executeQuery().use { rs ->
-            if (rs.next()) Row(rs.getString(1)?.let(RobotOrigin::valueOf), rs.getBoolean(2)) else null
+            if (rs.next()) {
+                Row(rs.getString(1)?.let(RobotOrigin::valueOf), rs.getBoolean(2), rs.getTimestamp(3)?.toInstant())
+            } else {
+                null
+            }
+        }
+    }
+
+    private fun audit(c: Connection, operation: String, actor: String, subject: String, after: String) {
+        c.prepareStatement(
+            "INSERT INTO audit_log (operation, actor, subject, after) VALUES (?, ?, ?, ?::jsonb)",
+        ).use { s ->
+            s.setString(1, operation); s.setString(2, actor); s.setString(3, subject); s.setString(4, after)
+            s.executeUpdate()
         }
     }
 
@@ -270,7 +372,10 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
         /** 적재 문의 행위자. **사람 이름이 아니다** — 그 문에는 신원이 없고, 있는 척하면 감사 로그가 거짓말한다. */
         const val INGEST_ACTOR = "adapter-discovery"
 
-        fun statusOf(origin: RobotOrigin?, answered: Boolean): RobotStatus = when {
+        fun statusOf(origin: RobotOrigin?, answered: Boolean, retired: Boolean): RobotStatus = when {
+            // **퇴역이 이긴다.** 그래도 `lastReportedAt` 은 그대로 나가므로, 퇴역한 뒤에도 보고가 오는 것은
+            // 목록에서 그대로 보인다 — 그것이 운영자가 알아야 할 사실이다(원장은 뺐는데 현장에는 있다).
+            retired -> RobotStatus.RETIRED
             answered -> RobotStatus.CONFIRMED
             origin == RobotOrigin.DECLARED -> RobotStatus.CLAIMED
             origin == RobotOrigin.DISCOVERED -> RobotStatus.DISCOVERED
@@ -303,6 +408,14 @@ enum class RobotStatus {
 
     /** **그 기체가 생존을 보고했다.** 출처와 무관하게 확인이다. */
     CONFIRMED,
+
+    /**
+     * **사람이 이 기체를 원장에서 내렸다.** 행은 남아 있고 목록에서만 빠진다.
+     *
+     * 이 상태가 다른 셋을 덮는다. 다만 `lastReportedAt` 은 안 지우므로 **퇴역 뒤에도 보고가 오는 것**이 목록에
+     * 그대로 보인다 — 원장에서는 내렸는데 현장에는 아직 있다는 뜻이고, 그것은 운영자가 알아야 할 어긋남이다.
+     */
+    RETIRED,
 }
 
 /** 어댑터가 플릿에서 본 기체 하나. [endpoint]가 있으면 거절한다 — 그 정보는 플릿의 것이다(결정 4). */
@@ -331,6 +444,12 @@ data class RegisteredRobot(
     val status: RobotStatus,
     /** 이 기체를 올린 어댑터 인스턴스. **널은 사람이 선언했거나 올린 쪽이 자기를 안 밝힌 것이다.** */
     val discoveredBy: String? = null,
+    /** 널이면 현역이다. 그 뜻이 하나뿐이라 `origin` 의 널과 다르다. */
+    val retiredAt: String? = null,
+    val retiredBy: String? = null,
+    val retiredReason: String? = null,
+    /** **퇴역시킨 뒤에도 이 기체가 보고를 보내고 있다.** 원장과 현장이 어긋난 것이고 사람이 볼 일이다. */
+    val reportingAfterRetirement: Boolean = false,
 )
 
 sealed interface RobotRegistrationOutcome {
@@ -340,5 +459,20 @@ sealed interface RobotRegistrationOutcome {
     /** 다른 문으로 이미 들어온 기체다. **갱신하지 않는다** — 출처가 두 벌이 되면 "왜 여기 있는가" 에 못 답한다. */
     data class WrongDoor(val origin: RobotOrigin, val detail: String) : RobotRegistrationOutcome
 
+    /** 퇴역한 기체다. **되살리는 것은 등록이 아니라 복귀이고, 복귀는 사람이 따로 누른다.** */
+    data class RetiredAlready(val detail: String) : RobotRegistrationOutcome
+
     data class Rejected(val detail: String) : RobotRegistrationOutcome
+}
+
+/** 퇴역·복귀의 답. **모르는 기체와 이미 그 상태인 것을 안 접는다** — 앞은 운영자가 잘못 친 것이고 뒤는 성공이다. */
+sealed interface RetirementOutcome {
+    /** @param alreadyWas 이미 퇴역해 있었다. 첫 사유와 시각을 안 덮었다. */
+    data class Retired(val alreadyWas: Boolean) : RetirementOutcome
+
+    /** @param wasRetired 정말로 퇴역 상태였다. `false` 면 아무것도 안 바뀌었다. */
+    data class Reinstated(val wasRetired: Boolean) : RetirementOutcome
+
+    data class Unknown(val robotId: String) : RetirementOutcome
+    data class Rejected(val detail: String) : RetirementOutcome
 }

@@ -74,11 +74,18 @@ class DiagController(
      *
      * 사람이 선언했는데 기체가 한 번도 답하지 않은 줄(`CLAIMED`)이 여기 남는다. 오타 난 `robot_id` 로 선언한
      * 기체가 그 상태이며, **그것이 보이지 않으면 화면은 초록인데 기체가 안 붙는다**(ADR 37 의 대가 마지막 줄).
+     *
+     * **기본은 현역만이다.** `retired=true` 로 퇴역한 기체까지 본다 — 이력을 볼 때 쓴다. 퇴역이 쌓인 목록은
+     * 대부분이 지난 것이 되고, 그러면 아무도 그 목록을 안 읽는다.
+     *
+     * 퇴역한 줄에는 `reportingAfterRetirement` 가 있다. 참이면 **원장에서 내렸는데 기체는 아직 보고를 보낸다** —
+     * 원장과 현장이 어긋난 것이고, 운영자가 시각 둘을 눈으로 비교하지 않게 여기서 접어 준다.
      */
     @GetMapping("/diag/robots")
     fun robots(
         @RequestParam(name = "site", required = false) site: String?,
-    ): List<dev.picasso.registry.binding.RegisteredRobot> = robots.list(site)
+        @RequestParam(name = "retired", required = false, defaultValue = "false") retired: Boolean,
+    ): List<dev.picasso.registry.binding.RegisteredRobot> = robots.list(site, includeRetired = retired)
 
     /**
      * 진단 10번 — **무엇이 어디에 떠 있는가**(ADR 37 결정 2).

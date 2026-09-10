@@ -128,6 +128,7 @@ registry         ← 어느 모듈에도 직접 밀지 않는다. 갱신은 mimi
 | **어디까지가 진짜인가** | [`verification.md`](verification.md) ★ 이 저장소에서 가장 먼저 읽을 문서 |
 | 계약이 무엇을 약속하나 | [`contract.md`](contract.md) |
 | 상류 모델이 어디서 왔나 | [`isa95.md`](isa95.md) |
+| 현장에 넣고 나서 무엇을 바꾸나 | [`commissioning.md`](commissioning.md) |
 | 실물로 바꾸려면 어디를 고치나 | [`seams.md`](seams.md) |
 | 지금 무엇이 열려 있나 | [`limits.md`](limits.md) |
 | 왜 이렇게 정했나 | [ADR 색인](adr/README.md) — 특히 33·36·37·38·39 |

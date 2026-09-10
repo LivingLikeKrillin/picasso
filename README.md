@@ -94,6 +94,7 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | **계약이 무엇을 약속하나** | [`docs/contract.md`](docs/contract.md) — 무엇이 이 면에 들어오는가(관문 둘), 무엇이 '아직' 이 아니라 '여기가 아님' 인가, **담보마다 그것을 지키는 시험**, 그리고 어댑터를 쓰기 전에 기종을 재는 절차 |
 | 실물로 바꾸려면 어디를 고치나 | [`docs/seams.md`](docs/seams.md) — 교체 지점 아홉. 자리마다 인터페이스·지금 꽂힌 것·바꾸려면·안 고치는 것 |
 | 상류 모델이 어디서 왔나 | [`docs/isa95.md`](docs/isa95.md) — 필드마다 표준의 것인지 우리가 지은 것인지. 정본이 유료라 못 짚은 칸은 `UNKNOWN` 으로 남긴다 |
+| **현장에 넣고 나서 무엇을 바꾸나** | [`docs/commissioning.md`](docs/commissioning.md) — 마스터 데이터와 런타임을 가르고, 처음 적용하는 순서 열 단계와 **설정 표면 전부**를 적는다 |
 | 모듈 안으로 | **모듈마다 `README.md` 가 있다** — 그 모듈의 규칙 하나 · 경계 · 없는 것 · 어느 시험이 무엇을 증명하나. 시작점은 [`contracts`](contracts/README.md) → [`picasso`](picasso/README.md) → [`adapter-host`](adapter-host/README.md) |
 | 왜 이렇게 지었나, 전부 | [설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md) — §1 목적과 **비목표**, §3 아키텍처, §4 계약, §7 프로파일, §9 운영 변경, §11 게이트 |
 | **무엇이 틀렸었고 무엇이 아직 안 되나** | 설계 문서 **§15 알려진 한계** — 항목을 지우지 않고 정정을 덧쓰는 운행 기록. 뒤집힌 판정에는 취소선과 정정 포인터가 남아 있다 |

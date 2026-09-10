@@ -192,6 +192,26 @@ class DocumentClaimsTest {
     }
 
     @Test
+    fun `설정 표면 목록이 바꾸는 문을 빠짐없이 적는다`() {
+        // `commissioning.md` §4 는 *"설정 표면 전부"* 라고 말한다. **전부가 아니면 그 문장이 거짓이고**,
+        // 문서에 없는 문으로 현장 설정을 바꿀 수 있다는 뜻이 된다.
+        val listed = Regex("""`(GET|POST|DELETE) (/[^`]+)`""").findAll(Repo.read("docs/commissioning.md"))
+            .map { it.groupValues[1] + " " + it.groupValues[2] }.toSet()
+        val mapped = Repo.list("registry/src/main/kotlin/dev/picasso/registry/web", ".kt")
+            .flatMap { file ->
+                Regex("""@(Get|Post|Delete)Mapping\("([^"]+)"\)""").findAll(Repo.read(file)).map { it.groupValues[1].uppercase() + " " + it.groupValues[2] }
+            }.toSet()
+        assertTrue(mapped.size >= 15, "표면을 못 읽었다: $mapped")
+
+        assertEquals(emptySet<String>(), listed - mapped, "문서가 없는 표면을 적는다")
+
+        // **바꾸는 문만 전수를 요구한다.** 열람(`/diag`)은 늘어도 설정 표면이 아니고, 그것까지 요구하면
+        // 진단 하나 더할 때마다 이 표가 커져서 아무도 안 읽는다.
+        val doors = mapped.filter { it.contains("/operations/") || it.contains("/ingest/") || it.endsWith("/requirements") }
+        assertEquals(emptyList(), doors.filterNot { it in listed }.sorted(), "설정을 바꾸는 문이 문서에 없다")
+    }
+
+    @Test
     fun `문서가 가리키는 파일이 전부 실재한다`() {
         // 문서 사이의 링크가 이 저장소에서 유일하게 **자동으로 낡는 것**이다 — 파일 이름을 바꾸면 아무도 안 알려 준다.
         // 숫자를 세는 것과 같은 이유로 여기서 본다.

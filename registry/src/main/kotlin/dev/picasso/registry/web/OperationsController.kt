@@ -3,12 +3,16 @@ package dev.picasso.registry.web
 import dev.picasso.registry.adapter.AdapterInstanceService
 import dev.picasso.registry.adapter.InstanceOutcome
 import dev.picasso.registry.binding.RecordOutcome
+import dev.picasso.registry.binding.RetirementOutcome
 import dev.picasso.registry.binding.RobotRegistration
 import dev.picasso.registry.binding.RobotRegistrationOutcome
+import dev.picasso.registry.binding.RobotStatus
 import dev.picasso.registry.binding.SiteNameRegistration
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
@@ -106,7 +110,56 @@ class OperationsController(
             ResponseEntity.ok(mapOf("robot" to request.robot_id, "status" to outcome.status.name))
         is RobotRegistrationOutcome.WrongDoor ->
             ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to outcome.detail, "origin" to outcome.origin.name))
+        // **퇴역도 409 다.** 400 과 접으면 안 된다 — 본문은 멀쩡하고, 운영자가 할 일은 고쳐서 다시 보내는 것이
+        // 아니라 **복귀를 누르는 것**이다.
+        is RobotRegistrationOutcome.RetiredAlready ->
+            ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to outcome.detail, "status" to RobotStatus.RETIRED.name))
         is RobotRegistrationOutcome.Rejected ->
+            ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to outcome.detail))
+    }
+
+    /**
+     * 기체를 **퇴역시킨다** — ADR 37 이 안 세운 나가는 문.
+     *
+     * 원장은 지금까지 *한 번 들어온 기체가 영원히 있는 곳* 이었다. 팔린 기체도, 폐기된 기체도, 다른 사이트로
+     * 옮긴 기체도 목록에 남았다. **현장에 처음 적용할 때는 안 보이고 두 번째 해부터 보이는 구멍이다.**
+     *
+     * ★**조작 문에만 있다.** 어댑터가 *"플릿에서 안 보인다"* 고 해서 퇴역이 되면 **네트워크 단절이 퇴역이 된다.**
+     * 안 보이는 것은 관측이고 떠난 것은 판단이다.
+     *
+     * 답이 넷 — 퇴역함(200)·이미 퇴역(200, 첫 사유를 안 덮었다)·그런 기체 없음(404)·본문 틀림(400).
+     */
+    @PostMapping("/operations/robots/{robotId}/retirement")
+    fun retireRobot(
+        @PathVariable robotId: String,
+        @RequestBody request: RetireRobotRequest,
+        @RequestHeader("X-Actor") actor: String,
+    ): ResponseEntity<Map<String, Any>> = answer(robotId, robots.retire(robotId, request.reason, actor))
+
+    /**
+     * 퇴역을 **되돌린다.**
+     *
+     * 되돌아온 기체는 실제로 있다. 다만 그것을 **발견이 정하게 두지 않는다** — 자동 복귀면 운영자의 판단을
+     * 현장 프로세스가 매번 덮는다.
+     */
+    @DeleteMapping("/operations/robots/{robotId}/retirement")
+    fun reinstateRobot(
+        @PathVariable robotId: String,
+        @RequestHeader("X-Actor") actor: String,
+    ): ResponseEntity<Map<String, Any>> = answer(robotId, robots.reinstate(robotId, actor))
+
+    private fun answer(robotId: String, outcome: RetirementOutcome): ResponseEntity<Map<String, Any>> = when (outcome) {
+        is RetirementOutcome.Retired ->
+            ResponseEntity.ok(mapOf("robot" to robotId, "status" to RobotStatus.RETIRED.name, "already" to outcome.alreadyWas))
+        // **복귀 뒤의 상태를 박아 두지 않는다.** 복귀하면 CLAIMED 일 수도 CONFIRMED 일 수도 있고, 그것은
+        // 이 기체가 답한 적이 있는가에 달렸다 — 원장에 물어서 낸다(`declareRobot` 과 같은 규율).
+        is RetirementOutcome.Reinstated ->
+            ResponseEntity.ok(
+                mapOf("robot" to robotId, "status" to (robots.statusOf(robotId)?.name ?: "UNKNOWN"), "was_retired" to outcome.wasRetired),
+            )
+        is RetirementOutcome.Unknown ->
+            ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to "모르는 기체다: ${'$'}{outcome.robotId}"))
+        is RetirementOutcome.Rejected ->
             ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to outcome.detail))
     }
 
@@ -167,6 +220,13 @@ class OperationsController(
         "keys" to siteNames.required(robot).sorted(),
     )
 }
+
+/**
+ * `POST /operations/robots/{robotId}/retirement` 의 본문.
+ *
+ * **사유를 요구한다** — 판단은 이유가 있어야 나중에 되짚을 수 있고, 감사 로그에만 남기면 아무도 안 뒤진다.
+ */
+data class RetireRobotRequest(val reason: String = "")
 
 /**
  * `POST /operations/robots` 의 본문(ADR 37 의 **선언**).
