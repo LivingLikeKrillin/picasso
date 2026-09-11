@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="728" viewBox="0 0 1000 728" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8b949e"/></marker>
+  </defs>
+  <rect x="6" y="6" width="988" height="716" rx="14" fill="#0d1117" stroke="#30363d"/>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">구현은 하나이고 호출 지점이 둘이다</text>
+  <text x="32" y="72" font-size="12.5" fill="#8b949e">CI 와 등록 검증이 각자 구현되면, CI 가 통과시킨 프로파일을 레지스트리가 거부하는 날이 온다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#8b949e">그날 누구도 어느 쪽이 옳은지 말할 수 없다.</text>
+  <rect x="24" y="118" width="456" height="62" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="252" y="144" font-size="13" font-weight="600" text-anchor="middle" fill="#c9d1d9">CI</text>
+  <text x="252" y="163" font-size="10.5" text-anchor="middle" fill="#8b949e">기준선은 기본 브랜치의 같은 프로파일 파일</text>
+  <rect x="520" y="118" width="456" height="62" rx="6" fill="#1c2128" stroke="#30363d"/>
+  <text x="748" y="144" font-size="13" font-weight="600" text-anchor="middle" fill="#c9d1d9">registry 등록</text>
+  <text x="748" y="163" font-size="10.5" text-anchor="middle" fill="#8b949e">기준선은 같은 profile_id 의 직전 ACTIVE 개정판</text>
+  <polyline points="252,180 252,206 748,206 748,180" fill="none" stroke="#8b949e" stroke-width="1.6"/>
+  <polyline points="500,206 500,226" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
+  <rect x="24" y="226" width="952" height="64" rx="6" fill="#121d2f" stroke="#58a6ff"/>
+  <text x="500" y="252" font-size="13.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">gate 라이브러리</text>
+  <text x="500" y="272" font-size="11" text-anchor="middle" fill="#58a6ff">기준선을 인자로 받는다. 입력을 프로파일 문서로 통일해야 두 호출이 같은 답을 낸다</text>
+  <text x="32" y="324" font-size="10" font-weight="700" letter-spacing="1" fill="#8b949e">검사 여덟 — 각 검사가 막는 것</text>
+  <rect x="24" y="336" width="952" height="34" rx="6" fill="#161b22" stroke="#21262d"/>
+  <text x="42" y="358" font-size="11.5" font-weight="600" fill="#c9d1d9">① buf lint</text>
+  <text x="254" y="358" font-size="11" fill="#8b949e">명명 규칙 이탈</text>
+  <rect x="24" y="374" width="952" height="34" rx="6" fill="#0d1117" stroke="#21262d"/>
+  <text x="42" y="396" font-size="11.5" font-weight="600" fill="#c9d1d9">② buf breaking</text>
+  <text x="254" y="396" font-size="11" fill="#8b949e">필드 번호 재사용</text>
+  <rect x="24" y="412" width="952" height="34" rx="6" fill="#161b22" stroke="#21262d"/>
+  <text x="42" y="434" font-size="11.5" font-weight="600" fill="#c9d1d9">③ 스키마와 구조 규칙</text>
+  <text x="254" y="434" font-size="11" fill="#8b949e">뒤집힌 범위 · 미등록 error_type</text>
+  <rect x="24" y="450" width="952" height="34" rx="6" fill="#0d1117" stroke="#21262d"/>
+  <text x="42" y="472" font-size="11.5" font-weight="600" fill="#c9d1d9">④ proto 교차검증</text>
+  <text x="254" y="472" font-size="11" fill="#8b949e">카탈로그와 프로파일이 갈리는 것 — 양방향으로 본다</text>
+  <rect x="24" y="488" width="952" height="34" rx="6" fill="#161b22" stroke="#21262d"/>
+  <text x="42" y="510" font-size="11.5" font-weight="600" fill="#c9d1d9">⑤ contracts 의존 0</text>
+  <text x="254" y="510" font-size="11" fill="#8b949e">계약이 무언가를 알게 되는 것</text>
+  <rect x="24" y="526" width="952" height="34" rx="6" fill="#0d1117" stroke="#21262d"/>
+  <text x="42" y="548" font-size="11.5" font-weight="600" fill="#c9d1d9">⑥ 능력 어휘 파괴 검사</text>
+  <text x="254" y="548" font-size="11" fill="#8b949e">파급을 확인하지 않은 축소</text>
+  <rect x="24" y="564" width="952" height="34" rx="6" fill="#161b22" stroke="#21262d"/>
+  <text x="42" y="586" font-size="11.5" font-weight="600" fill="#c9d1d9">⑦ 기종 분기 금지</text>
+  <text x="254" y="586" font-size="11" fill="#8b949e">코어 소스에 등장하는 기종 문자열 — 주석이라도</text>
+  <rect x="24" y="602" width="952" height="34" rx="6" fill="#0d1117" stroke="#21262d"/>
+  <text x="42" y="624" font-size="11.5" font-weight="600" fill="#c9d1d9">⑧ 프로파일 전용 변경</text>
+  <text x="254" y="624" font-size="11" fill="#8b949e">커밋에 소스가 섞였는가</text>
+  <rect x="24" y="648" width="952" height="56" rx="6" fill="#0f2f1a" stroke="#3fb950"/>
+  <text x="44" y="671" font-size="12.5" font-weight="600" fill="#c9d1d9">⑨ 음성 시험 — 위 여덟이 실제로는 안 막고 있는 상태를 잡는다</text>
+  <text x="44" y="690" font-size="11" fill="#3fb950">각각이 CI 를 실패시키지 못하면 그 자체가 실패다. 검사를 세워 두고 안 도는 것이 이 저장소가 반복해 물린 자리다.</text>
+</svg>
