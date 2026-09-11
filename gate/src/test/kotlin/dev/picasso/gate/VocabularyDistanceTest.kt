@@ -321,6 +321,61 @@ class VocabularyDistanceTest {
         }
     }
 
+    @Test
+    fun `프로파일이 선언한 스킬을 그 기종 어댑터가 든다`() {
+        // ★★**사슬이 여기서 끊겨 있었다.**
+        //
+        // ```
+        // 거리 판정 ──(닿는다고 적은 것과 선언한 것이 같다)── 프로파일
+        //          ──(Check04CrossRef: 파라미터가 카탈로그와 같은가)── 협상
+        //          ──( 없음 )────────────────────────────────────── 어댑터
+        // ```
+        //
+        // **미믹은 프로파일이 곧 거동이라 프로파일과 절대 안 어긋난다.** 그래서 `AllModelsTest` 의
+        // *"모든 기종이 공통 태스크를 완주한다"* 가 초록인 것은 **어댑터에 대해 아무 말도 하지 않는다.**
+        // 프로파일이 선언한 스킬을 그 기종 어댑터가 안 들면 협상은 통과하고 태스크는 실물에서
+        // `UNSUPPORTED_SKILL` 로 죽는데, 그때까지 모든 검사가 초록이다.
+        //
+        // ★**어댑터마다 모양이 달랐던 것도 대조가 없었기 때문이다** — Spot·Digit 은 `when(skillType)`,
+        // G1 은 `if (skillType != SKILL)`, Orbit 은 `if (skillType != NAVIGATE)`. 통일될 이유가 없었다.
+        //
+        // ★**문자열 검사다**(ADR 23 · 게이트 5·7 번과 같은 가족). 주석에 스킬 이름을 적어도 통과한다 —
+        // **실수를 막는 장치이지 우회를 막는 장치가 아니다.**
+        documents().forEach { (name, node) ->
+            val adapter = node.path("adapter")
+            val profile = node.path("profile")
+            if (adapter.isMissingNode || profile.isMissingNode) return@forEach
+
+            val declared = read(profilesDir.resolve(profile.asText()))
+                .path("skills").map { it.path("skill_type").asText() }.toSortedSet()
+            val known = skillLiterals(adapter.asText())
+
+            assertEquals(
+                declared, known,
+                name + " — 프로파일이 선언한 스킬과 어댑터가 아는 스킬이 다르다 " +
+                    "(어댑터가 모름: " + (declared - known) + ", 선언 안 됨: " + (known - declared) + ")",
+            )
+        }
+    }
+
+    /**
+     * 그 어댑터의 출하 소스에 문자열 상수로 박힌 것 중 **계약 카탈로그의 스킬인 것**.
+     *
+     * 파라미터 키도 같은 모양의 상수라(`P_LOCATION = "location"`) 값만으로는 못 가른다. 그래서
+     * **계약이 아는 스킬 이름과 교집합을 낸다** — 카탈로그가 가려 주므로 이 시험이 스킬 목록을
+     * 손으로 안 든다.
+     */
+    private fun skillLiterals(adapter: String): Set<String> {
+        val prefix = adapter + "/src/main/"
+        val literal = Regex("""const val [A-Z_]+ = \"([a-z][a-z0-9_]*)\"""")
+        return Repo.declaredFiles()
+            .filter { ClaimSurface.relative(it).startsWith(prefix) }
+            .filter { it.fileName.toString().endsWith(".kt") }
+            .flatMap { literal.findAll(Repo.read(it)).map { m -> m.groupValues[1] } }
+            .filter { it in catalog }
+            .toSortedSet()
+    }
+
     /** 계약이 그 스킬에 정의한 파라미터 전부. **나중 minor 에 붙은 선택 파라미터까지** 센다 —
      *  안 세면 그것이 곧 안 본 칸이 되고, 그 빈칸이 보이지 않는 것이 이 대응표가 막으려는 것이다. */
     private fun contractParameters(skill: String): Set<String> =
