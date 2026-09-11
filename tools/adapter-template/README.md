@@ -76,3 +76,5 @@ Open-RMF 의 `fleet_adapter_template` 이 `# IMPLEMENT YOUR CODE HERE #` 로 같
 **컴파일 안 된다.** 타입이 맞는지는 붙여 넣고 돌려 봐야 안다. 시험이 지키는 것은 *면의 자리가
 빠짐없이 있는가* 까지이고, 그 자리를 **어떻게** 채웠는지는 안 본다 — 거리 문서의 `adapter_must_own`
 과 같은 한계다.
+
+> 마지막 대조: 2026-09-11 · sha256:48771dddad24 · 열림: §15.6

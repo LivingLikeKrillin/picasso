@@ -123,6 +123,7 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | 경계가 왜 거기에 있나 | [`docs/architecture.md`](docs/architecture.md) — 층 넷, 데이터의 두 방향, 상태기계 둘, 의존 규칙 |
 | **계약이 무엇을 약속하나** | [`docs/contract.md`](docs/contract.md) — 무엇이 이 면에 들어오는가(관문 둘), 무엇이 '아직' 이 아니라 '여기가 아님' 인가, **담보마다 그것을 지키는 시험**, 그리고 어댑터를 쓰기 전에 기종을 재는 절차 |
 | 실물로 바꾸려면 어디를 고치나 | [`docs/seams.md`](docs/seams.md) — 교체 지점 아홉. 자리마다 인터페이스·지금 꽂힌 것·바꾸려면·안 고치는 것 |
+| 새 기종을 어디서 시작하나 | [`tools/adapter-template/`](tools/adapter-template/README.md) — 파일 일곱과 반드시 채우는 여덟. 컴파일은 안 되고 시험이 낡는 것을 막는다 |
 | **벤더 API 를 계약 스킬에 앉히는 법** | [`docs/vocabulary-distance.md`](docs/vocabulary-distance.md) — 순서 아홉과 함정 여섯. 기계가 1 차로 훑을 때의 규칙도 여기 있다 |
 | 상류 모델이 어디서 왔나 | [`docs/isa95.md`](docs/isa95.md) — 필드마다 표준의 것인지 우리가 지은 것인지. 정본이 유료라 못 짚은 칸은 `UNKNOWN` 으로 남긴다 |
 | **현장에 넣고 나서 무엇을 바꾸나** | [`docs/commissioning.md`](docs/commissioning.md) — 마스터 데이터와 런타임을 가르고, 처음 적용하는 순서 열 단계와 **설정 표면 전부**를 적는다 |
@@ -158,4 +159,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입으로 시험을 시험한다.** 못 잡으면 시험 집합의 구멍이고, 주입이 시끄럽지 않았다면 주입부터 의심한다.
 - **조용히 통과하는 것이 실패하는 것보다 나쁘다.** 게이트가 아무 검사도 안 돌리고 종료코드 0 을 낸 적이 있다. 요구 목록(`--require`)과 strict 음성 하네스가 그 대가다.
 
-> 마지막 대조: 2026-09-11 · sha256:3ba6c546c7f1 · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-11 · sha256:18d34a07e093 · 열림: C-3, §15.81
