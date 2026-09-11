@@ -157,11 +157,15 @@ registry         ← 어느 모듈에도 직접 밀지 않는다. 갱신은 mimi
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/components.dark.svg">
-  <img alt="모듈 16개의 출하 의존 그래프. 네 줄로 쌓이고 화살표는 아래로만 간다. 바닥 둘은 프로젝트 내 의존이 0이고, 기종을 아는 칸 둘만 초록이다." src="diagrams/components.svg">
+  <img alt="모듈 16개를 역할별 지대로 묶은 구성도. 가운데에 계약 어휘 둘(contracts · profile-model)이 가장 크게 놓이고 각각 13개와 7개가 쓴다고 적혀 있다. 위는 소비자 지대(picasso · client), 아래는 발신자 지대인데 mimic 과 adapter-host 가 「같은 자리」로 묶여 나란히 있고, adapter-host 안에 기종 어댑터 넷과 adapter-core 가 들어 있다. 맨 아래는 시험(harness)과 운영(registry ← gate)이다." src="diagrams/components.svg">
 </picture>
 
 **이 그림은 손으로 안 그렸다.** 각 `build.gradle.kts` 에서 출하 의존을 읽어 뽑고, `ComponentMapTest` 가
 같은 것을 다시 읽어 댄다 — 아래 표와 같은 사실을 다른 모양으로 보여 주는 것이다.
+
+★**배치가 위계를 말한다.** 같은 크기의 칸을 줄 세우면 `contracts` 와 `gate` 가 같아 보인다. 어휘 둘을
+가운데에 가장 크게 두고 *몇이 쓰는지* 를 적었고, `adapter-host` 가 기종 어댑터 넷과 `adapter-core` 를
+**담아서** 그렸다. `mimic` 과 `adapter-host` 가 **같은 자리**에 서는 것이 이 배치의 요점이다.
 
 
 ★**이 표는 산문이 아니다.** `DocumentClaimsTest` 가 각 모듈의 `build.gradle.kts` 에서 출하 의존을 읽어
@@ -236,4 +240,4 @@ uplink                         → contracts
 
 시나리오의 **시퀀스 다이어그램**은 [`scenarios.md`](scenarios.md) 안에 있다 — ①·②·③ 과 ①→② 가 만나는 자리.
 
-> 마지막 대조: 2026-09-11 · sha256:37c6a713f890 · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126
+> 마지막 대조: 2026-09-11 · sha256:482ecad2608e · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126

@@ -1,16 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="632" viewBox="0 0 1000 632" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="876" viewBox="0 0 1000 876" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
   <defs>
     <marker id="am" markerWidth="8" markerHeight="8" refX="6.5" refY="2.75" orient="auto"><path d="M0,0 L6.5,2.75 L0,5.5 Z" fill="#57606a"/></marker>
   </defs>
-  <!-- edge: adapter-unitree-g1 -> adapter-core -->
-  <!-- edge: adapter-boston-dynamics-spot -> adapter-core -->
   <!-- edge: adapter-agility-digit -> adapter-core -->
   <!-- edge: adapter-boston-dynamics-orbit -> adapter-core -->
   <!-- edge: adapter-boston-dynamics-orbit -> adapter-host -->
   <!-- edge: adapter-boston-dynamics-orbit -> uplink -->
+  <!-- edge: adapter-boston-dynamics-spot -> adapter-core -->
   <!-- edge: adapter-host -> adapter-core -->
   <!-- edge: adapter-host -> capability -->
   <!-- edge: adapter-host -> uplink -->
+  <!-- edge: adapter-unitree-g1 -> adapter-core -->
   <!-- edge: harness -> client -->
   <!-- edge: harness -> mimic -->
   <!-- edge: harness -> uplink -->
@@ -18,58 +18,83 @@
   <!-- edge: mimic -> uplink -->
   <!-- edge: picasso -> client -->
   <!-- edge: registry -> gate -->
-  <rect x="6" y="6" width="988" height="620" rx="14" fill="#ffffff" stroke="#d0d7de"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">기종을 아는 모듈은 넷뿐이다</text>
-  <text x="32" y="72" font-size="12.5" fill="#57606a">모듈 16 개. 화살표는 «쓴다» 이고, 아래로만 간다 — 순환이 없다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#57606a">바닥 둘은 프로젝트 안의 무엇도 안 쓴다. 거기로 가는 화살표 20 개는 안 그렸다.</text>
-  <polyline points="857.6,294 857.6,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="857.6,190 857.6,204 959,204 959,326 857.6,326 857.6,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="857.6,190 857.6,213 678.8000000000001,213 678.8000000000001,236" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="857.6,190 857.6,204 959,204 959,326 500,326 500,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="678.8000000000001,294 678.8000000000001,317 857.6,317 857.6,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="678.8000000000001,294 678.8000000000001,317 321.20000000000005,317 321.20000000000005,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="678.8000000000001,294 678.8000000000001,317 500,317 500,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="142.4,190 142.4,204 41,204 41,326 142.4,326 142.4,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="142.4,190 142.4,213 321.20000000000005,213 321.20000000000005,236" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="142.4,190 142.4,204 41,204 41,326 500,326 500,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="321.20000000000005,294 321.20000000000005,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="321.20000000000005,294 321.20000000000005,317 500,317 500,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="142.4,294 142.4,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <polyline points="500,294 500,317 678.8000000000001,317 678.8000000000001,340" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
-  <rect x="58" y="132" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="142.4" y="158" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">harness</text>
-  <rect x="773.2" y="132" width="168.8" height="58" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
-  <text x="857.6" y="158" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">adapter-orbit</text>
-  <text x="857.6" y="176" font-size="9.5" text-anchor="middle" fill="#1a7f37">플릿 · 기종을 안다</text>
-  <rect x="58" y="236" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="142.4" y="262" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">picasso</text>
-  <rect x="236.8" y="236" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="321.20000000000005" y="262" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">mimic</text>
-  <rect x="415.6" y="236" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="500" y="262" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">registry</text>
-  <rect x="594.4000000000001" y="236" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="678.8000000000001" y="262" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">adapter-host</text>
-  <rect x="773.2" y="236" width="168.8" height="58" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
-  <text x="857.6" y="262" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">adapter-&lt;기종&gt; 셋</text>
-  <text x="857.6" y="280" font-size="9.5" text-anchor="middle" fill="#1a7f37">g1 · spot · digit</text>
-  <rect x="58" y="340" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="142.4" y="366" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">client</text>
-  <rect x="236.8" y="340" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="321.20000000000005" y="366" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">capability</text>
-  <rect x="415.6" y="340" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="500" y="366" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">uplink</text>
-  <rect x="594.4000000000001" y="340" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="678.8000000000001" y="366" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">gate</text>
-  <rect x="773.2" y="340" width="168.8" height="58" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="857.6" y="366" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">adapter-core</text>
-  <rect x="58" y="444" width="884" height="70" rx="10" fill="#ddf4ff" stroke="#0969da"/>
-  <text x="74" y="468" font-size="11" font-weight="700" letter-spacing="1" fill="#0969da">바닥 — 프로젝트 내 의존 0</text>
-  <rect x="74" y="478" width="420" height="26" rx="4" fill="#ffffff" stroke="#0969da"/>
-  <text x="284" y="496" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">contracts</text>
-  <rect x="506" y="478" width="420" height="26" rx="4" fill="#ffffff" stroke="#0969da"/>
-  <text x="716" y="496" font-size="11.5" font-weight="600" text-anchor="middle" fill="#1f2328">profile-model</text>
-  <rect x="24" y="534" width="952" height="76" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
-  <text x="44" y="557" font-size="11" fill="#57606a">초록 둘만 기종 이름을 안다. 나머지에는 벤더·모델 문자열이 들어오면 안 되고,</text>
-  <text x="44" y="576" font-size="11" fill="#57606a">게이트 검사 7번이 그 모듈들의 소스를 훑어 CI 실패 조건으로 막는다 — 주석이라도 걸린다.</text>
-  <text x="44" y="595" font-size="10" fill="#8b95a1">이 그림의 칸과 화살표는 각 build.gradle.kts 에서 읽어 그린다. ComponentMapTest 가 같은 것을 다시 읽어 댄다.</text>
+  <rect x="6" y="6" width="988" height="864" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">가운데는 어휘이고, 위아래는 갈아 끼워진다</text>
+  <text x="32" y="72" font-size="12.5" fill="#57606a">모듈 16 개. 계약 어휘 둘은 프로젝트 안의 무엇도 안 쓰고, 나머지 열넷이 그 위에 선다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#57606a">발신자 둘이 같은 자리에 서고, 기종을 아는 넷은 그중 하나 안에만 있다.</text>
+  <rect x="24" y="130" width="952" height="84" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="40" y="152" font-size="10.5" font-weight="700" letter-spacing="1" fill="#8b95a1">소비자 — 계약을 두드린다</text>
+  <rect x="40" y="162" width="452" height="38" rx="4" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="54" y="180" font-size="12.5" font-weight="600" fill="#1f2328">picasso</text>
+  <text x="54" y="194" font-size="9.5" fill="#57606a">미들웨어의 가운데. 접수 → 조합 → 실행 → 근거 결합. 기종을 모른다</text>
+  <rect x="508" y="162" width="452" height="38" rx="4" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="522" y="180" font-size="12.5" font-weight="600" fill="#1f2328">client</text>
+  <text x="522" y="194" font-size="9.5" fill="#57606a">계약을 두드려 완료 기준을 증명하는 얇은 소비자</text>
+  <polyline points="492,181 506,181" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
+  <rect x="24" y="254" width="952" height="104" rx="10" fill="#ddf4ff" stroke="#0969da"/>
+  <text x="42" y="279" font-size="11" font-weight="700" letter-spacing="1" fill="#0969da">계약 어휘 — 프로젝트 내 의존 0</text>
+  <rect x="42" y="290" width="450" height="52" rx="4" fill="#ffffff" stroke="#0969da"/>
+  <text x="58" y="313" font-size="14.5" font-weight="600" fill="#1f2328">contracts</text>
+  <text x="58" y="331" font-size="10" fill="#57606a">proto. 스킬 · 태스크 · 이벤트 · 결함</text>
+  <text x="476" y="313" font-size="12" font-weight="600" text-anchor="end" fill="#0969da">13 이 쓴다</text>
+  <rect x="508" y="290" width="450" height="52" rx="4" fill="#ffffff" stroke="#0969da"/>
+  <text x="524" y="313" font-size="14.5" font-weight="600" fill="#1f2328">profile-model</text>
+  <text x="524" y="331" font-size="10" fill="#57606a">프로파일 문서의 읽기 전용 모델</text>
+  <text x="942" y="313" font-size="12" font-weight="600" text-anchor="end" fill="#0969da">7 이 쓴다</text>
+  <text x="500" y="240" font-size="10.5" text-anchor="middle" fill="#0969da">↑ 소비자 둘이 여기 기댄다</text>
+  <text x="500" y="380" font-size="10.5" text-anchor="middle" fill="#0969da">↓ 아래 열둘도 전부 여기 기댄다 — 그 화살표 20 개는 안 그렸다</text>
+  <rect x="24" y="398" width="952" height="272" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="40" y="420" font-size="10.5" font-weight="700" letter-spacing="1" fill="#8b95a1">발신자 — 계약을 구현해 선다</text>
+  <rect x="40" y="430" width="920" height="44" rx="4" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="54" y="448" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">공유 부품</text>
+  <text x="54" y="464" font-size="9.5" fill="#8b95a1">아래 둘이 함께 쓴다</text>
+  <text x="150" y="450" font-size="12" font-weight="600" fill="#1f2328">capability</text>
+  <text x="150" y="465" font-size="9.5" fill="#57606a">프로파일 → Capability 투영과 협상. 전송을 모른다</text>
+  <text x="548" y="450" font-size="12" font-weight="600" fill="#1f2328">uplink</text>
+  <text x="548" y="465" font-size="9.5" fill="#57606a">브로커 발행과 레지스트리 적재</text>
+  <rect x="40" y="490" width="430" height="162" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="255" y="517" font-size="14" font-weight="600" text-anchor="middle" fill="#1f2328">mimic</text>
+  <text x="255" y="535" font-size="10.5" text-anchor="middle" fill="#57606a">프로파일 주도 에뮬레이터</text>
+  <text x="255" y="551" font-size="10" text-anchor="middle" fill="#57606a">「어댑터 + 로봇」 한 쌍을 대신한다</text>
+  <rect x="64" y="566" width="382" height="66" rx="5" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="255" y="590" font-size="12" font-weight="600" text-anchor="middle" fill="#8b95a1">프로파일 한 장</text>
+  <text x="255" y="608" font-size="9.5" text-anchor="middle" fill="#8b95a1">기종이 곧 이 문서다</text>
+  <text x="255" y="623" font-size="9.5" text-anchor="middle" fill="#8b95a1">실물이 아니어도 된다</text>
+  <rect x="530" y="490" width="430" height="162" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="745" y="517" font-size="14" font-weight="600" text-anchor="middle" fill="#1f2328">adapter-host</text>
+  <text x="745" y="535" font-size="10" text-anchor="middle" fill="#57606a">어댑터 하나를 계약의 gRPC 서비스 뒤에 세운다 · 기종을 모른다</text>
+  <rect x="546" y="546" width="398" height="58" rx="5" fill="#eaf3ea" stroke="#1a7f37"/>
+  <text x="745" y="563" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1a7f37">기종 어댑터 넷 — 기종을 아는 유일한 자리</text>
+  <rect x="552" y="572" width="96.5" height="22" rx="3" fill="#ffffff" stroke="#1a7f37"/>
+  <text x="600.25" y="587" font-size="9.5" text-anchor="middle" fill="#1a7f37">unitree-g1</text>
+  <rect x="652.5" y="572" width="96.5" height="22" rx="3" fill="#ffffff" stroke="#1a7f37"/>
+  <text x="700.75" y="587" font-size="9.5" text-anchor="middle" fill="#1a7f37">spot</text>
+  <rect x="753" y="572" width="96.5" height="22" rx="3" fill="#ffffff" stroke="#1a7f37"/>
+  <text x="801.25" y="587" font-size="9.5" text-anchor="middle" fill="#1a7f37">agility-digit</text>
+  <rect x="853.5" y="572" width="96.5" height="22" rx="3" fill="#ffffff" stroke="#1a7f37"/>
+  <text x="901.75" y="587" font-size="9.5" text-anchor="middle" fill="#1a7f37">orbit</text>
+  <rect x="546" y="610" width="398" height="28" rx="5" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="745" y="628" font-size="9.5" text-anchor="middle" fill="#57606a">adapter-core — 넷이 공유하는 RobotAdapter. 기종을 모른다</text>
+  <polyline points="474,500 526,500" fill="none" stroke="#cfe0f5" stroke-width="1.5"/>
+  <polyline points="474,642 526,642" fill="none" stroke="#cfe0f5" stroke-width="1.5"/>
+  <text x="500" y="566" font-size="10.5" font-weight="700" text-anchor="middle" fill="#0969da">같은</text>
+  <text x="500" y="581" font-size="10.5" font-weight="700" text-anchor="middle" fill="#0969da">자리</text>
+  <rect x="24" y="690" width="468" height="88" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="40" y="712" font-size="10.5" font-weight="700" letter-spacing="1" fill="#8b95a1">시험</text>
+  <rect x="40" y="722" width="436" height="42" rx="4" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="258" y="741" font-size="12" font-weight="600" text-anchor="middle" fill="#1f2328">harness</text>
+  <text x="258" y="755" font-size="9.5" text-anchor="middle" fill="#57606a">계약 스위트의 주인 — mimic 을 띄우고 client 로 돈다</text>
+  <polyline points="255,722 255,656" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
+  <rect x="508" y="690" width="468" height="88" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="524" y="712" font-size="10.5" font-weight="700" letter-spacing="1" fill="#8b95a1">운영</text>
+  <rect x="524" y="722" width="210" height="42" rx="4" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="629" y="741" font-size="12" font-weight="600" text-anchor="middle" fill="#1f2328">registry</text>
+  <text x="629" y="755" font-size="9.5" text-anchor="middle" fill="#57606a">수명주기 · 바인딩 · 원장 · 변경 계획</text>
+  <rect x="750" y="722" width="210" height="42" rx="4" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="855" y="741" font-size="12" font-weight="600" text-anchor="middle" fill="#1f2328">gate</text>
+  <text x="855" y="755" font-size="9.5" text-anchor="middle" fill="#57606a">검증 규칙의 단일 구현</text>
+  <polyline points="750,743 736,743" fill="none" stroke="#57606a" stroke-width="1.5" marker-end="url(#am)"/>
+  <rect x="24" y="796" width="952" height="58" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="44" y="819" font-size="11" fill="#57606a">초록 넷만 기종 이름을 안다. 나머지에 벤더·모델 문자열이 들어오면 게이트 검사 7번이 CI 를 실패시킨다 — 주석이라도 걸린다.</text>
+  <text x="44" y="838" font-size="10" fill="#8b95a1">칸과 간선은 각 build.gradle.kts 에서 읽는다. 주석이 어휘 둘로 가지 않는 출하 간선 전부를 싣고, 그림은 그중 일부를 화살표로 일부를 담기로 보인다.</text>
 </svg>

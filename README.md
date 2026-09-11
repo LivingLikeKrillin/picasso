@@ -27,7 +27,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/components.dark.svg">
-  <img alt="모듈 16개를 네 줄로 쌓은 구성도. 맨 아래 띠가 contracts 와 profile-model 이고 프로젝트 내 의존이 0이다. 화살표는 위에서 아래로만 가고 순환이 없다. 기종을 아는 모듈 둘(기종 어댑터 셋을 묶은 칸과 adapter-orbit)만 초록이다." src="docs/diagrams/components.svg">
+  <img alt="모듈 16개를 역할별 지대로 묶은 구성도. 가운데에 계약 어휘 둘(contracts · profile-model)이 가장 크게 놓이고 각각 13개와 7개가 쓴다고 적혀 있다. 위는 소비자 지대(picasso · client), 아래는 발신자 지대인데 mimic 과 adapter-host 가 「같은 자리」로 묶여 나란히 있고, adapter-host 안에 기종 어댑터 넷과 adapter-core 가 들어 있다. 맨 아래는 시험(harness)과 운영(registry ← gate)이다." src="docs/diagrams/components.svg">
 </picture>
 
 
@@ -165,4 +165,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입으로 시험을 시험한다.** 못 잡으면 시험 집합의 구멍이고, 주입이 시끄럽지 않았다면 주입부터 의심한다.
 - **조용히 통과하는 것이 실패하는 것보다 나쁘다.** 게이트가 아무 검사도 안 돌리고 종료코드 0 을 낸 적이 있다. 요구 목록(`--require`)과 strict 음성 하네스가 그 대가다.
 
-> 마지막 대조: 2026-09-11 · sha256:257e9bf582e0 · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-11 · sha256:706e4f9ecc90 · 열림: C-3, §15.81
