@@ -73,6 +73,10 @@ class VocabularyDistanceTest {
         ContractIndex.from(Files.readAllBytes(path)).skillTypes().toSet()
     }
 
+    private val index: ContractIndex by lazy {
+        ContractIndex.from(Files.readAllBytes(Path.of(System.getProperty("picasso.descriptor"))))
+    }
+
     @Test
     fun `측정 문서가 스키마를 통과한다`() {
         val schema = JsonSchemaFactory
@@ -227,6 +231,110 @@ class VocabularyDistanceTest {
     }
 
     /** 항목이 덮어썼으면 그것, 아니면 문서의 등급. */
+    @Test
+    fun `닿는 스킬은 계약 파라미터를 빠짐없이 짚는다`() {
+        // ★**산문은 빠진 것을 안 보여 준다.** `evidence` 가 *"파라미터 넷이 하나씩 대응한다"* 라고만
+        // 적혀 있으면 넷을 세어 보지 않고도 통과한다. 칸으로 만들면 **안 짚은 파라미터가 빈칸으로 남고**,
+        // 이 시험이 그 빈칸을 센다. 벤더 매니페스트 대조가 못 보던 한계 ④(*"다섯을 짚어야 할 자리에
+        // 넷만 짚은 것은 통과한다"*)를 계약 쪽 수로 닫는 자리다.
+        eachSkill { doc, skill, node ->
+            if (node.path("reachable").asText() !in REACHED) return@eachSkill
+            val expected = contractParameters(skill)
+            val mapped = node.path("parameter_map").fieldNames().asSequence().toSortedSet()
+            assertEquals(
+                expected, mapped,
+                "$doc 의 $skill — 대응표가 계약 파라미터와 다르다 " +
+                    "(안 짚음: ${expected - mapped}, 계약에 없음: ${mapped - expected})",
+            )
+        }
+    }
+
+    @Test
+    fun `YES 는 필수 파라미터를 안 본 채로 못 선다`() {
+        // ★**`NOT_SURVEYED` 와 `UNMAPPED` 를 가른 값이 여기서 나온다.** 선택 파라미터를 안 본 것은
+        // 남겨 둘 수 있는 빚이지만, **필수 파라미터를 안 보고 닿는다고 적는 것은 판정이 아니다.**
+        // 실측(2026-09-11): 대응표를 처음 채우자 선택 넷이 조사된 적 없다는 것이 드러났고, 그 넷은
+        // 전부 선택이라 이 시험을 안 건드린다 — 그 구분이 이 시험의 요점이다.
+        val required = requiredParameters()
+        eachSkill { doc, skill, node ->
+            if (node.path("reachable").asText() != "YES") return@eachSkill
+            val blind = node.path("parameter_map").fields().asSequence()
+                .filter { it.key in required.getOrDefault(skill, emptySet()) }
+                .filter { it.value.path("kind").asText() in UNJUDGED }
+                .map { it.key }
+                .toList()
+            assertEquals(
+                emptyList(), blind,
+                "$doc 의 $skill 은 닿는다고 적혔는데 필수 파라미터를 안 봤거나 대응이 없다고 적었다",
+            )
+        }
+    }
+
+    @Test
+    fun `짚은 벤더 심볼이 그 기종 매니페스트에 있다`() {
+        // ★**환각과 오타와 벤더의 개명을 같은 자리에서 막는다.** 매니페스트는 벤더 원문에서 뽑은
+        // 이름의 집합이고(이름과 sha256 만 들인다), 어댑터 코드의 `@VendorSurface` 는 이미 이 대조를
+        // 받고 있었다. **거리 문서의 인용만 밖에 있었다** — 기계가 1 차로 훑어 초안을 만드는 길을
+        // 열려면 그 문이 먼저 닫혀 있어야 한다.
+        //
+        // 벤더마다 매니페스트의 결이 다르다(Spot 은 필드까지, G1 은 API id 까지). 그래서 규칙은
+        // *"있는 것 중 가장 좁은 심볼을 적고 인자 이름은 note 로 내린다"* 이고, 이 시험은 **적은 것이
+        // 실재하는가**만 본다 — 그것이 가장 좁은 것인지는 사람이 본다.
+        documents().forEach { (name, node) ->
+            val adapter = node.path("adapter")
+            if (adapter.isMissingNode) return@forEach
+            val manifest = Repo.read(adapter.asText() + "/src/test/resources/vendor-manifest.txt")
+                .lineSequence()
+                .map(String::trim)
+                .filterNot { it.isEmpty() || it.startsWith("#") }
+                .toHashSet()
+            val ghosts = node.path("skills").fields().asSequence().flatMap { (skill, cell) ->
+                cell.path("parameter_map").fields().asSequence()
+                    .filterNot { it.value.path("vendor").isMissingNode }
+                    .map { skill + "." + it.key + " -> " + it.value.path("vendor").asText() }
+                    .filterNot { it.substringAfter("-> ") in manifest }
+            }.toList()
+            assertEquals(emptyList(), ghosts, "$name — 매니페스트에 없는 벤더 심볼을 짚었다")
+        }
+    }
+
+    @Test
+    fun `기계 초안은 판정을 비운다`() {
+        // ★★**AI 초안이 사슬의 뿌리로 조용히 승격되는 것을 막는 자리다.**
+        //
+        // 이 저장소의 기계 검사는 전부 거리 판정을 **참으로 놓고** 돈다 — 판정이 프로파일을 만들고,
+        // 프로파일이 협상을 만들고, 협상이 초록을 만든다. 그러니 사람이 안 본 초안이 `YES` 를 들고
+        // 들어오면 **그 아래 검증이 전부 무의미해진다.**
+        //
+        // 막는 방법이 등급 하나다. `MACHINE_DRAFT` 인 칸은 `UNKNOWN` 이어야 하고, `UNKNOWN` 은
+        // `YES` 집합에 안 들어가므로 프로파일 선언과 묶이지 않는다(*"닿는다고 적은 것과 선언한 것이
+        // 같다"*). 초안이 채우는 것은 `parameter_map` 의 후보와 인용과 조사 범위까지다.
+        //
+        // ★**판정을 못 채우게 하는 것 자체가 장치다.** 사람이 백지에서 시작하면 *"이게 되나"* 를 묻고
+        // 초안을 받으면 *"이게 맞나"* 를 묻는데, 뒤엣것이 훨씬 잘 통과한다.
+        eachSkill { doc, skill, node ->
+            if (grade(doc, node) != MACHINE_DRAFT) return@eachSkill
+            assertEquals(
+                "UNKNOWN", node.path("reachable").asText(),
+                "$doc 의 $skill 은 사람이 안 본 초안인데 판정이 들어 있다",
+            )
+        }
+    }
+
+    /** 계약이 그 스킬에 정의한 파라미터 전부. **나중 minor 에 붙은 선택 파라미터까지** 센다 —
+     *  안 세면 그것이 곧 안 본 칸이 되고, 그 빈칸이 보이지 않는 것이 이 대응표가 막으려는 것이다. */
+    private fun contractParameters(skill: String): Set<String> =
+        index.all().filter { it.name == skill }
+            .flatMap { it.parameters }
+            .map { it.key }
+            .toSortedSet()
+
+    /** 스킬마다 **필수** 파라미터. 선택은 안 본 채로 둘 수 있지만 이쪽은 아니다. */
+    private fun requiredParameters(): Map<String, Set<String>> =
+        index.all().groupBy { it.name }.mapValues { (_, defs) ->
+            defs.flatMap { it.parameters }.filterNot { it.isOptional }.map { it.key }.toSet()
+        }
+
     private fun grade(doc: String, node: JsonNode): String {
         val own = node.path("evidence_grade")
         if (!own.isMissingNode) return own.asText()
@@ -240,6 +348,14 @@ class VocabularyDistanceTest {
     }
 
     private companion object {
+        const val MACHINE_DRAFT = "MACHINE_DRAFT"
+
+        /** 대응표를 요구하는 판정들. 못 닿는 칸은 짚을 것이 없다. */
+        val REACHED = setOf("YES", "PARTIAL")
+
+        /** *"대응을 아직 안 정했다"* 에 해당하는 칸. 필수 파라미터에는 못 온다. */
+        val UNJUDGED = setOf("NOT_SURVEYED", "UNMAPPED")
+
         /** §7.4의 참조 프로파일. 실물이 아니므로 잴 대상이 아니다. */
         const val REFERENCE_VENDOR = "picasso-ref"
 

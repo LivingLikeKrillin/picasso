@@ -13,21 +13,61 @@
       "vendor_primitive": "`SE2VelocityCommand{velocity, end_time, se2_frame_name, slew_rate_limit}` (명령 계층)",
       "missing": [],
       "adapter_must_own": "`duration`(상대) → `end_time`(절대) 변환. 시계 어긋남이 그 순간 어댑터의 문제가 되며, 벤더도 그것을 알아 graph_nav 에 `clock_identifier` 를 두었다.",
-      "evidence": "계약의 파라미터 넷이 벤더의 인자와 하나씩 대응한다. **두 실물이 독립적으로 같은 원시를 갖는 유일한 스킬**이며, `move_relative` 를 벤더 중립이라 부른 근거가 이 일치다."
+      "evidence": "계약의 파라미터 넷이 벤더의 인자와 하나씩 대응한다. **두 실물이 독립적으로 같은 원시를 갖는 유일한 스킬**이며, `move_relative` 를 벤더 중립이라 부른 근거가 이 일치다.",
+      "parameter_map": {
+        "forward_speed": {
+          "kind": "DIRECT",
+          "vendor": "bosdyn.api.SE2Velocity.linear",
+          "note": "Vec2 의 x 성분. 어느 프레임의 x 인지는 se2_frame_name 이 정한다."
+        },
+        "lateral_speed": {
+          "kind": "DIRECT",
+          "vendor": "bosdyn.api.SE2Velocity.linear",
+          "note": "같은 Vec2 의 y 성분."
+        },
+        "yaw_rate": {
+          "kind": "DIRECT",
+          "vendor": "bosdyn.api.SE2Velocity.angular",
+          "note": "각속도 하나에 그대로 간다."
+        },
+        "duration": {
+          "kind": "CONVERTED",
+          "vendor": "bosdyn.api.SE2VelocityCommand.Request.end_time",
+          "note": "상대 초를 절대 시각으로 옮긴다. 시계 어긋남이 그 순간 어댑터의 문제가 되며, 벤더도 그것을 알아 graph_nav 에 clock_identifier 를 두었다."
+        }
+      }
     },
     "navigate_to": {
       "reachable": "YES",
       "vendor_primitive": "미션 노드 `BosdynNavigateTo`, `NavigateToRequest.destination_waypoint_id`(string) + `GraphNavService.DownloadGraph` → `Waypoint.annotations.name` (미션·항법·지도 계층)",
       "missing": [],
       "adapter_must_own": "**표는 안 갖는다. 해석은 한다.** 매 호출 로봇의 그래프를 받아 `location`(사람이 붙인 이름)을 `destination_waypoint_id`(로봇이 생성한 id)로 옮긴다. 이름으로 웨이포인트를 찾는 좁은 RPC 가 없어 **그래프 전체**를 받으며, 캐시하면 사이트가 지도를 다시 올렸을 때 옛 이름으로 로봇을 몰게 되므로 안 한다. 어댑터가 아무것도 저장하지 않고 대응을 정한 것도 지도를 녹화한 사이트이므로 결속의 주인은 여전히 로봇이다(ADR 34·35). 동명이 둘이면 하나를 고르지 않고 거절한다.",
-      "evidence": "**정정(2026-09-08). 앞 판은 `location` 이 그대로 웨이포인트 id 로 간다고 적었고 틀렸다.** 벤더 원문이 둘을 나눈다 — `Waypoint.id` 는 *'Identifier of the waypoint. Unique across all maps'* 인 생성 id 이고, 사람이 붙인 이름은 `Waypoint.Annotations.name`(*'Human-friendly name of the waypoint. For example, \"Kitchen Fridge\"'*)에 따로 있다. 항법이 받는 것은 앞의 것이다. 그대로 넘기면 상위 시스템이 Spot 이 생성한 id 를 들어야 하고 그것이 A-1 위반이다. **Digit 을 뒤집었을 때와 같은 종류의 실수** — 원문 대신 요약을 근거로 삼았다(§15.65). 닿는다는 판정 자체는 그대로다: 이름-id 대응이 로봇 안에 있다는 사실이 오히려 ADR 35 의 증거를 강화한다."
+      "evidence": "**정정(2026-09-08). 앞 판은 `location` 이 그대로 웨이포인트 id 로 간다고 적었고 틀렸다.** 벤더 원문이 둘을 나눈다 — `Waypoint.id` 는 *'Identifier of the waypoint. Unique across all maps'* 인 생성 id 이고, 사람이 붙인 이름은 `Waypoint.Annotations.name`(*'Human-friendly name of the waypoint. For example, \"Kitchen Fridge\"'*)에 따로 있다. 항법이 받는 것은 앞의 것이다. 그대로 넘기면 상위 시스템이 Spot 이 생성한 id 를 들어야 하고 그것이 A-1 위반이다. **Digit 을 뒤집었을 때와 같은 종류의 실수** — 원문 대신 요약을 근거로 삼았다(§15.65). 닿는다는 판정 자체는 그대로다: 이름-id 대응이 로봇 안에 있다는 사실이 오히려 ADR 35 의 증거를 강화한다.",
+      "parameter_map": {
+        "location": {
+          "kind": "CONVERTED",
+          "vendor": "bosdyn.api.graph_nav.NavigateToRequest.destination_waypoint_id",
+          "note": "사람이 붙인 이름은 Waypoint.Annotations.name 에 따로 있고 항법은 생성 id 를 받는다. 매 호출 로봇의 그래프를 받아 옮기며 표는 어댑터가 안 갖는다(ADR 34·35). 이름으로 웨이포인트를 찾는 좁은 RPC 가 없어 그래프 전체를 받는다."
+        }
+      }
     },
     "inspect": {
       "reachable": "YES",
       "vendor_primitive": "`WorldObjectService.ListWorldObjects` → `WorldObject.name`(대상의 존재) + `DataAcquisitionService.{GetServiceInfo, AcquireData, GetStatus, CancelAcquisition}` — `CaptureActionId{action_name, group_name}` 로 취득을 대상의 이름에 묶고 `GetStatusResponse.data_saved[]`(`DataIdentifier`)가 결과 참조다. (저장소 조회 `DataAcquisitionStoreService`·`NetworkComputeBridge`·Autowalk `Action.DataAcquisition` 은 앞 판이 세었고 어댑터는 아직 안 쓴다)",
       "missing": [],
       "adapter_must_own": "계약의 `target`(대상의 이름)을 **세계 모델에 물어 있는지 본다**(`navigate_to` 가 지도에 묻는 것과 같은 규율 — 표를 안 갖고 로봇의 표에 묻는다, ADR 34·35). 있으면 광고된 영상 원천 **전부**로 찍고 `action_name = target`, `group_name = 태스크` 로 묶는다. **취득이 대상을 겨냥하는 자리는 없다** — `AcquisitionRequestList` 는 센서를 받지 대상을 안 받는다. 그래서 *그 자리(`navigate_to` 의 웨이포인트)에 서면 카메라가 그 대상을 본다* 는 것은 어댑터가 아니라 **현장이 보증하는 환경 전제**다(`docs/environment-preconditions.md` B) — `pick_place` 의 *\"이 자리에는 A형만 있다\"* 와 같은 종류. 그 전제 아래에서 어댑터는 접수·폴·취소·결과 참조를 전부 든다.",
-      "evidence": "**정정 (2026-09-09). PARTIAL 은 그대로지만 앞 판이 적은 두 결손 중 하나가 틀렸다.** 앞 판은 *'관측 결과를 대상에 결속하는 것이 없다 — 취득물은 카메라와 시각에 묶인다'* 고 적었다. **결속할 자리가 있다** — `CaptureActionId{action_name, group_name, timestamp}` 가 취득 하나를 **사이트가 짓는 이름**으로 묶고, Autowalk 이 *'replaces the action_name field in the CaptureActionId with the element name'* 로 그 이름을 워크의 원소 이름으로 채운다. 결과는 저장소에서 그 id 로 조회된다. 생명주기도 온전하다 — `AcquireData`(수락) · `GetStatus`(폴) · `CancelAcquisition`(취소) · `GetServiceInfo`(능력 질의). **진짜 결손은 모양의 어긋남이다.** BD 는 점검을 *'어디에 서서 어느 이름의 액션을 돌리는가'* 로 모델링한다(`Element{target, action}`). 우리 계약은 `inspect(target)` 로 **물체 신원**을 묻는다. `inspect` 가 실물 셋 어디에도 안 닿는 것이 벤더의 결손이 아니라 **우리 형식이 틀렸을 가능성**을 이 조사가 처음 제기한다.\n\n**재측정 (2026-09-10, 어댑터가 실제로 든 뒤). PARTIAL → YES.** 앞 판이 *'진짜 결손은 모양의 어긋남 — 우리 계약은 물체 신원을 묻는데 BD 는 어디에 서서 어느 이름의 액션을 돌리는가로 모델링한다'* 고 적었다. 그 어긋남을 두 자리가 메운다. ① **대상의 신원은 세계 모델이 든다** — `WorldObject.name` 은 사이트가 `MutateWorldObjects` 로 등록한 사람의 이름이고(같은 문서 notes: *'대상은 WorldObject.name'*), Digit 의 객체 모델에서 우리가 이미 결속으로 인정한 것과 같은 구조다. 어댑터는 그 이름이 **있는지** 로봇에 묻고, 없으면 취득하지 않는다. ② **취득은 그 이름으로 묶인다** — `CaptureActionId.action_name` 은 이 표면에서 클라이언트가 이름을 정해 넣는 유일한 자리이고(§15.75), 결과 `DataIdentifier.action_id` 에 그대로 돌아와 시나리오 ③의 *증거 자료 참조*가 된다. 남는 것 — 어느 카메라가 그 대상을 보느냐 — 는 벤더가 못 주는 것이 아니라 **현장이 정하는 것**이라 `missing` 이 아니라 환경 전제로 옮겼다(§15.81 — 능력은 기체×현장의 성질). 이 판정은 벤더 1차 자료(proto 152개)에서 이름을 대조한 것이고 **실물에서 확인한 바 없다**(C-3). 취소는 `CancelAcquisition` 이 답을 주므로 `cancel_support: YES`, 일시정지는 표면이 없어 `NO`."
+      "evidence": "**정정 (2026-09-09). PARTIAL 은 그대로지만 앞 판이 적은 두 결손 중 하나가 틀렸다.** 앞 판은 *'관측 결과를 대상에 결속하는 것이 없다 — 취득물은 카메라와 시각에 묶인다'* 고 적었다. **결속할 자리가 있다** — `CaptureActionId{action_name, group_name, timestamp}` 가 취득 하나를 **사이트가 짓는 이름**으로 묶고, Autowalk 이 *'replaces the action_name field in the CaptureActionId with the element name'* 로 그 이름을 워크의 원소 이름으로 채운다. 결과는 저장소에서 그 id 로 조회된다. 생명주기도 온전하다 — `AcquireData`(수락) · `GetStatus`(폴) · `CancelAcquisition`(취소) · `GetServiceInfo`(능력 질의). **진짜 결손은 모양의 어긋남이다.** BD 는 점검을 *'어디에 서서 어느 이름의 액션을 돌리는가'* 로 모델링한다(`Element{target, action}`). 우리 계약은 `inspect(target)` 로 **물체 신원**을 묻는다. `inspect` 가 실물 셋 어디에도 안 닿는 것이 벤더의 결손이 아니라 **우리 형식이 틀렸을 가능성**을 이 조사가 처음 제기한다.\n\n**재측정 (2026-09-10, 어댑터가 실제로 든 뒤). PARTIAL → YES.** 앞 판이 *'진짜 결손은 모양의 어긋남 — 우리 계약은 물체 신원을 묻는데 BD 는 어디에 서서 어느 이름의 액션을 돌리는가로 모델링한다'* 고 적었다. 그 어긋남을 두 자리가 메운다. ① **대상의 신원은 세계 모델이 든다** — `WorldObject.name` 은 사이트가 `MutateWorldObjects` 로 등록한 사람의 이름이고(같은 문서 notes: *'대상은 WorldObject.name'*), Digit 의 객체 모델에서 우리가 이미 결속으로 인정한 것과 같은 구조다. 어댑터는 그 이름이 **있는지** 로봇에 묻고, 없으면 취득하지 않는다. ② **취득은 그 이름으로 묶인다** — `CaptureActionId.action_name` 은 이 표면에서 클라이언트가 이름을 정해 넣는 유일한 자리이고(§15.75), 결과 `DataIdentifier.action_id` 에 그대로 돌아와 시나리오 ③의 *증거 자료 참조*가 된다. 남는 것 — 어느 카메라가 그 대상을 보느냐 — 는 벤더가 못 주는 것이 아니라 **현장이 정하는 것**이라 `missing` 이 아니라 환경 전제로 옮겼다(§15.81 — 능력은 기체×현장의 성질). 이 판정은 벤더 1차 자료(proto 152개)에서 이름을 대조한 것이고 **실물에서 확인한 바 없다**(C-3). 취소는 `CancelAcquisition` 이 답을 주므로 `cancel_support: YES`, 일시정지는 표면이 없어 `NO`.",
+      "parameter_map": {
+        "target": {
+          "kind": "CONVERTED",
+          "vendor": "bosdyn.api.WorldObject.name",
+          "note": "세계 모델에 그 이름의 대상이 있는지 묻고, 취득은 CaptureActionId.action_name 으로 그 이름에 묶는다. 취득 요청 자체는 센서를 받지 대상을 안 받는다."
+        },
+        "mode": {
+          "kind": "NOT_SURVEYED",
+          "note": "계약 minor 3 에서 붙은 선택 파라미터다. 이 기종 프로파일은 minor 0 이라 협상 범위 밖이고, 벤더 쪽에 대응하는 자리가 있는지는 이 조사가 안 봤다."
+        }
+      }
     },
     "pick_place": {
       "reachable": "PARTIAL",
@@ -37,7 +77,35 @@
         "**놓기가 하나의 의미 액션이 아니다.** 팔 궤적 + 그리퍼 열기의 순서이며, 목적지 프레임 대비 **놓는 자세를 어댑터가 정한다**(Digit 의 `action-place` 도 `pose` 를 받지만 한 메시지 안이고 로봇이 참조 프레임을 푼다)"
       ],
       "adapter_must_own": "좌표 변환과 다단계 순서. **표는 안 갖는다** — 이름→위치는 로봇의 `transforms_snapshot` 에서 읽고, 어댑터는 `get_a_tform_b(snapshot, \"vision\", <객체 프레임>)` 에 해당하는 기계적 변환만 한다. 놓는 자세의 기본값은 어댑터의 것이며 로봇의 것이 아니다.",
-      "evidence": "**두 번 정정됐다.** 첫 판 NO(2026-09-08) — *'대상 시맨틱이 없다, 픽셀·3D 점뿐'*. 전수 조사 1 차(2026-09-09) — `WorldObjectService` 를 찾았으나 판정은 NO 로 두고 *'놓기 요청이 없다'* 로 이유만 바꿨다. **2 차(같은 날) — 그것도 과했다.** 고수준 놓기 *액션* 이 없는 것은 맞지만 놓기 자체는 `ArmCartesianCommand` + `ClawGripperCommand` 로 되고, 그것은 우리가 Digit 에서 이미 YES 로 인정한 **어댑터 합성**과 같은 종류다. 일관성상 NO 로 둘 수 없다.\n\n**프레임 결속의 실제 모양(벤더 예제로 확인).** 객체 프레임 이름은 명령에 **안 들어간다** — `fiducial_follow.py` 가 `get_a_tform_b(fiducial.transforms_snapshot, VISION_FRAME_NAME, fiducial.apriltag_properties.frame_name_fiducial)` 로 스냅샷에서 꺼내 `vision` 으로 옮기고 명령은 `frame_name=VISION_FRAME_NAME` 으로 나간다. `arm_grasp.py` 도 `grasp_params_frame_name = VISION_FRAME_NAME` 이다. **그래도 결속의 주인은 로봇이다** — 어댑터는 로봇이 준 프레임 트리를 읽을 뿐 표를 갖지 않는다(ADR 34).\n\n**사이트가 이름을 등록할 수 있다.** `mutate_world_objects.py` 가 `WorldObject(id=16, name='red_sphere_ball', ...)` 를 `ACTION_ADD` 로 넣고, 객체의 프레임(`'drawing_sphere'`)을 `vision` 기준 변환으로 직접 짜 넣는다. ADR 35 의 배치가 Spot 에서도 성립한다."
+      "evidence": "**두 번 정정됐다.** 첫 판 NO(2026-09-08) — *'대상 시맨틱이 없다, 픽셀·3D 점뿐'*. 전수 조사 1 차(2026-09-09) — `WorldObjectService` 를 찾았으나 판정은 NO 로 두고 *'놓기 요청이 없다'* 로 이유만 바꿨다. **2 차(같은 날) — 그것도 과했다.** 고수준 놓기 *액션* 이 없는 것은 맞지만 놓기 자체는 `ArmCartesianCommand` + `ClawGripperCommand` 로 되고, 그것은 우리가 Digit 에서 이미 YES 로 인정한 **어댑터 합성**과 같은 종류다. 일관성상 NO 로 둘 수 없다.\n\n**프레임 결속의 실제 모양(벤더 예제로 확인).** 객체 프레임 이름은 명령에 **안 들어간다** — `fiducial_follow.py` 가 `get_a_tform_b(fiducial.transforms_snapshot, VISION_FRAME_NAME, fiducial.apriltag_properties.frame_name_fiducial)` 로 스냅샷에서 꺼내 `vision` 으로 옮기고 명령은 `frame_name=VISION_FRAME_NAME` 으로 나간다. `arm_grasp.py` 도 `grasp_params_frame_name = VISION_FRAME_NAME` 이다. **그래도 결속의 주인은 로봇이다** — 어댑터는 로봇이 준 프레임 트리를 읽을 뿐 표를 갖지 않는다(ADR 34).\n\n**사이트가 이름을 등록할 수 있다.** `mutate_world_objects.py` 가 `WorldObject(id=16, name='red_sphere_ball', ...)` 를 `ACTION_ADD` 로 넣고, 객체의 프레임(`'drawing_sphere'`)을 `vision` 기준 변환으로 직접 짜 넣는다. ADR 35 의 배치가 Spot 에서도 성립한다.",
+      "parameter_map": {
+        "object_id": {
+          "kind": "CONVERTED",
+          "vendor": "bosdyn.api.PickObject.object_rt_frame",
+          "note": "이름이 아니라 3D 점으로 지시한다. 이름→점 변환이 질의 시점의 스냅샷으로 한 번 굳으므로 질의와 파지 사이에 객체가 움직이면 어댑터가 모른다."
+        },
+        "destination": {
+          "kind": "SYNTHESIZED",
+          "vendor": "bosdyn.api.ArmCartesianCommand.Request.pose_trajectory_in_task",
+          "note": "놓기가 하나의 의미 액션이 아니다 — 팔 궤적과 ClawGripperCommand 의 순서이고 목적지 프레임 대비 놓는 자세를 어댑터가 정한다."
+        },
+        "verify_grasp": {
+          "kind": "NOT_SURVEYED",
+          "note": "minor 0 부터 있던 선택 파라미터인데 프로파일이 선언하지 않았다. 선언 안 한 이유가 벤더에 자리가 없어서인지 안 봐서인지를 이 조사가 가르지 않았다."
+        },
+        "grip_force": {
+          "kind": "NOT_SURVEYED",
+          "note": "계약 minor 2 에서 붙은 선택 파라미터다. 이 기종 프로파일은 minor 0 이라 협상 범위 밖이고, 벤더 쪽에 대응하는 자리가 있는지는 이 조사가 안 봤다."
+        },
+        "grasp_attempts": {
+          "kind": "NOT_SURVEYED",
+          "note": "계약 minor 2 에서 붙은 선택 파라미터다. 이 기종 프로파일은 minor 0 이라 협상 범위 밖이고, 벤더 쪽에 대응하는 자리가 있는지는 이 조사가 안 봤다."
+        }
+      },
+      "limitations": [
+        "POSITION_NOT_IDENTITY",
+        "MULTI_STEP_COMPOSITION"
+      ]
     }
   },
   "notes": [
@@ -50,7 +118,13 @@
     "**서비스가 54 개지만 독립적이지 않다.** 최상위 요청 256 개 중 250 개(98%)가 같은 `RequestHeader` 를 들고, 전부 `DirectoryService` 로 찾아지며, **`Lease` 를 싣는 것은 34 개뿐**이다. §4.9 의 배타 제어가 실제로 거는 대상은 서비스가 아니라 **그 34 개 요청**이다. 자세한 것은 §15.76.",
     "**미션 계층은 명령을 재정의하지 않고 참조한다** — 노드 49 개 중 29 개가 `(service_name, host, 벤더 요청 원본)` 이고 의미를 안 더한다. 미션이 소유한 20 개는 조합·상태·사람·시간뿐이다. 그리고 **조작은 미션 노드가 아니다**(`ManipulationApiService`·`WorldObjectService`·`DoorService` 등은 노드가 없고 `RemoteGrpc` 로만 들어온다). 우리 계약이 능력을 **열거**하는 것과 정반대 배치이며, 그것을 어떻게 할지는 §15.76 의 열린 질문이다.",
     "**Orbit 대조로 얻은 것 둘 (2026-09-09).** ① 태스크의 **모양**(Autowalk `Element`)과 **생명주기**(`MissionService`)가 서로 다른 벤더 층에 있다는 것이 플릿 표면에서도 같게 나타난다 — 우리 계약이 그 둘을 한 메시지에 겸해서 든다. ② **ADR 35 가 세 번째 근거를 얻는다** — Orbit 의 `SiteElement.waypointId` 도 사람이 붙인 이름이 아니라 로봇이 생성한 웨이포인트 id 다. 우리 Spot 어댑터가 `location`(사람 이름)을 `destination_waypoint_id` 로 그대로 넘겨 틀렸던 바로 그 자리이며, **벤더의 플릿 계층도 같은 결속을 쓴다.** 로봇 표면과 플릿 표면 둘 다 그렇다.",
-    "**`inspect` 를 2026-09-10 에 PARTIAL → YES 로 고쳤다** — 어댑터가 `WorldObjectService`(대상의 존재) + `DataAcquisitionService`(취득·결과 참조) 위에 실제로 들면서. 겨냥은 환경 전제로 옮겼다. 실물 미확인은 그대로다."
+    "**`inspect` 를 2026-09-10 에 PARTIAL → YES 로 고쳤다** — 어댑터가 `WorldObjectService`(대상의 존재) + `DataAcquisitionService`(취득·결과 참조) 위에 실제로 들면서. 겨냥은 환경 전제로 옮겼다. 실물 미확인은 그대로다.",
+    "**대응표를 채우자 안 본 칸이 드러났다(2026-09-11).** `parameter_map` 은 계약이 정의한 파라미터를 전부 요구하는데, 선택 파라미터 넷(`verify_grasp`·`grip_force`·`grasp_attempts`·`mode`)은 이 조사가 **한 번도 본 적이 없다.** 그래서 `UNMAPPED`(대응이 없다)가 아니라 `NOT_SURVEYED`(안 봤다)로 적는다 — 부재를 단정하려면 1 차 근거가 있어야 한다는 규율이 칸 단위로 내려온 것이다. 산문 `evidence` 만 있던 시절에는 이 빈칸이 보이지 않았다."
   ],
-  "survey_scope": "BD 공개 SDK 의 서비스 **54 개 전수**(commit 8577b41, protos 152 개) + 프레임 결속 확인용 벤더 예제 셋(`fiducial_follow`·`arm_grasp`·`mutate_world_objects`) + **조합 모델 분석**(최상위 `*Request` 256 개의 봉투·리스 분포, 미션 노드 49 개의 분류). 앞 판은 robot_command·mission·graph_nav **3 개**만 보고 판정했다. **2026-09-09 에 벤더의 플릿 표면을 하나 더 얹었다** — Orbit Web API 게시본(`openapi 3.0.1`, `info.version 5.0.0`, 경로 35 개)을 직접 떠서 `SiteWalk`·`SiteElement`·`Schedule`·`RunEvent` 를 대조했다. **그 게시본이 좁다는 것까지 확인했다** — SDK 라인이 5.1.9 인데 게시 스펙은 5.0.0 이고, 벤더 자기 문서가 참조하는 Work Order 엔드포인트가 게시 스펙에 0 건이다. 게다가 API 는 각 Orbit 인스턴스가 자기 `/api/v0` 에 서빙하므로 인스턴스에 붙기 전에는 닫히지 않는다. 상세와 해시는 `docs/vendors/orbit.md`."
+  "survey_scope": "BD 공개 SDK 의 서비스 **54 개 전수**(commit 8577b41, protos 152 개) + 프레임 결속 확인용 벤더 예제 셋(`fiducial_follow`·`arm_grasp`·`mutate_world_objects`) + **조합 모델 분석**(최상위 `*Request` 256 개의 봉투·리스 분포, 미션 노드 49 개의 분류). 앞 판은 robot_command·mission·graph_nav **3 개**만 보고 판정했다. **2026-09-09 에 벤더의 플릿 표면을 하나 더 얹었다** — Orbit Web API 게시본(`openapi 3.0.1`, `info.version 5.0.0`, 경로 35 개)을 직접 떠서 `SiteWalk`·`SiteElement`·`Schedule`·`RunEvent` 를 대조했다. **그 게시본이 좁다는 것까지 확인했다** — SDK 라인이 5.1.9 인데 게시 스펙은 5.0.0 이고, 벤더 자기 문서가 참조하는 Work Order 엔드포인트가 게시 스펙에 0 건이다. 게다가 API 는 각 Orbit 인스턴스가 자기 `/api/v0` 에 서빙하므로 인스턴스에 붙기 전에는 닫히지 않는다. 상세와 해시는 `docs/vendors/orbit.md`.",
+  "adapter": "adapter-boston-dynamics-spot",
+  "review": {
+    "reviewed_by": "LivingLikeKrillin",
+    "reviewed_at": "2026-09-10"
+  }
 }
