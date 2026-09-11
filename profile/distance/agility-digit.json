@@ -13,21 +13,77 @@
       "vendor_primitive": "`[\"action-duration\", {action: [\"action-move\", {velocity: {rpyxyz}}], duration}]`",
       "missing": [],
       "adapter_must_own": "없다. **지속시간이 필드가 아니라 합성이며 로봇이 집행한다** — 어댑터가 시계를 들지 않고, 그래서 실패 방향도 다른 둘과 같다(어댑터가 죽어도 로봇이 선다).",
-      "evidence": "`ActionMove` 자체에는 지속시간이 없지만 `ActionDuration{action, duration, after_success}` 이 아무 액션이나 감싼다. **처음에 '지속시간이 없어 어댑터가 정지를 빚고 실패 방향이 반대' 라고 적은 것은 오독이었다** — 제3자 래퍼에 `action-duration` 이 없었기 때문이다. `move_relative` 를 벤더 중립이라 부른 원래 근거가 셋 다에서 성립한다."
+      "evidence": "`ActionMove` 자체에는 지속시간이 없지만 `ActionDuration{action, duration, after_success}` 이 아무 액션이나 감싼다. **처음에 '지속시간이 없어 어댑터가 정지를 빚고 실패 방향이 반대' 라고 적은 것은 오독이었다** — 제3자 래퍼에 `action-duration` 이 없었기 때문이다. `move_relative` 를 벤더 중립이라 부른 원래 근거가 셋 다에서 성립한다.",
+      "parameter_map": {
+        "forward_speed": {
+          "kind": "DIRECT",
+          "vendor": "action-move.velocity",
+          "note": "rpyxyz 의 x 성분."
+        },
+        "lateral_speed": {
+          "kind": "DIRECT",
+          "vendor": "action-move.velocity",
+          "note": "같은 값의 y 성분."
+        },
+        "yaw_rate": {
+          "kind": "DIRECT",
+          "vendor": "action-move.velocity",
+          "note": "같은 값의 yaw 성분."
+        },
+        "duration": {
+          "kind": "DIRECT",
+          "vendor": "action-duration.duration",
+          "note": "ActionMove 자체에는 지속시간이 없고 ActionDuration 이 아무 액션이나 감싼다. 값은 그대로 가고, 로봇이 집행하므로 어댑터가 시계를 안 든다 — 어댑터가 죽어도 로봇이 선다."
+        }
+      }
     },
     "navigate_to": {
       "reachable": "YES",
       "vendor_primitive": "`[\"action-goto\", {reference_frame: {name: <location>}, target, position_tolerance}]`",
       "missing": [],
       "adapter_must_own": "없다 — `location` 이 그대로 `ObjectSelector.name` 으로 간다. 목표 자세는 그 프레임의 원점으로 두며, 그 원점이 무엇을 뜻하는지는 **등록할 때** 정해진다(ADR 35).",
-      "evidence": "**`ObjectSelector` 가 이름을 받는다** — `name` · `has_attributes` · `april_tag_id` · `descendant_of` · `include`/`exclude` · `map_name` 을 갖는 **질의 가능한 세계 모델의 선택자**다. Spot 은 웨이포인트 id 문자열 하나였는데 여기는 선택자이며, 그 모델을 `add-object` · `add-landmarks` · `set-floorplan-map` 으로 채운다. **처음에 '목적지가 좌표뿐' 이라 적은 것은 오독이었다.**"
+      "evidence": "**`ObjectSelector` 가 이름을 받는다** — `name` · `has_attributes` · `april_tag_id` · `descendant_of` · `include`/`exclude` · `map_name` 을 갖는 **질의 가능한 세계 모델의 선택자**다. Spot 은 웨이포인트 id 문자열 하나였는데 여기는 선택자이며, 그 모델을 `add-object` · `add-landmarks` · `set-floorplan-map` 으로 채운다. **처음에 '목적지가 좌표뿐' 이라 적은 것은 오독이었다.**",
+      "parameter_map": {
+        "location": {
+          "kind": "DIRECT",
+          "vendor": "action-goto.reference-frame",
+          "note": "ObjectSelector 의 name 으로 그대로 간다 — 로봇이 자기 세계 모델에서 푼다. 목표 자세는 그 프레임의 원점으로 두며, 그 원점이 무엇을 뜻하는지는 등록할 때 정해진다(ADR 35)."
+        }
+      }
     },
     "pick_place": {
       "reachable": "YES",
       "vendor_primitive": "`[\"action-sequential\", {actions: [[\"action-pick\", {object: {name: <object_id>}}], [\"action-place\", {reference_frame: {name: <destination>}, pose, position_tolerance}]]}]`",
       "missing": [],
       "adapter_must_own": "합성 방법과 두 규약 — 태스크 하나를 `action-sequential` 하나로 옮기는 것, 그리고 `action-place` 의 `pose` 를 대상 프레임의 **원점**으로, `position_tolerance` 를 어댑터 기본값으로 두는 것. 둘 다 벤더가 요구하는 값이라 비울 수 없고, 원점이 무엇을 뜻하는지는 등록할 때 정해진다(ADR 35).",
-      "evidence": "**조사한 셋 중 시맨틱 집기·놓기를 파는 유일한 기종이다.** `ActionPick{object: ObjectSelector}` 과 `ActionPlace{pose, reference_frame: ObjectSelector}` 가 둘 다 있다. Spot 은 집기를 픽셀·3D 점으로만 받고 놓기는 **요청 자리가 아예 없으며**(피드백 열거에만 있다), G1 은 정해진 제스처 둘뿐이다. 그래서 *\"가장 능력 있는 벤더도 시맨틱 집기·놓기를 안 판다\"* 는 앞선 판단은 **Spot 에 대해서만 참이고 전체로는 거짓이었다.**"
+      "evidence": "**조사한 셋 중 시맨틱 집기·놓기를 파는 유일한 기종이다.** `ActionPick{object: ObjectSelector}` 과 `ActionPlace{pose, reference_frame: ObjectSelector}` 가 둘 다 있다. Spot 은 집기를 픽셀·3D 점으로만 받고 놓기는 **요청 자리가 아예 없으며**(피드백 열거에만 있다), G1 은 정해진 제스처 둘뿐이다. 그래서 *\"가장 능력 있는 벤더도 시맨틱 집기·놓기를 안 판다\"* 는 앞선 판단은 **Spot 에 대해서만 참이고 전체로는 거짓이었다.**",
+      "parameter_map": {
+        "object_id": {
+          "kind": "DIRECT",
+          "vendor": "action-pick.object",
+          "note": "ObjectSelector 의 name 으로 넘기고 로봇이 파지 시점에 다시 푼다 — Spot 이 점으로 굳히는 것과 갈리는 자리다."
+        },
+        "destination": {
+          "kind": "DIRECT",
+          "vendor": "action-place.reference-frame",
+          "note": "ObjectSelector 로 간다. 놓는 pose 는 그 프레임의 원점으로, position-tolerance 는 어댑터 기본값으로 둔다 — 둘 다 벤더가 요구하는 값이라 어댑터가 규약을 정한다."
+        },
+        "verify_grasp": {
+          "kind": "NOT_SURVEYED",
+          "note": "minor 0 부터 있던 선택 파라미터인데 프로파일이 선언하지 않았다. 선언 안 한 이유가 벤더에 자리가 없어서인지 안 봐서인지를 이 조사가 가르지 않았다."
+        },
+        "grip_force": {
+          "kind": "NOT_SURVEYED",
+          "note": "계약 minor 2 에서 붙은 선택 파라미터다. 이 기종 프로파일은 minor 0 이라 협상 범위 밖이고, 벤더 쪽에 대응하는 자리가 있는지는 이 조사가 안 봤다."
+        },
+        "grasp_attempts": {
+          "kind": "NOT_SURVEYED",
+          "note": "계약 minor 2 에서 붙은 선택 파라미터다. 이 기종 프로파일은 minor 0 이라 협상 범위 밖이고, 벤더 쪽에 대응하는 자리가 있는지는 이 조사가 안 봤다."
+        }
+      },
+      "limitations": [
+        "MULTI_STEP_COMPOSITION"
+      ]
     },
     "inspect": {
       "reachable": "NO",
@@ -43,7 +99,13 @@
   "notes": [
     "**이 문서는 2026-09-08에 한 번 통째로 뒤집혔다.** 첫 판은 제3자 래퍼 코드(`adubredu/digitinterface`)에서 파생했고 그것이 벤더 API 의 부분집합이라 `navigate_to` 를 PARTIAL, `pick_place` 를 NO, 계층을 COMMAND 로 적었다. 벤더 SDK 원문(`agility/messages/json.py`, 릴리스 2021.06.01)을 전수로 읽고 셋 다 고쳤다.",
     "**근거 등급을 적어 두고도 그 위에 판정을 얹은 것이 실수였다**(§15.65). 등급이 낮으면 `NO` 가 아니라 `UNKNOWN` 이어야 했고, 그것은 §7.2의 `Support` 3값이 말하는 바로 그것이다 — 조사 문서에서는 지키던 규율을 거리 문서에서 안 지켰다.",
-    "**남는 한계는 릴리스가 2021년판이라는 것이다.** '있다' 는 확실하고 '없다' 는 그 시점 기준이다. `inspect` 의 NO 가 그 영향을 가장 크게 받는 자리다."
+    "**남는 한계는 릴리스가 2021년판이라는 것이다.** '있다' 는 확실하고 '없다' 는 그 시점 기준이다. `inspect` 의 NO 가 그 영향을 가장 크게 받는 자리다.",
+    "**대응표를 채우자 안 본 칸이 드러났다(2026-09-11).** `parameter_map` 은 계약이 정의한 파라미터를 전부 요구하는데, 선택 파라미터 넷(`verify_grasp`·`grip_force`·`grasp_attempts`·`mode`)은 이 조사가 **한 번도 본 적이 없다.** 그래서 `UNMAPPED`(대응이 없다)가 아니라 `NOT_SURVEYED`(안 봤다)로 적는다 — 부재를 단정하려면 1 차 근거가 있어야 한다는 규율이 칸 단위로 내려온 것이다. 산문 `evidence` 만 있던 시절에는 이 빈칸이 보이지 않았다."
   ],
-  "survey_scope": "SDK 메시지 정의(`agility/messages/json.py`, 릴리스 2021.06.01) **전수** + 고객 매뉴얼(단일 페이지, 메시지 표제 89 개) **전수**. 로봇→클라이언트 메시지는 SDK 에 없어 매뉴얼이 유일한 출처다. 더 최신 릴리스는 못 봤다."
+  "survey_scope": "SDK 메시지 정의(`agility/messages/json.py`, 릴리스 2021.06.01) **전수** + 고객 매뉴얼(단일 페이지, 메시지 표제 89 개) **전수**. 로봇→클라이언트 메시지는 SDK 에 없어 매뉴얼이 유일한 출처다. 더 최신 릴리스는 못 봤다.",
+  "adapter": "adapter-agility-digit",
+  "review": {
+    "reviewed_by": "LivingLikeKrillin",
+    "reviewed_at": "2026-09-09"
+  }
 }

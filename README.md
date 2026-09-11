@@ -10,6 +10,15 @@
 1. **이기종 대응은 코드가 아니라 프로파일 교체여야 한다.**
 2. **운영 변경은 파급을 미리 계산할 수 있어야 한다.** 계산할 수 없으면 모든 변경이 도박이고, 도박이면 아무도 변경하지 않게 되어 시스템이 굳는다.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/seam.dark.svg">
+  <img alt="계약 하나가 이음매다. 상류·picasso·contracts·adapter-host 는 기종을 모르고 게이트 검사 7이 그것을 CI 실패 조건으로 막는다. 계약 아래에는 기종을 아는 어댑터 넷과, 프로파일 한 장으로 도는 mimic 이 같은 자리에 꽂힌다." src="docs/diagrams/seam.svg">
+</picture>
+
+**기종 이름이 사는 곳은 맨 아래 한 층뿐이다.** 그 위는 상류부터 어댑터 호스트까지 전부 기종을 모르고, 게이트 검사 7이
+공용 여덟 모듈의 소스를 훑어 그것을 **CI 실패 조건**으로 지킨다. 계약 아래는 갈아 끼워진다 — 기종 어댑터 넷이 서는
+자리에 `mimic` 이 그대로 서고, 둘이 같은 요구에 같은 답을 내는 것을 `HostParityTest` 가 밖에서 확인한다.
+
 조직 원리 하나 — **추가는 안전하고 삭제는 위험하다.** 운영 변경 규칙 전부가 이 비대칭에서 나온다.
 
 정본은 [설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md)다. 이 README 는 그 문서로 가는 입구이며, 둘이 어긋나면 설계 문서가 맞다.
@@ -114,6 +123,7 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | 경계가 왜 거기에 있나 | [`docs/architecture.md`](docs/architecture.md) — 층 넷, 데이터의 두 방향, 상태기계 둘, 의존 규칙 |
 | **계약이 무엇을 약속하나** | [`docs/contract.md`](docs/contract.md) — 무엇이 이 면에 들어오는가(관문 둘), 무엇이 '아직' 이 아니라 '여기가 아님' 인가, **담보마다 그것을 지키는 시험**, 그리고 어댑터를 쓰기 전에 기종을 재는 절차 |
 | 실물로 바꾸려면 어디를 고치나 | [`docs/seams.md`](docs/seams.md) — 교체 지점 아홉. 자리마다 인터페이스·지금 꽂힌 것·바꾸려면·안 고치는 것 |
+| **벤더 API 를 계약 스킬에 앉히는 법** | [`docs/vocabulary-distance.md`](docs/vocabulary-distance.md) — 순서 아홉과 함정 여섯. 기계가 1 차로 훑을 때의 규칙도 여기 있다 |
 | 상류 모델이 어디서 왔나 | [`docs/isa95.md`](docs/isa95.md) — 필드마다 표준의 것인지 우리가 지은 것인지. 정본이 유료라 못 짚은 칸은 `UNKNOWN` 으로 남긴다 |
 | **현장에 넣고 나서 무엇을 바꾸나** | [`docs/commissioning.md`](docs/commissioning.md) — 마스터 데이터와 런타임을 가르고, 처음 적용하는 순서 열 단계와 **설정 표면 전부**를 적는다 |
 | 모듈 안으로 | **모듈마다 `README.md` 가 있다** — 그 모듈의 규칙 하나 · 경계 · 없는 것 · 어느 시험이 무엇을 증명하나. 시작점은 [`contracts`](contracts/README.md) → [`picasso`](picasso/README.md) → [`adapter-host`](adapter-host/README.md) |
@@ -148,4 +158,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입으로 시험을 시험한다.** 못 잡으면 시험 집합의 구멍이고, 주입이 시끄럽지 않았다면 주입부터 의심한다.
 - **조용히 통과하는 것이 실패하는 것보다 나쁘다.** 게이트가 아무 검사도 안 돌리고 종료코드 0 을 낸 적이 있다. 요구 목록(`--require`)과 strict 음성 하네스가 그 대가다.
 
-> 마지막 대조: 2026-09-11 · sha256:79222102747c · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-11 · sha256:3ba6c546c7f1 · 열림: C-3, §15.81

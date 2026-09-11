@@ -57,6 +57,11 @@ VDA5050 이 AMR 쪽에서 같은 자리에 둔 것이 **Factsheet** 다 — 기�
 
 ## 3. 가동 중에 바꾸는 것
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/change-plan.dark.svg">
+  <img alt="변경 계획이 세는 조건 여섯을 먼저 세우고(무엇을 세는지·안 맞으면 무엇을 하는지·그것을 지키는 시험), 그 아래에 의도 넷이 각각 어느 단계에서 어느 조건을 다시 세는지 표로 놓았다. 조건이 안 맞으면 실행이 거부되고 계획은 DRAFT 에 머문다." src="diagrams/change-plan.svg">
+</picture>
+
 | 바꾸는 것 | 문 | 라인을 세우나 |
 |---|---|---|
 | 어댑터 인스턴스 추가·재배포 | `POST /operations/adapter-instances` (조작) | 아니다. 같은 이름으로 다시 부르면 갱신이다 |
@@ -113,4 +118,4 @@ VDA5050 이 AMR 쪽에서 같은 자리에 둔 것이 **Factsheet** 다 — 기�
   레지스트리가 시맨틱 결속의 두 번째 주인이 된다.
 - 열린 것 전부는 [`limits.md`](limits.md) 에 있다.
 
-> 마지막 대조: 2026-09-11 · sha256:b11cbda5767b · 열림: §15.123, §15.106 · CLI, §15.125, §15.128, §15.129
+> 마지막 대조: 2026-09-11 · sha256:825471facc90 · 열림: §15.123, §15.106 · CLI, §15.125, §15.128, §15.129

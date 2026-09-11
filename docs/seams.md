@@ -6,6 +6,11 @@
 
 ---
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/seams.dark.svg">
+  <img alt="교체 지점 아홉을 한 줄에 하나씩 세운 표. 맨 위 칸이 미들웨어 코어 여섯 모듈이고 아래 아홉 어디에도 그 여섯이 없다. 자리마다 면(인터페이스)·바꾸려면 할 일·그때 그대로 두는 것·그 면이 사는 모듈이 적혀 있다." src="diagrams/seams.svg">
+</picture>
+
 ## 이 자리들이 왜 진짜 교체 지점인가
 
 **포트는 본체에 있고 대역은 시험에 있다.** `CellSignals`·`AmrFleetPort`·`RobotPort` 는
@@ -153,4 +158,4 @@
 
 **상류는 이 표에 없다.** 인터페이스가 아니라 `Middleware` 의 공개 API 이기 때문이고, 그 이유는 위 1 번에 있다.
 
-> 마지막 대조: 2026-09-11 · sha256:bb623e26f158 · 열림: §15.125, §15.34, C-3, §15.5
+> 마지막 대조: 2026-09-11 · sha256:ffc32566ad94 · 열림: §15.125, §15.34, C-3, §15.5

@@ -76,16 +76,41 @@
       "description": "**이 측정이 벤더 표면의 얼마를 봤는가.** 2026-09-09 에 생겼다 — Spot 을 서비스 54 개 중 3 개만 읽고 재 놓고 '이 벤더에 무엇이 없다' 를 적었던 것이 드러나서다. 판정 셋이 그 위에 서 있었고 셋 다 흔들렸다. 근거 등급(`evidence_grade`)이 *출처가 얼마나 1차인가* 라면 이것은 *얼마나 넓게 봤는가* 이고, 둘은 다르다 — 1 차 원문 세 개만 읽어도 등급은 VENDOR_PRIMARY 다.",
       "type": "string",
       "minLength": 20
+    },
+    "adapter": {
+      "description": "이 측정이 붙는 어댑터 모듈 이름(`adapter-boston-dynamics-spot` 꼴). `parameter_map` 의 벤더 심볼을 어느 매니페스트에 대고 볼지가 이 필드로 정해진다. **프로파일이 있으면 이것도 있어야 한다** — 선언까지 간 기종은 어댑터가 있다.",
+      "type": "string",
+      "pattern": "^adapter-[a-z0-9-]+$"
+    },
+    "review": {
+      "description": "**사람이 지나갔다는 흔적.** `MACHINE_DRAFT` 가 아니면 필수다 — 등급이 *무엇을 읽었는가* 라면 이것은 *누가 언제 그것을 받아들였는가* 이고, 기계 초안을 들이기 시작하면 둘이 갈린다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewed_by",
+        "reviewed_at"
+      ],
+      "properties": {
+        "reviewed_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reviewed_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+      }
     }
   },
   "$defs": {
     "evidenceGrade": {
-      "description": "이 판정이 **무엇을 읽고** 내려졌는가. VENDOR_PRIMARY = 벤더가 배포한 기계가독 정의(proto·IDL·SDK 메시지 정의·모듈 목록). VENDOR_DOC = 벤더의 문서·매뉴얼 산문. THIRD_PARTY = 벤더가 아닌 코드나 글. INFERRED = 위 어느 것도 없이 미루어 짐작했다. **부재를 단정하려면 앞의 둘 중 하나여야 한다** — 2026-09-08에 Digit 측정이 통째로 뒤집힌 원인이 정확히 이것이었다. 제3자 래퍼가 API의 부분집합인데 거기 없는 것을 '없다'로 읽었고, 근거 등급을 산문에 적어 두고도 그 위에 판정을 얹었다. 그래서 이제 **필드로 두고 시험이 강제한다.**",
+      "description": "이 판정이 **무엇을 읽고** 내려졌는가. VENDOR_PRIMARY = 벤더가 배포한 기계가독 정의(proto·IDL·SDK 메시지 정의·모듈 목록). VENDOR_DOC = 벤더의 문서·매뉴얼 산문. THIRD_PARTY = 벤더가 아닌 코드나 글. INFERRED = 위 어느 것도 없이 미루어 짐작했다. **부재를 단정하려면 앞의 둘 중 하나여야 한다** — 2026-09-08에 Digit 측정이 통째로 뒤집힌 원인이 정확히 이것이었다. 제3자 래퍼가 API의 부분집합인데 거기 없는 것을 '없다'로 읽었고, 근거 등급을 산문에 적어 두고도 그 위에 판정을 얹었다. 그래서 이제 **필드로 두고 시험이 강제한다.** MACHINE_DRAFT = **기계가 1 차로 훑어 만든 초안이고 사람이 아직 안 봤다.** 이 등급인 칸은 `reachable` 이 `UNKNOWN` 이어야 한다 — 초안이 판정을 채우면 사람이 *'이게 되나'* 가 아니라 *'이게 맞나'* 를 묻게 되고, 뒤엣것이 훨씬 잘 통과한다. 초안이 채우는 것은 `parameter_map` 의 후보와 `survey_scope` 와 인용까지다.",
       "enum": [
         "VENDOR_PRIMARY",
         "VENDOR_DOC",
         "THIRD_PARTY",
-        "INFERRED"
+        "INFERRED",
+        "MACHINE_DRAFT"
       ]
     },
     "measurement": {
@@ -131,8 +156,186 @@
           "description": "**근거를 함께 적는다.** 판정만 남기면 나중에 그것이 측정인지 짐작인지 구분되지 않는다(조사·출처 문서와 같은 규율).",
           "type": "string",
           "minLength": 1
+        },
+        "parameter_map": {
+          "description": "계약이 그 스킬에 정의한 파라미터 **전부**가 키로 있어야 한다 — 나중 minor 에 붙은 선택 파라미터까지. 빠진 칸은 *아직 안 본 칸* 인데 산문에서는 빠진 것이 보이지 않는다.",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/parameterCorrespondence"
+          }
+        },
+        "limitations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/limitationKind"
+          },
+          "uniqueItems": true
         }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "reachable": {
+                "enum": [
+                  "YES",
+                  "PARTIAL"
+                ]
+              }
+            },
+            "required": [
+              "reachable"
+            ]
+          },
+          "then": {
+            "required": [
+              "parameter_map"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "reachable": {
+                "const": "PARTIAL"
+              }
+            },
+            "required": [
+              "reachable"
+            ]
+          },
+          "then": {
+            "properties": {
+              "limitations": {
+                "minItems": 1
+              }
+            },
+            "required": [
+              "limitations"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "evidence_grade": {
+                "const": "MACHINE_DRAFT"
+              }
+            },
+            "required": [
+              "evidence_grade"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reachable": {
+                "const": "UNKNOWN"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "parameterCorrespondence": {
+      "description": "계약 파라미터 하나가 벤더의 어느 자리에 앉는가. **산문이 아니라 칸이라서 한 줄씩 반박된다** — `evidence` 만 있던 시절에는 *'파라미터 넷이 하나씩 대응한다'* 가 넷을 세어 보지 않고도 통과했다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "note"
+      ],
+      "properties": {
+        "kind": {
+          "description": "DIRECT = 벤더 인자 하나에 그대로 간다. CONVERTED = 뜻은 같은데 단위·기준계·표현이 달라 어댑터가 옮긴다. SYNTHESIZED = 벤더에 그 자리가 없어 어댑터가 여럿을 조합해 만든다. UNMAPPED = 대응이 없다. **`YES` 인 칸에도 UNMAPPED 가 올 수 있다** — 선택 파라미터라 안 보내면 그만인 경우가 그것이고, 그때 `note` 가 그 사실을 적는다. NOT_SURVEYED = **아직 안 봤다.** UNMAPPED 와 가르는 것이 요점이다 — 앞은 *대응이 없다* 는 판정이고 이것은 *판정을 안 했다* 이다. 이 값이 생긴 것은 대응표를 처음 채우자마자 선택 파라미터 넷이 조사된 적이 없다는 것이 드러나서다. 부재를 단정하려면 1 차 근거가 있어야 한다는 규율(evidence_grade)이 칸 단위로 내려온 것이다.",
+          "enum": [
+            "DIRECT",
+            "CONVERTED",
+            "SYNTHESIZED",
+            "UNMAPPED",
+            "NOT_SURVEYED"
+          ]
+        },
+        "vendor": {
+          "description": "벤더 심볼. **그 기종 어댑터의 `vendor-manifest.txt` 에 그대로 있어야 한다**(`VocabularyDistanceTest`). 매니페스트가 필드까지 안 뽑는 벤더에서는 있는 것 중 가장 좁은 심볼을 적고 인자 이름은 `note` 로 내린다 — 없는 것을 지어 적는 것을 이 규칙이 막는다.",
+          "type": "string",
+          "minLength": 1
+        },
+        "note": {
+          "description": "DIRECT 가 아니면 **무엇을 옮기거나 조합하거나 포기하는지**를 적는다. 이것이 곧 어댑터가 쓸 코드다.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "DIRECT",
+                  "CONVERTED"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "vendor"
+            ]
+          }
+        }
+      ]
+    },
+    "limitationKind": {
+      "description": "**닿는데 무엇이 불편한가 / 왜 일부만인가 를 유형으로 부른다.** Open-RMF 가 통합 등급에 `Full Control`·`Traffic Light` 라는 이름을 준 것과 같은 자리인데, 우리는 기종이 아니라 **칸마다** 붙인다 — 한 기종 안에서 스킬마다 다르다는 것이 Spot 에서 드러났기 때문이다. **`YES` 인 칸에도 붙는다**(G1 의 `move_relative` 가 `NO_TERMINAL_SIGNAL` 이다).",
+      "enum": [
+        "TARGET_NOT_ADDRESSABLE",
+        "POSITION_NOT_IDENTITY",
+        "NO_TERMINAL_SIGNAL",
+        "NO_CANCEL_OR_PAUSE",
+        "NO_PROGRESS",
+        "NO_RESULT_CHANNEL",
+        "MULTI_STEP_COMPOSITION"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_grade": {
+            "not": {
+              "const": "MACHINE_DRAFT"
+            }
+          }
+        },
+        "required": [
+          "evidence_grade"
+        ]
+      },
+      "then": {
+        "required": [
+          "review"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "profile"
+        ]
+      },
+      "then": {
+        "required": [
+          "adapter"
+        ]
       }
     }
-  }
+  ]
 }
