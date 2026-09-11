@@ -86,6 +86,9 @@ tasks.withType<Test>().configureEach {
         // **모듈이 아닌데 밖을 향한 문서다.** README 의 문서 지도가 직접 링크한다.
         // 자리로 세는 순간 `Repo` 의 문지기가 던지므로 선언이 함께 필요하다 — 같은 구멍의 일곱째.
         rootProject.file("tools/vendor-manifest/README.md"),
+        // ★**골격도 밖을 향한 문서다.** `AdapterTemplateTest` 가 `RobotAdapter` 의 면과 대므로
+        // 선언이 함께 필요하다 — 같은 구멍의 아홉째가 안 되게.
+        rootProject.file("tools/adapter-template"),
         rootProject.file("docs"),
         // ★**문을 만들자마자 둘이 더 나왔다.** `DocumentClaimsTest` 가 모듈 수를 `settings.gradle.kts` 에서,
         // 진단 수를 `DiagController` 에서 세는데 **둘 다 선언 밖이었다** — 모듈을 더하거나 진단을 더해도

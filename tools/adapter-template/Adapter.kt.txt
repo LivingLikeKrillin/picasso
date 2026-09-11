@@ -1,0 +1,89 @@
+// tools/adapter-template — 컴파일되지 않는다. 새 모듈에 복사하고 <기종>·<vendor> 를 바꿔 쓴다.
+//
+// ★ 채우기 전에 profile/distance/<기종>.json 을 먼저 쓴다. adapter_must_own 이 여기 쓸 코드이고,
+//   execution_scope 가 poll 의 모양을 정한다. docs/vocabulary-distance.md 를 보라.
+package dev.picasso.adapter.<vendor>
+
+import dev.picasso.adapter.core.Acceptance
+import dev.picasso.adapter.core.Applied
+import dev.picasso.adapter.core.FaultObservation
+import dev.picasso.adapter.core.HoldObservation
+import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.RobotAdapter
+import dev.picasso.adapter.core.SiteNames
+import dev.picasso.contracts.v1.TaskState
+import java.time.Instant
+
+/**
+ * <기종> 의 북쪽 면. **판단은 여기 없다** — 로봇이 말한 것을 계약의 낱말로 옮길 뿐이고,
+ * 무엇을 할지는 계약 소비자(미들웨어)가 정한다.
+ *
+ * **태스크는 한 번에 하나다**(§4.9). 동시 태스크가 필요하면 기체마다 인스턴스를 둔다.
+ */
+class <기종>Adapter(private val link: <기종>Link) : RobotAdapter {
+
+    private var task: RunningTask? = null
+
+    // ── 반드시 채우는 여덟 ────────────────────────────────────────────────
+
+    override val state: TaskState
+        get() = task?.state ?: TaskState.TASK_STATE_UNSPECIFIED
+
+    /**
+     * ★ 거절 사유를 **고를 수 있게** 낸다. `Refusal` 의 값이 다음 행동을 가른다 —
+     *   `LINK_ERROR`(전송이 안 됨) 와 `VENDOR_REJECTED`(로봇이 거절함) 는 보는 곳이 다르다.
+     */
+    override fun accept(
+        taskId: String,
+        skillType: String,
+        parameters: Map<String, Any>,
+        startedAt: Instant,
+    ): Acceptance {
+        // 1. 신원이 섰는가 — 로봇이 신원을 말 안 하는 기종이면 설정뿐이다
+        //    → Refusal.IDENTITY_UNSET
+        // 2. 이미 도는 태스크가 있는가 → Refusal.ALREADY_RUNNING
+        // 3. 이 어댑터가 드는 스킬인가 → Refusal.UNSUPPORTED_SKILL
+        //    ★ 여기 드는 스킬이 profile/profiles/<기종>.json 의 선언과 같아야 한다(시험이 본다)
+        // 4. 계약이 필수로 둔 파라미터가 있는가 → Refusal.PARAMETER_MISSING
+        // 5. 그 스킬이 쓰는 벤더 표면이 붙어 있는가 → Refusal.VENDOR_SURFACE_ABSENT
+        //    ★ 표면 단위로 본다. 표면 하나가 없으면 그것을 쓰는 스킬만 죽는다
+        // 6. 남쪽으로 보낸다 → 실패는 Refusal.LINK_ERROR / Refusal.VENDOR_REJECTED
+        TODO("profile/distance/<기종>.json 의 parameter_map 대로 옮긴다")
+    }
+
+    /**
+     * ★ **`execution_scope` 가 이 함수의 모양을 정한다.**
+     *   - `MISSION` — 벤더가 상태를 준다. 그것을 계약의 `TaskState` 로 옮긴다.
+     *   - `COMMAND`·`NONE` — 끝났다는 신호가 없다. **시계로 적고**, 종착 뒤에도 움직이면
+     *     `TERMINAL_STATE_VIOLATED` 로 잡는다. 지어낸 완료를 성공으로 적지 않는다.
+     */
+    override fun poll(now: Instant): TaskState = TODO("종착 판정")
+
+    override fun pause(): Applied =
+        Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "이 어댑터에는 일시정지가 없다")
+
+    override fun cancel(): Applied = TODO("도는 것을 멈춘다. 수단이 없으면 NO_VENDOR_PRIMITIVE")
+
+    /** 잔여 물리 상태(§4.4) — 쥔 것이 있는가. */
+    override fun hold(): HoldObservation = TODO()
+
+    /** 기체 수준 결함(§4.6). 태스크의 실패와 다르다. */
+    override fun faults(): FaultObservation = TODO()
+
+    /** ADR 35 의 확인 질의 — **표를 어댑터가 갖지 않는다.** 로봇에게 묻는다. */
+    override fun knownSiteNames(): SiteNames = TODO()
+
+    // ── 안 채워도 되는 일곱 ───────────────────────────────────────────────
+    //
+    // ★ 기본값은 "없다" 이지 "된다" 가 아니다. 벤더에 그 프리미티브가 없으면 **그대로 둔다.**
+    //   resume · update · retry · progress · failure · result · robotSoftware
+    //
+    // progress 를 억지로 채우지 말 것 — 진행률은 지어낼 수 있는 유일한 값이라
+    // 국면을 분수로 바꾸고 싶어지는데, 그 순간 상류가 보는 숫자에 근거가 없어진다.
+
+    private class RunningTask(
+        val id: String,
+        var startedAt: Instant,
+        var state: TaskState,
+    )
+}

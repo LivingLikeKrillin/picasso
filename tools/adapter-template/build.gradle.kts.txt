@@ -1,0 +1,21 @@
+// tools/adapter-template — 새 모듈의 build.gradle.kts. <기종> 을 바꿔 쓴다.
+//
+// **벤더 SDK 가 여기 없고, 여기 말고는 어디에도 못 들어온다**(ADR 31). 벤더 라이선스가
+// 재배포나 재라이선스를 막는 것이 보통이므로 벤더 proto 나 생성 스텁을 공통 계층에 두면
+// 위반이다. 남쪽이 포트라 **SDK 없이 컴파일되고 시험이 돈다** — 이 문장이 참이어야 한다.
+dependencies {
+    implementation(project(":contracts"))
+    implementation(project(":adapter-core"))
+    testImplementation(kotlin("test"))
+
+    // 벤더 원문 대조 검사(`VendorManifest`). **원문이 아니라 이름만** 들어온다 —
+    // 매니페스트는 `src/test/resources/vendor-manifest.txt` 한 장이다.
+    testImplementation(testFixtures(project(":adapter-core")))
+
+    // 끝에서 끝까지 돌릴 때만. 기종을 아는 쪽이 조립한다(게이트 7번 밖).
+    // testImplementation(project(":adapter-host"))
+    // testImplementation(project(":picasso"))
+    // testImplementation(project(":client"))
+    // testImplementation(project(":profile-model"))
+    // testImplementation(libs.grpc.inprocess)
+}
