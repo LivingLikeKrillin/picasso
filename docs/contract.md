@@ -140,4 +140,16 @@
 
 ---
 
-> 마지막 대조: 2026-09-11 · sha256:8347ffdc29b7 · 열림: ADR 32 · 시나리오 5, §15.126, §15.81, §15.8, §15.125, C-3, §15.1
+## 프로파일에서 능력으로 — 무엇이 나가고 무엇이 남나
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/capability-projection.dark.svg">
+  <img alt="두 칸. 왼쪽 초록 칸은 Capability 로 나가는 여덟 필드와 소비자가 그것으로 무엇을 판정하는지, 오른쪽 회색 칸은 문서에 남는 다섯 필드와 남는 이유. 위에 거르는 기준 한 줄이 있다." src="diagrams/capability-projection.svg">
+</picture>
+
+**거르는 기준은 한 줄이다** — 소비자가 행동을 결정하는 데 필요한가. 프로파일의 최상위 열셋 중 여덟이
+`Capability` 로 나가고 다섯이 남는다. 같은 경계를 런타임과 CI 가 각각 지킨다.
+
+---
+
+> 마지막 대조: 2026-09-11 · sha256:e75c0b8cfbcb · 열림: ADR 32 · 시나리오 5, §15.126, §15.81, §15.8, §15.125, C-3, §15.1
