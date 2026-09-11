@@ -40,7 +40,8 @@
         "NO_TERMINAL_SIGNAL",
         "NO_PROGRESS",
         "NO_CANCEL_OR_PAUSE"
-      ]
+      ],
+      "execution_scope": "NONE"
     },
     "navigate_to": {
       "reachable": "NO",

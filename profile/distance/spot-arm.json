@@ -35,7 +35,8 @@
           "vendor": "bosdyn.api.SE2VelocityCommand.Request.end_time",
           "note": "상대 초를 절대 시각으로 옮긴다. 시계 어긋남이 그 순간 어댑터의 문제가 되며, 벤더도 그것을 알아 graph_nav 에 clock_identifier 를 두었다."
         }
-      }
+      },
+      "execution_scope": "COMMAND"
     },
     "navigate_to": {
       "reachable": "YES",
@@ -49,7 +50,8 @@
           "vendor": "bosdyn.api.graph_nav.NavigateToRequest.destination_waypoint_id",
           "note": "사람이 붙인 이름은 Waypoint.Annotations.name 에 따로 있고 항법은 생성 id 를 받는다. 매 호출 로봇의 그래프를 받아 옮기며 표는 어댑터가 안 갖는다(ADR 34·35). 이름으로 웨이포인트를 찾는 좁은 RPC 가 없어 그래프 전체를 받는다."
         }
-      }
+      },
+      "execution_scope": "MISSION"
     },
     "inspect": {
       "reachable": "YES",
@@ -67,7 +69,8 @@
           "kind": "NOT_SURVEYED",
           "note": "계약 minor 3 에서 붙은 선택 파라미터다. 이 기종 프로파일은 minor 0 이라 협상 범위 밖이고, 벤더 쪽에 대응하는 자리가 있는지는 이 조사가 안 봤다."
         }
-      }
+      },
+      "execution_scope": "MISSION"
     },
     "pick_place": {
       "reachable": "PARTIAL",
@@ -105,7 +108,8 @@
       "limitations": [
         "POSITION_NOT_IDENTITY",
         "MULTI_STEP_COMPOSITION"
-      ]
+      ],
+      "execution_scope": "COMMAND"
     }
   },
   "notes": [
