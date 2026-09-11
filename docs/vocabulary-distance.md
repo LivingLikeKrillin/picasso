@@ -161,7 +161,9 @@ Open-RMF 가 통합 등급에 `Full Control` · `Traffic Light` 라는 **이름*
 들고 태스크마다 층을 기억하며 `poll`·`cancel`·`update`·종착 판정이 거기서 갈린다 — 명령 계층은 **시계로** 종착을
 적는다. 그 사실이 한 어댑터 안에 갇혀 있었다.
 
-아직 안 가져온 것이 하나 남아 있다 — 새 기종을 시작할 **골격 템플릿**(`fleet_adapter_template` 의
-`# IMPLEMENT YOUR CODE HERE #` 자리). `docs/limits.md` 에 열림으로 있다.
+**골격 템플릿도 가져왔다.** [`tools/adapter-template/`](../tools/adapter-template/README.md) 이 그 자리이고,
+`fleet_adapter_template` 과 다른 점은 **채우기 전에 재야 하는 것을 먼저 가리킨다**는 것이다 — 이 문서의
+순서 1~8 이 끝나야 9 번부터가 시작된다. `parameter_map` 의 `CONVERTED`·`SYNTHESIZED` 가 `accept` 의 코드이고,
+`adapter_must_own` 이 코드량 견적이고, `execution_scope` 가 `poll` 의 모양을 정한다.
 
-> 마지막 대조: 2026-09-11 · sha256:f8877e6e88c2 · 열림: §15.133 · 골격, C-3
+> 마지막 대조: 2026-09-11 · sha256:eb7af6ccbfd0 · 열림: C-3
