@@ -155,6 +155,15 @@ registry         ← 어느 모듈에도 직접 밀지 않는다. 갱신은 mimi
 
 ## 4b. 출하 의존 — 빌드가 대는 표
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/components.dark.svg">
+  <img alt="모듈 16개의 출하 의존 그래프. 네 줄로 쌓이고 화살표는 아래로만 간다. 바닥 둘은 프로젝트 내 의존이 0이고, 기종을 아는 칸 둘만 초록이다." src="diagrams/components.svg">
+</picture>
+
+**이 그림은 손으로 안 그렸다.** 각 `build.gradle.kts` 에서 출하 의존을 읽어 뽑고, `ComponentMapTest` 가
+같은 것을 다시 읽어 댄다 — 아래 표와 같은 사실을 다른 모양으로 보여 주는 것이다.
+
+
 ★**이 표는 산문이 아니다.** `DocumentClaimsTest` 가 각 모듈의 `build.gradle.kts` 에서 출하 의존을 읽어
 이 표와 댄다. 의존을 하나 더하거나 빼면 여기가 빨개진다 — 위 그림의 아홉 줄 중 게이트가 집행하던 것은
 **둘뿐이었고**(검사 5·7) 나머지는 아무도 안 보고 있었다.
@@ -227,4 +236,4 @@ uplink                         → contracts
 
 시나리오의 **시퀀스 다이어그램**은 [`scenarios.md`](scenarios.md) 안에 있다 — ①·②·③ 과 ①→② 가 만나는 자리.
 
-> 마지막 대조: 2026-09-11 · sha256:7e761dba6bed · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126
+> 마지막 대조: 2026-09-11 · sha256:37c6a713f890 · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126

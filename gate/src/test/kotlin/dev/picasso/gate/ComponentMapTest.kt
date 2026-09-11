@@ -52,6 +52,16 @@ class ComponentMapTest {
             .filterNot { (from, to) -> to in graph.getOrDefault(from, emptyList()) }
             .map { (from, to) -> "$from -> $to" }
         assertEquals(emptyList(), ghosts, "구성도가 빌드에 없는 의존을 그렸다")
+
+        // ★**반대 방향도 막는다.** 위 단언만 있으면 «그린 것이 실재한다» 만 보고, **실재하는데 안 그린 것**은
+        // 지나간다 — 결함 주입으로 확인했다(`gate` 에 의존을 하나 더해도 초록이었다). 주석이 실제 모듈
+        // 이름이라 수로 막을 수 있다: 바닥으로 가지 않는 출하 간선은 전부 주석에 있어야 한다.
+        val drawable = graph.values.flatten().count { it !in ROOTS }
+        assertEquals(
+            drawable, edges.size,
+            "빌드의 간선과 구성도의 간선 수가 다르다 — 의존이 늘거나 줄었으면 그림을 다시 뽑아라: " +
+                "node tools/diagram-gen/components.mjs docs/diagrams/components.svg 1000 .",
+        )
     }
 
     @Test
