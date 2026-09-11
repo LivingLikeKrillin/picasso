@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="572" viewBox="0 0 1000 572" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+  <rect x="6" y="6" width="988" height="560" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">되돌릴 수 없는 축은 하나뿐이다</text>
+  <text x="32" y="72" font-size="12.5" fill="#57606a">네 축이 따로 움직인다. 설계의 요점은 그중 하나만 비가역이 되도록 몰아 둔 것이다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#57606a">되돌리는 법이 있는 축은 셋이고, 없는 축은 맨 위 하나다.</text>
+  <text x="44" y="118" font-size="10" font-weight="700" letter-spacing="1" fill="#8b95a1">축</text>
+  <text x="200" y="118" font-size="10" font-weight="700" letter-spacing="1" fill="#8b95a1">무엇이 어떻게 바뀌는가</text>
+  <text x="557" y="118" font-size="10" font-weight="700" letter-spacing="1" fill="#8b95a1">되돌리는 법</text>
+  <rect x="24" y="144" width="952" height="78" rx="6" fill="#ffebe9" stroke="#cf222e"/>
+  <text x="44" y="174" font-size="14" font-weight="600" fill="#1f2328">계약</text>
+  <text x="44" y="194" font-size="10" fill="#8b95a1">contracts/proto</text>
+  <text x="200" y="174" font-size="11" fill="#1f2328">배포와 semver 로 바뀐다</text>
+  <text x="557" y="174" font-size="11.5" font-weight="600" fill="#cf222e">되돌릴 수 없다</text>
+  <text x="557" y="194" font-size="10.5" fill="#57606a">소비자가 이미 생성 코드를 갖고 있다</text>
+  <rect x="24" y="228" width="952" height="78" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="258" font-size="14" font-weight="600" fill="#1f2328">프로파일</text>
+  <text x="44" y="278" font-size="10" fill="#8b95a1">profile/profiles/*.json</text>
+  <text x="200" y="258" font-size="11" fill="#1f2328">개정판 제출로 바뀐다</text>
+  <text x="557" y="258" font-size="11.5" font-weight="600" fill="#1a7f37">SUPERSEDED 된 개정판을 다시 활성화한다</text>
+  <text x="557" y="278" font-size="10.5" fill="#57606a">BindingService 가 옛 판을 지우지 않고 내려 둔다</text>
+  <rect x="24" y="312" width="952" height="78" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="342" font-size="14" font-weight="600" fill="#1f2328">어댑터</text>
+  <text x="44" y="362" font-size="10" fill="#8b95a1">adapter-&lt;기종&gt;</text>
+  <text x="200" y="342" font-size="11" fill="#1f2328">그 기종을 계약에 붙이는 구현체. 배포로 바뀐다</text>
+  <text x="557" y="342" font-size="11.5" font-weight="600" fill="#1a7f37">이전 버전을 다시 배포한다</text>
+  <text x="557" y="362" font-size="10.5" fill="#57606a">기종을 아는 코드는 이 모듈 안에서만 산다</text>
+  <rect x="24" y="396" width="952" height="78" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="44" y="426" font-size="14" font-weight="600" fill="#1f2328">바인딩</text>
+  <text x="44" y="446" font-size="10" fill="#8b95a1">이 기체 = 이 어댑터 + 이 프로파일</text>
+  <text x="200" y="426" font-size="11" fill="#1f2328">런타임에 바뀐다 — 배포 없이</text>
+  <text x="557" y="426" font-size="11.5" font-weight="600" fill="#1a7f37">이전 바인딩으로 되돌린다</text>
+  <text x="557" y="446" font-size="10.5" fill="#57606a">이력이 남는다</text>
+  <rect x="24" y="494" width="952" height="56" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="44" y="517" font-size="11" fill="#57606a">카나리는 이 구조에서 공짜로 나온다 — 바인딩이 기체 단위여서 일부만 새 조합으로 묶으면 된다.</text>
+  <text x="44" y="536" font-size="11" fill="#57606a">어느 기체가 어느 개정판인지는 헤더의 profile_ref 로 관측된다. 되돌릴 때 세는 것도 같은 값이다.</text>
+</svg>

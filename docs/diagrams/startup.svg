@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="430" viewBox="0 0 1000 430" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#57606a"/></marker>
+    <marker id="ad" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#cf222e"/></marker>
+  </defs>
+  <rect x="6" y="6" width="988" height="418" rx="14" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">부분 기동은 없다</text>
+  <text x="32" y="72" font-size="12.5" fill="#57606a">한 프로세스가 여러 기체를 호스팅하지만, 그중 하나의 프로파일이 검증에서 걸리면 전부 뜨지 않는다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#57606a">능력을 모르는 채로는 표면을 열지 않는다. 레지스트리가 기동 시점에 불통이어도 같은 판단을 한다.</text>
+  <text x="24" y="122" font-size="10" font-weight="700" letter-spacing="1" fill="#8b95a1">기체마다 이 여덟을 지난다</text>
+  <rect x="24" y="136" width="107" height="50" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="77.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1f2328">프로파일 로드</text>
+  <polyline points="131,161 145,161" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="77.5,186 77.5,250" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ad)"/>
+  <rect x="145" y="136" width="107" height="50" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="198.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1f2328">스키마 검증</text>
+  <polyline points="252,161 266,161" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="198.5,186 198.5,250" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ad)"/>
+  <rect x="266" y="136" width="107" height="50" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="319.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1f2328">오버라이드 적용</text>
+  <polyline points="373,161 387,161" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="319.5,186 319.5,250" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ad)"/>
+  <rect x="387" y="136" width="107" height="50" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="440.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1f2328">Capability 투영</text>
+  <polyline points="494,161 508,161" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="440.5,186 440.5,250" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ad)"/>
+  <rect x="508" y="136" width="107" height="50" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="561.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1f2328">상태머신</text>
+  <polyline points="615,161 629,161" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="561.5,186 561.5,250" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ad)"/>
+  <rect x="629" y="136" width="107" height="50" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="682.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1f2328">session_id 발급</text>
+  <polyline points="736,161 750,161" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="682.5,186 682.5,250" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ad)"/>
+  <rect x="750" y="136" width="107" height="50" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="803.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1f2328">포트 개방</text>
+  <polyline points="857,161 871,161" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
+  <polyline points="803.5,186 803.5,250" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ad)"/>
+  <rect x="871" y="136" width="107" height="50" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="924.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#1f2328">ONLINE 발행</text>
+  <polyline points="924.5,186 924.5,250" fill="none" stroke="#cf222e" stroke-width="1.6" marker-end="url(#ad)"/>
+  <rect x="24" y="250" width="952" height="62" rx="6" fill="#ffebe9" stroke="#cf222e"/>
+  <text x="44" y="275" font-size="13" font-weight="600" fill="#1f2328">하나라도 걸리면 기동 거부 — 프로세스 전체가 뜨지 않는다</text>
+  <text x="44" y="295" font-size="11" fill="#cf222e">걸린 기체 하나가 아니라 전부다. 거부 메시지는 어느 기체가 왜 걸렸는지를 적는다.</text>
+  <rect x="24" y="332" width="952" height="76" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
+  <text x="44" y="355" font-size="11" fill="#57606a">부분 기동이 소비자에게 거짓말인 이유 — 없는 기체를 물으면 NOT_FOUND 가 나오는데,</text>
+  <text x="44" y="374" font-size="11" fill="#57606a">설정에 없는 것인지 프로파일이 깨진 것인지 소비자가 구별할 방법이 없다.</text>
+  <text x="44" y="393" font-size="10" fill="#8b95a1">mimic · Main.kt — 「기체 하나가 거부되면 전부 기동하지 않는다」</text>
+</svg>
