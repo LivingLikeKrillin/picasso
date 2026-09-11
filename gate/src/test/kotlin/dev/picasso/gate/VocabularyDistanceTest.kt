@@ -376,6 +376,47 @@ class VocabularyDistanceTest {
             .toSortedSet()
     }
 
+    @Test
+    fun `문서의 층은 스킬들이 타는 층 중 가장 높은 것과 같다`() {
+        // ★**칸의 사실이 문서의 한 줄을 떠받친다.** `layer.vendor_layer` 는 문서마다 하나인데 실제로는
+        // **스킬마다 다른 층에 탄다** — Spot 에서 `move_relative` 는 명령, `navigate_to` 는 미션,
+        // `inspect` 는 취득이다. 한 줄이 그 여럿을 대표하면 어느 순간 대표가 낡는다.
+        //
+        // ★G1 문서가 그 애매함을 스스로 적어 뒀다 — *"이 값은 이제 **기종에 태스크 개념이 없다** 가 아니라
+        // **우리가 쓰는 표면에 없다** 로 읽어야 한다."* 칸을 채우고 **문서 값을 칸들의 최댓값으로 묶는 것**이
+        // 그 문장을 기계로 닫는 방법이다.
+        //
+        // ★**소비자는 발명이 아니다.** `SpotAdapter` 가 이미 `Layer { COMMAND, MISSION, ACQUISITION }` 를
+        // 들고 태스크마다 층을 기억하며 `poll`·`cancel`·`update`·종착 판정이 거기서 갈린다 — 명령 계층은
+        // **시계로** 종착을 적는다. 어댑터 안에 갇혀 있던 사실을 문서로 꺼낸 것이다.
+        documents().forEach { (name, node) ->
+            val scopes = node.path("skills").fields().asSequence()
+                .map { it.value.path("execution_scope") }
+                .filterNot { it.isMissingNode }
+                .map { it.asText() }
+                .toList()
+            if (scopes.isEmpty()) return@forEach
+            val top = scopes.maxBy { SCOPE_ORDER.indexOf(it) }
+            assertEquals(
+                top, node.path("layer").path("vendor_layer").asText(),
+                name + " — 문서의 층과 칸들의 최댓값이 다르다 (칸: " + scopes.distinct().sorted() + ")",
+            )
+        }
+    }
+
+    @Test
+    fun `못 닿는 스킬은 층을 안 든다`() {
+        // 스키마가 *"닿으면 층이 있어야 한다"* 를 막고, 이 시험이 그 역을 막는다. 못 닿는데 층이 적혀
+        // 있으면 위 최댓값이 **재지도 않은 스킬의 층으로** 올라가고, 그러면 문서의 한 줄이 거짓이 된다.
+        eachSkill { doc, skill, node ->
+            if (node.path("reachable").asText() in REACHED) return@eachSkill
+            assertTrue(
+                node.path("execution_scope").isMissingNode,
+                doc + " 의 " + skill + " 은 못 닿는다고 적혔는데 층이 들어 있다",
+            )
+        }
+    }
+
     /** 계약이 그 스킬에 정의한 파라미터 전부. **나중 minor 에 붙은 선택 파라미터까지** 센다 —
      *  안 세면 그것이 곧 안 본 칸이 되고, 그 빈칸이 보이지 않는 것이 이 대응표가 막으려는 것이다. */
     private fun contractParameters(skill: String): Set<String> =
@@ -403,6 +444,10 @@ class VocabularyDistanceTest {
     }
 
     private companion object {
+        /** 낮은 것부터. `NONE` = 태스크 개념이 없다 · `COMMAND` = 명령 계층에 일부 생명주기 ·
+         *  `MISSION` = 생명주기를 가진 층이 따로 있다. 문서의 층은 이 중 **가장 높은 것**이다. */
+        val SCOPE_ORDER = listOf("NONE", "COMMAND", "MISSION")
+
         const val MACHINE_DRAFT = "MACHINE_DRAFT"
 
         /** 대응표를 요구하는 판정들. 못 닿는 칸은 짚을 것이 없다. */

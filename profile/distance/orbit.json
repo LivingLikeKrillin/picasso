@@ -30,7 +30,8 @@
         "TARGET_NOT_ADDRESSABLE",
         "NO_CANCEL_OR_PAUSE",
         "NO_PROGRESS"
-      ]
+      ],
+      "execution_scope": "MISSION"
     },
     "inspect": {
       "reachable": "NO",

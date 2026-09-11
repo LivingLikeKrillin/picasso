@@ -173,6 +173,14 @@
             "$ref": "#/$defs/limitationKind"
           },
           "uniqueItems": true
+        },
+        "execution_scope": {
+          "description": "**이 스킬이 어느 층 위에서 도는가** — 그 기종에서. 문서 수준 `layer.vendor_layer` 와 같은 어휘를 쓰되 **칸마다** 붙는다. VDA 5050 의 `factsheet.agvActions[].actionScopes` 가 묻는 것(*어디서 실행되는가*)을 이 저장소의 낱말로 옮긴 자리다 — 그쪽의 `node`·`edge` 는 주문이 그래프라서 생긴 값이고 우리 주문은 태스크 열이라 앉을 곳이 없다.\n\n★**소비자가 실재한다.** `SpotAdapter` 가 이미 `private enum class Layer { COMMAND, MISSION, ACQUISITION }` 를 들고 태스크마다 층을 기억하며 `poll`·`cancel`·`update`·종착 판정이 전부 거기서 갈린다 — 명령 계층은 **시계로** 종착을 적고 미션 계층은 벤더가 상태를 준다. 그 사실이 어댑터 안에 갇혀 있던 것을 문서로 꺼낸다.\n\n**문서 수준 값은 이 칸들의 최댓값이어야 한다**(`NONE` < `COMMAND` < `MISSION`). G1 문서가 *'이 값은 이제 기종에 태스크 개념이 없다가 아니라 우리가 쓰는 표면에 없다로 읽어야 한다'* 고 적어 둔 애매함이 이 관계로 닫힌다.",
+          "enum": [
+            "NONE",
+            "COMMAND",
+            "MISSION"
+          ]
         }
       },
       "allOf": [
@@ -235,6 +243,26 @@
                 "const": "UNKNOWN"
               }
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "reachable": {
+                "enum": [
+                  "YES",
+                  "PARTIAL"
+                ]
+              }
+            },
+            "required": [
+              "reachable"
+            ]
+          },
+          "then": {
+            "required": [
+              "execution_scope"
+            ]
           }
         }
       ]

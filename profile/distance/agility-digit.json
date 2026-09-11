@@ -35,7 +35,8 @@
           "vendor": "action-duration.duration",
           "note": "ActionMove 자체에는 지속시간이 없고 ActionDuration 이 아무 액션이나 감싼다. 값은 그대로 가고, 로봇이 집행하므로 어댑터가 시계를 안 든다 — 어댑터가 죽어도 로봇이 선다."
         }
-      }
+      },
+      "execution_scope": "MISSION"
     },
     "navigate_to": {
       "reachable": "YES",
@@ -49,7 +50,8 @@
           "vendor": "action-goto.reference-frame",
           "note": "ObjectSelector 의 name 으로 그대로 간다 — 로봇이 자기 세계 모델에서 푼다. 목표 자세는 그 프레임의 원점으로 두며, 그 원점이 무엇을 뜻하는지는 등록할 때 정해진다(ADR 35)."
         }
-      }
+      },
+      "execution_scope": "MISSION"
     },
     "pick_place": {
       "reachable": "YES",
@@ -83,7 +85,8 @@
       },
       "limitations": [
         "MULTI_STEP_COMPOSITION"
-      ]
+      ],
+      "execution_scope": "MISSION"
     },
     "inspect": {
       "reachable": "NO",
