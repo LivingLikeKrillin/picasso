@@ -68,6 +68,9 @@ tasks.withType<Test>().configureEach {
         rootProject.file("contracts/proto"),
         rootProject.file("contracts/build.gradle.kts"),
         rootProject.file("build.gradle.kts"),
+        // **`KotlinLanguageVersionTest` 가 고정한 언어 판과 플러그인 판을 댄다.** 카탈로그가
+        // 선언 밖이면 Kotlin 을 올려도 :gate:test 가 UP-TO-DATE 로 넘어가 그 대조가 안 돈다.
+        rootProject.file("gradle/libs.versions.toml"),
         rootProject.file("tools/buf"),
         rootProject.file("profile/profiles"),
         // NegativeSuiteTest가 ci.yml과 디렉터리 목록을 대조한다.
