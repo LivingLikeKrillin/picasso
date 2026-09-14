@@ -1,64 +1,64 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1092" viewBox="0 0 1000 1092" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
   <rect x="6" y="6" width="988" height="1080" rx="14" fill="#0d1117" stroke="#30363d"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">바꾸기 전에, 지금 바꿔도 되는지 기계가 센다</text>
-  <text x="32" y="72" font-size="12.5" fill="#8b949e">계획을 만들어 두면 조건이 그때그때 다시 평가된다. 진단을 열어 보는 것만으로 지금 상태를 묻는 셈이다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#8b949e">조건은 이름으로만 있지 않다 — 못 세면 NOT_OBSERVABLE 이고, 그때 충족은 언제나 거짓이다.</text>
-  <text x="32" y="122" font-size="11" font-weight="700" letter-spacing="1" fill="#8b949e">조건 여섯 — 기계가 무엇을 세는가</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">운영 변경 계획 사전조건 검증 및 상태 전이 매트릭스 (Change Plan Preconditions)</text>
+  <text x="32" y="72" font-size="12.5" fill="#8b949e">변경 계획 수립 시 사전조건이 동적으로 재평가되며, 진단 API 호출을 통해 현재 평가 상태를 실시간 관측합니다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#8b949e">원격 측정 두절 시 NOT_OBSERVABLE로 평가되며, 관측 불가능 상태에서는 안전을 위해 충족 여부가 항시 false로 판정됩니다.</text>
+  <text x="32" y="122" font-size="11" font-weight="700" letter-spacing="1" fill="#8b949e">6대 사전조건 (Preconditions) 및 검증 대상</text>
   <rect x="24" y="136" width="952" height="70" rx="6" fill="#1c2128" stroke="#30363d"/>
   <rect x="40" y="148" width="34" height="18" rx="4" fill="#121d2f" stroke="#58a6ff"/>
   <text x="57" y="161" font-size="10.5" font-weight="700" text-anchor="middle" fill="#58a6ff">DP</text>
   <text x="84" y="162" font-size="12.5" font-weight="600" fill="#c9d1d9">DEPRECATION_PUBLISHED</text>
-  <text x="956" y="162" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 예고가 없으면 불충족이다</text>
-  <text x="84" y="181" font-size="11" fill="#c9d1d9">그 스킬 · 그 major 에 낸 예고가 실제로 카탈로그에 나갔는가</text>
-  <text x="84" y="198" font-size="11" fill="#d29922">안 맞으면  예고부터 낸다. 계약 축 예고 하나로도 충족이다</text>
+  <text x="956" y="162" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 폐기 예고 미발행 시 불충족 판정</text>
+  <text x="84" y="181" font-size="11" fill="#c9d1d9">대상 스킬 및 메이저 버전에 대한 폐기 예고가 카탈로그에 정상 반영되었는지 검증</text>
+  <text x="84" y="198" font-size="11" fill="#d29922">미충족 시 조치: 계약 또는 능력 카탈로그에 폐기 예고 공지 발행</text>
   <rect x="24" y="212" width="952" height="70" rx="6" fill="#1c2128" stroke="#30363d"/>
   <rect x="40" y="224" width="34" height="18" rx="4" fill="#121d2f" stroke="#58a6ff"/>
   <text x="57" y="237" font-size="10.5" font-weight="700" text-anchor="middle" fill="#58a6ff">NC</text>
   <text x="84" y="238" font-size="12.5" font-weight="600" fill="#c9d1d9">NO_ACTIVE_CONSUMERS</text>
-  <text x="956" y="238" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 소비자가 있으면 불충족이고 몇인지 말한다</text>
-  <text x="84" y="257" font-size="11" fill="#c9d1d9">그 스킬 · 그 major 를 쓰는 소비자가 0 인가 — 등록만 한 소비자도 센다</text>
-  <text x="84" y="274" font-size="11" fill="#d29922">안 맞으면  남은 소비자를 새 major 로 옮긴다</text>
+  <text x="956" y="238" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 활성 소비자 잔류 시 불충족 및 잔류 수 보고</text>
+  <text x="84" y="257" font-size="11" fill="#c9d1d9">해당 스킬/메이저 버전을 참조 중인 활성 소비자 수가 0인지 검증 (접근 원장 기준)</text>
+  <text x="84" y="274" font-size="11" fill="#d29922">미충족 시 조치: 잔류 소비자를 차기 메이저 버전으로 이행 완료</text>
   <rect x="24" y="288" width="952" height="70" rx="6" fill="#1c2128" stroke="#30363d"/>
   <rect x="40" y="300" width="34" height="18" rx="4" fill="#121d2f" stroke="#58a6ff"/>
   <text x="57" y="313" font-size="10.5" font-weight="700" text-anchor="middle" fill="#58a6ff">NT</text>
   <text x="84" y="314" font-size="12.5" font-weight="600" fill="#c9d1d9">NO_INFLIGHT_TASKS</text>
-  <text x="956" y="314" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 진행 중 태스크가 있으면 불충족이다</text>
-  <text x="84" y="333" font-size="11" fill="#c9d1d9">그 스킬로 진행 중인 태스크가 0 인가</text>
-  <text x="84" y="350" font-size="11" fill="#d29922">안 맞으면  빌 때까지 기다린다 — 이 단계는 아무것도 하지 않는다</text>
+  <text x="956" y="314" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 인플라이트(In-flight) 태스크 존재 시 불충족</text>
+  <text x="84" y="333" font-size="11" fill="#c9d1d9">해당 스킬로 실행 또는 안전 복구 진행 중인 태스크 수가 0인지 검증</text>
+  <text x="84" y="350" font-size="11" fill="#d29922">미충족 시 조치: 진행 중인 모든 태스크의 정상 완료 대기 (Drain)</text>
   <rect x="24" y="364" width="952" height="70" rx="6" fill="#1c2128" stroke="#30363d"/>
   <rect x="40" y="376" width="34" height="18" rx="4" fill="#121d2f" stroke="#58a6ff"/>
   <text x="57" y="389" font-size="10.5" font-weight="700" text-anchor="middle" fill="#58a6ff">NB</text>
   <text x="84" y="390" font-size="12.5" font-weight="600" fill="#c9d1d9">NO_ACTIVE_BINDINGS</text>
-  <text x="956" y="390" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 붙은 기체가 있으면 불충족이다</text>
-  <text x="84" y="409" font-size="11" fill="#c9d1d9">그 어댑터 판이나 프로파일 개정에 묶인 기체가 0 인가 — 해제된 바인딩은 안 센다</text>
-  <text x="84" y="426" font-size="11" fill="#d29922">안 맞으면  묶인 기체를 다른 판으로 다시 묶는다</text>
+  <text x="956" y="390" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 기체 활성 바인딩 잔류 시 불충족</text>
+  <text x="84" y="409" font-size="11" fill="#c9d1d9">해당 어댑터 버전 또는 프로파일 개정판에 바인딩된 활성 기체 수가 0인지 검증</text>
+  <text x="84" y="426" font-size="11" fill="#d29922">미충족 시 조치: 대상 기체를 대체 어댑터/프로파일로 리바인딩</text>
   <rect x="24" y="440" width="952" height="70" rx="6" fill="#1c2128" stroke="#30363d"/>
   <rect x="40" y="452" width="34" height="18" rx="4" fill="#121d2f" stroke="#58a6ff"/>
   <text x="57" y="465" font-size="10.5" font-weight="700" text-anchor="middle" fill="#58a6ff">SA</text>
   <text x="84" y="466" font-size="12.5" font-weight="600" fill="#c9d1d9">SUCCESSOR_ACTIVE</text>
-  <text x="956" y="466" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 후계가 활성이 아니면 불충족이다</text>
-  <text x="84" y="485" font-size="11" fill="#c9d1d9">다음 개정판이 활성이고, 거기 붙은 기체가 실제로 있는가</text>
-  <text x="84" y="502" font-size="11" fill="#d29922">안 맞으면  후계 개정판을 먼저 올리고 기체를 붙인다</text>
+  <text x="956" y="466" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 대체 후계 개정판 비활성 시 불충족</text>
+  <text x="84" y="485" font-size="11" fill="#c9d1d9">후계 개정판이 ACTIVE 상태이며 대상 기체 바인딩이 완료되었는지 검증</text>
+  <text x="84" y="502" font-size="11" fill="#d29922">미충족 시 조치: 후계 개정판을 활성화하고 기체 바인딩 전환 완료</text>
   <rect x="24" y="516" width="952" height="70" rx="6" fill="#1c2128" stroke="#30363d"/>
   <rect x="40" y="528" width="34" height="18" rx="4" fill="#121d2f" stroke="#58a6ff"/>
   <text x="57" y="541" font-size="10.5" font-weight="700" text-anchor="middle" fill="#58a6ff">CW</text>
   <text x="84" y="542" font-size="12.5" font-weight="600" fill="#c9d1d9">CAPABILITY_WITHDRAWN</text>
-  <text x="956" y="542" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 전 기체가 새 epoch로 보고해야 충족이다</text>
-  <text x="84" y="561" font-size="11" fill="#c9d1d9">제공하던 기체 전부가 APPLY 시점보다 큰 capability_epoch 로 보고를 마쳤는가</text>
-  <text x="84" y="578" font-size="11" fill="#d29922">안 맞으면  아직 안 내려간 기체를 찾는다. 조용한 기체가 그중 하나다</text>
-  <text x="32" y="620" font-size="11" font-weight="700" letter-spacing="1" fill="#8b949e">의도마다 밟는 계단이 다르다 — 칸의 코드가 그 단계에서 다시 세는 조건이다</text>
+  <text x="956" y="542" font-size="10" text-anchor="end" fill="#8b949e">PreconditionTest · 전 기체의 차기 Epoch 보고 확인 시 충족</text>
+  <text x="84" y="561" font-size="11" fill="#c9d1d9">이전 능력을 제공하던 모든 기체가 적용 시점 이후의 capability_epoch로 보고 완료했는지 검증</text>
+  <text x="84" y="578" font-size="11" fill="#d29922">미충족 시 조치: 미보고 또는 통신 침묵(Silent) 기체 식별 및 텔레메트리 복구</text>
+  <text x="32" y="620" font-size="11" font-weight="700" letter-spacing="1" fill="#8b949e">변경 의도(Intent)별 순차 실행 단계 및 단계별 평가 조건 매트릭스</text>
   <rect x="24" y="634" width="952" height="254" rx="6" fill="#161b22" stroke="#21262d"/>
   <text x="328.5" y="650" font-size="11.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">능력 제거</text>
   <text x="328.5" y="663" font-size="9.5" text-anchor="middle" fill="#8b949e">REMOVE_CAPABILITY</text>
-  <text x="513.5" y="650" font-size="11.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">major 이행</text>
+  <text x="513.5" y="650" font-size="11.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">메이저 이행</text>
   <text x="513.5" y="663" font-size="9.5" text-anchor="middle" fill="#8b949e">MIGRATE_MAJOR</text>
-  <text x="698.5" y="650" font-size="11.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">어댑터 판 퇴역</text>
+  <text x="698.5" y="650" font-size="11.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">어댑터 버전 퇴역</text>
   <text x="698.5" y="663" font-size="9.5" text-anchor="middle" fill="#8b949e">RETIRE_ADAPTER_VERSION</text>
   <text x="883.5" y="650" font-size="11.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">프로파일 개정 퇴역</text>
   <text x="883.5" y="663" font-size="9.5" text-anchor="middle" fill="#8b949e">RETIRE_PROFILE_REVISION</text>
   <rect x="25" y="668" width="950" height="44" rx="0" fill="#161b22"/>
   <line x1="25" y1="668" x2="975" y2="668" stroke="#21262d"/>
-  <text x="44" y="687" font-size="11.5" font-weight="600" fill="#c9d1d9">예고한다</text>
+  <text x="44" y="687" font-size="11.5" font-weight="600" fill="#c9d1d9">폐기 예고</text>
   <text x="44" y="702" font-size="9.5" fill="#8b949e">ANNOUNCE</text>
   <text x="328.5" y="695" font-size="11" font-weight="600" text-anchor="middle" fill="#8b949e">DP</text>
   <text x="513.5" y="695" font-size="11" font-weight="600" text-anchor="middle" fill="#8b949e">DP</text>
@@ -66,7 +66,7 @@
   <text x="883.5" y="695" font-size="12" text-anchor="middle" fill="#30363d">—</text>
   <rect x="25" y="712" width="950" height="44" rx="0" fill="#0d1117"/>
   <line x1="25" y1="712" x2="975" y2="712" stroke="#21262d"/>
-  <text x="44" y="731" font-size="11.5" font-weight="600" fill="#c9d1d9">옮겨가는 걸 본다</text>
+  <text x="44" y="731" font-size="11.5" font-weight="600" fill="#c9d1d9">소비자 이행 관측</text>
   <text x="44" y="746" font-size="9.5" fill="#8b949e">OBSERVE_MIGRATION</text>
   <text x="328.5" y="739" font-size="11" font-weight="600" text-anchor="middle" fill="#8b949e">NC</text>
   <text x="513.5" y="739" font-size="11" font-weight="600" text-anchor="middle" fill="#8b949e">SA · NC</text>
@@ -74,7 +74,7 @@
   <text x="883.5" y="739" font-size="11" font-weight="600" text-anchor="middle" fill="#8b949e">NB</text>
   <rect x="25" y="756" width="950" height="44" rx="0" fill="#161b22"/>
   <line x1="25" y1="756" x2="975" y2="756" stroke="#21262d"/>
-  <text x="44" y="775" font-size="11.5" font-weight="600" fill="#c9d1d9">도는 걸 비운다</text>
+  <text x="44" y="775" font-size="11.5" font-weight="600" fill="#c9d1d9">인플라이트 드레인</text>
   <text x="44" y="790" font-size="9.5" fill="#8b949e">DRAIN</text>
   <text x="328.5" y="783" font-size="11" font-weight="600" text-anchor="middle" fill="#8b949e">NT</text>
   <text x="513.5" y="783" font-size="11" font-weight="600" text-anchor="middle" fill="#8b949e">NT</text>
@@ -82,7 +82,7 @@
   <text x="883.5" y="783" font-size="12" text-anchor="middle" fill="#30363d">—</text>
   <rect x="25" y="800" width="950" height="44" rx="0" fill="#121d2f"/>
   <line x1="25" y1="800" x2="975" y2="800" stroke="#21262d"/>
-  <text x="44" y="819" font-size="11.5" font-weight="600" fill="#c9d1d9">적용한다</text>
+  <text x="44" y="819" font-size="11.5" font-weight="600" fill="#c9d1d9">변경 적용</text>
   <text x="44" y="834" font-size="9.5" fill="#8b949e">APPLY</text>
   <text x="328.5" y="827" font-size="11" font-weight="600" text-anchor="middle" fill="#58a6ff">DP · NC · NT</text>
   <text x="513.5" y="827" font-size="11" font-weight="600" text-anchor="middle" fill="#58a6ff">SA · NC · NT</text>
@@ -90,18 +90,18 @@
   <text x="883.5" y="827" font-size="11" font-weight="600" text-anchor="middle" fill="#58a6ff">NB</text>
   <rect x="25" y="844" width="950" height="44" rx="0" fill="#161b22"/>
   <line x1="25" y1="844" x2="975" y2="844" stroke="#21262d"/>
-  <text x="44" y="863" font-size="11.5" font-weight="600" fill="#c9d1d9">내려갔는지 본다</text>
+  <text x="44" y="863" font-size="11.5" font-weight="600" fill="#c9d1d9">능력 회수 검증</text>
   <text x="44" y="878" font-size="9.5" fill="#8b949e">VERIFY_WITHDRAWAL</text>
   <text x="328.5" y="871" font-size="11" font-weight="600" text-anchor="middle" fill="#8b949e">CW</text>
   <text x="513.5" y="871" font-size="12" text-anchor="middle" fill="#30363d">—</text>
   <text x="698.5" y="871" font-size="12" text-anchor="middle" fill="#30363d">—</text>
   <text x="883.5" y="871" font-size="12" text-anchor="middle" fill="#30363d">—</text>
-  <text x="32" y="906" font-size="10.5" fill="#8b949e">— 는 그 의도에 그 단계가 아예 없다는 뜻이다. APPLY 는 앞에서 한 번 충족한 것을 전부 다시 센다.</text>
+  <text x="32" y="906" font-size="10.5" fill="#8b949e">— 표시는 해당 변경 의도에서 요구되지 않는 단계입니다. APPLY 단계에서는 이전 단계의 모든 조건이 재평가됩니다.</text>
   <rect x="24" y="922" width="952" height="78" rx="6" fill="#0f2f1a" stroke="#3fb950"/>
-  <text x="44" y="946" font-size="12.5" font-weight="600" fill="#c9d1d9">조건이 안 맞으면 실행이 거부되고 계획은 DRAFT 에 머문다 — 카탈로그도 바인딩도 그대로다.</text>
-  <text x="44" y="967" font-size="11" fill="#3fb950">한 번 충족을 확인해 뒀어도 실행 순간에 다시 센다. 그 사이 새 소비자가 붙었으면 거부된다.</text>
-  <text x="44" y="985" font-size="10" fill="#3fb950">registry · ShrinkRefusalTest · 충족을 확인한 뒤 새 소비자가 오면 실행이 거부된다</text>
+  <text x="44" y="946" font-size="12.5" font-weight="600" fill="#c9d1d9">사전조건 미충족 시 실행이 즉시 거부되며 계획은 DRAFT 상태로 유지됨 (카탈로그 및 바인딩 불변 유지)</text>
+  <text x="44" y="967" font-size="11" fill="#3fb950">사전 승인 시점에 조건을 충족했더라도 실행 트랜잭션 순간에 원자적 재검증을 수행합니다 (경합 방지).</text>
+  <text x="44" y="985" font-size="10" fill="#3fb950">registry :: ShrinkRefusalTest — 충족 확인 후 신규 소비자 유입 시 실행 거부 검증</text>
   <rect x="24" y="1016" width="952" height="54" rx="6" fill="#161b22" stroke="#21262d"/>
-  <text x="44" y="1038" font-size="11" fill="#8b949e">관측선이 끊겨 셀 수 없으면 NOT_OBSERVABLE 이다 — 모르는 것을 충족으로 읽지 않는다. 기다릴 일과 조용한 기체를 찾을 일은 다르기 때문이다.</text>
-  <text x="44" y="1057" font-size="11" fill="#8b949e">진단 6번이 내는 값은 저장된 것이 아니라 지금 다시 센 것이다 — registry · ShrinkRefusalTest · 진단 6번이 지금 재평가한 값을 낸다</text>
+  <text x="44" y="1038" font-size="11" fill="#8b949e">텔레메트리 두절 시 NOT_OBSERVABLE이 부여되며 충족으로 간주하지 않음 (Fail-Closed 원칙)</text>
+  <text x="44" y="1057" font-size="11" fill="#8b949e">진단 API(Diagnostic 6)는 정적 캐시가 아닌 실시간 재평가 결과를 반환 — ShrinkRefusalTest 검증 준수</text>
 </svg>
