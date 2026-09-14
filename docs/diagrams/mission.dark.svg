@@ -3,11 +3,11 @@
     <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8b949e"/></marker>
   </defs>
   <rect x="6" y="6" width="988" height="608" rx="14" fill="#0d1117" stroke="#30363d"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">임무 하나가 원자 단위 열이 되기까지</text>
-  <text x="32" y="72" font-size="12.5" fill="#8b949e">상류는 결과만 말한다 — 어느 로봇도, 어느 스킬도, 몇 개로 쪼갤지도 고르지 않는다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#8b949e">쪼개는 규칙과 그것이 성립할 조건은 능력 한 장 안에 있다. 능력을 더해도 공통 엔진은 안 바뀐다.</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">상위 작업 주문(JobOrder)의 원자적 실행 단위(ExecutionUnit) 분해 구조</text>
+  <text x="32" y="72" font-size="12.5" fill="#8b949e">상위 시스템은 목적 결과만 지정하며, 대상 기체·스킬 매핑·작업 분할은 미들웨어가 결정합니다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#8b949e">분할 규칙 및 성립 조건은 독립된 LogicalCapability 단위로 정의되며, 능력 확장에 대해 공통 엔진은 불변을 유지합니다.</text>
   <rect x="24" y="118" width="952" height="64" rx="6" fill="#121d2f" stroke="#58a6ff"/>
-  <text x="44" y="143" font-size="12.5" font-weight="600" fill="#c9d1d9">JobOrder — 상류(MES · WMS · SCADA)가 보내는 것</text>
+  <text x="44" y="143" font-size="12.5" font-weight="600" fill="#c9d1d9">JobOrder — 상위 도메인 시스템(MES · WMS · SCADA) 발주 명세</text>
   <text x="44" y="164" font-size="11" fill="#58a6ff">jobOrderId · workMasterId · version · requiredEvidence · equipmentRequirements[equipmentUse, properties] · parameters</text>
   <polyline points="500,182 500,196 174,196 174,210" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <polyline points="500,182 500,210" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
@@ -15,13 +15,13 @@
   <rect x="18" y="204" width="312" height="320" rx="10" fill="#161b22" stroke="#21262d"/>
   <rect x="24" y="212" width="300" height="150" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="42" y="236" font-size="13" font-weight="600" fill="#c9d1d9">PrepareSequencedRack</text>
-  <text x="42" y="253" font-size="10" fill="#8b949e">시나리오 ② · 부품 시퀀싱</text>
-  <text x="42" y="274" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">읽는 것</text>
-  <text x="42" y="290" font-size="10.5" fill="#c9d1d9">destination 요구 = 슬롯, material = 놓일 타입</text>
-  <text x="42" y="305" font-size="10.5" fill="#c9d1d9">source 요구 = 제시 자리, material = 그 타입</text>
-  <text x="42" y="326" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">나누는 규칙</text>
-  <text x="42" y="342" font-size="10.5" fill="#c9d1d9">슬롯 하나 = 단위 하나</text>
-  <text x="42" y="357" font-size="10.5" fill="#c9d1d9">타입으로 제시 자리를 찾아 짝짓는다</text>
+  <text x="42" y="253" font-size="10" fill="#8b949e">시나리오 ② · 라인 투입 부품 시퀀싱</text>
+  <text x="42" y="274" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">참조 파라미터</text>
+  <text x="42" y="290" font-size="10.5" fill="#c9d1d9">destination: 대상 적재 슬롯, material: 부품 자재 유형</text>
+  <text x="42" y="305" font-size="10.5" fill="#c9d1d9">source: 부품 공급 위치, material: 일치 자재 유형</text>
+  <text x="42" y="326" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">분할 메커니즘</text>
+  <text x="42" y="342" font-size="10.5" fill="#c9d1d9">적재 슬롯 1개당 단일 ExecutionUnit 매핑</text>
+  <text x="42" y="357" font-size="10.5" fill="#c9d1d9">자재 유형 기반 공급 위치-적재 슬롯 1:1 바인딩</text>
   <polyline points="174,362 174,372 60,372 288,372" fill="none" stroke="#8b949e" stroke-width="1.6"/>
   <polyline points="60,372 60,388" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <polyline points="136,372 136,388" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
@@ -34,46 +34,46 @@
   <rect x="177" y="388" width="70" height="22" rx="4" fill="#0f2f1a" stroke="#3fb950"/>
   <text x="212" y="403" font-size="9.5" font-weight="600" text-anchor="middle" fill="#3fb950">pick_place</text>
   <rect x="253" y="388" width="70" height="22" rx="4" fill="#0d1117" stroke="#30363d"/>
-  <text x="288" y="403" font-size="9.5" text-anchor="middle" fill="#8b949e">슬롯 수만큼</text>
-  <text x="174" y="430" font-size="10.5" text-anchor="middle" fill="#8b949e">Route.ROBOT — 계약 카탈로그의 스킬로 나간다</text>
+  <text x="288" y="403" font-size="9.5" text-anchor="middle" fill="#8b949e">슬롯 수에 비례</text>
+  <text x="174" y="430" font-size="10.5" text-anchor="middle" fill="#8b949e">Route.ROBOT — 표준 계약 카탈로그 스킬로 라우팅</text>
   <rect x="24" y="442" width="300" height="68" rx="6" fill="#0d1117" stroke="#30363d"/>
-  <text x="40" y="462" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">최고 근거</text>
-  <text x="104" y="462" font-size="10.5" fill="#c9d1d9">E2 — 셀 검증 장치가 있으면</text>
-  <text x="40" y="480" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">선택 인자</text>
-  <text x="104" y="480" font-size="10.5" fill="#c9d1d9">verify_grasp — 드는 기종에만</text>
-  <text x="40" y="498" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">부족하면</text>
+  <text x="40" y="462" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">최고 보증 수준</text>
+  <text x="104" y="462" font-size="10.5" fill="#c9d1d9">E2 (독립 센서/설비 물리 교차 검증)</text>
+  <text x="40" y="480" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">선택적 파라미터</text>
+  <text x="104" y="480" font-size="10.5" fill="#c9d1d9">verify_grasp (파지 지원 기종에 한정)</text>
+  <text x="40" y="498" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">오류 분류</text>
   <text x="104" y="498" font-size="10.5" fill="#c9d1d9">NO_SOURCE_FOR_MATERIAL</text>
   <rect x="344" y="204" width="312" height="320" rx="10" fill="#161b22" stroke="#21262d"/>
   <rect x="350" y="212" width="300" height="150" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="368" y="236" font-size="13" font-weight="600" fill="#c9d1d9">DeliverContainer</text>
-  <text x="368" y="253" font-size="10" fill="#8b949e">시나리오 ① · 용기 공급</text>
-  <text x="368" y="274" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">읽는 것</text>
-  <text x="368" y="290" font-size="10.5" fill="#c9d1d9">source = 출발 인계점, container = 용기</text>
-  <text x="368" y="305" font-size="10.5" fill="#c9d1d9">destination = 도착 인계점</text>
-  <text x="368" y="326" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">나누는 규칙</text>
-  <text x="368" y="342" font-size="10.5" fill="#c9d1d9">운반 하나 = 단위 하나</text>
-  <text x="368" y="357" font-size="10.5" fill="#c9d1d9">경로도 배차도 안 짠다 — 플릿에 위임</text>
+  <text x="368" y="253" font-size="10" fill="#8b949e">시나리오 ① · 빈 용기(Container) 이송 공급</text>
+  <text x="368" y="274" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">참조 파라미터</text>
+  <text x="368" y="290" font-size="10.5" fill="#c9d1d9">source: 출발 인계 지점, container: 용기 식별자</text>
+  <text x="368" y="305" font-size="10.5" fill="#c9d1d9">destination: 목적지 인계 지점</text>
+  <text x="368" y="326" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">분할 메커니즘</text>
+  <text x="368" y="342" font-size="10.5" fill="#c9d1d9">단일 운반 요구당 단일 ExecutionUnit 매핑</text>
+  <text x="368" y="357" font-size="10.5" fill="#c9d1d9">상세 경로 및 차량 배차는 AMR 플릿 제어기에 위임</text>
   <polyline points="500,362 500,388" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="452" y="388" width="96" height="22" rx="4" fill="#0f2f1a" stroke="#3fb950"/>
   <text x="500" y="403" font-size="9.5" font-weight="600" text-anchor="middle" fill="#3fb950">transport</text>
-  <text x="500" y="430" font-size="10.5" text-anchor="middle" fill="#8b949e">Route.FLEET — 플릿이 운반 전체를 든다</text>
+  <text x="500" y="430" font-size="10.5" text-anchor="middle" fill="#8b949e">Route.FLEET — 플릿 관리자에게 운반 작업 위임</text>
   <rect x="350" y="442" width="300" height="68" rx="6" fill="#0d1117" stroke="#30363d"/>
-  <text x="366" y="462" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">최고 근거</text>
-  <text x="430" y="462" font-size="10.5" fill="#c9d1d9">E2 — 인계 설비가 말하면</text>
-  <text x="366" y="480" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">선택 인자</text>
-  <text x="430" y="480" font-size="10.5" fill="#c9d1d9">없다</text>
-  <text x="366" y="498" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">부족하면</text>
+  <text x="366" y="462" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">최고 보증 수준</text>
+  <text x="430" y="462" font-size="10.5" fill="#c9d1d9">E2 (인계 설비 신호 기반 완료 보증)</text>
+  <text x="366" y="480" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">선택적 파라미터</text>
+  <text x="430" y="480" font-size="10.5" fill="#c9d1d9">해당 없음</text>
+  <text x="366" y="498" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">오류 분류</text>
   <text x="430" y="498" font-size="10.5" fill="#c9d1d9">INCOMPLETE_ORDER</text>
   <rect x="670" y="204" width="312" height="320" rx="10" fill="#161b22" stroke="#21262d"/>
   <rect x="676" y="212" width="300" height="150" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="694" y="236" font-size="13" font-weight="600" fill="#c9d1d9">InspectAsset</text>
-  <text x="694" y="253" font-size="10" fill="#8b949e">시나리오 ③ · 설비 점검 순회</text>
-  <text x="694" y="274" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">읽는 것</text>
-  <text x="694" y="290" font-size="10.5" fill="#c9d1d9">inspection_target 요구 = 점검 대상</text>
-  <text x="694" y="305" font-size="10.5" fill="#c9d1d9">location = 살필 자리, item = 점검 항목</text>
-  <text x="694" y="326" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">나누는 규칙</text>
-  <text x="694" y="342" font-size="10.5" fill="#c9d1d9">대상 하나 = 단위 둘 (가서, 살핀다)</text>
-  <text x="694" y="357" font-size="10.5" fill="#c9d1d9">목록의 순서가 순회 순서다</text>
+  <text x="694" y="253" font-size="10" fill="#8b949e">시나리오 ③ · 주요 설비 자산 순회 점검</text>
+  <text x="694" y="274" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">참조 파라미터</text>
+  <text x="694" y="290" font-size="10.5" fill="#c9d1d9">inspection_target: 설비 점검 대상 식별자</text>
+  <text x="694" y="305" font-size="10.5" fill="#c9d1d9">location: 관측 웨이포인트, item: 점검 세부 항목</text>
+  <text x="694" y="326" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#8b949e">분할 메커니즘</text>
+  <text x="694" y="342" font-size="10.5" fill="#c9d1d9">점검 대상 1건당 2개 ExecutionUnit (이동 + 점검)</text>
+  <text x="694" y="357" font-size="10.5" fill="#c9d1d9">입력 목록 순서에 따른 순차 순회 시퀀스 보장</text>
   <polyline points="826,362 826,372 712,372 940,372" fill="none" stroke="#8b949e" stroke-width="1.6"/>
   <polyline points="712,372 712,388" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <polyline points="788,372 788,388" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
@@ -87,15 +87,15 @@
   <text x="864" y="403" font-size="9.5" font-weight="600" text-anchor="middle" fill="#3fb950">navigate_to</text>
   <rect x="905" y="388" width="70" height="22" rx="4" fill="#0f2f1a" stroke="#3fb950"/>
   <text x="940" y="403" font-size="9.5" font-weight="600" text-anchor="middle" fill="#3fb950">inspect</text>
-  <text x="826" y="430" font-size="10.5" text-anchor="middle" fill="#8b949e">Route.ROBOT — 대상 수 × 2</text>
+  <text x="826" y="430" font-size="10.5" text-anchor="middle" fill="#8b949e">Route.ROBOT — 점검 대상 수 × 2개 단위 생성</text>
   <rect x="676" y="442" width="300" height="68" rx="6" fill="#0d1117" stroke="#30363d"/>
-  <text x="692" y="462" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">최고 근거</text>
-  <text x="756" y="462" font-size="10.5" fill="#c9d1d9">E0 — 독립 확인 수단이 없다</text>
-  <text x="692" y="480" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">선택 인자</text>
-  <text x="756" y="480" font-size="10.5" fill="#c9d1d9">mode — 주문에 있으면</text>
-  <text x="692" y="498" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">부족하면</text>
+  <text x="692" y="462" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">최고 보증 수준</text>
+  <text x="756" y="462" font-size="10.5" fill="#c9d1d9">E0 (자율 보고 — 독립 물리 센서 미연동)</text>
+  <text x="692" y="480" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">선택적 파라미터</text>
+  <text x="756" y="480" font-size="10.5" fill="#c9d1d9">mode (작업 주문 내 명시 시 적용)</text>
+  <text x="692" y="498" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">오류 분류</text>
   <text x="756" y="498" font-size="10.5" fill="#c9d1d9">NO_LOCATION_FOR_TARGET</text>
   <rect x="24" y="544" width="952" height="54" rx="6" fill="#161b22" stroke="#21262d"/>
-  <text x="44" y="566" font-size="11" fill="#8b949e">요구 등급이 그 능력의 최고 등급을 넘으면 주문을 접수하지 않는다 — 확인할 수단이 없으면 제공할 수 없다. InspectAsset 에 E2 를 요구하면 여기서 걸린다.</text>
-  <text x="44" y="585" font-size="11" fill="#8b949e">시간창 δ(30s · 15s) · IN_DOUBT 유예(60s) · 정체 창(5분)은 능력 단위 설정이고 현장마다 다르게 준다 — picasso · LogicalCapability.kt</text>
+  <text x="44" y="566" font-size="11" fill="#8b949e">요구 증거 등급이 해당 능력의 최대 지원 등급을 초과하면 접수 단계에서 거부 (예: InspectAsset에 E2 요구 시 거부)</text>
+  <text x="44" y="585" font-size="11" fill="#8b949e">시간 윈도우 δ(30s · 15s) · IN_DOUBT 유예(60s) · 정체 감지 창(5분)은 능력별 파라미터이며 현장 환경에 따라 구성 — LogicalCapability.kt</text>
 </svg>

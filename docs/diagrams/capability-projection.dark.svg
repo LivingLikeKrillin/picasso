@@ -1,57 +1,57 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="757" viewBox="0 0 1000 757" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
   <rect x="6" y="6" width="988" height="745" rx="14" fill="#0d1117" stroke="#30363d"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">능력만 나가고 설정은 남는다</text>
-  <text x="32" y="72" font-size="12.5" fill="#8b949e">프로파일 문서가 통째로 나가지 않는다. 소비자가 판정에 쓰는 것만 걸러 나가고, 나머지는 문서에 남는다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#8b949e">프로파일의 최상위 열셋 중 여덟이 Capability 로 나가고 다섯이 남는다.</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">프로파일과 Capability 투영 경계 (Projection Boundary)</text>
+  <text x="32" y="72" font-size="12.5" fill="#8b949e">프로파일 문서 전체가 외부에 노출되지 않으며, 소비자의 실행 판정에 필요한 필드만 Capability로 정제 투영됩니다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#8b949e">프로파일 최상위 13개 필드 중 8개가 gRPC Capability 메시지로 투영되고, 5개는 내부 메타 설정으로 유지됩니다.</text>
   <rect x="24" y="118" width="952" height="56" rx="6" fill="#121d2f" stroke="#58a6ff"/>
-  <text x="44" y="141" font-size="12.5" font-weight="600" fill="#c9d1d9">거르는 기준 — 소비자가 행동을 결정하는 데 필요한가</text>
-  <text x="44" y="160" font-size="11" fill="#58a6ff">이 한 줄이 투영 함수의 명세다. 프로파일은 저작 형식이고, 로봇이 선언하는 것이 아니라 벤더 원문에서 사람이 파생한다.</text>
+  <text x="44" y="141" font-size="12.5" font-weight="600" fill="#c9d1d9">투영 기준: 소비자의 런타임 제어 및 적합성 판단에 필수적인가</text>
+  <text x="44" y="160" font-size="11" fill="#58a6ff">해당 원칙이 Capability 투영 함수의 설계 규격이며, 에뮬레이터/어댑터는 계약에 부합하는 필드만을 직렬화합니다.</text>
   <rect x="24" y="214" width="462" height="445" rx="10" fill="#0f2f1a" stroke="#3fb950"/>
-  <text x="40" y="238" font-size="11" font-weight="700" letter-spacing="1" fill="#3fb950">Capability 로 나간다 — 여덟</text>
-  <text x="40" y="254" font-size="10" fill="#8b949e">소비자가 이것으로 판정한다</text>
+  <text x="40" y="238" font-size="11" font-weight="700" letter-spacing="1" fill="#3fb950">Capability 투영 필드 (8종)</text>
+  <text x="40" y="254" font-size="10" fill="#8b949e">소비자 호환성 판정 및 사전 검증에 사용</text>
   <rect x="36" y="266" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="50" y="285" font-size="11" font-weight="600" fill="#c9d1d9">vendor · model · profile_revision</text>
-  <text x="50" y="301" font-size="10" fill="#8b949e">어느 기종을 상대하는지 안다</text>
+  <text x="50" y="301" font-size="10" fill="#8b949e">기종 식별 및 활성 프로파일 버전 확인</text>
   <rect x="36" y="315" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="50" y="334" font-size="11" font-weight="600" fill="#c9d1d9">skills[] (major.minor)</text>
-  <text x="50" y="350" font-size="10" fill="#8b949e">SKILL_ABSENT 와 호환 판정</text>
+  <text x="50" y="350" font-size="10" fill="#8b949e">지원 스킬 목록 및 SemVer 호환성 판정 (SKILL_ABSENT 검출)</text>
   <rect x="36" y="364" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="50" y="383" font-size="11" font-weight="600" fill="#c9d1d9">skills[].pause_support · cancel_support</text>
-  <text x="50" y="399" font-size="10" fill="#8b949e">시도할지 말지를 가른다</text>
+  <text x="50" y="399" font-size="10" fill="#8b949e">일시 정지 및 취소 제어 가능 여부 결정</text>
   <rect x="36" y="413" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="50" y="432" font-size="11" font-weight="600" fill="#c9d1d9">exclusive_control_required</text>
-  <text x="50" y="448" font-size="10" fill="#8b949e">제어권을 먼저 잡아야 하는가</text>
+  <text x="50" y="448" font-size="10" fill="#8b949e">작업 전 독점 제어권(Lease) 선점 필수 여부 판정</text>
   <rect x="36" y="462" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="50" y="481" font-size="11" font-weight="600" fill="#c9d1d9">skills[].parameters</text>
-  <text x="50" y="497" font-size="10" fill="#8b949e">보내기 전에 값을 거른다</text>
+  <text x="50" y="497" font-size="10" fill="#8b949e">사전 파라미터 유효성 검증 (클라이언트 측 검증)</text>
   <rect x="36" y="511" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="50" y="530" font-size="11" font-weight="600" fill="#c9d1d9">optional_fields</text>
-  <text x="50" y="546" font-size="10" fill="#8b949e">REQUIRED_OPTIONAL_MISSING</text>
+  <text x="50" y="546" font-size="10" fill="#8b949e">선택적 필드 지원 검증 (REQUIRED_OPTIONAL_MISSING 방지)</text>
   <rect x="36" y="560" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="50" y="579" font-size="11" font-weight="600" fill="#c9d1d9">publish_interval</text>
-  <text x="50" y="595" font-size="10" fill="#8b949e">침묵이 고장인지 가른다</text>
+  <text x="50" y="595" font-size="10" fill="#8b949e">원격 측정 하트비트 타임아웃 및 장애 판정 기준</text>
   <rect x="36" y="609" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="50" y="628" font-size="11" font-weight="600" fill="#c9d1d9">protocol_limits</text>
-  <text x="50" y="644" font-size="10" fill="#8b949e">LIMIT_EXCEEDED</text>
+  <text x="50" y="644" font-size="10" fill="#8b949e">메시지 크기/속도 제한 (LIMIT_EXCEEDED 방지)</text>
   <rect x="514" y="214" width="462" height="445" rx="10" fill="#161b22" stroke="#8b949e"/>
-  <text x="530" y="238" font-size="11" font-weight="700" letter-spacing="1" fill="#8b949e">문서에 남는다 — 다섯</text>
-  <text x="530" y="254" font-size="10" fill="#8b949e">Capability 에 실을 자리가 없다</text>
+  <text x="530" y="238" font-size="11" font-weight="700" letter-spacing="1" fill="#8b949e">프로파일 전용 내부 필드 (5종)</text>
+  <text x="530" y="254" font-size="10" fill="#8b949e">엔진 내부 동작 및 에뮬레이션 전용 설정</text>
   <rect x="526" y="266" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="540" y="285" font-size="11" font-weight="600" fill="#c9d1d9">schema_version</text>
-  <text x="540" y="301" font-size="10" fill="#8b949e">문서의 메타이지 능력이 아니다</text>
+  <text x="540" y="301" font-size="10" fill="#8b949e">프로파일 문서 자체의 메타데이터 (기체 능력과 무관)</text>
   <rect x="526" y="315" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="540" y="334" font-size="11" font-weight="600" fill="#c9d1d9">derived_from</text>
-  <text x="540" y="350" font-size="10" fill="#8b949e">이 선언이 어느 벤더 원문에서 나왔는지 — 사람이 읽는다</text>
+  <text x="540" y="350" font-size="10" fill="#8b949e">벤더 원문 문서 출처 및 작성자 감사용 추적 정보</text>
   <rect x="526" y="364" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="540" y="383" font-size="11" font-weight="600" fill="#c9d1d9">durations</text>
-  <text x="540" y="399" font-size="10" fill="#8b949e">소요시간 상수와 지터. 소비자는 진행률을 받는다</text>
+  <text x="540" y="399" font-size="10" fill="#8b949e">시뮬레이터용 소요 시간/지터 (소비자는 런타임 진행률 수신)</text>
   <rect x="526" y="413" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="540" y="432" font-size="11" font-weight="600" fill="#c9d1d9">failure_modes</text>
-  <text x="540" y="448" font-size="10" fill="#8b949e">시뮬레이션 값이고 발신자 안에서만 쓴다</text>
+  <text x="540" y="448" font-size="10" fill="#8b949e">가상화 에뮬레이터 전용 주입 오류 설정</text>
   <rect x="526" y="462" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="540" y="481" font-size="11" font-weight="600" fill="#c9d1d9">replay_buffer_size</text>
-  <text x="540" y="497" font-size="10" fill="#8b949e">발신자 내부 자원이다</text>
+  <text x="540" y="497" font-size="10" fill="#8b949e">발신자(에뮬레이터/어댑터) 내부 버퍼 리소스 설정</text>
   <rect x="24" y="679" width="952" height="56" rx="6" fill="#161b22" stroke="#21262d"/>
-  <text x="44" y="702" font-size="11" fill="#8b949e">같은 경계를 두 곳이 지킨다. 런타임은 Capability 에 그 필드가 아예 없고,</text>
-  <text x="44" y="721" font-size="11" fill="#8b949e">CI 에서는 게이트 6번이 같은 목록을 지운 뒤 버전 규칙을 판정한다.</text>
+  <text x="44" y="702" font-size="11" fill="#8b949e">동일한 경계가 이중으로 보호됩니다. 런타임 gRPC 메시지 스키마에서 내부 필드가 배제되며,</text>
+  <text x="44" y="721" font-size="11" fill="#8b949e">CI 파이프라인(게이트 6번)이 투영 목록을 기반으로 능력 축소 및 호환성 파괴를 정적 검증합니다.</text>
 </svg>

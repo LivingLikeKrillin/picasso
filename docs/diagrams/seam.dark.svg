@@ -4,51 +4,51 @@
     <marker id="ab" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#58a6ff"/></marker>
   </defs>
   <rect x="6" y="6" width="828" height="888" rx="14" fill="#0d1117" stroke="#30363d"/>
-  <text x="32" y="46" font-size="17" font-weight="600" fill="#c9d1d9">계약 하나가 이음매다</text>
-  <text x="32" y="70" font-size="12.5" fill="#8b949e">위는 기종을 모르고, 아래는 갈아 끼워진다 — 둘 다 시험이 지킨다.</text>
+  <text x="32" y="46" font-size="17" font-weight="600" fill="#c9d1d9">단일 표준 계약 기반 아키텍처 이음매 (Architectural Seam)</text>
+  <text x="32" y="70" font-size="12.5" fill="#8b949e">상위는 기종 비종속 오케스트레이션, 하위는 플러그형 어댑터 — 게이트 검증으로 격리 보장</text>
   <rect x="32" y="96" width="776" height="92" rx="10" fill="#161b22" stroke="#21262d"/>
-  <text x="48" y="116" font-size="11" font-weight="700" fill="#8b949e" letter-spacing="1">상류</text>
+  <text x="48" y="116" font-size="11" font-weight="700" fill="#8b949e" letter-spacing="1">상위 시스템 계층</text>
   <rect x="176" y="124" width="340" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="346" y="146" font-size="12.5" fill="#c9d1d9" text-anchor="middle">상류 시스템 — MES · WMS · SCADA</text>
-  <text x="346" y="164" font-size="11" fill="#8b949e" text-anchor="middle">상류 프로토콜이 무엇이든 인바운드 ACL 하나가 받는다</text>
+  <text x="346" y="146" font-size="12.5" fill="#c9d1d9" text-anchor="middle">상위 도메인 시스템 — MES · WMS · SCADA</text>
+  <text x="346" y="164" font-size="11" fill="#8b949e" text-anchor="middle">이기종 상위 프로토콜을 단일 인바운드 ACL 계층에서 변환 접수</text>
   <polyline points="346,180 346,228" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="32" y="204" width="776" height="112" rx="10" fill="#161b22" stroke="#21262d"/>
-  <text x="48" y="224" font-size="11" font-weight="700" fill="#8b949e" letter-spacing="1">계약 위 — 기종을 모른다</text>
+  <text x="48" y="224" font-size="11" font-weight="700" fill="#8b949e" letter-spacing="1">계약 상위 — 기종 비종속 코어 오케스트레이션</text>
   <rect x="176" y="232" width="340" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="346" y="254" font-size="12.5" fill="#c9d1d9" text-anchor="middle">picasso — 미들웨어의 가운데</text>
-  <text x="346" y="272" font-size="11" fill="#8b949e" text-anchor="middle">정준 모델 · 공통 실행 구조</text>
+  <text x="346" y="254" font-size="12.5" fill="#c9d1d9" text-anchor="middle">picasso — 미들웨어 코어 오케스트레이터</text>
+  <text x="346" y="272" font-size="11" fill="#8b949e" text-anchor="middle">정준 도메인 모델 · 트랜잭션 공통 실행 파이프라인</text>
   <rect x="560" y="232" width="248" height="56" rx="10" fill="#101a28" stroke="#22334d"/>
-  <text x="576" y="252" font-size="11" font-weight="700" fill="#58a6ff" letter-spacing="1">CI 실패 조건</text>
-  <text x="576" y="272" font-size="11" fill="#8b949e">검사 7 — 공용 여덟 모듈에 기종 이름 금지</text>
+  <text x="576" y="252" font-size="11" font-weight="700" fill="#58a6ff" letter-spacing="1">CI 정적 검증 (CI Gate)</text>
+  <text x="576" y="272" font-size="11" fill="#8b949e">게이트 검사 7 — 공용 코어 모듈 내 기종 심볼 침투 차단</text>
   <polyline points="560,260 516,260" fill="none" stroke="#58a6ff" stroke-width="1.6" marker-end="url(#ab)"/>
   <polyline points="346,288 346,352" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="32" y="383" width="104" height="2.5" fill="#3fb950"/>
   <rect x="556" y="383" width="252" height="2.5" fill="#3fb950"/>
-  <text x="640" y="374" font-size="11" font-weight="700" fill="#3fb950" letter-spacing="1">이음매</text>
+  <text x="640" y="374" font-size="11" font-weight="700" fill="#3fb950" letter-spacing="1">표준 인터페이스 이음매</text>
   <rect x="136" y="352" width="420" height="64" rx="6" fill="#0f2f1a" stroke="#3fb950"/>
-  <text x="346" y="378" font-size="12.5" font-weight="600" fill="#c9d1d9" text-anchor="middle">contracts — 표준 I/F 계약</text>
-  <text x="346" y="398" font-size="11" fill="#8b949e" text-anchor="middle">gRPC 명령·질의 · MQTT 상태·이벤트 — 값과 제약은 안 담는다</text>
+  <text x="346" y="378" font-size="12.5" font-weight="600" fill="#c9d1d9" text-anchor="middle">contracts — 표준 인터페이스 계약 (Proto)</text>
+  <text x="346" y="398" font-size="11" fill="#8b949e" text-anchor="middle">gRPC 명령/질의 · MQTT 원격측정/이벤트 — 데이터 스키마 및 수명주기 상태 규격</text>
   <rect x="32" y="452" width="776" height="336" rx="10" fill="#161b22" stroke="#21262d"/>
-  <text x="48" y="472" font-size="11" font-weight="700" fill="#8b949e" letter-spacing="1">계약 아래 — 갈아 끼워진다</text>
+  <text x="48" y="472" font-size="11" font-weight="700" fill="#8b949e" letter-spacing="1">계약 하위 — 플러그형 기종 확장 및 가상화 계층</text>
   <polyline points="204,416 204,488" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <polyline points="500,416 500,560 588,560 588,584" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="64" y="488" width="280" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="204" y="510" font-size="12.5" fill="#c9d1d9" text-anchor="middle">adapter-host</text>
-  <text x="204" y="528" font-size="11" fill="#8b949e" text-anchor="middle">기종을 모른다 (ADR 39) · 검사 7 대상</text>
+  <text x="204" y="528" font-size="11" fill="#8b949e" text-anchor="middle">기종 비종속 런타임 호스트 (ADR 39) · 게이트 검사 7 대상</text>
   <polyline points="204,544 204,584" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="64" y="584" width="280" height="64" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="204" y="610" font-size="12.5" font-weight="600" fill="#c9d1d9" text-anchor="middle">adapter-&lt;기종&gt; 넷</text>
-  <text x="204" y="630" font-size="11" font-weight="700" fill="#3fb950" text-anchor="middle">기종을 아는 유일한 자리</text>
+  <text x="204" y="610" font-size="12.5" font-weight="600" fill="#c9d1d9" text-anchor="middle">기종별 전용 어댑터 (4종)</text>
+  <text x="204" y="630" font-size="11" font-weight="700" fill="#3fb950" text-anchor="middle">기종 전용 프로토콜/SDK 격리 영역</text>
   <polyline points="204,648 204,688" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="64" y="688" width="280" height="56" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="204" y="710" font-size="12.5" fill="#c9d1d9" text-anchor="middle">벤더 남쪽 포트</text>
+  <text x="204" y="710" font-size="12.5" fill="#c9d1d9" text-anchor="middle">하향 벤더 통신 인터페이스 (Southbound Interface)</text>
   <text x="204" y="728" font-size="11" fill="#8b949e" text-anchor="middle">Spot · Digit · G1 · Orbit</text>
   <rect x="448" y="584" width="280" height="64" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="588" y="610" font-size="12.5" fill="#c9d1d9" text-anchor="middle">mimic — 프로파일 주도 에뮬레이터</text>
-  <text x="588" y="630" font-size="11" fill="#8b949e" text-anchor="middle">프로파일 한 장이 곧 기종이다</text>
+  <text x="588" y="610" font-size="12.5" fill="#c9d1d9" text-anchor="middle">mimic — 프로파일 주도 가상화 에뮬레이터</text>
+  <text x="588" y="630" font-size="11" fill="#8b949e" text-anchor="middle">단일 프로파일 선언 기반 고충실도 시뮬레이션</text>
   <rect x="64" y="800" width="744" height="60" rx="10" fill="#101a28" stroke="#22334d"/>
-  <text x="80" y="820" font-size="11" font-weight="700" fill="#58a6ff" letter-spacing="1">같은 계약을 말한다</text>
-  <text x="80" y="842" font-size="11" fill="#8b949e">harness · HostParityTest — 미믹과 어댑터 호스트가 같은 요구에 같은 답을 낸다 (수락 여부 · 거절 목록)</text>
+  <text x="80" y="820" font-size="11" font-weight="700" fill="#58a6ff" letter-spacing="1">동일 계약 패리티(Parity) 보장</text>
+  <text x="80" y="842" font-size="11" fill="#8b949e">harness :: HostParityTest — 에뮬레이터와 어댑터 호스트 간 동일 요청에 대한 동작 등가성 검증</text>
   <polyline points="64,516 46,516 46,830 64,830" fill="none" stroke="#58a6ff" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ab)"/>
   <polyline points="588,648 588,800" fill="none" stroke="#58a6ff" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ab)"/>
 </svg>

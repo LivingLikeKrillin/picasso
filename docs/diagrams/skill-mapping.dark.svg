@@ -4,60 +4,60 @@
     <marker id="aq" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#58a6ff"/></marker>
   </defs>
   <rect x="6" y="6" width="988" height="744" rx="14" fill="#0d1117" stroke="#30363d"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">계약 스킬 하나가 벤더 호출이 되는 자리</text>
-  <text x="32" y="72" font-size="12.5" fill="#8b949e">매핑은 스킬 단위가 아니라 표면 단위다. 스킬 하나가 표면 둘을 쓰기도 하고, 그중 하나는 시키지 않고 묻기만 한다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#8b949e">그래서 표면 하나가 없으면 그것을 쓰는 스킬만 못 든다 — 나머지는 그대로 돈다.</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">표준 계약 스킬과 벤더 API 표면 간 세분화 매핑 구조</text>
+  <text x="32" y="72" font-size="12.5" fill="#8b949e">스킬 매핑은 일체형 호출이 아닌 세부 벤더 표면(Surface) 단위로 분리 바인딩되며, 실행 제어와 상태 질의로 구분됩니다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#8b949e">특정 벤더 표면이 미지원되더라도 해당 표면을 참조하는 스킬만 선별 거절되며, 기타 스킬은 정상 동작합니다.</text>
   <rect x="24" y="118" width="468" height="66" rx="6" fill="#121d2f" stroke="#58a6ff"/>
-  <text x="42" y="142" font-size="12" font-weight="600" fill="#c9d1d9">① 기종이 무엇을 드는지는 JSON 한 장이 선언한다</text>
+  <text x="42" y="142" font-size="12" font-weight="600" fill="#c9d1d9">① 기종별 지원 능력 및 파라미터 규격 선언 (JSON Profile)</text>
   <text x="42" y="160" font-size="10.5" fill="#58a6ff">skill_type · major.minor · parameters[key, value_type, optional, unit]</text>
   <text x="42" y="175" font-size="10.5" fill="#58a6ff">pause_support · cancel_support · protocol_limits — profile/profiles/*.json</text>
   <rect x="508" y="118" width="468" height="66" rx="6" fill="#121d2f" stroke="#58a6ff"/>
-  <text x="526" y="142" font-size="12" font-weight="600" fill="#c9d1d9">② 요구와 선언을 맞춰 보는 것은 순수 함수 하나다</text>
+  <text x="526" y="142" font-size="12" font-weight="600" fill="#c9d1d9">② 클라이언트 요구와 기체 선언 간 정합성 판정 (Negotiator)</text>
   <text x="526" y="160" font-size="10.5" fill="#58a6ff">Negotiator.negotiate(capability, header, requirement)</text>
-  <text x="526" y="175" font-size="10.5" fill="#58a6ff">안 맞는 것을 한 번에 전부 돌려준다 — 미믹과 어댑터 호스트가 같은 함수를 부른다</text>
+  <text x="526" y="175" font-size="10.5" fill="#58a6ff">불일치 항목 전체를 단일 에러 목록으로 반환 — 에뮬레이터와 어댑터 호스트가 동일 엔진 공유</text>
   <rect x="24" y="200" width="952" height="46" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="42" y="220" font-size="12" font-weight="600" fill="#c9d1d9">③ RobotAdapter.accept(taskId, skillType, parameters, startedAt)</text>
-  <text x="42" y="237" font-size="10.5" fill="#8b949e">when (skillType) 하나가 계층을 고른다. 판단은 여기 없다 — 어댑터는 로봇이 말한 것을 계약의 낱말로 옮길 뿐이다.</text>
-  <text x="32" y="278" font-size="11" font-weight="700" letter-spacing="1" fill="#8b949e">Spot 을 예로 — 계약 스킬 셋이 벤더 표면 다섯에 어떻게 걸리나</text>
-  <text x="960" y="278" font-size="10" text-anchor="end" fill="#8b949e">파란 점선 = 묻기만 한다   ·   회색 실선 = 시킨다</text>
+  <text x="42" y="237" font-size="10.5" fill="#8b949e">스킬 타입에 따라 벤더 SDK 호출 분기 — 어댑터는 비즈니스 판단 없이 표준 계약과 벤더 프로토콜 간 변환만 수행</text>
+  <text x="32" y="278" font-size="11" font-weight="700" letter-spacing="1" fill="#8b949e">Boston Dynamics Spot 적용 예시: 3개 계약 스킬의 5대 벤더 API 표면 매핑</text>
+  <text x="960" y="278" font-size="10" text-anchor="end" fill="#8b949e">청색 점선 = 상태 질의(Query)   ·   회색 실선 = 실행 제어(Command)</text>
   <rect x="40" y="291" width="232" height="46" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="56" y="311" font-size="12.5" font-weight="600" fill="#c9d1d9">move_relative</text>
-  <text x="56" y="327" font-size="9.5" fill="#8b949e">속도 셋과 duration — 넷 다 필수</text>
+  <text x="56" y="327" font-size="9.5" fill="#8b949e">3축 상대 속도(v_x, v_y, omega_z) 및 지속 시간 (필수)</text>
   <polyline points="272,314 312,314 312,314 508,314" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="40" y="381" width="232" height="46" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="56" y="401" font-size="12.5" font-weight="600" fill="#c9d1d9">navigate_to</text>
-  <text x="56" y="417" font-size="9.5" fill="#8b949e">location (필수)</text>
+  <text x="56" y="417" font-size="9.5" fill="#8b949e">location: 목표 위치 식별자 (필수)</text>
   <polyline points="272,404 312,404 312,374 508,374" fill="none" stroke="#58a6ff" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#aq)"/>
   <polyline points="272,404 346,404 346,434 508,434" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="40" y="501" width="232" height="46" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="56" y="521" font-size="12.5" font-weight="600" fill="#c9d1d9">inspect</text>
-  <text x="56" y="537" font-size="9.5" fill="#8b949e">target (필수) · mode (선택)</text>
+  <text x="56" y="537" font-size="9.5" fill="#8b949e">target: 점검 대상 식별자 (필수) · mode: 점검 모드 (선택)</text>
   <polyline points="272,524 312,524 312,494 508,494" fill="none" stroke="#58a6ff" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#aq)"/>
   <polyline points="272,524 346,524 346,554 508,554" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="508" y="290" width="468" height="48" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="524" y="310" font-size="11.5" font-weight="600" fill="#c9d1d9">command  ·  시킨다 — 속도 명령을 그대로 보낸다</text>
+  <text x="524" y="310" font-size="11.5" font-weight="600" fill="#c9d1d9">command (제어) — 기체 이동 속도 벡터 명령 전송</text>
   <text x="524" y="327" font-size="9.5" fill="#8b949e">bosdyn.api.RobotCommandService</text>
-  <text x="960" y="327" font-size="10" text-anchor="end" fill="#d29922">없으면 move_relative 를 못 든다</text>
+  <text x="960" y="327" font-size="10" text-anchor="end" fill="#d29922">미지원 시: move_relative 스킬 실행 불가</text>
   <rect x="508" y="350" width="468" height="48" rx="6" fill="#121d2f" stroke="#58a6ff"/>
-  <text x="524" y="370" font-size="11.5" font-weight="600" fill="#c9d1d9">graph  ·  묻는다 — 사이트 이름을 웨이포인트 id 로</text>
+  <text x="524" y="370" font-size="11.5" font-weight="600" fill="#c9d1d9">graph (질의) — 현장 장소명을 GraphNav 웨이포인트 ID로 변환</text>
   <text x="524" y="387" font-size="9.5" fill="#58a6ff">bosdyn.api.graph_nav.GraphNavService</text>
-  <text x="960" y="387" font-size="10" text-anchor="end" fill="#d29922">없으면 이름을 못 옮긴다</text>
+  <text x="960" y="387" font-size="10" text-anchor="end" fill="#d29922">미지원 시: 위치 명칭 해석 불가</text>
   <rect x="508" y="410" width="468" height="48" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="524" y="430" font-size="11.5" font-weight="600" fill="#c9d1d9">mission  ·  시킨다 — LoadMission 뒤 PlayMission</text>
+  <text x="524" y="430" font-size="11.5" font-weight="600" fill="#c9d1d9">mission (제어) — LoadMission 및 PlayMission 자율 주행 실행</text>
   <text x="524" y="447" font-size="9.5" fill="#8b949e">bosdyn.api.mission.MissionService</text>
-  <text x="960" y="447" font-size="10" text-anchor="end" fill="#d29922">없으면 navigate_to 를 못 든다</text>
+  <text x="960" y="447" font-size="10" text-anchor="end" fill="#d29922">미지원 시: navigate_to 스킬 실행 불가</text>
   <rect x="508" y="470" width="468" height="48" rx="6" fill="#121d2f" stroke="#58a6ff"/>
-  <text x="524" y="490" font-size="11.5" font-weight="600" fill="#c9d1d9">world  ·  묻는다 — 그 이름의 대상이 있는지</text>
+  <text x="524" y="490" font-size="11.5" font-weight="600" fill="#c9d1d9">world (질의) — World Object 인식을 통한 대상 객체 실재성 확인</text>
   <text x="524" y="507" font-size="9.5" fill="#58a6ff">bosdyn.api.WorldObjectService</text>
-  <text x="960" y="507" font-size="10" text-anchor="end" fill="#d29922">없으면 살필 대상을 못 찾는다</text>
+  <text x="960" y="507" font-size="10" text-anchor="end" fill="#d29922">미지원 시: 점검 대상 객체 탐색 불가</text>
   <rect x="508" y="530" width="468" height="48" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="524" y="550" font-size="11.5" font-weight="600" fill="#c9d1d9">acquisition  ·  시킨다 — 광고하는 영상 원천 전부로</text>
+  <text x="524" y="550" font-size="11.5" font-weight="600" fill="#c9d1d9">acquisition (제어) — 탑재된 센서/카메라 영상 및 데이터 캡처</text>
   <text x="524" y="567" font-size="9.5" fill="#8b949e">bosdyn.api.DataAcquisitionService</text>
-  <text x="960" y="567" font-size="10" text-anchor="end" fill="#d29922">없으면 못 찍는다</text>
+  <text x="960" y="567" font-size="10" text-anchor="end" fill="#d29922">미지원 시: 점검 데이터 수집 불가</text>
   <rect x="24" y="602" width="952" height="62" rx="6" fill="#0f2f1a" stroke="#3fb950"/>
-  <text x="44" y="626" font-size="12.5" font-weight="600" fill="#c9d1d9">표면이 없으면 그 표면을 쓰는 스킬만 거절된다 — Refusal.VENDOR_SURFACE_ABSENT.</text>
-  <text x="44" y="647" font-size="11" fill="#3fb950">명령 계층만 있는 Spot 은 navigate_to 를 못 들지만 move_relative 는 여전히 받는다. 거절 사유가 그 문장을 그대로 담고 나간다.</text>
+  <text x="44" y="626" font-size="12.5" font-weight="600" fill="#c9d1d9">필수 벤더 표면 부재 시 해당 스킬 실행 거부 — Refusal.VENDOR_SURFACE_ABSENT</text>
+  <text x="44" y="647" font-size="11" fill="#3fb950">예: 기본 명령 계층만 장착된 Spot은 navigate_to를 거절하나 move_relative는 정상 수락하며, 상세 거절 사유를 명시</text>
   <rect x="24" y="680" width="952" height="54" rx="6" fill="#161b22" stroke="#21262d"/>
-  <text x="44" y="702" font-size="11" fill="#8b949e">G1 은 미션 계층이 아예 없고 sport 서비스가 명령만 준다 — 기종 사이의 거리는 스킬마다 다른 것이 아니라 계층이 어긋난 것이다.</text>
-  <text x="44" y="721" font-size="11" fill="#8b949e">위 심볼은 @VendorSurface 인용이고, 벤더 매니페스트 대조가 그것을 검사한다 — 원문에 없는 심볼을 짚으면 빌드가 빨개진다.</text>
+  <text x="44" y="702" font-size="11" fill="#8b949e">Unitree G1은 미션 계층이 없고 DDS 스포츠 서비스로 직접 제어 — 기종 간 차이는 스킬 단위가 아닌 프로토콜 계층 구조의 상이함에 기인</text>
+  <text x="44" y="721" font-size="11" fill="#8b949e">다이어그램 내 벤더 심볼은 SpotLink.kt의 @VendorSurface 어노테이션과 1:1 대응하며, CI 게이트 검증을 통해 실재성이 엄격히 보장됨</text>
 </svg>

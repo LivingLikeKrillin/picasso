@@ -4,10 +4,10 @@
     <marker id="ad" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#f85149"/></marker>
   </defs>
   <rect x="6" y="6" width="988" height="418" rx="14" fill="#0d1117" stroke="#30363d"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">부분 기동은 없다</text>
-  <text x="32" y="72" font-size="12.5" fill="#8b949e">한 프로세스가 여러 기체를 호스팅하지만, 그중 하나의 프로파일이 검증에서 걸리면 전부 뜨지 않는다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#8b949e">능력을 모르는 채로는 표면을 열지 않는다. 레지스트리가 기동 시점에 불통이어도 같은 판단을 한다.</text>
-  <text x="24" y="122" font-size="10" font-weight="700" letter-spacing="1" fill="#8b949e">기체마다 이 여덟을 지난다</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">원자적 기동 시퀀스와 전체 실패(Fail-Fast) 불변식</text>
+  <text x="32" y="72" font-size="12.5" fill="#8b949e">단일 프로세스가 복수 기체를 호스팅하더라도, 단 하나의 기체 프로파일이라도 검증 실패 시 전체 기동을 즉시 중단합니다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#8b949e">기체 능력이 완전히 검증되지 않은 불완전한 상태에서는 통신 엔드포인트를 노출하지 않으며(Fail-Closed), 레지스트리 불통 시에도 동일 원칙 적용</text>
+  <text x="24" y="122" font-size="10" font-weight="700" letter-spacing="1" fill="#8b949e">기체별 8단계 순차 부트스트랩 파이프라인</text>
   <rect x="24" y="136" width="107" height="50" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="77.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">프로파일 로드</text>
   <polyline points="131,161 145,161" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
@@ -25,25 +25,25 @@
   <polyline points="494,161 508,161" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <polyline points="440.5,186 440.5,250" fill="none" stroke="#f85149" stroke-width="1.6" marker-end="url(#ad)"/>
   <rect x="508" y="136" width="107" height="50" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="561.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">상태머신</text>
+  <text x="561.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">상태 머신 초기화</text>
   <polyline points="615,161 629,161" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <polyline points="561.5,186 561.5,250" fill="none" stroke="#f85149" stroke-width="1.6" marker-end="url(#ad)"/>
   <rect x="629" y="136" width="107" height="50" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="682.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">session_id 발급</text>
+  <text x="682.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">세션 ID 발급</text>
   <polyline points="736,161 750,161" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <polyline points="682.5,186 682.5,250" fill="none" stroke="#f85149" stroke-width="1.6" marker-end="url(#ad)"/>
   <rect x="750" y="136" width="107" height="50" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="803.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">포트 개방</text>
+  <text x="803.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">gRPC 포트 바인딩</text>
   <polyline points="857,161 871,161" fill="none" stroke="#8b949e" stroke-width="1.6" marker-end="url(#am)"/>
   <polyline points="803.5,186 803.5,250" fill="none" stroke="#f85149" stroke-width="1.6" marker-end="url(#ad)"/>
   <rect x="871" y="136" width="107" height="50" rx="6" fill="#1c2128" stroke="#30363d"/>
-  <text x="924.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">ONLINE 발행</text>
+  <text x="924.5" y="165" font-size="10.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">ONLINE 이벤트 발행</text>
   <polyline points="924.5,186 924.5,250" fill="none" stroke="#f85149" stroke-width="1.6" marker-end="url(#ad)"/>
   <rect x="24" y="250" width="952" height="62" rx="6" fill="#25171c" stroke="#f85149"/>
-  <text x="44" y="275" font-size="13" font-weight="600" fill="#c9d1d9">하나라도 걸리면 기동 거부 — 프로세스 전체가 뜨지 않는다</text>
-  <text x="44" y="295" font-size="11" fill="#f85149">걸린 기체 하나가 아니라 전부다. 거부 메시지는 어느 기체가 왜 걸렸는지를 적는다.</text>
+  <text x="44" y="275" font-size="13" font-weight="600" fill="#c9d1d9">단일 단계 검증 실패 시 기동 전면 거부 (Fail-Fast: 프로세스 중단)</text>
+  <text x="44" y="295" font-size="11" fill="#f85149">특정 기체의 검증 실패는 전체 프로세스 기동 실패로 전파되며, 실패 원인과 해당 기체 식별자를 상세 로그로 기록</text>
   <rect x="24" y="332" width="952" height="76" rx="6" fill="#161b22" stroke="#21262d"/>
-  <text x="44" y="355" font-size="11" fill="#8b949e">부분 기동이 소비자에게 거짓말인 이유 — 없는 기체를 물으면 NOT_FOUND 가 나오는데,</text>
-  <text x="44" y="374" font-size="11" fill="#8b949e">설정에 없는 것인지 프로파일이 깨진 것인지 소비자가 구별할 방법이 없다.</text>
-  <text x="44" y="393" font-size="10" fill="#8b949e">mimic · Main.kt — 「기체 하나가 거부되면 전부 기동하지 않는다」</text>
+  <text x="44" y="355" font-size="11" fill="#8b949e">부분 기동 금지 사유: 일부 기체만 정상 기동할 경우 소비자 관점에서 원인 규명 모호성 발생 (설정 미등록과 검증 실패의 구분 불가)</text>
+  <text x="44" y="374" font-size="11" fill="#8b949e">NOT_FOUND 에러 반환 시 단순 미등록 기체인지 부트스트랩 실패 기체인지 판별 불가능하므로 완전 거부 정책 준수</text>
+  <text x="44" y="393" font-size="10" fill="#8b949e">mimic :: Main.kt — 원자적 부트스트랩 불변식: "단일 기체 실패 시 전체 기동 중단"</text>
 </svg>

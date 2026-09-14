@@ -3,46 +3,46 @@
     <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#57606a"/></marker>
   </defs>
   <rect x="6" y="6" width="988" height="716" rx="14" fill="#ffffff" stroke="#d0d7de"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">구현은 하나이고 호출 지점이 둘이다</text>
-  <text x="32" y="72" font-size="12.5" fill="#57606a">CI 와 등록 검증이 각자 구현되면, CI 가 통과시킨 프로파일을 레지스트리가 거부하는 날이 온다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#57606a">그날 누구도 어느 쪽이 옳은지 말할 수 없다.</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">단일 게이트 로직과 다중 실행 진입점 (Single Gate, Dual Entrypoints)</text>
+  <text x="32" y="72" font-size="12.5" fill="#57606a">CI 빌드 파이프라인과 런타임 레지스트리 등록 검증 로직이 분리되면 정합성 불일치가 발생합니다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#57606a">따라서 단일 gate 공용 라이브러리를 공유하여 검증 판정의 절대적 일관성을 보장합니다.</text>
   <rect x="24" y="118" width="456" height="62" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="252" y="144" font-size="13" font-weight="600" text-anchor="middle" fill="#1f2328">CI</text>
-  <text x="252" y="163" font-size="10.5" text-anchor="middle" fill="#57606a">기준선은 기본 브랜치의 같은 프로파일 파일</text>
+  <text x="252" y="144" font-size="13" font-weight="600" text-anchor="middle" fill="#1f2328">CI 빌드 파이프라인</text>
+  <text x="252" y="163" font-size="10.5" text-anchor="middle" fill="#57606a">기준선: 베이스 브랜치의 동일 프로파일 파일</text>
   <rect x="520" y="118" width="456" height="62" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="748" y="144" font-size="13" font-weight="600" text-anchor="middle" fill="#1f2328">registry 등록</text>
-  <text x="748" y="163" font-size="10.5" text-anchor="middle" fill="#57606a">기준선은 같은 profile_id 의 직전 ACTIVE 개정판</text>
+  <text x="748" y="144" font-size="13" font-weight="600" text-anchor="middle" fill="#1f2328">런타임 레지스트리 등록</text>
+  <text x="748" y="163" font-size="10.5" text-anchor="middle" fill="#57606a">기준선: 동일 profile_id의 직전 ACTIVE 개정판</text>
   <polyline points="252,180 252,206 748,206 748,180" fill="none" stroke="#57606a" stroke-width="1.6"/>
   <polyline points="500,206 500,226" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="24" y="226" width="952" height="64" rx="6" fill="#ddf4ff" stroke="#0969da"/>
-  <text x="500" y="252" font-size="13.5" font-weight="600" text-anchor="middle" fill="#1f2328">gate 라이브러리</text>
-  <text x="500" y="272" font-size="11" text-anchor="middle" fill="#0969da">기준선을 인자로 받는다. 입력을 프로파일 문서로 통일해야 두 호출이 같은 답을 낸다</text>
-  <text x="32" y="324" font-size="10" font-weight="700" letter-spacing="1" fill="#8b95a1">검사 여덟 — 각 검사가 막는 것</text>
+  <text x="500" y="252" font-size="13.5" font-weight="600" text-anchor="middle" fill="#1f2328">gate 공용 검증 라이브러리 (:gate)</text>
+  <text x="500" y="272" font-size="11" text-anchor="middle" fill="#0969da">기준선(Baseline)을 파라미터로 주입받아 동일한 프로파일 문서에 대해 불변의 검증 결과 보장</text>
+  <text x="32" y="324" font-size="10" font-weight="700" letter-spacing="1" fill="#8b95a1">8대 게이트 검증 항목 및 차단 대상</text>
   <rect x="24" y="336" width="952" height="34" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
   <text x="42" y="358" font-size="11.5" font-weight="600" fill="#1f2328">① buf lint</text>
-  <text x="254" y="358" font-size="11" fill="#57606a">명명 규칙 이탈</text>
+  <text x="254" y="358" font-size="11" fill="#57606a">Protobuf 스타일 가이드 및 네이밍 규칙 준수 검증</text>
   <rect x="24" y="374" width="952" height="34" rx="6" fill="#ffffff" stroke="#e6e9ee"/>
   <text x="42" y="396" font-size="11.5" font-weight="600" fill="#1f2328">② buf breaking</text>
-  <text x="254" y="396" font-size="11" fill="#57606a">필드 번호 재사용</text>
+  <text x="254" y="396" font-size="11" fill="#57606a">필드 번호 재사용 및 하위 호환성 파괴 변경 차단</text>
   <rect x="24" y="412" width="952" height="34" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
-  <text x="42" y="434" font-size="11.5" font-weight="600" fill="#1f2328">③ 스키마와 구조 규칙</text>
-  <text x="254" y="434" font-size="11" fill="#57606a">뒤집힌 범위 · 미등록 error_type</text>
+  <text x="42" y="434" font-size="11.5" font-weight="600" fill="#1f2328">③ 스키마 및 구조 규칙</text>
+  <text x="254" y="434" font-size="11" fill="#57606a">값 범위 역전(min &gt; max) · 미등록 error_type 검출</text>
   <rect x="24" y="450" width="952" height="34" rx="6" fill="#ffffff" stroke="#e6e9ee"/>
-  <text x="42" y="472" font-size="11.5" font-weight="600" fill="#1f2328">④ proto 교차검증</text>
-  <text x="254" y="472" font-size="11" fill="#57606a">카탈로그와 프로파일이 갈리는 것 — 양방향으로 본다</text>
+  <text x="42" y="472" font-size="11.5" font-weight="600" fill="#1f2328">④ proto 교차 검증</text>
+  <text x="254" y="472" font-size="11" fill="#57606a">능력 카탈로그와 프로파일 간 양방향 선언 정합성 검증</text>
   <rect x="24" y="488" width="952" height="34" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
-  <text x="42" y="510" font-size="11.5" font-weight="600" fill="#1f2328">⑤ contracts 의존 0</text>
-  <text x="254" y="510" font-size="11" fill="#57606a">계약이 무언가를 알게 되는 것</text>
+  <text x="42" y="510" font-size="11.5" font-weight="600" fill="#1f2328">⑤ contracts 의존성 격리</text>
+  <text x="254" y="510" font-size="11" fill="#57606a">코어 계약 모듈(contracts)의 외부 의존성 제로 보장</text>
   <rect x="24" y="526" width="952" height="34" rx="6" fill="#ffffff" stroke="#e6e9ee"/>
   <text x="42" y="548" font-size="11.5" font-weight="600" fill="#1f2328">⑥ 능력 어휘 파괴 검사</text>
-  <text x="254" y="548" font-size="11" fill="#57606a">파급을 확인하지 않은 축소</text>
+  <text x="254" y="548" font-size="11" fill="#57606a">영향도 분석 없는 임의의 능력(LogicalCapability) 축소 차단</text>
   <rect x="24" y="564" width="952" height="34" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
   <text x="42" y="586" font-size="11.5" font-weight="600" fill="#1f2328">⑦ 기종 분기 금지</text>
-  <text x="254" y="586" font-size="11" fill="#57606a">코어 소스에 등장하는 기종 문자열 — 주석이라도</text>
+  <text x="254" y="586" font-size="11" fill="#57606a">공용 코어 소스 및 주석 내 벤더/기종 심볼 침투 원천 차단</text>
   <rect x="24" y="602" width="952" height="34" rx="6" fill="#ffffff" stroke="#e6e9ee"/>
   <text x="42" y="624" font-size="11.5" font-weight="600" fill="#1f2328">⑧ 프로파일 전용 변경</text>
-  <text x="254" y="624" font-size="11" fill="#57606a">커밋에 소스가 섞였는가</text>
+  <text x="254" y="624" font-size="11" fill="#57606a">프로파일 단독 변경 PR 내 소스 코드 혼입 차단</text>
   <rect x="24" y="648" width="952" height="56" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
-  <text x="44" y="671" font-size="12.5" font-weight="600" fill="#1f2328">⑨ 음성 시험 — 위 여덟이 실제로는 안 막고 있는 상태를 잡는다</text>
-  <text x="44" y="690" font-size="11" fill="#1a7f37">각각이 CI 를 실패시키지 못하면 그 자체가 실패다. 검사를 세워 두고 안 도는 것이 이 저장소가 반복해 물린 자리다.</text>
+  <text x="44" y="671" font-size="12.5" font-weight="600" fill="#1f2328">⑨ 음성 검증(Negative Testing) — 게이트 차단 유효성 자동 검증</text>
+  <text x="44" y="690" font-size="11" fill="#1a7f37">위성 테스트케이스가 정상적으로 빌드를 실패시키지 못할 경우 테스트 자체 실패 처리 (False Negative 방지)</text>
 </svg>
