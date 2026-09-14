@@ -1,53 +1,44 @@
-# `contracts` — 계약
+# contracts — 인터페이스 계약 사양 (Interface Contracts)
 
-**이 저장소의 중심.** 상류 소비자와 로봇 사이의 명령·질의(gRPC)와 발행(MQTT)의 모양, 그리고 그 구조를 채우는
-규칙(§5.5 의 헤더 열, 계약 신원).
+상류 비즈니스 시스템(MES/WMS)과 이종 로봇 기체 간의 명령·질의(gRPC) 및 비동기 상태 발행(MQTT) 규격, 그리고 메시지 헤더와 계약 신원 체계(§5.5)를 정의하는 핵심 인터페이스 모듈입니다.
 
-정본은 `proto/picasso/v1/` 의 여섯 파일이고 **주석이 문서다** — 왜 그 필드가 있는지, 왜 그 값 집합인지가 필드
-옆에 있다. 이 문서는 그 앞에 서는 표지판이다.
+계약의 정본(Single Source of Truth)은 `proto/picasso/v1/` 디렉터리 아래의 **여섯** 파일이고, 각 필드별 상세 주석을 통해 필드 도입 목적과 유효 값 도메인을 명시합니다. 본 문서는 전체 계약 구조를 조망하는 아키텍처 개요입니다.
 
 ---
 
-## 이 모듈의 규칙 하나
+## 1. 아키텍처 설계 원칙: 프로젝트 내부 의존성 제로 (Zero In-Project Dependencies)
 
-★**프로젝트 내 의존이 0 이다.** 게이트 5번이 강제한다. 계약이 무언가에 의존하는 순간 그 무언가가 계약의 일부가
-되고, 소비자가 그것까지 받아야 한다.
-
-그리고 **값이나 제약을 담지 않는다.** *"최대 적재 5kg"* 은 계약이 아니라 프로파일이다 — 계약에 넣으면 기종이
-늘 때마다 계약이 바뀐다.
+- **프로젝트 내부 의존성 0 강제**: 게이트 검사 5번을 통해 프로젝트 내 타 모듈에 대한 의존을 엄격히 차단합니다. 계약 계층이 내부 컴포넌트에 의존하는 순간 외부 소비자가 불필요한 내부 종속성을 강제받게 되기 때문입니다.
+- **물리적 수치 제약의 계약 배제**: 특정 기체의 수치 제약(예: "최대 적재 하중 5kg")은 계약이 아닌 기종별 프로파일에 격리 정의합니다. 계약에 물리 사양을 포함하면 기종 추가 시마다 계약 스펙이 변경되는 결합도가 발생합니다.
 
 ---
 
-## 무엇이 여기 있나
+## 2. 프로토콜 파일 구성
 
-| 파일 | 무엇 |
+| 프로토콜 파일 | 정의 사양 및 역할 |
 |---|---|
-| `common.proto` | 헤더, 거절 코드, `Support` 3값, 참조 |
-| `task.proto` | 태스크의 생명주기 — 상태 열하나, `WatchTaskResponse`, `HoldState`, `ProgressBasis` |
-| `skill.proto` | 능력의 투영 — `Capability`, 파라미터 선언, 협상 |
-| `skill_catalog.proto` | 스킬 넷의 파라미터(`pick_place`·`navigate_to`·`inspect`·`move_relative`) |
-| `event.proto` · `fault.proto` | 발행 셋과 결함 — 정준 실패 분류 열다섯 |
-| `src/main/kotlin/…/wire/` | 헤더 열을 **채우는 규칙**. 발신자마다 두 벌로 쓰면 그것이 드리프트다 |
+| `common.proto` | 공통 엔벨로프 헤더, 요청 거절 코드(`RejectionReason`), 3값 지원 플래그(`Support`), 참조 식별자 |
+| `task.proto` | 태스크 수명주기 상태 11종, 상태 감시 스트림(`WatchTaskResponse`), 대기 상태(`HoldState`), 진행률 근거(`ProgressBasis`) |
+| `skill.proto` | 능력 투영 인터페이스 (`Capability`), 파라미터 메타데이터 선언, 런타임 협상(`Negotiation`) |
+| `skill_catalog.proto` | 4대 표준 스킬 파라미터 사양 (`pick_place`, `navigate_to`, `inspect`, `move_relative`) |
+| `event.proto` · `fault.proto` | 비동기 3대 이벤트 스트림 및 결함 진단 — 15종 정준 실패 분류 체계 (`FailureClass`) |
+| `src/main/kotlin/…/wire/` | 공통 헤더 10개 필드 주입 및 직렬화 규칙 (클라이언트/서버 간 드리프트 방지) |
 
-계약 개정판은 `build.gradle.kts` 의 `contractSemver` 가 정본이고, **자란 이력이 그 위 주석에 있다.**
-
----
-
-## 자랄 때의 규율
-
-**발신자와 소비자가 함께 있을 때만 자란다**(ADR 9). 0.4.0 의 `HoldState`, 0.6.0 의 `FailureClass`, 0.8.0 의
-`ProgressBasis` 가 전부 그 순서로 들어왔다 — 필드를 먼저 만들고 쓸 사람을 기다린 적이 없다.
-
-**추가는 minor, 파괴는 major.** 게이트 2번(`buf breaking`)이 그것을 집행한다.
+계약의 공식 버전은 `contracts/build.gradle.kts`의 `contractSemver`에 명시되어 있으며, 버전별 변경 내역은 상단 주석에 누적 관리됩니다.
 
 ---
 
-## 정직하게 적어 둘 것
+## 3. 스펙 진화 및 거버넌스 규칙
 
-- **`contract_digest` 가 `buf` 모듈 다이제스트가 아니라 디스크립터 셋의 SHA-256 이다**(§15.22). 목적은 같고
-  계산이 다르다 — `mimic` 이 Docker 없이 기동해야 하기 때문이다.
-- **`update_index`·`sequence` 가 0 부터**라 헤더에서 미설정과 구별되지 않는다(§15.25). `schema_id` 가 방향을
-  말하므로 실질 문제는 없다.
-- **`GetCapabilitiesResponse` 에만 `Rejection` 자리가 없다**(§15.24) — 그 RPC 만 신원 불일치가 gRPC 상태로 나간다.
+- **발신자-소비자 동시 존재 원칙 (ADR 9)**: 발신자와 소비자가 동시에 구체화될 때만 스키마를 확장합니다. `HoldState`(0.4.0), `FailureClass`(0.6.0), `ProgressBasis`(0.8.0) 모두 실제 사용처가 확정된 후 도입되었습니다.
+- **버전 호환성 거버넌스**: 필드 추가는 Minor 버전, 하위 호환성을 파괴하는 변경은 Major 버전 상향을 요구하며, 게이트 검사 2번(`buf breaking`)을 통해 기계적으로 집행합니다.
 
-> 마지막 대조: 2026-09-11 · sha256:6197deb9460b · 열림: §15.24, §15.25, §15.22
+---
+
+## 4. 알려진 한계 및 엔지니어링 고려 사항
+
+- **계약 다이제스트 계산 방식 (§15.22)**: `contract_digest`는 Buf 모듈 다이제스트 대신 디스크립터 셋(`FileDescriptorSet`)의 SHA-256을 사용합니다. 이는 에뮬레이터(`mimic`)가 Docker 데몬 없이 독립 기동할 수 있도록 하기 위한 결정입니다.
+- **인덱스 기본값 0의 미설정 혼동 가능성 (§15.25)**: `update_index` 및 `sequence`가 0부터 시작하여 Protobuf 기본값(미설정 상태)과 형태상 구분되지 않으나, `schema_id`를 통해 전송 방향을 식별하므로 런타임 오류는 발생하지 않습니다.
+- **`GetCapabilitiesResponse` 전용 Rejection 필드 부재 (§15.24)**: 해당 RPC만 신원 불일치 오류를 메시지 본문이 아닌 gRPC 상태 코드(Status)로 전달합니다.
+
+> 마지막 대조: 2026-09-15 · sha256:2ed1356d2468 · 열림: §15.24, §15.25, §15.22

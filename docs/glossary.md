@@ -1,0 +1,137 @@
+# picasso — 표준 용어 사전 (Glossary)
+
+본 문서는 `picasso` 프로젝트 전반(인터페이스 계약, 가상화 에뮬레이터, 레지스트리, 어댑터 드라이버 및 거버넌스 게이트)에서 사용하는 핵심 기술 용어의 표준 정의를 제공합니다. 시스템 설계, 소스 코드, API 스키마 및 기술 문서 간의 용어 불일치(Term Drift)를 방지하기 위한 단일 진실의 원천(SSOT) 역할을 수행합니다.
+
+---
+
+## 1. 공장 운영 및 산업 도메인 (Manufacturing & Robotics)
+
+### ISA-95 계층 모델
+- **L2 (제어 계층, Control)**: 개별 로봇 기체의 내장 제어기(FSM, 임베디드 모터 제어 등) 및 현장 센서 레벨.
+- **L3 (운영 관리 계층, MOM/MES)**: 공장 내 제조 실행 시스템(MES), 창고 제어 시스템(WCS) 등 실제 작업 지시 및 현장 물류를 총괄하는 시스템.
+- **L4 (기업 관리 계층, ERP)**: 전사적 자원 관리 및 상위 생산 계획 시스템.
+- `picasso` 미들웨어는 L2(로봇 제어기)와 L3(공장 운영 시스템) 간의 프로토콜 변환 및 작업 중재 경계를 담당합니다.
+
+### 워크셀 (Workcell)
+특정 공정 작업(예: 부품 조립, 머신 텐딩, 검사 등)이 수행되는 공장 내 최소 물리적 작업 구역 단위입니다.
+
+### 사이트 (Site)
+물리적으로 구획된 개별 공장 또는 창고 인프라를 의미합니다. `picasso`의 토픽 네임스페이스(`picasso/{major}/{site}/...`) 및 사이트 능력 카탈로그의 격리 기준이 됩니다.
+
+### 상위 연계 계층 (ACL, Anti-Corruption Layer)
+상위 MES, WMS, WCS의 고유 데이터 모델과 `picasso` 표준 인터페이스 계약 사이의 변환 및 정합성을 격리 보장하는 변환 계층입니다 ([ADR 9](adr/0009-no-declaration-without-consumer.md)).
+- **`acl-core`**: 상위 시스템에 독립적인 공통 프레임워크 (제품 코어 소유).
+- **`acl-{system}`**: 특정 공장 상위 시스템(특정 제조사 MES/WMS 등)에 결합된 어댑터 인스턴스 (현장 배포 소유).
+
+---
+
+## 2. 인터페이스 계약 및 데이터 모델 (Contracts & Data Models)
+
+### 스킬 (Skill) vs 능력 (Capability) vs 프로파일 (Profile)
+- **스킬 (Skill)**: 로봇이 수행 가능한 **개별 단위 행동**(예: `navigate_to`, `pick_place`, `inspect`) 및 그에 대응하는 상태머신 인스턴스를 의미합니다.
+- **능력 (Capability)**: 특정 기체 또는 사이트가 제공할 수 있는 **스킬들의 집합과 지원 수준**(Major.Minor 버전, 취소/일시정지 지원 여부, 파라미터 제약 등)을 표현하는 런타임 투영 모델입니다.
+- **프로파일 (Profile)**: 특정 로봇 기종(Vendor × Model × Revision)의 물리적 제약 및 사양을 선언한 **정적 JSON Schema 문서**입니다.
+
+### 투영 (Projection)
+프로파일 JSON 문서에 선언된 수많은 사양 중, 클라이언트가 동작을 결정하는 데 반드시 필요한 공개 사양만을 정제하여 Protobuf `Capability` 메시지로 변환·노출하는 프로세스입니다 ([ADR 10](adr/0010-projection-boundary.md)).
+
+### 잔여 물리 상태 (HoldState)
+장기 실행 작업의 중단, 취소 또는 실패 시 로봇이 **물리적으로 무엇을 들고 있는가**를 나타내는 4값 상태 모델입니다:
+- `UNSPECIFIED`: 버전 미지정.
+- `NOT_OBSERVABLE`: 센서 부재 등으로 물리적 파지 여부를 관측할 수 없음.
+- `EMPTY`: 빈손 상태 확인.
+- `HOLDING`: 특정 대상 화물(`object_ref`)을 파지 중인 상태.
+
+### 능력 에포크 (Capability Epoch)
+기체의 유효 능력이 변경(스킬 상실, 복구, 프로파일 변경 등)될 때마다 단조 증가하는 ETag 성격의 세대 식별자입니다. 클라이언트는 메시지 헤더의 `capability_epoch`를 통해 O(1)로 캐시 무효화 여부를 판정합니다.
+
+### Support 3값 체계
+하드웨어 API의 지원 여부를 표현하기 위해 채택한 3값 모델입니다:
+- `YES`: 하드웨어가 해당 기능을 명시적으로 지원함.
+- `NO`: 하드웨어가 해당 기능을 명시적으로 지원하지 않음.
+- `UNKNOWN`: 벤더 문서나 근거가 부족하여 지원 여부를 확정할 수 없음 (거짓 선언 방지).
+
+### Resolution 3값 체계
+스킬 또는 하드웨어 결함 발생 시 복구 및 해결 절차를 유형화한 분류입니다:
+- `SELF_RETRIABLE`: 로봇 자율적으로 재시도 가능한 일시적 오류.
+- `NEEDS_INTERVENTION`: 작업자의 물리적 현장 개입이 필수적인 오류.
+- `TERMINAL`: 재시도가 불가능한 영구적 실패.
+
+---
+
+## 3. 상태머신 및 태스크 수명주기 (State Machines & Task Lifecycle)
+
+### 스킬 상태머신 (Skill FSM)
+OPC UA 기반의 단위 스킬 상태 모델:
+- `READY` (실행 대기) $\leftrightarrow$ `RUNNING` (실행 중) $\leftrightarrow$ `SUSPENDED` (일시정지) $\rightarrow$ `HALTED` (비정상 중단).
+- `HALTED` 상태는 외부 RPC가 아닌 엔진 내부의 `Reset` 전이를 통해서만 `READY`로 복귀합니다.
+
+### 태스크 수명주기 (Task Lifecycle)
+장기 실행 복합 작업의 수명주기:
+- **비종착 상태 (In-Flight)**: `ACCEPTED`, `RUNNING`, `PAUSED`, `CANCELLING`, `RETRIABLE`, `NEEDS_INTERVENTION`.
+- **종착 상태 (Terminal)**: `SUCCEEDED`, `FAILED`, `CANCELLED`, `CANCELLED_RECOVERY_FAILED`.
+
+### 터미널 래치 불변식 (Terminal Latch Invariant)
+한 번 종착 상태(`SUCCEEDED`, `FAILED`, `CANCELLED` 등)에 진입한 태스크는 어떤 상황에서도 비종착 상태로 역전될 수 없다는 계약 불변식입니다. 실물 기체가 종착 후 무단 재동작할 경우 `TERMINAL_STATE_VIOLATED` 결함으로 격리 감지합니다.
+
+### 접수 불명 (In-Doubt)
+네트워크 일시 단절 등으로 인해 명령이 로봇에 전달되어 접수되었는지 여부를 클라이언트가 확정할 수 없는 상태입니다. `(task_id, revision)` 멱등성 키 재전송을 통해 기존 핸들을 재수신하여 해소합니다 ([ADR 38](adr/0038-mission-layer-schema-is-ours.md)).
+
+### 멱등성 키 (Idempotency Key)
+네트워크 재전송에 따른 중복 실행을 방지하기 위한 `(task_id, revision)` 단조 증가 쌍입니다. 동일 revision 수신 시 동일 핸들을 반환하고, 상위 revision 수신 시 동적 파라미터 갱신으로 처리합니다.
+
+### 설명된 불리언 (ExplainedBoolean)
+단순 참/거짓 대신 성공/거절 여부와 함께 구체적인 비즈니스 거절 사유(`RejectionCode`, 상세 메시지)를 구조화하여 반환하는 패턴입니다 (openTCS SPI 차용).
+
+---
+
+## 4. 통신 프로토콜 및 신뢰성 (Transport & Reliability)
+
+### 전송 경계 (Transport Boundary)
+- **gRPC**: 1:1 동기식 명령 및 상태 질의 (RPC 호출, 핸드셰이크 `Negotiate`, 스냅샷 조회).
+- **MQTT**: 1:N 비동기 브로드캐스트 스트리밍 (기체 상태, 전이 이벤트, 연결 수명주기).
+
+### 이중 카운터 분리: 시퀀스(`sequence`) vs 업데이트 인덱스(`update_index`)
+- **`sequence`**: **단일 기체 단위**로 발급되며, 세션 내에서 단조 증가하는 MQTT 메시지 번호입니다. 패킷 결손 감지 및 재정렬에 사용됩니다.
+- **`update_index`**: **단일 태스크 단위**로 발급되며, gRPC `WatchTask` 스트림 내에서 진행률 및 부분 결과를 추적하는 재접속 식별자입니다.
+
+### 재정렬 윈도우 (Reorder Window)
+소비자가 MQTT 시퀀스 불연속(역전)을 감지했을 때, 즉시 결손으로 판정하지 않고 후속 패킷이 도착할 때까지 일정 시간(예: 후속 이벤트 8건 또는 2초) 동안 판정을 유예하는 허용 버퍼 창입니다.
+
+### 연결 상태 4값 모델 (ConnectionState)
+- `ONLINE`: 기체와 브로커 간 통신 활성.
+- `OFFLINE`: 정상적인 절차를 거친 연결 종료.
+- `HIBERNATING`: 연결은 유지되나 에너지 절감 등을 위해 의도적으로 상태 발행을 중단한 침묵 상태.
+- `CONNECTION_BROKEN`: 브로커 Last Will에 의해 감지된 비정상 통신 두절.
+
+---
+
+## 5. 운영 변경 및 거버넌스 (Operational Changes & Governance)
+
+### 4대 독립 변경 축
+1. **계약 축 (`contracts/`)**: Protobuf 사양 (배포 시 SemVer 변경, 비가역).
+2. **프로파일 축 (`profile/`)**: 기종 능력 선언 문서 (런타임 개정판 활성화, 가역).
+3. **어댑터 축 (`adapter-*/`)**: 기종 연동 드라이버 바이너리 (버전 관리 및 재배포, 가역).
+4. **바인딩 축**: 기체와 어댑터/프로파일의 결합 매핑 (`기체 = 어댑터 + 프로파일`, 런타임 전환).
+
+### 의존 원장 (Dependency Ledger)
+공장 내 모든 클라이언트 및 상위 시스템이 어떤 스킬 버전을 요구하는지를 추적하는 레지스트리 데이터베이스입니다:
+- `DECLARED`: 소비자가 `POST /requirements`로 명시적 선언한 요구 사양.
+- `OBSERVED`: 런타임 핸드셰이크(`Negotiate`) 성공 시 자동으로 관측 적재된 요구 사양.
+
+### 방향성 규율: 확장(Expansion) · 이행(Migration) · 축소(Contraction)
+- **확장**: 신규 능력을 배포하되 기존 능력과의 병행 제공 유지 (하향식: 어댑터 $\rightarrow$ 미들웨어 $\rightarrow$ 카탈로그 $\rightarrow$ 상위 시스템).
+- **이행**: 상위 시스템이 신규 능력으로 전환하고 원장 상 구형 능력 사용자가 0이 되는 것을 관측.
+- **축소**: 의존성(활성 소비자 0) 및 비종착 태스크(드레인 0)가 부재함을 확인한 후 안전하게 구형 능력을 제거 (상향식: 상위 시스템 $\rightarrow$ 카탈로그 $\rightarrow$ 미들웨어 $\rightarrow$ 어댑터).
+
+### 개정판 고정 (Pinning) vs 작업 드레인 (Drain)
+- **개정판 고정 (Pinning)**: 이미 실행 중인 태스크는 중간에 프로파일 개정판이 변경되더라도 접수 시점의 개정판 환경을 유지하며 완주하는 원칙입니다.
+- **작업 드레인 (Drain)**: 능력 축소 또는 어댑터 교체 시, 해당 기능을 실행 중인 잔류 태스크가 0건이 될 때까지 대기하여 안전을 확보하는 절차입니다.
+
+### 교체 지점 (Seam)
+실물 하드웨어 도입 또는 인프라 교체 시, 기존 소스 코드를 수정하지 않고 인터페이스 구현체만 교체할 수 있도록 설계된 아키텍처 결합 지점입니다 ([`docs/seams.md`](seams.md)).
+
+### 네거티브 테스트 (Negative Tests)
+게이트 검사 규칙 자체가 정상 동작하는지 검증하기 위해, 의도적으로 결함이 주입된 데이터셋(`gate/negative/`)을 실행하여 CI 파이프라인이 정확히 실패하는지를 테스트하는 역검증 스위트입니다.
+
+> 마지막 대조: 2026-09-15 · sha256:0c612b5edb3a · 열림: 없음

@@ -1,43 +1,37 @@
-# 어댑터 골격 — 새 기종을 시작할 자리
+# 신규 어댑터 스캐폴딩 템플릿 (Adapter Scaffolding Template)
 
-새 기종을 붙일 때 매번 남의 어댑터를 베꼈다. 베끼면 **그 기종의 사정까지 함께 온다** — Spot 의 리스
-처리나 Digit 의 권한 게이트가 상관없는 기종에 남는다. 여기 있는 것은 **비어 있는 자리 목록**이다.
+신규 로봇 기종 연동 시 타 기종의 어댑터 코드를 직접 복제함에 따라 발생하는 특정 기종 편향(Spot의 리스 처리, Digit의 권한 게이트 등)을 방지하고, 표준 구조를 제공하기 위한 스캐폴딩 템플릿입니다.
 
-> 이 디렉터리의 `.kt.txt` 는 **컴파일되지 않는다.** 모듈이 되면 벤더도 프로파일도 없는 모듈이
-> 빌드에 서고, 게이트 검사 여덟이 전부 그것을 대상으로 삼는다. 대신 **`RobotAdapter` 가 요구하는
-> 자리를 빠짐없이 드는지를 시험이 지킨다**(`AdapterTemplateTest`) — 면이 늘면 골격이 빨개진다.
-
-Open-RMF 의 `fleet_adapter_template` 이 `# IMPLEMENT YOUR CODE HERE #` 로 같은 일을 한다.
-다른 점은 그쪽은 채울 자리만 주고, 여기는 **채우기 전에 재야 하는 것**을 먼저 가리킨다는 것이다.
+> 본 디렉터리의 `.kt.txt` 파일들은 컴파일 대상이 아니며, `AdapterTemplateTest`를 통해 `RobotAdapter` 인터페이스의 필수 시그니처를 누락 없이 준수하는지 정적 검증합니다.
 
 ---
 
-## 순서 — 재는 것이 먼저다
+## 1. 신규 기종 추가 표준 절차 (SOP)
 
-**1~8 은 [`docs/vocabulary-distance.md`](../../docs/vocabulary-distance.md) 가 정한다.** 거기서 나온
-`profile/distance/<기종>.json` 이 이 골격을 채우는 입력이다. 특히 두 칸이 그대로 코드가 된다.
+신규 기종 연동은 선행 1~8단계 분석이 완료된 후 본 템플릿을 기반으로 9단계부터 착수합니다.
 
-| 거리 문서의 칸 | 골격의 어디로 가나 |
-|---|---|
-| `parameter_map[].kind` 가 `CONVERTED`·`SYNTHESIZED` 인 줄 | `accept` 안에서 옮기거나 조합하는 코드 |
-| `adapter_must_own` | 그 어댑터가 떠안는 것 전부 — **코드량 견적이 여기 적혀 있다** |
-| `execution_scope` | `poll` 과 종착 판정의 모양. `COMMAND` 면 시계로 적어야 한다 |
-| `limitations` | 어느 `Refusal` 로 거절하는지 |
+### 선행 단계: 어휘 거리 분석 ([`docs/vocabulary-distance.md`](../../docs/vocabulary-distance.md))
+- `parameter_map`의 `CONVERTED` / `SYNTHESIZED`: `accept` 내부의 변환 및 합성 로직 사양 도출
+- `adapter_must_own`: 어댑터가 직접 구현해야 할 책임 사양 (코드량 산출 기준)
+- `execution_scope`: 상태 폴링 및 종착 판정 주기 설계 기준
+- `limitations`: 거절(`Refusal`) 반환 정책
 
-9 번부터가 이 문서다.
+### 후속 단계: 어댑터 모듈 구현 (단계 9~14)
 
-| | 하는 일 |
-|---|---|
-| 9 | 모듈을 만든다 — 아래 **파일 일곱**을 전부 둔다. `settings.gradle.kts` 에 `include` |
-| 10 | `<기종>Link.kt` — 남쪽 면. 벤더가 실제로 주는 것만 적고 **`@VendorSurface` 로 원문을 짚는다** |
-| 11 | `vendor-manifest.txt` — [`tools/vendor-manifest/`](../vendor-manifest/README.md) 로 뽑는다. **10 번의 인용이 여기 없으면 빨개진다** |
-| 12 | `<기종>Adapter.kt` — `RobotAdapter` 의 **여덟 자리**를 채운다 |
-| 13 | `profile/profiles/<기종>.json` — 거리 문서가 `YES` 로 잰 스킬만 선언한다 |
-| 14 | 모듈 `README.md` — 이 기종이 계약에 얼마나 닿는지, 정본은 거리 문서를 가리킨다 |
+| 단계 | 수행 작업 내용 | 산출 파일 |
+|---|---|---|
+| **9** | 신규 어댑터 모듈 디렉터리 생성 및 7대 필수 파일 배치 (`settings.gradle.kts` 등록) | 모듈 루트 |
+| **10** | 남쪽 포트 선언: 벤더 API 심볼 명시 (`@VendorSurface` 어노테이션 부여) | `<기종>Link.kt` |
+| **11** | 벤더 매니페스트 추출: [`tools/vendor-manifest/`](../vendor-manifest/README.md) 도구 활용 | `src/test/resources/vendor-manifest.txt` |
+| **12** | 어댑터 핵심 로직 구현: `RobotAdapter`의 필수 메서드 구현 | `<기종>Adapter.kt` |
+| **13** | 기종 프로파일 작성: 어휘 거리 분석에서 `YES`로 판정된 스킬만 선언 | `profile/profiles/<기종>.json` |
+| **14** | 모듈 문서 작성: 계약 적합성 요약 및 거리 문서 링크 명시 | `README.md` |
+
+---
 
 ## 파일 일곱
 
-네 어댑터가 **전부** 가진 것이다. 하나라도 빠지면 `AdapterTemplateTest` 가 잡는다.
+모든 어댑터 모듈은 아래 7개 구성 파일을 예외 없이 구비해야 합니다 (`AdapterTemplateTest` 검증):
 
 - `README.md`
 - `build.gradle.kts`
@@ -47,34 +41,22 @@ Open-RMF 의 `fleet_adapter_template` 이 `# IMPLEMENT YOUR CODE HERE #` 로 같
 - `…AdapterTest.kt`
 - `…VendorSurfaceTest.kt`
 
+---
+
 ## 반드시 채우는 여덟
 
-`RobotAdapter` 에 기본 구현이 **없는** 것들이다. 채우지 않으면 컴파일되지 않는다.
+`RobotAdapter` 인터페이스에서 기본 구현이 제공되지 않으며 반드시 구체화해야 하는 메서드입니다:
 
 `state` · `accept` · `poll` · `pause` · `cancel` · `hold` · `faults` · `knownSiteNames`
 
-## 안 채워도 되는 일곱 — 그리고 그것이 요점이다
+---
+
+## 안 채워도 되는 일곱
+
+벤더 API의 미지원 가능성을 고려하여 '미지원/거절'을 기본값으로 제공하는 메서드입니다:
 
 `resume` · `update` · `retry` · `progress` · `failure` · `result` · `robotSoftware`
 
-★**기본값은 *없다* 이지 *된다* 가 아니다.** 벤더에 그 프리미티브가 없는 것이 흔해서 기본 구현이
-있는 것이고, **그대로 두는 것이 정직한 선택인 경우가 많다.** 재개·재시도는 조사한 셋 중 아무도
-안 들고, 진행률은 지어낼 수 있는 유일한 값이라 기본이 *못 잰다* 다. 억지로 채우면 상류가 보는
-숫자에 근거가 없어진다.
+명확한 벤더 API 근거 없이 진행률이나 재시도를 무리하게 구현할 경우 상류 시스템에 허위 완료 및 비정상 진행률을 전달할 위험이 있으므로, 미지원 시 기본값을 유지하는 것이 권장됩니다.
 
-## 베끼지 말 것 — 기종의 사정이 따라온다
-
-| 남의 어댑터에 있는 것 | 그 기종만의 사정 |
-|---|---|
-| 권한 게이트(`link.privilege`) | Digit 은 권한을 잃으면 로봇이 리셋된다 |
-| 리스 상태 판정 | Spot 에만 기계적 근거(`LeaseUseResult.Status`)가 있다 |
-| FSM 기대값 검사 | G1 이 명령을 받고도 그 모드에 없을 수 있다 |
-| 시계로 종착 적기 | `execution_scope` 가 `COMMAND`·`NONE` 인 기종에서만 옳다 |
-
-## 이 골격이 못 하는 것
-
-**컴파일 안 된다.** 타입이 맞는지는 붙여 넣고 돌려 봐야 안다. 시험이 지키는 것은 *면의 자리가
-빠짐없이 있는가* 까지이고, 그 자리를 **어떻게** 채웠는지는 안 본다 — 거리 문서의 `adapter_must_own`
-과 같은 한계다.
-
-> 마지막 대조: 2026-09-11 · sha256:48771dddad24 · 열림: §15.6
+> 마지막 대조: 2026-09-15 · sha256:87fe48bf8ec7 · 열림: §15.6

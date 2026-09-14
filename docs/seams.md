@@ -1,135 +1,112 @@
-# 교체 지점 — 실물로 바꾸려면 어디를 고치나
+# 컴포넌트 교체 지점(Seams) 명세서 — 실물 전환 및 확장 가이드
 
-이 저장소는 상대가 아직 없는 자리가 많다. 상류도 설비도 플릿도 로봇도 진짜가 아니다
-([`verification.md`](verification.md)). **그래서 중요한 것은 "지금 진짜냐" 가 아니라 "진짜로 바꿀 때 어디를
-고치고, 무엇을 안 고쳐도 되느냐" 다.** 이 문서가 그 자리를 하나씩 센다.
+본 문서는 `picasso` 미들웨어 아키텍처에서 모의 대역(Mock/Mimic)을 실제 공장 설비, 상위 시스템, 실물 로봇 기체 및 통신 인프라로 전환하기 위한 **9대 핵심 교체 지점(Seams)**의 인터페이스 규격과 수정 범위를 정의합니다.
+
+구간별 현행 검증 수준은 [`verification.md`](verification.md)를 참조하십시오.
 
 ---
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/seams.dark.svg">
-  <img alt="교체 지점 아홉을 한 줄에 하나씩 세운 표. 맨 위 칸이 미들웨어 코어 여섯 모듈이고 아래 아홉 어디에도 그 여섯이 없다. 자리마다 면(인터페이스)·바꾸려면 할 일·그때 그대로 두는 것·그 면이 사는 모듈이 적혀 있다." src="diagrams/seams.svg">
+  <img alt="9대 교체 지점 아키텍처 다이어그램. 최상단 미들웨어 코어 계층과 하단 9개 교체 지점의 인터페이스, 실물 전환 시 작업 대상, 불변 유지 대상 및 대상 모듈이 정의되어 있습니다." src="diagrams/seams.svg">
 </picture>
 
-## 이 자리들이 왜 진짜 교체 지점인가
+## 교체 가능성의 아키텍처적 보증
 
-**포트는 본체에 있고 대역은 시험에 있다.** `CellSignals`·`AmrFleetPort`·`RobotPort` 는
-`picasso/src/main` 에 있고, 그것을 채우는 `CellMimic`·`AmrFleetMimic` 은 `picasso/src/test` 에 있다 —
-**본체는 대역의 존재를 모른다.** 대역을 지워도 본체가 컴파일된다. 그것이 교체 가능성의 구조적 증거이고,
-문서의 주장이 아니라 빌드의 사실이다.
-
-**그리고 자리마다 독립이다.** 설비를 실물로 바꿔도 로봇·플릿·상류는 안 건드린다 — 아홉 자리가 서로를
-모른다. 하나를 바꾸는 비용이 다른 여덟과 무관한 것이 이 배치의 값이다.
+- **포트와 대역의 모듈 레벨 분리**:
+  - `CellSignals`, `AmrFleetPort`, `RobotPort` 등의 인터페이스(포트)는 `picasso/src/main`에 정의되어 있으며, 이를 구현하는 테스트 더블(`CellMimic`, `AmrFleetMimic` 등)은 `picasso/src/test`에 완전히 격리되어 있습니다.
+  - 코어 엔진은 모의 대역의 존재를 전혀 참조하지 않으며, 테스트 대역을 삭제하더라도 본체 코드는 정상 컴파일됩니다.
+- **교체 지점 간의 완전한 독립성**:
+  - 9개 교체 지점은 상호 결합되어 있지 않으므로, 특정 지점(예: PLC 설비 신호)을 실물로 교체할 때 다른 지점(로봇 어댑터, 상위 MES 연계 등)의 코드를 수정할 필요가 없습니다.
 
 ---
 
-## 자리 아홉
+## 9대 교체 지점 상세 명세
 
-### 1. 상류(MES·WMS·SCADA) → picasso
+### 1. 상위 시스템 연계 (MES·WMS·SCADA → picasso)
 
-**★여기만 인터페이스가 아니다.** 상류의 교체 지점은 `Middleware` 의 **공개 API** 다 —
-`submit(JobOrder, robotId)` · `pump()` · `pending()` · `ack(jobResponseId)` · `resolve(…)` · `cancel(…)` ·
-`release(…)`.
+상위 시스템과의 연계 지점은 별도 인터페이스가 아닌 `Middleware` 클래스의 **공개 API**로 제공됩니다:
+- 주요 메서드: `submit(JobOrder, robotId)`, `pump()`, `pending()`, `ack(jobResponseId)`, `resolve(...)`, `cancel(...)`, `release(...)`
 
-**바꾸려면**: 상류 프로토콜(OPC UA · REST · 메시지 큐)을 받는 **인바운드 ACL** 을 짜서 그 API 를 부른다.
-`JobOrder` 로 옮기는 것이 ACL 의 일이고, `JobResponse` 를 상류의 말로 되옮기는 것도 그쪽이다.
+- **실물 전환 작업**:
+  - 상위 통신 프로토콜(OPC UA, REST, Kafka, MQTT 등)을 수신하는 **인바운드 ACL(Anti-Corruption Layer)**을 구현하여 본 공개 API를 호출합니다.
+  - 상류 데이터 포맷과 미들웨어의 `JobOrder` / `JobResponse` 간 상호 변환은 ACL 계층이 전담합니다.
+- **불변 유지 대상**: `picasso` 내부 코어 전체 (논리적 능력, 오케스트레이션 엔진, 3대 포트).
+- **포트 인터페이스를 별도 정의하지 않은 이유**: 현시점에서 상류 소비자는 통합 테스트뿐이며, 실제 상위 시스템 요구사항 없이 추상 인터페이스를 사전 발명하는 것은 ADR 9(소비자 존재 원칙)에 위배되기 때문입니다.
 
-**안 고치는 것**: `picasso` 안쪽 전부. 능력·엔진·포트 셋.
+### 2. 현장 설비 센서 신호 (PLC/WCS)
 
-**왜 포트가 없나**: 지금 상류의 소비자는 시험뿐이다. 인터페이스를 미리 뽑으면 **소비자 없는 선언**이 되고
-그것은 ADR 9 가 막는 것이다. 실제 상류가 하나 생기는 날 그 모양을 보고 뽑는다.
+**인터페이스**: `CellSignals.observe(location): SlotSignal?` (null 반환 시 '신호 없음'으로 처리)
 
-### 2. 설비 신호(PLC/WCS)
+- **실물 전환 작업**:
+  - 현장 PLC의 OPC UA 노드 또는 무전압 I/O 접점 상태를 폴링하여 `SlotSignal(identity, observedAt, latched)` 객체로 변환하는 구현체를 제공합니다.
+  - 설비 신호 폴링 주기 및 하드웨어 래치 정책은 현장 환경에 맞춰 구현하며, 시간창 δ는 논리적 능력 파라미터로 설정합니다.
+- **불변 유지 대상**: 근거 결합 엔진 규칙 전체 (시간창 판정, 센서 재확인, `UNVERIFIED`, `VERIFICATION_MISMATCH` 처리 로직).
 
-**인터페이스**: `CellSignals.observe(location): SlotSignal?` — 널은 *신호 없음* 이다.
-
-**바꾸려면**: OPC UA 태그나 무전압 접점을 읽어 `SlotSignal(identity, observedAt, latched)` 로 옮기는 구현
-하나. **폴링 주기와 래치는 그쪽 사정**이고, 시간창 δ 는 능력 단위 설정이 정한다.
-
-**안 고치는 것**: 근거 결합 규칙 전부 — 시간창·재확인·`UNVERIFIED`·`VERIFICATION_MISMATCH` 는 엔진에 있다.
-
-### 3. AMR 플릿
+### 3. AMR 플릿 관리 시스템
 
 **인터페이스**: `AmrFleetPort{executionLookup, dispatch(TransportOrder), status(handle), cancel(handle)}`
-+ 아무것도 안 하는 `None`.
+(기본 Null 구현체: `None`)
 
-**바꾸려면**: 벤더 플릿 API 를 그 넷에 옮긴다. ★**`TransportState` 의 뜻을 그대로 지켜야 한다** —
-`DELIVERED` 는 *도착 ∧ 하역 ∧ 인수 ∧ 미보유* 이고, 벤더의 "도착" 을 여기에 그냥 연결하면
-*"도착했는데 아직 싣고 있다"* 가 완료로 보인다.
+- **실물 전환 작업**:
+  - 상용 AMR 플릿 관리자(Fleet Manager) API를 호출하는 어댑터 클래스를 구현하여 본 인터페이스를 충족시킵니다.
+  - `TransportState`의 시맨틱 계약을 엄격히 준수해야 합니다. `DELIVERED` 상태는 *[목적지 도착 ∧ 하역 완료 ∧ 인계 승인 ∧ 기체 미보유]* 조건을 모두 만족해야 하며, 단순 "도착" 신호를 성급히 매핑해서는 안 됩니다.
+- **불변 유지 대상**: E1→E2 근거 결합 모델, 작업 인계 대기, 작업 취소 정리 규칙.
 
-**안 고치는 것**: E1→E2 결합, 인계 대기, 취소의 정리 규칙.
+### 4. 로봇 인터페이스 계약 — 소비자 영역
 
-### 4. 로봇 계약 — 소비자 쪽
+**인터페이스**: `RobotPort{capabilities, start, watch, cancel, snapshot, replay, executionLookup}` (실물 배선은 ClientRobotPort(gRPC))
 
-**인터페이스**: `RobotPort{capabilities, start, watch, cancel, snapshot, replay, executionLookup}`.
-실물 배선은 `ClientRobotPort`(gRPC).
+- **실물 전환 작업**:
+  - 기본적으로 gRPC 기반 `ClientRobotPort`가 제공되므로 추가 수정이 불필요합니다.
+  - 테스트 시 결함 주입을 위해 `LossyRobotPort` 또는 `ProgressPort`와 같은 테스트 더블을 교체 연결할 수 있습니다.
+- **불변 유지 대상**: `picasso` 엔진 및 상위 소비 로직 전체.
 
-**바꾸려면**: 거의 안 바꾼다. 이미 실물 배선이 기본값이고, 바꾸는 것은 **테스트 더블을 끼울 때**다
-(`LossyRobotPort`·`ProgressPort` 가 그 예다).
+### 5. 로봇 인터페이스 계약 — 발신자 영역 (호스팅 런타임)
 
-**안 고치는 것**: 전부.
+계약 인터페이스 배후의 런타임 구현체를 교체하는 지점입니다. `MimicServer`(프로파일 기반 에뮬레이터)와 `AdapterHost`(실물 어댑터 호스팅 서버)가 상호 대체 가능합니다. 소비자는 통신 엔드포인트 URL만 변경합니다.
 
-### 5. 로봇 계약 — 발신자 쪽
+**인터페이스**: `RobotAdapter` — 호스트 서버가 로봇 어댑터를 구동하기 위한 표준 인터페이스 (ADR 39)
 
-**교체 지점**: 계약 뒤에 무엇이 서는가. `MimicServer`(프로파일이 모는 에뮬레이터) ↔
-`AdapterHost`(실물 어댑터). **소비자는 엔드포인트만 바꾼다.**
+- **실물 전환 작업**:
+  - 배포 환경에 따라 실행 프로세스를 `mimic` 또는 `adapter-host`로 선택 실행합니다. (예: `OrbitLauncher`)
+- **불변 유지 대상**: 상위 클라이언트 코드 일체 (`HostParityTest`를 통해 두 실행체의 거동 동등성 보증).
 
-**인터페이스**: `RobotAdapter` — 호스트가 어댑터를 보는 면이다(ADR 39). **발신자를 바꾸는 것과 기종을
-더하는 것은 다른 자리다** — 미믹은 이 면을 안 쓰고 프로파일이 곧 거동이다.
+### 6. 어댑터 사우스바운드 — 벤더 API 연동
 
-**바꾸려면**: 배치가 어느 프로세스를 띄우는지만 다르다. `OrbitLauncher` 가 그 조립의 예다.
+**인터페이스**: `SpotLink` · `DigitLink` · `G1Link` · `OrbitLink` (각 기종별 모듈 내 격리 정의, ADR 33)
 
-**안 고치는 것**: 소비자 코드 전부. 그 주장을 `HostParityTest` 가 밖에서 확인한다.
+- **실물 전환 작업**:
+  - 벤더사 공식 SDK 또는 통신 라이브러리를 연동하여 해당 기종의 Link 인터페이스를 구현합니다. (현재 Orbit의 경우 HTTP REST 기반 `OrbitHttpLink` 실구현 포함)
+  - 벤더 SDK는 저장소에 직접 커밋하지 않는 원칙을 준수합니다.
+- **불변 유지 대상**: 상위 계약, 어댑터 호스트, 미들웨어 코어 및 타 기종 어댑터. 구현체 내의 `@VendorSurface` 선언은 매니페스트 대조 검증을 받습니다.
 
-### 6. 어댑터 남쪽 — 벤더 링크
+### 7. 메시지 발행 인프라 (MQTT)
 
-**인터페이스**: `SpotLink` · `DigitLink` · `G1Link` · `OrbitLink`. 기종마다 하나이고 **그 모듈 안에서만
-산다**(ADR 33).
+**인터페이스**: `Publisher.publish(Publication)`
 
-**바꾸려면**: 벤더 SDK 를 물고 그 인터페이스를 구현한다. 지금 넷 중 **Orbit 만 실물 구현이 있다**
-(`OrbitHttpLink` — HTTP 라 SDK 를 안 들여도 된다). 나머지 셋은 인터페이스뿐이고 구현은 시험의 가짜다 —
-벤더 원문을 저장소에 안 들이는 규칙이 막는다.
+- **발행 대상**: `NONE`(미발행), `RecordingPublisher`(테스트용), `MqttPublisher`(Paho 기반 실물 MQTT 브로커 연동).
+- **데코레이터 파이프라인**: 전송 결함을 주입하는 `TransportFaults`와 원장 적재를 분기하는 `IngestBridge`가 동일한 인터페이스를 래핑하여 동작합니다.
+- **실물 전환 작업**: 현장 MQTT 브로커 연결 정보(호스트, 포트, 인증 정보)를 주입하여 `MqttPublisher`를 활성화합니다.
+- **불변 유지 대상**: 토픽 명명 체계, 헤더 시퀀스 규격, 재생 링 버퍼 및 세션 관리 로직.
 
-**안 고치는 것**: 계약 · 호스트 · 미들웨어 · 다른 기종. **그리고 `@VendorSurface` 인용이 그대로 검사받는다**
-— 새 구현이 원문에 없는 벤더 심볼을 짚으면 매니페스트 대조가 잡는다.
+### 8. 운영 원장 적재 (Ingest)
 
-★**범위를 넘겨 읽지 말 것.** 검사에 드는 타입은 **시험이 손으로 적은 목록**이라 새 타입을 목록에 안 넣으면
-안 본다. 그리고 *이름이 있다는 것* 만 보지 그 메시지를 보냈을 때 로봇이 무엇을 하는지는 안 본다(C-3).
-한계 넷이 `VendorManifest` 의 KDoc 에 적혀 있다.
+**인터페이스 넷**: `HandshakeReporter` · `TaskObservations` · `LivenessObservations` · `RobotDiscovery`
+(적재 실패 시 `FailedObservations` 파일 폴백 지원)
 
-### 7. 발행(MQTT)
+- **실물 전환 작업**:
+  - REST API 기반의 표준 HTTP 적재 클라이언트(`Http*`)가 기구현되어 있으므로, 레지스트리 서버 엔드포인트 및 인증 토큰을 구성합니다.
+  - MQTT 브로커 구독 기반 비동기 적재 연동 시에도 `ObservationService` 입력 계약(`MessageHeader`)이 기확립되어 있어 즉시 통합 가능합니다.
+- **불변 유지 대상**: 관측 데이터 수집 및 상태 분류 파이프라인.
 
-**인터페이스**: `Publisher.publish(Publication)`. **목적지가 셋이다** — `NONE`(아무 데도 안 보냄) ·
-`RecordingPublisher`(시험) · **`MqttPublisher`(실물, Paho)**. 그 앞에 **감싸는 것이 둘 더 있다** —
-`TransportFaults`(전송 결함 주입)와 `IngestBridge`(적재로 갈라 보냄). 둘 다 같은 면을 구현하므로
-*구현이 셋* 이 아니라 **목적지가 셋**이다.
+### 9. 기종 프로파일 제공자 (Profile Source)
 
-**바꾸려면**: 이미 실물이 있다. 브로커 주소만 준다.
+**인터페이스**: `ProfileSource.load(path)` (로컬 파일 시스템 로드), `RegistrySource.binding(robotId)` (운영 레지스트리 원격 풀링)
 
-**안 고치는 것**: 토픽 형식 · 헤더 열 · 재생 버퍼 · 세션 규칙.
-
-### 8. 원장 적재
-
-**인터페이스 넷**: `HandshakeReporter` · `TaskObservations` · `LivenessObservations` · `RobotDiscovery`.
-실패한 것은 `FailedObservations` 로 **파일 폴백**에 남는다.
-
-**바꾸려면**: HTTP 구현이 이미 있다(`Http*`). 주소와 적재 토큰을 준다.
-
-★**아직 없는 것**: 발행을 **구독해서** 원장에 넣는 쪽. 지금 적재는 발신자가 in-process 로 민다.
-브로커 구독기가 `ObservationService` 를 부르면 닫히고, **그 경계는 입력이 `MessageHeader` 라 이미 열려 있다**.
-
-### 9. 프로파일 출처
-
-**인터페이스**: `ProfileSource.load(path)` (파일) · `RegistrySource.binding(robotId)` (레지스트리에서 **당김**).
-
-**바꾸려면**: 이미 둘 다 있다. 뒤엣것을 무는 것은 **하네스**다(`Harness.kt` 가 `registrySource` 를 받는다).
-
-★**`mimic --registry <url>` 은 이 자리가 아니다.** 그것이 만드는 것은 `RegistryLink` — 핸드셰이크와
-태스크를 원장으로 **미는** 쪽이고 방향이 반대다. 미믹 CLI 의 `RobotRegistry` 는 `RegistrySource.NONE` 에
-머문다.
-
-**안 고치는 것**: 엔진. **레지스트리가 미믹에게 밀지 않는다**(§3.2) — 밀면 원장이 런타임 의존이 되고
-레지스트리가 죽는 날 로봇이 멈춘다.
+- **실물 전환 작업**:
+  - 독립 실행 시 로컬 파일 소스를 사용하고, 중앙 운영 환경에서는 레지스트리 풀링 소스를 바인딩합니다.
+- **불변 유지 대상**: 프로파일 파싱 모델 및 검증 엔진. 레지스트리가 클라이언트에 푸시하지 않고 클라이언트가 풀링함으로써 단방향 결합도를 유지합니다 (§3.2).
 
 ---
 
@@ -153,9 +130,6 @@
 | 프로파일 — 파일 | `ProfileSource` | `mimic/src/main/kotlin/dev/picasso/mimic/profile/ProfileSource.kt` |
 | 프로파일 — 원장 | `RegistrySource` | `mimic/src/main/kotlin/dev/picasso/mimic/RegistrySource.kt` |
 
-**이 표는 시험이 지킨다** — `DocumentClaimsTest` 가 각 줄의 타입이 그 파일에 실재하는지 본다. 이름을 바꾸거나
-파일을 옮기면 빌드가 빨개진다.
+> **검증 보증:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
 
-**상류는 이 표에 없다.** 인터페이스가 아니라 `Middleware` 의 공개 API 이기 때문이고, 그 이유는 위 1 번에 있다.
-
-> 마지막 대조: 2026-09-11 · sha256:ffc32566ad94 · 열림: §15.125, §15.34, C-3, §15.5
+> 마지막 대조: 2026-09-15 · sha256:bc16671c5f9e · 열림: §15.125, §15.34, C-3, §15.5

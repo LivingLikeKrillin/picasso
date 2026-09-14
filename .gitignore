@@ -9,3 +9,5 @@ build/
 # 적는 자리다 — 둘 다 git add -A 에 걸리면 안 된다. CLAUDE.md 는 저장소의 것이라 추적한다.
 .claude/
 CLAUDE.local.md
+__pycache__/
+*.pyc

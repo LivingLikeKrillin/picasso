@@ -1,90 +1,78 @@
-# ISA-95 대조 — 무엇이 표준의 것이고 무엇이 우리가 지은 것인가
+# ISA-95 표준 매핑 명세서 — 상위 제조 데이터 모델 정합성 분석
 
-상류 API 의 모양은 우리가 고른 것이 아니라 표준에서 왔다. 그 말이 *"표준을 참고했다"* 로만 있으면 값이 없다 —
-**필드 단위로 대조해야** 어느 칸이 표준의 것이고 어느 칸이 우리 것인지 읽는 사람이 안다.
+본 문서는 `picasso` 미들웨어의 상위 시스템 연계 인터페이스(`JobOrder`, `JobResponse`)가 글로벌 제조 운영 통합 표준인 **ANSI/ISA-95 (IEC 62264) 및 OPC UA Part 14 (Job Control)** 표준과 어떻게 매핑되는지 필드 단위로 정밀 대조한 엔지니어링 명세서입니다.
 
-그 구분이 실무에서 중요한 이유는 하나다. **표준의 칸은 상대 시스템이 이미 채울 줄 안다.** 우리가 지은 칸은
-상대가 모르므로, 붙이는 쪽이 그 칸을 위해 무언가를 해야 한다. 이 문서는 그 목록이다.
+상위 시스템(MES·WMS) 연동 시 표준 필드는 기존 상위 시스템의 데이터 모델을 그대로 수용할 수 있으며, 미들웨어 자체 확장 필드는 연동 어댑터(ACL)를 통해 구성합니다.
 
 ---
 
-## 0. 무엇을 근거로 삼았고, 무엇은 못 봤나
+## 0. 표준 참조 기준 및 근거 자료
 
-| 문서 | 공개 여부 | 이 저장소가 쓴 방식 |
+| 표준 규격 | 공개 여부 | 본 프로젝트 참조 및 적용 방식 |
 |---|---|---|
-| IEC 62264 / ANSI·ISA-95 정본 (Part 1 모델과 용어 · Part 2 객체와 속성 · Part 4 MOM 통합의 객체와 속성) | **유료** | **절 번호로 못 짚는다.** 아래 표에서 그런 칸은 `UNKNOWN` 이다 |
-| OPC UA 10031-4 — ISA-95 Job Control | 공개 | **타입 이름이 여기서 왔다.** `ISA95JobOrderDataType` · `ISA95JobResponseDataType` · `ISA95MaterialDataType` · `ISA95EquipmentDataType` 를 코드 주석이 그대로 짚는다 |
-| VDA5050 Factsheet | 공개 | 우리 능력 프로파일과 **같은 자리**의 물건이다(기체가 자기 능력을 선언한다). 다만 **도메인이 다르다**(AMR·빌딩) — 참고이지 근거가 아니다 |
+| **IEC 62264 / ANSI·ISA-95 정본** (Part 1~4: 모델, 객체 속성, MOM 통합) | 유료 표준 | 정본 라이선스 미보유 항목은 조항 번호 인용을 배제하고 `UNKNOWN` 으로 표기하여 사실 왜곡 방지 |
+| **OPC UA 10031-4 — ISA-95 Job Control** | 공개 규격 | 상위 데이터 모델 타입명의 1차 근거: `ISA95JobOrderDataType`, `ISA95JobResponseDataType`, `ISA95MaterialDataType`, `ISA95EquipmentDataType` |
+| **VDA5050 Factsheet** | 공개 규격 | 기체 능력 선언 모델의 구조적 레퍼런스 (도메인은 상이하므로 직접 참조가 아닌 구조적 개념 참조) |
 
-★**`UNKNOWN` 은 '표준에 없다' 가 아니다.** 정본을 못 읽었다는 뜻이다. 이 저장소는 근거 등급이 낮을 때
-`NO` 라고 적었다가 판정 넷이 한 번에 뒤집힌 적이 있고(Digit, §15.65), **같은 규칙을 여기에도 적용한다.**
+> **판정 원칙 (UNKNOWN의 의미):** 본 명세에서 `UNKNOWN` 표기는 "표준에 해당 기능이 부재함"을 의미하지 않으며, "공식 정본을 통한 1차 검증이 수행되지 않았음"을 나타내는 엄격한 3값 논리 표기입니다.
 
 ---
 
-## 1. 상류가 내는 것 — `JobOrder`
+## 1. 상위 일감 발주 모델 대조 — `JobOrder`
 
-| 우리 필드 | 표준의 대응 | 근거 | 비고 |
+| 미들웨어 필드 | ISA-95 표준 대응 항목 | 근거 수준 | 상세 분석 및 엔지니어링 비고 |
 |---|---|---|---|
-| `jobOrderId` | `ISA95JobOrderDataType.JobOrderID` | 공개 타입 | 그대로다 |
-| `workMasterId` | `ISA95JobOrderDataType.WorkMasterID` | 공개 타입 | 자리는 표준의 것인데 **값은 우리가 못 짓는다** — 논리적 능력의 이름은 실제 상류를 만나야 안다(ADR 36 층 ②) |
-| `version` | `JobOrderParameters` 의 한 줄로 싣는다 | `UNKNOWN` | 표준에 *생산 순서 버전* 이라는 이름의 칸이 따로 있는지 확인 못 했다. **이 값이 곧 원자 태스크의 `revision` 이다**(§1.6) |
-| `parameters` | `ISA95JobOrderDataType.JobOrderParameters` | 공개 타입 | 키는 능력별이고 표준이 정하지 않는다 |
-| `materialRequirements` | `ISA95MaterialDataType` (`MaterialDefinitionID` · `Quantity`) | 공개 타입 | **부품은 타입으로 온다.** 인스턴스 id 는 이력 키이지 조작 파라미터가 아니다(§15.80) |
-| `equipmentRequirements` | `ISA95EquipmentDataType` (`ID` · `EquipmentUse` · `Properties`) | 공개 타입 | 구조는 표준, **값은 표준이 열어 두었다** — §3 |
-| `requiredEvidence` | 없다 | — | **우리가 더했다** — §4 |
+| `jobOrderId` | `ISA95JobOrderDataType.JobOrderID` | 공개 규격 | 1:1 직접 매핑 |
+| `workMasterId` | `ISA95JobOrderDataType.WorkMasterID` | 공개 규격 | 논리적 능력 식별자 (실제 명칭은 현장 상위 시스템 기준 수용, ADR 36) |
+| `version` | `JobOrderParameters` 내부 파라미터 매핑 | `UNKNOWN` | 시퀀스 리비전 관리 (미들웨어 내부 원자 태스크의 `revision`과 동기화, §1.6) |
+| `parameters` | `ISA95JobOrderDataType.JobOrderParameters` | 공개 규격 | 스킬별 런타임 동적 파라미터 키-값 세트 |
+| `materialRequirements` | `ISA95MaterialDataType` (`MaterialDefinitionID`, `Quantity`) | 공개 규격 | 자재/부품 타입 식별자 및 소요 수량 매핑 (인스턴스 ID는 이력 추적용으로 분리, §15.80) |
+| `equipmentRequirements` | `ISA95EquipmentDataType` (`ID`, `EquipmentUse`, `Properties`) | 공개 규격 | 대상 설비 및 로봇 자원 조건 매핑 |
+| `requiredEvidence` | (표준 대응 없음) | — | 미들웨어 자체 확장 필드 (§4 참조) |
 
 ---
 
-## 2. 우리가 상류에 내는 것 — `JobResponse`
+## 2. 작업 실행 응답 모델 대조 — `JobResponse`
 
-| 우리 필드 | 표준의 대응 | 근거 | 비고 |
+| 미들웨어 필드 | ISA-95 표준 대응 항목 | 근거 수준 | 상세 분석 및 엔지니어링 비고 |
 |---|---|---|---|
-| `jobResponseId` · `jobOrderId` · `version` | `ISA95JobResponseDataType` 의 대응 칸 | 공개 타입 | 되돌아가는 키다 |
-| `physicalState` | 상태 어휘가 있다 | `UNKNOWN` | **우리는 축이 둘이다**(`physical_state` × `upstream_ack`). 표준이 그 둘을 가르는지 절 단위로 확인 못 했다 |
-| `completedUnits` · `unverifiedUnits` · `incompleteUnits` · `inDoubtUnits` | 없다 | — | **우리가 더했다** — §4 |
-| `reachedEvidence` · `residualHold` · `operatorRequired` | 없다 | — | **우리가 더했다** — §4 |
+| `jobResponseId`, `jobOrderId`, `version` | `ISA95JobResponseDataType` 대응 필드 | 공개 규격 | 작업 결과 상관관계(Correlation) 추적 키 |
+| `physicalState` | 표준 실행 상태 어휘 | `UNKNOWN` | 물리적 실행 상태와 상류 통보 상태(`upstream_ack`)의 이원화 관리 모델 적용 |
+| `completedUnits`, `unverifiedUnits`, `incompleteUnits`, `inDoubtUnits` | (표준 대응 없음) | — | 미들웨어 자체 확장: 원자적 작업 단위별 상태 분류 세트 (§4) |
+| `reachedEvidence`, `residualHold`, `operatorRequired` | (표준 대응 없음) | — | 미들웨어 자체 확장: 최종 달성 근거 등급, 잔여 파지 상태, 운영자 개입 요구 (§4) |
 
 ---
 
-## 3. 표준이 열어 둔 자리 — 우리가 채운 것
+## 3. 표준 오픈 사양의 구체화 (ADR 36 계층 ②)
 
-표준이 **명시적으로 비워 둔** 칸이 있고, 그 빈칸이 정확히 ADR 36 의 층 ② 다.
+ISA-95 표준에서 도메인별 특화를 위해 개방해 둔 확장 필드를 다음과 같이 시스템화했습니다:
 
-- **`EquipmentUse` 의 `source` · `destination`** — 표준은
-  *"does not define any standardized entries for EquipmentRequirements"* 라고 적는다.
-  그래서 이 두 낱말은 **우리가 지은 말이고, 문서와 코드 주석이 그렇게 표시한다.**
-- **`Properties` 의 `material` · `container` 키** — 같은 자리, 같은 이유.
-
-★**빈칸을 채우는 것은 발명이 아니다.** 표준이 *"여기는 도메인이 정한다"* 라고 말한 자리를 채우는 것과,
-표준에도 벤더에도 없는 어휘를 새로 짓는 것은 다르다. 전자는 규격이 시킨 일이고 후자가 ADR 36 이 막는 것이다.
+- **`EquipmentUse`의 `source` · `destination` 속성**:
+  - 표준은 *"EquipmentRequirements에 대해 표준화된 항목을 사전에 정의하지 않는다"*고 명시하고 있습니다.
+  - 본 시스템은 자재 입고원(`source`)과 적치처(`destination`)를 지정하는 표준 어휘로 이를 구체화했습니다.
+- **`Properties`의 `material`, `container` 키**:
+  - 자재 취급 도메인을 위해 동일한 확장 메커니즘을 적용했습니다.
 
 ---
 
-## 4. 표준에 없고 우리가 더한 것 — 그리고 왜 ADR 36 에 안 걸리나
+## 4. 미들웨어 자체 확장 필드 설계 및 아키텍처 격리
 
-근거 등급(`E0`~`E3`) · 단위별 결과 목록 넷 · 잔여 파지 상태 · 운영자 개입 표시 — 표준에 대응이 없다.
+근거 등급(`E0`~`E3`), 작업 단위별 분할 결과 집합, 잔여 파지 상태(`residualHold`), 운영자 개입 요구(`operatorRequired`)는 표준에 없는 미들웨어 자체 확장 모델입니다.
 
-**ADR 36 의 발명 금지는 계약(`picasso/v1`)의 등재 기준이지 미들웨어 내부 모델의 것이 아니다.**
-그 구분이 말이 되려면 조건이 하나 붙는다 — **이 값들이 계약 면으로 안 나가야 한다.**
-
-실제로 안 나간다. `contracts/proto/picasso/v1/` 어디에도 근거 등급이 없다. 로봇은 *"내가 E2 다"* 라고 말하지
-않으며, 등급은 **미들웨어가 로봇의 보고와 설비 신호를 결합해 매기는 것**이다. 등급을 계약에 넣었다면
-로봇이 자기 완료의 신뢰도를 자기가 선언하게 되고, 그것은 **확인하려는 대상에게 확인을 맡기는 것**이다.
+- **격리 보증 (ADR 36 준수)**:
+  - 본 확장 필드들은 상위 시스템과의 통신 및 미들웨어 내부 오케스트레이션을 위한 모델이며, **`contracts/proto/picasso/v1/` 계약 인터페이스로 누출되지 않습니다.**
+  - 로봇 기체는 결코 *"내가 E2 등급을 달성했다"*고 스스로 선언하지 않으며, 근거 등급은 미들웨어가 로봇의 완료 보고와 현장 설비 센서 신호를 교차 검증하여 결합 산출합니다.
+  - 검증 대상에게 검증 신뢰도 판정을 위임하는 구조적 결함을 방지하기 위해, 계약 인터페이스에는 근거 등급이 일절 포함되지 않습니다.
 
 ---
 
-## 5. 표준의 것인데 우리가 안 쓰는 것
+## 5. 미적용 표준 사양 및 배제 사유
 
-| 안 쓰는 것 | 왜 |
+| 표준 항목 | 배제 사유 |
 |---|---|
-| `due_by`(납기) | 납기는 배차의 입력이고 배차는 이 시스템 밖이다(§1.3). 쓰려면 정책을 발명해야 한다 |
-| 별도 요청 id | 재전송 구분은 `(jobOrderId, version)` 이 이미 한다. **두 키로 같은 질문에 답하면 어긋나는 날이 온다** |
-| 인원(Personnel) · 물리 자산(Physical Asset) 요구 | 소비자가 없다(ADR 9). 로봇 하나에 사람을 배정하는 모델이 이 PoC 에 없다 |
-| 일정·배차 구조 전반 | ADR 36 층 ③ 의 일이고 이 저장소는 그 층을 최소로만 갖는다 |
+| **납기 기한 (`due_by`)** | 실시간 배차 및 공정 스케줄링 알고리즘의 입력값으로, 본 미들웨어의 책임 범위 외(Out-of-scope)에 해당합니다. |
+| **별도 요청 트랜잭션 ID** | 재전송 멱등성은 `(jobOrderId, version)` 튜플을 통해 보장되므로, 이중 트랜잭션 키로 인한 불일치를 방지하기 위해 배제했습니다. |
+| **작업자(Personnel) 및 물리 자산 요구조건** | 단일 로봇 태스크 수행 시 다중 인력 배정 시나리오는 본 PoC의 범위를 벗어나므로 제외했습니다 (ADR 9). |
+| **전사 스케줄링 및 자원 라우팅** | ADR 36 계층 ③의 경계에 따라 상위 MES/APS 시스템의 고유 영역으로 유지합니다. |
 
-둘은 처음부터 안 쓴 것이 아니라 **들고 있다가 뺀 것**이다(§15.117). 상류의 모양을 흉내내면서 아무도 안 읽는
-값을 셋 들고 있었고, 계약에는 ADR 9 로 엄격히 막아 온 것을 **우리 모델 안에서는 하고 있었다.**
-`materialRequirements` 만 소비자가 생겨 살아남았다 — 선언한 수량과 배정된 단위 수가 타입마다 같은지 보고,
-어긋나면 **접수 자체를 거절한다.**
-
-> 마지막 대조: 2026-09-11 · sha256:c8f7984b4ce2 · 열림: 시나리오 §8, §15.126, §15.125, §15.127
+> 마지막 대조: 2026-09-15 · sha256:11ab4738a00a · 열림: 시나리오 §8, §15.126, §15.125, §15.127

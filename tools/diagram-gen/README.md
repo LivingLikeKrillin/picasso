@@ -1,19 +1,37 @@
-# 그림 생성기 — 폭을 인자로 받는다
+# 다이어그램 자동 생성기 (Diagram Generation Tooling)
 
-```
-node tools/diagram-gen/<이름>.mjs docs/diagrams/<이름>.svg 1000   # 저장소 (docs/*.md 열 1012)
-node tools/diagram-gen/<이름>.mjs <다른경로>/<이름>.svg 1180    # 더 넓은 열에 쓸 때
-```
+아키텍처 문서 및 기술 블로그에 사용되는 벡터 다이어그램(SVG)을 생성하기 위한 Node.js 스크립트 도구입니다. 렌더링 폭(width)을 인자로 받아 목적에 맞게 크기를 조정합니다.
 
-**왜 생성기인가.** 같은 그림이 두 폭으로 필요할 수 있고, 손으로 두 벌 두면 어느 날 한쪽만 고쳐진다.
-넓은 캔버스를 저장소에 그대로 넣으면 글자가 바닥(9.5px) 밑으로 내려가므로 복사로는 안 된다.
+```bash
+# 저장소 기술 문서용 SVG 생성 (열 폭 1012px 기준)
+node tools/diagram-gen/<다이어그램이름>.mjs docs/diagrams/<다이어그램이름>.svg 1000
 
-다시 뽑은 뒤에는 **반드시** 둘을 돌린다.
-
-```
-node ~/.claude/skills/arch-diagram/scripts/validate-svg.mjs docs/diagrams/<이름>.svg --column 1012
-node docs/diagrams/make-dark.mjs docs/diagrams/<이름>.svg
+# 외부 블로그/발표용 SVG 생성 (열 폭 1180px 기준)
+node tools/diagram-gen/<다이어그램이름>.mjs <대상경로>/<다이어그램이름>.svg 1180
 ```
 
-★**검증기가 못 잡는 것이 있다.** 설명한 선을 안 그린 것, 라벨을 정의만 하고 안 그린 것 — 둘 다
-`task-states` 를 옮기다 실제로 냈고 렌더를 눈으로 보고서야 잡혔다(§15.119 · §15.140). 뽑았으면 본다.
+---
+
+## 1. 생성기 도입 배경
+
+단일 다이어그램 소스로부터 문서 환경과 블로그 환경에 최적화된 복수 해상도의 이미지를 일관되게 생성하기 위함입니다. 수동 편집 시 폰트 크기 왜곡이나 텍스트 클리핑이 발생할 수 있으므로 스크립트를 통해 프로그래밍 방식으로 배치합니다.
+
+---
+
+## 2. 생성 후 후처리 및 정합성 검증
+
+다이어그램을 재생성한 후에는 반드시 다음 후처리 스크립트를 순차 실행하여 다크 모드 파생 및 SVG 유효성을 검증합니다:
+
+```bash
+# SVG 유효성 및 텍스트 폰트 검증
+node ~/.claude/skills/arch-diagram/scripts/validate-svg.mjs docs/diagrams/<다이어그램이름>.svg --column 1012
+
+# 다크 모드 전용 SVG 자동 생성
+node docs/diagrams/make-dark.mjs docs/diagrams/<다이어그램이름>.svg
+```
+
+---
+
+## 3. 렌더링 육안 검토 주의 사항
+
+정적 검증기는 레이아웃 문법만을 검증하므로, 텍스트 라벨 누락이나 상태 전이 화살표 연결 오류(§15.119, §15.140)와 같은 시맨틱 오류는 검증하지 못합니다. 다이어그램 생성 후에는 반드시 렌더링 결과를 육안으로 검토해야 합니다.
