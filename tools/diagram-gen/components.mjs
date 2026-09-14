@@ -105,11 +105,11 @@ o.push(r(M, SND_Y, IW, SND_H, laneFill, laneStroke, 10));
 o.push(t(M + 16, SND_Y + 22, '발신자 및 실행 계층 (Senders & Execution: 계약 구현체)', { size: 10.5, weight: 700, fill: faint, ls: 1 }));
 const sx = M + 16, sw = IW - 32;
 o.push(r(sx, SND_Y + 32, sw, 44, '#ffffff', border, 4));
-o.push(t(sx + 14, SND_Y + 50, '공유 컴포넌트', { size: 10, weight: 700, fill: faint, ls: 0.5 }));
-o.push(t(sx + 14, SND_Y + 66, '에뮬레이터 및 어댑터 공용 참조', { size: 9.5, fill: faint }));
+o.push(t(sx + 14, SND_Y + 50, '공용 모듈', { size: 10, weight: 700, fill: faint, ls: 0.5 }));
+o.push(t(sx + 14, SND_Y + 66, '공통 참조', { size: 9.5, fill: faint }));
 [['capability', '프로파일 → Capability 투영 및 기능 협상 엔진 (전송 계층 독립)'],
  ['uplink', '원격 측정 브로커 전송 및 레지스트리 상태 보고']].forEach(([n, d], i) => {
-  const x = sx + 110 + i * ((sw - 124) / 2);
+  const x = sx + 120 + i * ((sw - 134) / 2);
   o.push(t(x, SND_Y + 52, n, { size: 12, weight: 600, fill: ink }));
   o.push(t(x, SND_Y + 67, d, { size: 9.5, fill: muted }));
 });
@@ -132,9 +132,9 @@ o.push(t(hx + tw / 2, ty + 27, 'adapter-host', { size: 14, weight: 600, fill: in
 o.push(t(hx + tw / 2, ty + 45, '단일 어댑터를 표준 gRPC 서비스로 호스팅 (기종 비종속 런타임)', { size: 10, fill: muted, anchor: 'middle' }));
 o.push(r(hx + 16, ty + 56, tw - 32, 58, okFill, ok, 5));
 o.push(t(hx + tw / 2, ty + 73, '기종별 벤더 어댑터 (4종) — 기종 전용 의존성 격리 영역', { size: 10.5, weight: 600, fill: ok, anchor: 'middle' }));
-const aw = (tw - 44) / 4;
+const aw = (tw - 60) / 4;
 VENDOR.forEach((v, i) => {
-  const x = hx + 22 + i * (aw + 4);
+  const x = hx + 24 + i * (aw + 4);
   o.push(r(x, ty + 82, aw, 22, '#ffffff', ok, 3));
   o.push(t(x + aw / 2, ty + 97, v.replace('adapter-', '').replace('boston-dynamics-', ''),
     { size: 9.5, fill: ok, anchor: 'middle' }));

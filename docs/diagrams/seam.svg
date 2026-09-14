@@ -18,8 +18,8 @@
   <text x="346" y="254" font-size="12.5" fill="#1f2328" text-anchor="middle">picasso — 미들웨어 코어 오케스트레이터</text>
   <text x="346" y="272" font-size="11" fill="#57606a" text-anchor="middle">정준 도메인 모델 · 트랜잭션 공통 실행 파이프라인</text>
   <rect x="560" y="232" width="248" height="56" rx="10" fill="#eef5ff" stroke="#cfe0f5"/>
-  <text x="576" y="252" font-size="11" font-weight="700" fill="#0969da" letter-spacing="1">CI 정적 검증 (CI Gate)</text>
-  <text x="576" y="272" font-size="11" fill="#57606a">게이트 검사 7 — 공용 코어 모듈 내 기종 심볼 침투 차단</text>
+  <text x="576" y="252" font-size="11" font-weight="700" fill="#0969da" letter-spacing="1">CI 정적 검증</text>
+  <text x="576" y="272" font-size="11" fill="#57606a">검사 7 — 공용 모듈 기종 심볼 금지</text>
   <polyline points="560,260 516,260" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
   <polyline points="346,288 346,352" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="32" y="383" width="104" height="2.5" fill="#1a7f37"/>
@@ -34,14 +34,14 @@
   <polyline points="500,416 500,560 588,560 588,584" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="64" y="488" width="280" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
   <text x="204" y="510" font-size="12.5" fill="#1f2328" text-anchor="middle">adapter-host</text>
-  <text x="204" y="528" font-size="11" fill="#57606a" text-anchor="middle">기종 비종속 런타임 호스트 (ADR 39) · 게이트 검사 7 대상</text>
+  <text x="204" y="528" font-size="11" fill="#57606a" text-anchor="middle">기종 비종속 호스트 (ADR 39) · 검사 7 대상</text>
   <polyline points="204,544 204,584" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="64" y="584" width="280" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
   <text x="204" y="610" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">기종별 전용 어댑터 (4종)</text>
   <text x="204" y="630" font-size="11" font-weight="700" fill="#1a7f37" text-anchor="middle">기종 전용 프로토콜/SDK 격리 영역</text>
   <polyline points="204,648 204,688" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="64" y="688" width="280" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="204" y="710" font-size="12.5" fill="#1f2328" text-anchor="middle">하향 벤더 통신 인터페이스 (Southbound Interface)</text>
+  <text x="204" y="710" font-size="12" fill="#1f2328" text-anchor="middle">하향 벤더 통신 인터페이스 (Southbound)</text>
   <text x="204" y="728" font-size="11" fill="#57606a" text-anchor="middle">Spot · Digit · G1 · Orbit</text>
   <rect x="448" y="584" width="280" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
   <text x="588" y="610" font-size="12.5" fill="#1f2328" text-anchor="middle">mimic — 프로파일 주도 가상화 에뮬레이터</text>
