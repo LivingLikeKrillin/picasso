@@ -1,29 +1,32 @@
-# picasso — 이기종 로봇 표준 I/F 계약과 운영 변경 체계
+# picasso — 이기종 로봇 표준 인터페이스 계약 및 운영 변경 체계
 
 [![ci](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml/badge.svg)](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-이기종 모바일 로봇(휴머노이드·4족보행)을 공장 운영 시스템에 연계할 때 필요한 **표준 I/F 계약**을 정의하고, 그 계약을 **실물 없이 검증할 수 있는 상대**(`mimic`)를 만들고, **운영 중 변경을 계산 가능하게** 만든다.
+공장 운영 시스템(MES·WMS)과 이기종 모바일 로봇(휴머노이드 및 4족보행 로봇) 간의 **표준 인터페이스 계약(Standard Interface Contract)**을 정의하고, 실물 로봇 없이 계약의 정합성을 검증할 수 있는 **결정론적 에뮬레이터(`mimic`)** 및 **운영 중 변경 파급도 사전 계산 체계**를 제공하는 엔지니어링 미들웨어 PoC 프로젝트입니다.
 
-주장은 둘이고, 둘 다 데모가 아니라 **CI 실패 조건 또는 조작 거부 조건**으로 만들어져 있다.
+본 시스템은 다음 두 가지 핵심 명제를 기반으로 설계되었으며, 단순한 개념 증명이 아닌 **CI 빌드 실패 조건 및 런타임 조작 거부 조건**으로 강제됩니다:
 
-1. **이기종 대응은 코드가 아니라 프로파일 교체여야 한다.**
-2. **운영 변경은 파급을 미리 계산할 수 있어야 한다.** 계산할 수 없으면 모든 변경이 도박이고, 도박이면 아무도 변경하지 않게 되어 시스템이 굳는다.
+1. **이기종 대응은 코드 수정이 아닌 프로파일(Profile) 교체로 달성되어야 한다.**
+2. **운영 변경은 파급 영향도를 사전에 정량적으로 계산할 수 있어야 한다.** 변경 파급을 계산할 수 없으면 변경 리스크가 극대화되어 시스템 확장이 불가능해집니다.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/seam.dark.svg">
-  <img alt="계약 하나가 이음매다. 상류·picasso·contracts·adapter-host 는 기종을 모르고 게이트 검사 7이 그것을 CI 실패 조건으로 막는다. 계약 아래에는 기종을 아는 어댑터 넷과, 프로파일 한 장으로 도는 mimic 이 같은 자리에 꽂힌다." src="docs/diagrams/seam.svg">
+  <img alt="단일 계약 인터페이스가 핵심 이음매 역할을 수행합니다. 상류 시스템·picasso·contracts·adapter-host는 기종별 종속성을 갖지 않으며 게이트 검사 7이 이를 CI 실패 조건으로 강제합니다. 계약 하위 계층에는 기종별 어댑터 넷과, 단일 프로파일로 구동되는 mimic이 동일한 위치에 플러그인됩니다." src="docs/diagrams/seam.svg">
 </picture>
 
-**기종 이름이 사는 곳은 맨 아래 한 층뿐이다.** 그 위는 상류부터 어댑터 호스트까지 전부 기종을 모르고, 게이트 검사 7이
-공용 여덟 모듈의 소스를 훑어 그것을 **CI 실패 조건**으로 지킨다. 계약 아래는 갈아 끼워진다 — 기종 어댑터 넷이 서는
-자리에 `mimic` 이 그대로 서고, 둘이 같은 요구에 같은 답을 내는 것을 `HostParityTest` 가 밖에서 확인한다.
+**기종별 식별자와 종속성은 최하위 어댑터 계층에만 격리됩니다.** 상류 연계 계층부터 어댑터 호스트(Adapter Host)까지의 전 계층은 특정 기종에 대한 의존성을 갖지 않으며, 게이트 검사 7번이 공용 모듈의 소스코드를 정적 분석하여 기종 종속성 누출을 **CI 실패 조건**으로 차단합니다. 계약 하위 계층은 상호 호환 가능한 구조로 설계되어, 실물 기종 어댑터 넷이 배치되는 위치에 프로파일 주도 에뮬레이터인 `mimic`을 동일하게 바인딩할 수 있으며, `HostParityTest`를 통해 동일한 요청 사양에 대해 상호 동등한 응답을 보장합니다.
 
-조직 원리 하나 — **추가는 안전하고 삭제는 위험하다.** 운영 변경 규칙 전부가 이 비대칭에서 나온다.
+**운영 변경 원칙 (비대칭성)**: 시스템 변경 통제는 *"신규 엔티티 추가는 안전하고, 기존 엔티티 삭제·수정은 잠재적 위험을 내포한다"*는 비대칭성 원리에 기초합니다.
 
-정본은 [설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md)다. 이 README 는 그 문서로 가는 입구이며, 둘이 어긋나면 설계 문서가 맞다.
+> **설계 정본:** 아키텍처 및 상세 명세의 정본은 [공식 설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md)입니다. 본 README는 입문 개요이며, 상충하는 내용이 있을 경우 설계 문서를 우선합니다.
 
-## 무엇이 있나
+## 시스템 모듈 구성
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/components.dark.svg">
+  <img alt="16개 모듈을 역할별 영역으로 구분한 아키텍처 다이어그램. 중심에 계약 어휘 둘(contracts · profile-model)이 위치하며 각각 13개와 7개 모듈에서 참조합니다. 상단은 소비자 영역(picasso · client), 하단은 발신자 영역(mimic · adapter-host)으로 구성되며, adapter-host 내부에 기종 어댑터 넷과 adapter-core가 포함됩니다. 최하단에는 테스트 하네스(harness)와 레지스트리(registry ← gate)가 위치합니다." src="docs/diagrams/components.svg">
+</picture>
 
 ```
 contracts/                proto. 스킬·태스크·이벤트·결함. 프로젝트 내 의존 0
@@ -60,103 +63,82 @@ docs/environment-preconditions.md
 docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플릿 관리 API)
 ```
 
-의존 규칙과 각 모듈의 책임은 설계 §3 에 있고, **출하 의존의 전체 표는 [`docs/architecture.md` §4b](docs/architecture.md)** 가 든다 — 그 표는 빌드 파일에서 읽어 대므로 의존이 바뀌면 빨개진다.
+모듈 간 의존성 규칙과 상세 책임은 설계 문서 §3 및 [`docs/architecture.md` §4b](docs/architecture.md)의 배포 의존성 매트릭스에 정의되어 있으며, 이는 빌드 정의와 직접 대조 검증됩니다.
 
-요점 둘 — **`contracts/` 는 프로젝트 내 의존이 0** 이고, **기종 어댑터 셋은 `adapter-core` 와 `contracts` 뿐**이다. ★넷째인 `adapter-boston-dynamics-orbit` 만 다섯을 든다 — 기체가 아니라 **플릿에 붙고 배치 런처가 계약 서버를 세우기 때문**이다(ADR 37·39).
+- **`contracts/` 모듈의 내부 프로젝트 의존성은 0**입니다.
+- 기종별 단일 기체 어댑터 셋(`adapter-unitree-g1`, `adapter-boston-dynamics-spot`, `adapter-agility-digit`)은 오직 `adapter-core`와 `contracts`에만 의존합니다.
+- 플릿 관리 시스템에 연계되는 `adapter-boston-dynamics-orbit`은 배치 런처 및 서비스 호스팅 구조를 포함하여 5개 모듈에 의존합니다. (ADR 37·39)
 
-## 어떻게 돌아가나
+## 핵심 동작 메커니즘
 
-**계약.** 명령과 질의는 gRPC, 발행(상태·이벤트·연결)은 MQTT 다. 태스크는 `(task_id, revision)` 으로 멱등하고, 생명주기에 취소·일시정지·재시도·복구 실패·래치 위반·제어권 상실이 들어 있고, 갱신마다 **로봇이 무엇을 들고 있는지**(`hold`)를 나른다 — 실물 조사에서 나온 것들이다. 계약은 **값이나 제약을 담지 않는다.** 그것은 프로파일의 몫이다.
+- **인터페이스 계약 (Contracts)**: 명령/질의는 gRPC, 상태/이벤트/연결 스트리밍은 MQTT를 사용합니다. 태스크는 `(task_id, revision)` 튜플로 멱등성을 보장하며, 수명주기 상태 전이와 파지 상태(`hold`) 갱신을 전달합니다. 계약은 특정 도메인 수치나 파라미터 제약조건을 하드코딩하지 않으며, 이는 프로파일에 위임합니다.
+- **기종 프로파일 (Profile)**: 각 로봇 기종의 지원 역량을 선언하는 JSON 스펙 문서입니다. 기능 지원 여부는 3값 논리(`YES`, `NO`, `UNKNOWN`)를 채택하여, 명확히 입증되지 않은 사양을 `NO`로 단정하여 발생하는 정보 왜곡을 방지합니다.
+- **품질 및 아키텍처 게이트 (Gate)**: 계약 스펙과 프로파일 간의 불일치 시 PR 병합을 차단합니다. 검사 여덟이 있고 CI 와 `registry` 가 기준선만 달리해 같은 코드를 부른다. 네거티브 테스트 케이스는 코드가 아닌 데이터 기반으로 관리됩니다.
+- **프로파일 에뮬레이터 (Mimic)**: 기종 프로파일을 로드하여 계약 인터페이스를 에뮬레이션합니다. 시드(Seed)와 가상 클록(Virtual Clock)을 고정하여 결정론적(Deterministic) 이벤트 시퀀스를 생성하며, 제어 채널을 통해 네트워크 지연·유실·래치 위반 등의 결함을 주입할 수 있습니다.
+- **로봇 어댑터 (Adapter)**: 노스바운드(Northbound)는 표준 계약을 구현하고, 사우스바운드(Southbound)는 벤더 API 포트로 연결됩니다. 벤더 독점 SDK는 저장소에 일절 포함하지 않으며, `@VendorSurface` 어노테이션과 `vendor-manifest.txt` 매니페스트(심볼명 및 SHA-256 해시)를 통해 정합성을 검증합니다. 어댑터가 벤더의 어느 추상화 계층에 연동되든 상위 계약 면에서는 투명해야 합니다.
+- **운영 레지스트리 (Registry)**: Spring Boot 및 PostgreSQL 기반의 서비스 관리 모듈입니다. 개정판 관리, 어댑터 라이프사이클, 의존성 원장, 변경 계획 수립, 사이트 카탈로그 및 진단 표면 열 개를 제공합니다. 환경변수 기반 무상태 구성을 원칙으로 합니다.
 
-**프로파일.** 기종이 무엇을 드는지를 선언하는 JSON 문서. `Support` 가 3값(`YES`/`NO`/`UNKNOWN`)인 것은 *"지원하지 않음"* 과 *"벤더 문서에 근거가 없어 모름"* 을 구분하지 못하면 작성자가 거짓말을 하게 되기 때문이다.
+## 검증 현황 및 한계 관리
 
-**게이트.** 계약과 프로파일이 어긋나면 PR 이 막힌다. 검사 여덟이 있고 CI 와 `registry` 가 기준선만 달리해 같은 코드를 부른다. 음성 케이스는 코드가 아니라 **데이터**로 보관한다.
+저장소 내 대외 문서 47종은 자동화 대조 검증을 완료한 상태입니다. 문서에 명시된 모든 기술적 주장은 자동화 테스트로 증명되거나, [`docs/limits.md`](docs/limits.md)의 미결 항목 대장에 등록되어 추적 관리됩니다. 각 문서 하단의 대조 도장(Hash Stamp)은 본문 내용과 연결되어 있어, `CompletionCriterionTest`를 통해 임의 변경 시 도장 갱신을 요구합니다.
 
-**미믹.** 프로파일을 읽어 계약을 구현한다. 시드와 가상 시계를 고정하면 이벤트 시퀀스가 같다 — 결정성이 시험 규율의 최우선이다. 제어 채널로 전송 결함·침묵·결함·래치 위반을 주입할 수 있다.
+밖을 향한 문서가 드는 열림은 **117** 개이며, 그 상세 목록은 `limits.md`에 명시되어 있습니다. 특히 실물 어댑터가 넷 있다(기체 셋, 플릿 하나). 다만, 어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다(C-3)는 물리적 검증 한계가 존재하며, 이는 SDK 라이선스, JVM 바인딩 부재, 플릿 실기체 인스턴스 부재 등에 기인합니다.
 
-**어댑터.** 북쪽은 계약, 남쪽은 벤더 포트다. **벤더 SDK 는 저장소에 없다** — 라이선스가 막는 기종이 있고, JVM 바인딩이 없는 기종이 있고, 남쪽이 포트라 SDK 없이 컴파일되고 시험이 돈다. 남쪽 포트가 벤더의 무엇을 짚고 있는지는 `@VendorSurface` 로 표시하고, `vendor-manifest.txt`(벤더 원문에서 뽑은 **이름과 해시만**)와 시험이 대조한다. 어댑터가 벤더의 어느 층(플릿 관리자·미션·명령)에 붙든 계약 쪽에서는 보이지 않아야 한다.
-
-**레지스트리.** Spring Boot + PostgreSQL. 개정판과 어댑터의 수명주기, 바인딩, 의존 원장, 변경 계획, 사이트 카탈로그, 진단 표면 열. **`mimic` 도 `harness` 도 모르며**(§4b 의 표가 `contracts`·`gate` 둘뿐임을 댄다) 어느 모듈에도 직접 밀지 않는다. 설정값은 환경변수로만 받는다(`PICASSO_DB_URL`·`PICASSO_DB_USER`·`PICASSO_DB_PASSWORD`·`PICASSO_PROFILE_SCHEMA`) — 기본값을 적으면 그것이 조용히 운영에 쓰인다.
-
-## 어디까지 왔나
-
-**밖을 향한 문서 마흔일곱이 전부 대조를 마쳤다.** 각 문서가 하는 주장은 셋 중 하나다 — 시험이 받치거나,
-[`docs/limits.md`](docs/limits.md) 에 *무엇이 있어야 닫히나* 와 함께 열린 것으로 적혔거나, 지워졌거나.
-셋 중 어느 것도 아닌 문장은 없다. 문서마다 끝에 붙은 **대조 도장**이 본문의 해시와 그 문서가 드는 열림을
-나르고, `CompletionCriterionTest` 가 그것을 댄다 — **문서를 고치면 빌드가 멈추고 도장을 갱신하라고 한다.**
-
-★**끝났다는 것이 열린 것이 없다는 뜻은 아니다.** 밖을 향한 문서가 드는 열림은 **117** 개이고 그 수는
-`limits.md` 가 적는다. 가장 큰 것은 **어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다는 것**(C-3)이며,
-그것은 지어서 닫을 수 없다. 무엇이 왜 열려 있는지가 적혀 있는 것까지가 이 저장소가 할 수 있는 일이다.
+실물 넷이 계약에 얼마나 닿나 확인한 정량 분석 결과는 [`profile/distance/`](profile/distance)에서 확인할 수 있습니다. 계약 개정판은 **0.8.0** 이다.
 
 ## 라이선스
 
-[Apache License 2.0](LICENSE). 벤더 SDK 는 이 저장소에 없다 — 남쪽은 포트이고, 들어온 것은 **이름과
-sha256 뿐**이다(`vendor-manifest.txt`). 벤더 원문의 라이선스는 각 벤더의 것이며 여기 담기지 않는다.
+[Apache License 2.0](LICENSE). 본 저장소에는 특정 벤더의 독점 SDK가 포함되어 있지 않으며, 벤더 API 사양의 심볼명 및 해시 매니페스트(`vendor-manifest.txt`)만을 포함합니다.
 
-## 빌드와 시험
+## 빌드 및 테스트 실행
 
-필요한 것: **JDK 21**, **Docker**(buf 래퍼, Testcontainers 의 PostgreSQL·mosquitto). 전부 Kotlin, Gradle.
+- **필수 환경**: **JDK 21**, **Docker** (buf 래퍼, Testcontainers 기반 PostgreSQL/Mosquitto 실행용), Kotlin/Gradle 환경.
 
 ```bash
 ./gradlew build -Dpicasso.negative.strict=true -Dpicasso.buf="$PWD/tools/buf"
 ```
 
-`gate` 는 `contracts` 에 빌드 의존을 걸지 않고 **디스크립터 바이트**를 런타임 입력으로 읽는다. 그 바이트를 만드는 것은 `protoc`(Gradle) 이고 **런타임 신원(`picasso.desc`)과 같은 파일**이며, `:gate:test` 가 그 태스크에 매달려 있다 — 손으로 먼저 돌릴 명령이 없다. 예전에는 `tools/buf build` 를 손으로 돌려야 했고 **안 돌리면 낡은 디스크립터가 낡은 코드와 사이좋게 초록이었다**(§15.22 → §15.111 에서 닫힘).
+계약 디스크립터(`picasso.desc`)는 Gradle의 `protoc` 태스크를 통해 자동 생성되며, `:gate:test`가 이를 런타임 입력으로 참조하여 구버전 디스크립터 참조로 인한 정합성 왜곡을 원천 방지합니다.
 
-CI 는 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 이 같은 순서로 돌리고, PR 에서는 기준선을 뽑아 파괴 변경 검사(2·6번)와 소스 변경 없는 기종 추가 검사(8번)까지 요구한다.
+CLI 도구 실행:
+```bash
+# mimic 에뮬레이터 실행
+mimic --robot <id>=<profile.json> [--robot ...] --schema <path> [--port 0] [--clock real|virtual] [--seed N]
 
-미믹과 클라이언트는 CLI 다.
-
-```
-mimic  --robot <id>=<profile.json> [--robot ...] --schema <path> [--port 0] [--clock real|virtual] [--seed N]
+# 검증 클라이언트 실행
 client --target <host:port> --robot <id> --requirements <file> --skill <type> [--param k=v ...]
 ```
 
-계약 스위트 자체는 `harness/` 의 시험이며 `./gradlew :harness:test` 로 돈다. 게이트는 `./gradlew :gate:installDist` 뒤 `gate/build/install/gate/bin/gate --repo . ...` 로 부른다 — 인자는 CI 파일이 가장 정확한 예다.
+## 문서 체계 가이드
 
-## 문서 지도
+| 문서 분류 | 대상 문서 및 링크 | 설명 |
+|---|---|---|
+| **검증 신뢰도** | [`docs/verification.md`](docs/verification.md) | 구간별 실물 기체, 실 네트워크, 모의 대역(Mock) 적용 범위 및 검증 수준 정의 |
+| **아키텍처** | [`docs/architecture.md`](docs/architecture.md) | 4단계 어휘 모델(ADR 36), 데이터 흐름, 상태 전이 모델 및 의존성 규칙 |
+| **인터페이스 계약** | [`docs/contract.md`](docs/contract.md) | 계약 진입 게이트 규칙, 지원 범위 한계, 계약 담보 항목 및 1:1 테스트 매핑 |
+| **인터페이스 이음매** | [`docs/seams.md`](docs/seams.md) | 9대 교체 지점(Seam) 명세, 대상 인터페이스 및 실물 전환 가이드 |
+| **어댑터 개발** | [`tools/adapter-template/`](tools/adapter-template/README.md) | 신규 기종 어댑터 구현을 위한 7개 필수 구성 요소 및 템플릿 가이드 |
+| **어휘 거리 측정** | [`docs/vocabulary-distance.md`](docs/vocabulary-distance.md) | 벤더 API 명세와 계약 스킬 간의 어휘 거리 측정 절차 및 유의점 |
+| **상류 표준 연계** | [`docs/isa95.md`](docs/isa95.md) | ISA-95 표준 데이터 모델 매핑 및 미들웨어 계층의 근거 등급 정의 |
+| **현장 시운전** | [`docs/commissioning.md`](docs/commissioning.md) | 마스터 데이터 설정, 10단계 시운전 절차 및 관리 API 표면 명세 |
+| **모듈별 상세 명세** | 모듈별 `README.md` 참조 | 각 모듈의 단일 책임 원칙, 경계 조건, 테스트 항목 명세 ([`contracts`](contracts/README.md) → [`picasso`](picasso/README.md) → [`adapter-host`](adapter-host/README.md)) |
+| **설계 정본 스펙** | [공식 설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md) | 목적, 비목표(Non-goals), 세부 아키텍처, 계약, 프로파일, 변경 관리 종합 사양 |
+| **한계 및 이력** | [설계 문서 §15 알려진 한계](docs/superpowers/specs/2026-09-05-picasso-design.md#15) | 설계 변경 이력 및 누적 정정 기록 |
+| **운영 시나리오** | [`docs/scenarios.md`](docs/scenarios.md) | 공장 3대 시나리오(용기 공급 AMR, 부품 시퀀싱, 설비 점검) 및 완료 증명 체계 |
+| **미들웨어 코어** | [`docs/superpowers/specs/2026-09-09-middleware-core-design.md`](docs/superpowers/specs/2026-09-09-middleware-core-design.md) | 정준 실행 모델, 논리적 능력 정의, 근거 등급 결합 및 장애 전이 모델 |
+| **설계 결정 기록** | [ADR 색인](docs/adr/README.md) | 주요 아키텍처 결정 레코드 (ADR 9, 31, 32, 33, 34, 35, 36, 37, 38, 39 등) |
+| **벤더 인터페이스** | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) | 벤더 API 표면 분석 및 플릿 관리 인터페이스 측정 노트 |
+| **현장 전제조건** | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) | 로봇 도입 현장의 인프라(도어, 바닥, 조명 등) 엔지니어링 전제조건 |
+| **벤더 매니페스트** | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) | 어댑터의 사우스바운드 포트 벤더 심볼 인용 대조 검증 도구 |
+| **미결 과제 대장** | [`docs/limits.md`](docs/limits.md) | 117개 미결 한계 항목 및 해결 조건 관리 대장 |
 
-| 무엇을 알고 싶은가 | 어디 |
-|---|---|
-| **어디까지가 진짜인가** | [`docs/verification.md`](docs/verification.md) — 구간마다 실물·실 와이어·전송 없음·대역을 가르고, **계약을 누가 지었는지**까지 적는다. 이 저장소에서 가장 먼저 읽을 문서 |
-| 경계가 왜 거기에 있나 | [`docs/architecture.md`](docs/architecture.md) — 층 넷, 데이터의 두 방향, 상태기계 둘, 의존 규칙 |
-| **계약이 무엇을 약속하나** | [`docs/contract.md`](docs/contract.md) — 무엇이 이 면에 들어오는가(관문 둘), 무엇이 '아직' 이 아니라 '여기가 아님' 인가, **담보마다 그것을 지키는 시험**, 그리고 어댑터를 쓰기 전에 기종을 재는 절차 |
-| 실물로 바꾸려면 어디를 고치나 | [`docs/seams.md`](docs/seams.md) — 교체 지점 아홉. 자리마다 인터페이스·지금 꽂힌 것·바꾸려면·안 고치는 것 |
-| 새 기종을 어디서 시작하나 | [`tools/adapter-template/`](tools/adapter-template/README.md) — 파일 일곱과 반드시 채우는 여덟. 컴파일은 안 되고 시험이 낡는 것을 막는다 |
-| **벤더 API 를 계약 스킬에 앉히는 법** | [`docs/vocabulary-distance.md`](docs/vocabulary-distance.md) — 순서 아홉과 함정 여섯. 기계가 1 차로 훑을 때의 규칙도 여기 있다 |
-| 상류 모델이 어디서 왔나 | [`docs/isa95.md`](docs/isa95.md) — 필드마다 표준의 것인지 우리가 지은 것인지. 정본이 유료라 못 짚은 칸은 `UNKNOWN` 으로 남긴다 |
-| **현장에 넣고 나서 무엇을 바꾸나** | [`docs/commissioning.md`](docs/commissioning.md) — 마스터 데이터와 런타임을 가르고, 처음 적용하는 순서 열 단계와 **설정 표면 전부**를 적는다 |
-| 모듈 안으로 | **모듈마다 `README.md` 가 있다** — 그 모듈의 규칙 하나 · 경계 · 없는 것 · 어느 시험이 무엇을 증명하나. 시작점은 [`contracts`](contracts/README.md) → [`picasso`](picasso/README.md) → [`adapter-host`](adapter-host/README.md) |
-| 왜 이렇게 지었나, 전부 | [설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md) — §1 목적과 **비목표**, §3 아키텍처, §4 계약, §7 프로파일, §9 운영 변경, §11 게이트 |
-| **무엇이 틀렸었고 무엇이 아직 안 되나** | 설계 문서 **§15 알려진 한계** — 항목을 지우지 않고 정정을 덧쓰는 운행 기록. 뒤집힌 판정에는 취소선과 정정 포인터가 남아 있다 |
-| 일감 셋이 계약의 어디에 닿나 — 그리고 AMR 의 경계 | [`docs/scenarios.md`](docs/scenarios.md) — 용기 공급(AMR, 계약 밖) · 부품 시퀀싱(`pick_place`) · 설비 점검(`inspect`); 완료 세 계층과 근거 등급; 계약이 아직 못 주는 것 다섯 |
-| 미들웨어의 가운데 — 정준 모델과 공통 실행 구조 | [`docs/superpowers/specs/2026-09-09-middleware-core-design.md`](docs/superpowers/specs/2026-09-09-middleware-core-design.md) — 실행 상태 두 축, 논리적 능력, 근거 등급, 정준 실패 분류, 취소 응답, 상류는 예상 소비자(통합 시험이 그 역할) |
-| 내린 결정 | [ADR 색인](docs/adr/README.md) — 특히 9(소비 표면 없는 선언 금지), 31·33(어댑터 소유와 자리), 32(안전 기능은 안 나른다), 34·35(시맨틱 결속의 주인), 36(배정 어휘와 실행 계약을 가른다), 37(등록은 발견 아니면 선언), **38(미션 계층의 스키마와 PoC 엔진은 우리 것)** |
-| 실물 넷이 계약에 얼마나 닿나 | [`profile/distance/`](profile/distance) — 기종별, 스킬별, 근거 등급과 조사 범위 포함 |
-| 벤더가 무엇을 선언하나 | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) |
-| 이 일감을 시키려면 현장에 무엇이 있어야 하나 | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) — 로봇 쓰는 공장·창고를 짓는 쪽이 읽는 제약이자 제안 |
-| 남쪽 포트의 벤더 인용을 어떻게 대조하나 | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) |
-| **지금 무엇이 열려 있나** | [`docs/limits.md`](docs/limits.md) — 한계 대장. 의도적 밖 / 안에서 닫는다 / 밖에서 닫는다 로 갈리고, 열린 것마다 **무엇이 있어야 닫히나** 가 한 줄 |
+## 핵심 엔지니어링 규율
 
-## 지금 상태
+- **3값 논리 준수**: 벤더 1차 자료에서 미확인된 사양은 `NO`가 아닌 `UNKNOWN`으로 선언하여 추정에 의한 왜곡을 방지합니다.
+- **조사 범위 명시**: 벤더 기능 조사는 반드시 분석 대상 API 서비스 범위를 명시(`survey_scope`)해야 합니다.
+- **부재 판정 검증**: 벤더 사양 추출기의 0건 결과는 결함 주입을 통해 도구의 정상 동작 여부를 선행 검증합니다.
+- **벤더 원문 바이너리 격리**: 저장소 내 벤더 소스/SDK를 격리하고 심볼 식별자와 해시만 보관합니다.
+- **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
+- **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-설계 §13 의 네 단계(계약과 게이트 → 미믹·클라이언트·하네스 → 레지스트리 코어 → 원장과 변경 계획)가 구현돼 있고, 그 위에 미들웨어의 가운데(ADR 38)와 어댑터의 북쪽(ADR 39)이 섰다. 실물 어댑터가 넷 있다 — 기체 셋과 **플릿 하나**(발견 경로가 거기서만 실증된다). 계약 개정판은 **0.8.0** 이다.
-
-정직하게 적어 둘 것.
-
-- **어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다.** 이유가 기종마다 다르다 — 라이선스, JVM 바인딩 부재, 공개 시뮬레이터가 저수준만 흉내냄, 그리고 플릿 하나는 붙일 인스턴스가 없음. 어댑터가 검증되는 범위는 계약 쪽 거동까지이며 **적합성 역검증(C-3)은 열려 있다.**
-- **계약은 벤더의 명령 계층이 아니라 그 위에 있다.** 벤더 표면 넷을 재니 계약이 올라탈 층이 달랐고(없음 / 명령 / 미션 / 플릿), 못 닿는 이유는 대부분 **시맨틱 신원**이었다 — 계약은 사이트 이름을 나르고 벤더는 웨이포인트 id·픽셀·3D 점을 받는다. 그래서 ADR 34·35 가 있다.
-- **결과 어휘는 0.6.0 에서 닫혔다** — `Fault.failure_class`(정준 실패 분류 열다섯)와 `Fault.vendor_detail`(벤더 원문, 진단 동반). 벤더 코드를 옮기는 것은 어댑터이고 상류는 분류로만 분기한다. 남은 것은 **발신자가 아직 없는 값 둘**(`PERCEPTION_FAILED`·`GRASP_PLANNING_FAILED` — 벤더는 내지만 우리 어댑터가 그 표면을 아직 안 읽는다)과, 옮김이 맞는지를 **실물에서 확인한 적이 없다**는 것이다.
-- **능력은 기체의 성질이 아니라 (기체 × 현장)의 성질이다**(§15.81). 배정은 *일감이 요구하는 것 / 기체가 제공하는 것 / 현장이 보증하는 것* 의 세 쪽 맞춤이고, 셋째가 지금 계약 어디에도 없다.
-
-## 이 저장소가 지키는 규율
-
-- **근거 등급이 낮으면 `NO` 가 아니라 `UNKNOWN` 이다.** 제3자 래퍼를 근거로 *"없다"* 를 적었다가 판정 넷이 뒤집힌 적이 있다(§15.65).
-- **범위를 먼저 적고 판정한다.** 서비스 54 개 중 3 개만 읽고 잰 적이 있고, 서비스 넷 중 하나만 읽고 잰 적이 있다. 거리 문서의 `survey_scope` 는 그래서 필수다(§15.75·§15.82).
-- **추출기의 침묵을 벤더의 부재로 읽지 않는다.** 새 원문에서 0 개가 나오면 결함 주입으로 도구가 그 파일을 읽는지부터 확인한다. **부재는 벤더의 낱말로 다시 묻는다.**
-- **벤더 원문은 저장소에 들이지 않는다.** 들어오는 것은 이름과 sha256 뿐이다.
-- **결함 주입으로 시험을 시험한다.** 못 잡으면 시험 집합의 구멍이고, 주입이 시끄럽지 않았다면 주입부터 의심한다.
-- **조용히 통과하는 것이 실패하는 것보다 나쁘다.** 게이트가 아무 검사도 안 돌리고 종료코드 0 을 낸 적이 있다. 요구 목록(`--require`)과 strict 음성 하네스가 그 대가다.
-
-> 마지막 대조: 2026-09-11 · sha256:18d34a07e093 · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-15 · sha256:dda00104e9e4 · 열림: C-3, §15.81

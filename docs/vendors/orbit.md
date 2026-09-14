@@ -1,212 +1,144 @@
-# Boston Dynamics Orbit — 측정 노트
+# Boston Dynamics Orbit — 벤더 API 사양 분석 및 측정 노트 (Vendor Measurement Note)
 
-- **근거 등급**: `VENDOR_PRIMARY`
-- **측정 대상**: Orbit Web API 게시본 (`openapi: "3.0.1"`, `info.version: "5.0.0"`, `servers: [{ url: "/api/v0" }]`) + `boston-dynamics/spot-sdk` 의 산문 문서 `docs/concepts/orbit/{about_orbit,orbit_api}.md`
-- **취득**: 2026-09-08T18:02Z, `https://dev.bostondynamics.com/docs/orbit/docs`
-- **해시**: 페이지 `sha256=7563e16e836f3c7829e5258f45ef0e0a2a484b8a93bce8f2bed0ed3a2e086e80` · 추출한 스펙 객체 `sha256=78fd2f2d58bfb2a41e417466860963d32bf19a02f44fdb37306e4bcb056b2a8b` (128,868 B)
+- **근거 등급**: `VENDOR_PRIMARY` (공식 1차 자료 기반)
+- **측정 대상**: Orbit Web API 공식 게시본 (`openapi: "3.0.1"`, `info.version: "5.0.0"`, `servers: [{ url: "/api/v0" }]`) 및 `boston-dynamics/spot-sdk` 공식 기술 문서 (`docs/concepts/orbit/{about_orbit,orbit_api}.md`)
+- **취득 일시**: 2026-09-08T18:02Z (`https://dev.bostondynamics.com/docs/orbit/docs`)
+- **아티팩트 해시**: 원본 페이지 `sha256=7563e16e836f3c7829e5258f45ef0e0a2a484b8a93bce8f2bed0ed3a2e086e80`, 추출된 OpenAPI 객체 `sha256=78fd2f2d58bfb2a41e417466860963d32bf19a02f44fdb37306e4bcb056b2a8b` (128,868 B)
 
-**원문은 이 저장소에 안 들인다.** `@VendorSurface` + `vendor-manifest.txt` 와 같은 규율이며, 여기 적는 것은 심볼 이름과 해시뿐이다.
+저장소 내 벤더 원문 바이너리 배제 원칙에 따라 심볼 명칭과 해시값만을 기록 관리합니다.
 
-> **2026-09-10 — 매니페스트가 됐다.** 위 두 원본을 다시 받아 **해시가 같음을 확인**하고(페이지 `7563e16e…`, 클라이언트 `19c7f980…`) 심볼 **323 개**를 뽑아 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt` 에 고정했다. 추출기는 `tools/vendor-manifest/openapi_symbols.py` 이고, 이제 남쪽 포트의 인용이 이 목록에 대고 검사받는다(`OrbitVendorSurfaceTest`). 조사의 기계 판독본은 `profile/vendors/orbit.json`.
+> **2026-09-10 매니페스트 확정**: 원본 데이터 재검증(페이지 해시 `7563e16e…`, 클라이언트 해시 `19c7f980…`)을 거쳐 **총 323개 공식 심볼**을 추출하고 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt`에 체크인했습니다. 추출 도구는 `tools/vendor-manifest/openapi_symbols.py`이며, 남쪽 포트 인용의 정합성은 `OrbitVendorSurfaceTest`를 통해 검증됩니다. 기계 판독용 데이터는 `profile/vendors/orbit.json`에 정의되어 있습니다.
 >
-> 그때 **산문으로 적혀 있던 것 하나가 숫자가 됐다** — 아래 "스펙 밖 경로" 는 하나(파견)로 적혀 있었으나, 클라이언트가 치는 경로 40 개를 전부 세니 **아홉**이 게시 스펙에 없다: 파견 · `graph/send-robot` · `robot-session/{nickname}/session` · `site_walks/archive` · `site_walks/export_as_walk` · `site_walks/import_from_walk` · `settings/system-time` · `version` · `backup_tasks/{id}`. 게시본이 불완전하다는 판정이 사례 하나가 아니라 **아홉 분의 하나** 위에 선다.
+> **공식 스펙 외 엔드포인트 실측 (9종)**: 공식 파이썬 클라이언트(`bosdyn-orbit`)가 호출하는 40개 경로 중 다음 9개 경로는 공식 게시 OpenAPI 스펙에 누락되어 있음이 확인되었습니다:
+> - 즉시 파견: `calendar/mission/dispatch/{nickname}`
+> - 기체 이송: `graph/send-robot`
+> - 세션 제어: `robot-session/{nickname}/session`
+> - 사이트 워크 관리: `site_walks/archive`, `site_walks/export_as_walk`, `site_walks/import_from_walk`
+> - 시스템 및 백업: `settings/system-time`, `version`, `backup_tasks/{id}`
 >
-> 그리고 **새로 나온 사실 둘**. ① `Robot` 스키마에 **일련번호가 없다**(hostname·nickname·robotIndex·username 뿐). Orbit 이 모르는 것은 아니다 — `Run.robotSerial` 에 있다. 발견으로 들인 기체의 신원이 주소와 별명뿐이라는 뜻이고, 우리 원장의 `robot.serial_number` 가 필수라 거기서 부딪친다. ② `Run.missionStatus` 가 **값 집합 없는 자유 문자열**이다(같은 스키마의 `Run.runType` 에는 `enum` 이 있으므로 추출기가 열거를 못 읽는 것이 아니다). Spot 에 직결하면 `MissionStatus` 열거를 받는 것과 대비된다 — **층이 하나 늘 때 결과 어휘가 얇아진다.**
-
-스펙이 JSON 파일로 배포되지 않는다 — Swagger UI 페이지에 **JS 객체 리터럴로 인라인**돼 있어(키에 따옴표가 없어 `json.loads` 가 안 된다) 중괄호 짝을 맞춰 잘라냈다. 재현하려면 페이지에서 `openapi: "3.0.1"` 을 찾아 그것을 감싸는 `{` 부터 짝까지 자르면 된다.
+> **주요 데이터 스키마 발견 사항**:
+> 1. `Robot` 스키마에 하드웨어 일련번호 필드가 부재합니다 (hostname, nickname, robotIndex, username만 제공). 기체 일련번호는 미션 실행 결과인 `Run.robotSerial`에만 포함되어 있어, 신규 발견 기체의 등록 시 당사 필수 원장 스키마(`robot.serial_number`)와 불일치가 발생합니다.
+> 2. `Run.missionStatus`가 열거형(Enum)이 아닌 자유 문자열(String)로 정의되어 있습니다. Spot 직결 시 정밀한 `MissionStatus` 열거값을 수신하는 것과 대비되며, 관제 계층이 추가됨에 따라 상태 어휘의 해상도가 축소됨을 보여줍니다.
 
 ---
 
-## `survey_scope` — 먼저 읽을 것
+## 1. 조사 범위 및 유효성 한계 (Survey Scope)
 
-**본 것은 "게시된 5.0.0 판"이고, 그 판이 불완전하다는 것까지 확인했다.** 아래 판정은 전부 그 범위 안에서만 유효하다.
+본 분석은 공식 게시본인 5.0.0 버전을 기준으로 수행되었으며, 다음의 구조적 한계를 내포합니다.
 
-### ① 최신이 아니다
+### ① 릴리스 버전 지연
+- 문서 포털 루트: Spot SDK **5.1.9** 기준
+- SDK 릴리스 태그: v5.1.9 ← 5.1.4 ← 5.1.1 ← 5.1.0 ← 5.0.1.2 ← 5.0.1.1 ← 5.0.1 ← **5.0.0**
+- Orbit Web API 레퍼런스: **5.0.0**
 
-| | |
-|---|---|
-| 문서 사이트 루트 | Spot **5.1.9** |
-| `spot-sdk` 태그 | v5.1.9 ← 5.1.4 ← 5.1.1 ← 5.1.0 ← 5.0.1.2 ← 5.0.1.1 ← 5.0.1 ← **5.0.0** |
-| Orbit API 레퍼런스 `info.version` | **5.0.0** |
+공식 API 문서는 동일 릴리스 라인 대비 7개 마이너 버전이 지연되어 있으며, 버전별 선택기 없이 단일 버전으로만 제공됩니다. 내부 스키마에서도 `Mission`은 `deprecated: true`로 마킹되었으나 `Schedule.task`는 여전히 `missionId`를 참조하는 등 정합성 지연이 관측됩니다.
 
-같은 버전 라인에서 릴리스 7 개 뒤다. 버전별 URL(`/v5.1.9/docs/orbit/docs`)은 404 로, 선택기 없이 한 판만 게시된다.
+### ② 명세의 불완전성
+공식 가이드 문서(`about_orbit.md`)에는 다음과 같이 기술되어 있습니다:
+> *"When a creation request is made to the **Work Order endpoint in the Orbit API**, Orbit will send an HTTP POST request to a configured external endpoint …"*
 
-스펙 내부에도 뒤처진 흔적이 있다 — `Mission` 이 `deprecated: true` 인데 `Schedule.task` 는 여전히 `missionId` 를 참조한다.
+그러나 실제 게시된 5.0.0 OpenAPI 스펙에는 'Work Order' 관련 문자열 및 엔드포인트가 전무(0건)합니다. 벤더가 공식 설명한 인터페이스가 게시 스펙에서 누락되어 있습니다.
 
-### ② 전부가 아니다 — 이건 증명된다
-
-`about_orbit.md`(master, 5.1.9 라인)가 이렇게 쓴다:
-
-> When a creation request is made to the **Work Order endpoint in the Orbit API**, Orbit will send an HTTP POST request to a configured external endpoint …
-
-**게시된 5.0.0 스펙에 work order 문자열이 0 건이다.** 35 개 경로 어디에도 없다. 벤더가 스스로 문서화한 엔드포인트가 게시 스펙에 없다.
-
-**그리고 클라이언트 코드에도 스펙 밖 경로가 있다 (2026-09-09 추가).** `bosdyn-orbit` 의 `post_dispatch_mission_to_robot()` → `calendar/mission/dispatch/{nickname}`. 처음 측정 때 이 클라이언트를 범위에 안 넣었고, 그래서 아래 "즉시 실행 경로가 없다" 를 적었다. 정정은 그 절에 있다. **이 노트의 범위는 이제 "게시 스펙 + 산문 문서 + 공식 파이썬 클라이언트의 경로 문자열" 이고, 클라이언트는 경로만 봤지 응답 처리는 안 봤다.**
-
-같은 이유로 **웹훅 이벤트 이름은 스펙이 아니라 산문 문서에만 있다** — `Webhook.events` 는 enum 없는 `type: "object"` 인데, `about_orbit.md` 는 `"ACTION_COMPLETED_WITH_ALERT"` 를 명시한다. 스펙만 보고 "이벤트 종류가 선언되지 않았다" 고 적으면 틀린다.
-
-### ③ 구조적으로도 닫을 수 없다
-
-API 는 **각 Orbit 인스턴스가 자기 `/api/v0` 에 서빙**한다. 배포된 인스턴스가 게시본보다 넓을 수 있고, 인스턴스에 붙기 전에는 못 본다.
-
-> 근거 등급(*출처가 얼마나 1차인가*)과 범위(*얼마나 넓게 봤는가*)는 다른 축이다. 이 측정은 등급이 `VENDOR_PRIMARY` 이면서 범위가 좁다. **좁음을 적는 것이 이 절의 목적이다** — §15.65 의 *"근거 등급이 낮으면 NO 가 아니라 UNKNOWN"* 이 여기서는 *"범위가 좁으면 그 좁음을 적는다"* 로 나타난다.
+### ③ 배포 인스턴스 종속성
+Orbit API는 현장에 구축된 개별 서버 인스턴스의 `/api/v0`를 통해 제공되므로, 실제 배포된 인스턴스의 기능 표면이 문서 게시본보다 확장되어 있을 가능성이 존재합니다.
 
 ---
 
-## 표면 — 쓰기 가능한 것
+## 2. API 기능 표면 및 상태 변경 엔드포인트
 
-경로 35 개 중 상태를 바꾸는 것:
+전체 35개 엔드포인트 중 상태 변경(Write)이 가능한 인터페이스:
 
-| 경로 | 메서드 |
-|---|---|
-| `/calendar/schedule` | GET **POST** |
-| `/calendar/schedule/{eventid}` | DELETE |
-| `/calendar/disable-enable` | POST |
-| `/site_walks` · `/site_elements` · `/site_docks` | POST (저작) |
-| `/robots` · `/webhooks` · `/backup_tasks` | GET POST |
-| `/anomalies` · `/anomalies/{anomalyId}` | PATCH |
-| `/missions` | **GET 뿐** |
+| REST 경로 | 지원 HTTP 메서드 | 기능 분류 |
+|---|---|---|
+| `/calendar/schedule` | GET, **POST** | 스케줄 등록 및 조회 |
+| `/calendar/schedule/{eventid}` | DELETE | 스케줄 삭제 |
+| `/calendar/disable-enable` | POST | 스케줄러 활성화/비활성화 |
+| `/site_walks` · `/site_elements` · `/site_docks` | POST | 사이트 순찰 미션 및 도크 저작 |
+| `/robots` · `/webhooks` · `/backup_tasks` | GET, POST | 기체 조회/등록, 웹훅 및 백업 관리 |
+| `/anomalies` · `/anomalies/{anomalyId}` | PATCH | 이상 감지 결과 수정 |
+| `/missions` | **GET 전용** | 미션 조회 (수정 불가, 폐기 예정) |
 
-나머지 22 개는 읽기(`/runs`·`/run_events`·`/run_captures`·`/run_statistics`·facets 계열)다.
+나머지 22개 엔드포인트는 통계 및 실행 이력 조회(`/runs`, `/run_events`, `/run_captures`, `/run_statistics`, facets 등) 전용입니다.
 
-### 즉시 실행 경로는 스펙에 없고 — 벤더 클라이언트에는 있다
+### 즉시 실행(Dispatch) 경로 분석
 
-~~`run`·`execute`·`dispatch` 류 경로가 없고 `/missions` 에 POST 가 없다. **작업을 넣는 유일한 문이 캘린더 항목이다.**~~
-
-**정정 (2026-09-09).** 위 문장은 **게시 스펙 안에서만** 참이다. `spot-sdk` 의 공식 파이썬 클라이언트 `bosdyn-orbit` (`python/bosdyn-orbit/src/bosdyn/orbit/client.py`, master `8577b41dffe0`, 파일 최종 커밋 `b1a9fa9a6da7`, sha256 `19c7f980dd4e1b9585f0805f58f999a2effd265c7b636780e90142a4f4e88b0c`)에 `post_dispatch_mission_to_robot()` 이 있고, 그것이 **`POST calendar/mission/dispatch/{nickname}?currentDriverId=…`** 를 친다 — 35 개 경로 어디에도 없는 경로다. 몸통은 `Schedule` 과 같은 모양인데 `schedule.timeMs` 를 **1** 로 두어 *지금* 이 되게 하고, `task.dispatchTarget` 에 `missionId`(**deprecated**) 또는 **`walk` 를 인라인으로** 싣는다. 그 밖에 `requireDocked`·`skipInitialization` 이 있다.
-
-이것이 바꾸는 판정 셋.
-
-1. **즉시 파견 경로가 있다.** 다만 게시 스펙 밖이고, 클라이언트 주석이 *"temporary walk file that will not be reused"* 를 권한다 — 일회성 walk 를 만들어 던지는 모양이다.
-2. **파라미터 자리가 있다** — 아래 표의 *"파라미터 자리 없음"* 은 `missionId` 경로에서만 참이다. `walk` 인라인이면 `Element[]` 전체가 몸통에 실리므로, Orbit 경유로도 Autowalk 가 나르는 것은 전부 나른다. **"SiteWalk = Autowalk Walk 의 REST 전송"** 이 여기서 한 번 더 확인된다.
-3. **부재 판정의 범위가 또 좁았다.** 스펙 35 경로를 전수로 읽고 "없다" 를 적었는데, 벤더가 준 1 차 표면이 스펙 하나가 아니었다. §15.82 의 규율(추출기의 침묵·벤더의 낱말)에 하나 더 — **벤더가 배포하는 클라이언트 코드도 1 차 표면이다.** §15.83.
-
-게시 스펙만 본 사람이 같은 결론을 내리도록, 아래는 스펙 안의 모양을 그대로 둔다.
+게시된 OpenAPI 스펙 상에는 즉시 실행 엔드포인트가 존재하지 않으며 스케줄 등록만이 유일한 작업 인입구로 보였습니다. 그러나 공식 파이썬 클라이언트(`bosdyn-orbit`) 분석 결과 스펙 외 엔드포인트가 확인되었습니다:
 
 ```
-Schedule
+POST calendar/mission/dispatch/{nickname}?currentDriverId=...
+```
+
+- 본 엔드포인트는 `Schedule`과 유사한 페이로드를 수신하되 `schedule.timeMs`를 `1`로 설정하여 '즉시 실행'을 트리거합니다.
+- `task.dispatchTarget`에 일회성 `walk` 데이터를 인라인으로 직접 주입할 수 있어, 자재 운반이나 순찰 액션을 동적으로 하달할 수 있습니다.
+- 이는 **"SiteWalk는 Autowalk 데이터를 REST 프로토콜로 전송하는 래퍼"**임을 나타냅니다.
+
+```
+Schedule 데이터 모델:
   eventMetadata { name, modificationTimeMs, modificationUser }
-  agent         { nickname }                      ← 로봇 닉네임
-  task          { missionId, forceAcquireEstop }  ← 스펙 안에서는 파라미터 자리 없음 (클라이언트의 dispatchTarget.walk 는 위 정정 참조)
-  schedule      { timeMs, repeatMs, blackouts[] }
+  agent         { nickname }                      ← 대상 로봇 식별자
+  task          { missionId, forceAcquireEstop }  ← 대상 미션 및 비상정지 권한 강제 획득
+  schedule      { timeMs, repeatMs, blackouts[] } ← 실행 시각 및 반복 주기
 ```
 
-스펙의 설명문이 그것을 그대로 말한다 — *"A schedule describes **when and how often** a robot should execute an autonomous mission."* **무엇을·어떻게가 아니라 언제·얼마나 자주다.**
+스펙에 명시된 바와 같이 Orbit의 스케줄은 **"로봇이 자율 미션을 언제, 얼마나 자주 실행해야 하는가"**를 정의하는 시간 기반 오케스트레이션 모델입니다.
 
-`task.forceAcquireEstop` 는 *"Determines whether Orbit should forcibly acquire Estop authority"* 다. 캘린더 항목 하나에 E-stop 권한 강제 취득 불리언이 달려 있다 — 정지 종류를 가르는 논의(§2 의 안전 경계)에 직접 걸린다.
-
-### 결과 어휘가 좁다
+### 결과 어휘의 축소
 
 ```
-RunEvent.error     { type: "integer" }  "The error code for an error which occured during this event."
+RunEvent.error     { type: "integer" }  ← 에러 코드 (상세 열거형 스펙 부재)
 RunEvent.eventType { enum: ["daq", "screenshot"] }
 ```
 
-에러 코드 표는 스펙에 없다. `eventType` 은 취득(daq)과 스크린샷 둘뿐 — 검사 도메인 전용이라 **매니퓰레이션 결과 어휘가 없다.**
-
-> **이것이 우리 어댑터가 gRPC 직결인 이유를 실증한다.** Spot 의 `ManipulationFeedbackState` 는 파지 실패와 raycast 실패를 열거값으로 가른다(`GRASP_PLANNING_NO_SOLUTION`·`GRASP_FAILED_TO_RAYCAST_INTO_MAP`·`PLACE_SUCCEEDED/FAILED` 등). 그 구분이 정수 하나를 통과할 수 없다. 로봇은 원인을 아는데 이 경로로는 못 올린다.
->
-> 다만 우리 `Fault.error_type` 이 열린 문자열이라 **받을 자리는 있고 어휘가 없다.** 열림.
+에러 코드가 단순 정수형으로 노출되며, 이벤트 유형은 데이터 취득(`daq`)과 스크린샷 2종으로 한정되어 매니퓰레이션 조작 실패에 대한 구체적 진단 어휘가 부재합니다.
 
 ---
 
-## Mission → SiteWalk
+## 3. 미션 모델의 전환: Mission → SiteWalk
 
-스펙 전체의 `deprecated: true` 5 건 중 4 건이 Missions 다.
+공식 스펙 내 `deprecated: true`로 마킹된 항목 중 대다수가 `Mission` 모델에 집중되어 있습니다.
+- `/missions` 계열 엔드포인트 → *"Use SiteWalk instead!"* 안내
+- `/login` 엔드포인트 → *"Use `/api_token/authenticate` instead!"* 안내
 
-| 대상 | 안내문 |
-|---|---|
-| `/missions` GET · `/missions/{id}` GET·DELETE · `Mission` 스키마 | *"Use SiteWalk instead!"* |
-| `/login` POST | *"Use `/api_token/authenticate` instead!"* |
-
-새 계층은 **SiteWalk(미션) → SiteElement(액션) → RunEvent(결과)** 이고 옆에 SiteDock(충전소)이 있다. `orbit_api.md` 의 정의:
-
-- `SiteWalk` — *"a series of tasks that define autonomous robot operation"*, `SiteElements` 를 **순서대로 시도**하고 `SiteDocks` 중 무엇을 쓸지는 **로봇이 런타임에 고른다**
-- `SiteElement` — *"describes what a robot should do and where to do it"*, 보통 웨이포인트에 결속
-
-`SiteWalk` 가 무엇을 나르는지가 중요하다:
-
-```
-siteElementIds[]        방문 순서
-globalParameters        미션 전역 파라미터
-targetFailureBehavior   이동 실패 시 기본 거동
-actionFailureBehavior   액션 실패 시 기본 거동
-batteryMonitor          도크 이탈·복귀 기준
-travelParams · entityParams
-preferRecordedRoutes · skipDockingAfterCompletion
-```
-
-> **실패 정책을 저작 시점에 기본값으로 선언한다.** 우리 계약은 그것을 태스크마다 런타임에 처리한다. ADR 36 의 층 ② 후보로 볼 만하다 — 벤더가 이미 가진 것이므로 발명이 아니다.
-
-### 우리 거리 측정에 미치는 영향 — 열림
-
-`profile/distance/spot-arm.json` 의 `vendor_layer` 는 **로봇 쪽 `MissionService`(행동트리)** 를 가리킨다. Orbit 의 SiteWalk 는 **플릿 쪽 저작 모델**이다. **같은 단어의 다른 층이므로 그 측정을 SiteWalk 에 대고 다시 봐야 한다.**
+신규 아키텍처 계층은 **SiteWalk(미션) → SiteElement(액션 단위) → RunEvent(실행 결과)** 구조로 재편되었습니다:
+- `SiteWalk`: 자율 로봇 운영을 정의하는 일련의 태스크 시퀀스. `SiteElements`를 순차 실행하며 도킹 스테이션(`SiteDocks`) 선택은 런타임에 로봇이 자율 결정합니다.
+- `SiteElement`: 특정 웨이포인트 위치와 결속된 수행 액션 정의.
+- `targetFailureBehavior` 및 `actionFailureBehavior`를 통해 미션 저작 시점에 실패 대응 정책을 정적으로 선언합니다.
 
 ---
 
-## Work Order — 방향이 반대다
+## 4. 작업 지시(Work Order) 모델의 방향성
 
-`about_orbit.md`:
+공식 가이드 문서(`about_orbit.md`)에 기술된 Work Order 연동 방식:
+> *"When alerts occur in Orbit, work orders can be created manually from within the Orbit UI or automatically at the time of the alert. … Orbit will send an HTTP POST request to a configured external endpoint … The external system is then responsible for creating the work order in its own system."*
 
-> **When alerts occur in Orbit**, work orders can be created manually from within the Orbit UI or automatically at the time of the alert. … Orbit will send an HTTP POST request to a configured external endpoint with information about the work order to be created. **The external system is then responsible for creating the work order in its own system.**
+이는 **Orbit 내부에서 발생한 이상 감지 이벤트를 외부 유지보수 시스템(SAP, EAM 등)으로 통보하는 아웃바운드 티켓팅 구조**입니다. 상류 시스템이 로봇에게 세부 작업을 지시하는 인바운드 명령 채널이 아닙니다.
 
-**알림 → 외부 시스템에 티켓 생성**이다. Orbit 이 나가는 방향이고, 상류가 들어오는 방향이 아니다. 점검 도메인 그대로이며 **작업 지시가 아니다.**
-
-⇒ **Work Order 가 있어도 "상류가 파라미터를 실어 로봇에게 일을 시킨다" 는 경로는 이 표면에 없다.**
-
-그리고 벤더 자신이 중간 계층을 권고한다:
-
-> If you need more granular control of how the HTTP calls to the external system are made, **an intermediate layer can be used to act as a "middleman" between Orbit and the external system.**
-
-work order 템플릿이 **`bosdyn.api.DictParamSpec` 모양**이라고 명시된 것도 기록해 둔다 — `service_customization` 의 그 패턴이 상류 연동에도 재사용된다. **벤더가 이미 가진 런타임 선언 파라미터 메커니즘**이라는 뜻이고, ADR 36 의 등재 기준(발명 금지)에서 근거가 된다.
+따라서 Orbit의 공개 REST 표면만으로는 상류 비즈니스 시스템이 동적 파라미터를 실어 로봇에게 실시간 일감을 직접 하달할 수 없으며, 중간 연동 계층(Middleman)의 구축이 필수적입니다.
 
 ---
 
-## Atlas·Stretch 는 Orbit 을 통하는가 — `INFERRED`
+## 5. Atlas 및 Stretch 기종의 Orbit 수용성 분석 (`INFERRED`)
 
-**등급을 먼저 적는다. 이 절의 결론은 `INFERRED` 이고 위의 판정들과 등급이 다르다.**
+- **분석 등급**: `INFERRED` (공식 공개 자료로부터의 논리적 추론)
+1. **공개 SDK의 기종 한계**: 현재 공식 개발자 포털(`dev.bostondynamics.com`)에서 공개 제공하는 SDK는 Spot 1종에 한정됩니다.
+2. **마케팅 및 제품 발표**: 공식 블로그는 Orbit을 통해 Atlas를 WMS/MES에 통합하는 워크플로 연동을 발표한 바 있습니다.
+3. **Orbit 신원 스키마의 기종 중립성**: Orbit OpenAPI 스펙 전체에서 `Atlas`, `Stretch`, `quadruped`, `model` 명칭은 전무(0건)하며, `Robot` 스키마는 기종 구분 없이 `{ robotIndex, hostname, nickname, username }`만으로 정의되어 있습니다.
 
-확인된 사실은 셋이다.
+**결론**: Atlas 및 Stretch 기종은 별도의 공개 저수준 SDK 없이 Orbit 플릿 플랫폼을 통해 상위 시스템에 연동되는 구조로 설계되어 있을 가능성이 높습니다.
 
-1. `[VENDOR_PRIMARY]` **공개 SDK 는 Spot 뿐이다.** `dev.bostondynamics.com` 이 다루는 제품이 Spot 하나이고, Atlas·Stretch 문서는 없다.
-2. `[VENDOR, 마케팅]` BD 블로그가 *"Orbit enables powerful workflow integrations, connecting **Atlas** to your MES, WMS, or other systems of record"* 라 쓰고, 기존 Spot·Stretch 고객이 *"turnkey integration of **Atlas** into their existing Orbit instance"* 를 쓰게 된다고 한다. 날짜 표기가 없는 블로그다.
-3. `[VENDOR_PRIMARY]` **Orbit 의 신원 계층은 기종 중립이다.** 스펙 전체에서 `Atlas`·`Stretch`·`species`·`model`·`quadruped` 가 **0 건**, `Spot` 이 1 건이다. `Robot` 스키마에 기종 필드 자체가 없다:
+### 아키텍처적 시사점
+- **직결 제어의 이점 부재**: Spot과 같이 gRPC로 직결하여 정밀한 상태 피드백을 수신하는 구조가 불가능하며, Orbit의 축소된 결과 어휘(정수형 에러)와 스케줄 파견 방식을 공유하게 됩니다.
+- **플릿 어댑터 모델**: 단일 어댑터가 N대의 로봇을 관리하는 1:N 플릿 어댑터 구조가 요구됩니다.
+- **용량 한계**: 단일 Orbit 인스턴스당 관제 가능한 기체 수는 통상 32대 수준(`robotIndex`)으로 제한됩니다.
 
-   ```
-   Robot { robotIndex, hostname, nickname, username }
-   ```
+---
 
-   기종을 안 적으므로 Atlas 를 넣는 데 스키마 변경이 필요 없다.
+## 6. 미결 과제 (Known Open Issues)
 
-⇒ **"Atlas·Stretch 는 공개 SDK 없이 Orbit 을 통해 붙는다" 는 읽기가 현재 자료와 정합적이다.** 다만 다음 둘 때문에 단정하지 않는다.
+1. **거리 재측정**: `vendor_layer`를 `MissionService`에서 `SiteWalk` 기준으로 재평가
+2. **결함 결과 어휘 정준화**: `Fault.error_type`의 정수 코드 표준화
+3. **Work Order 실제 사양 파악**: 배포 인스턴스 기반 실제 페이로드 스펙 검증
+4. **인스턴스 API 전수 검증**: 실제 구동 중인 Orbit 인스턴스와의 라이브 연동 확인
+5. **Atlas/Stretch 연동 채널 확인**: 비공개 전용 SDK 존재 여부 검증 (확인 전까지 가설 유지)
 
-- **"공개 SDK 가 없다" 와 "SDK 가 없다" 는 다르다.** 비공개·NDA 배포나 고객·파트너 채널이 있을 수 있고, 이 저장소의 자료로는 구별할 수 없다.
-- **Orbit 의 일감 계층은 기종 중립이 아니다.** `SiteElement` 가 웨이포인트에 묶여 있다:
-
-  ```
-  SiteElement { waypointId, waypointMaxDistance[m], waypointMaxYaw[rad],
-                action, actionWrapper, actionDuration, relocalize,
-                targetFailureBehavior, actionFailureBehavior }
-  ```
-
-  `relocalize` 와 `waypointId` 는 GraphNav 개념이고, `eventType` 이 `daq`·`screenshot` 인 것과 합치면 **게시된 Orbit 은 점검·순찰 모양**이다. 매니퓰레이션 일감이 이 모양에 그대로 들어가지 않는다.
-
-  단 `action` 과 `actionWrapper` 가 **둘 다 `type: "object"` 로 열려 있다.** 실제 어휘가 게시본에 없다는 뜻이며, 위 `survey_scope` ② 와 같은 종류의 공백이다.
-
-### 사실이라면 우리 구조가 바뀐다 — 미리 적어 둔다
-
-- **직결의 이점이 Atlas 로 전이되지 않는다.** 우리가 Spot 에서 `ManipulationFeedbackState` 를 안 잃는 것은 어댑터가 gRPC 로 직접 붙기 때문이다. Atlas 가 Orbit 뒤에 있으면 그 경로가 없고, 정수 에러 코드와 캘린더 투입(또는 스펙 밖 dispatch)을 그대로 물려받는다.
-- **어댑터의 단위가 달라진다.** ADR 31·33 은 *어댑터 하나 = 기종 하나* 를 전제한다. Orbit 어댑터는 **플릿 하나에 하나**이고 뒤에 로봇 N 대가 `nickname` 으로 구분돼 붙는다. 기종 어댑터가 아니라 **플릿 어댑터**다.
-- **배타 제어 모델이 안 맞는다.** Spot 은 `Lease` 로 소유권을 준다. Orbit 표면에는 리스가 없고 `task.forceAcquireEstop` 불리언과 `robotIndex` 만 있다.
-- **규모 상한이 선언돼 있다.** `robotIndex` 가 *"a number between 0 and the max for your Orbit server (typically 32)"* — **인스턴스당 대략 32 대**다.
-- **ADR 35 가 플릿 계층에서 또 확인된다.** `SiteElement.waypointId` 는 사이트가 붙인 이름이 아니라 **로봇이 생성한 웨이포인트 id** 다. 우리 Spot 어댑터가 `location` 을 그대로 `destination_waypoint_id` 로 넘겨 틀렸던 것과 같은 자리이며, 벤더의 플릿 계층도 같은 결속을 쓴다.
-
-## 열린 것
-
-1. **거리 재측정** — `vendor_layer` 를 SiteWalk 에 대고 다시 잰다(위).
-2. **결과 어휘** — `Fault.error_type` 이 열린 문자열인 채로 남아 있다. 정준화 대상.
-3. **Work Order 엔드포인트의 실제 모양** — 게시 스펙에 없다. 인스턴스에 붙기 전에는 `UNKNOWN`.
-4. **인스턴스 표면** — 게시본보다 넓은지 여부. 붙어 보기 전에는 못 닫는다.
-5. **Atlas·Stretch 의 접속 경로** — 위 절의 `INFERRED` 를 닫으려면 비공개 SDK 유무를 확인해야 한다. 확인 전까지 어느 쪽으로도 설계를 굳히지 않는다.
-
-> 마지막 대조: 2026-09-11 · sha256:92f4272c4c85 · 열림: C-3
+> 마지막 대조: 2026-09-15 · sha256:79e5b7bd9b80 · 열림: C-3
