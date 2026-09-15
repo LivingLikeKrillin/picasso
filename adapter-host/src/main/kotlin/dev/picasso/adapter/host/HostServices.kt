@@ -20,6 +20,7 @@ import dev.picasso.contracts.v1.PauseTaskRequest
 import dev.picasso.contracts.v1.PauseTaskResponse
 import dev.picasso.contracts.v1.Rejection
 import dev.picasso.contracts.v1.RejectionCode
+import dev.picasso.contracts.v1.Reference
 import dev.picasso.contracts.v1.ReplayEventsRequest
 import dev.picasso.contracts.v1.ReplayEventsResponse
 import dev.picasso.contracts.v1.ResumeTaskRequest
@@ -122,7 +123,7 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
         when (val outcome = robot.start(request.taskId, request.revision, request.skillType, parametersOf(request.parametersList))) {
             is HostedRobot.StartOutcome.Accepted -> builder.setHandle(handleOf(robot, outcome.task))
             is HostedRobot.StartOutcome.Idempotent -> builder.setHandle(handleOf(robot, outcome.task))
-            is HostedRobot.StartOutcome.Rejected -> builder.setRejection(rejection(outcome.code, outcome.detail))
+            is HostedRobot.StartOutcome.Rejected -> builder.setRejection(rejection(outcome.code, outcome.detail, outcome.references))
             is HostedRobot.StartOutcome.Unavailable -> throw outcome.status.asRuntimeException()
         }
         builder.build()
@@ -244,7 +245,8 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
             .build()
 
     private companion object {
-        fun rejection(code: RejectionCode, detail: String): Rejection = Rejection.newBuilder().setCode(code).setDetail(detail).build()
+        fun rejection(code: RejectionCode, detail: String, references: List<Reference> = emptyList()): Rejection =
+            Rejection.newBuilder().setCode(code).setDetail(detail).addAllReferences(references).build()
 
         /** 계약의 값 → 어댑터가 받는 값. 타입은 계약의 oneof 가 정한다. */
         fun parametersOf(values: List<ParameterValue>): Map<String, Any> = values.associate { p ->

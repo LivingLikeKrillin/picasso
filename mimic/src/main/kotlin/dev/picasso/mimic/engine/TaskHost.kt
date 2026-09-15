@@ -1,5 +1,6 @@
 package dev.picasso.mimic.engine
 
+import dev.picasso.capability.PreconditionCheck
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
@@ -111,6 +112,8 @@ sealed interface StartOutcome {
         val code: RejectionCode,
         val detail: String,
         val parameterKeys: List<String> = emptyList(),
+        /** 사전 조건 거절이면 어긴 조건의 주어들 — `KEY_PRECONDITION_SUBJECT` 로 나간다. */
+        val subjects: List<String> = emptyList(),
     ) : StartOutcome
 }
 
@@ -219,6 +222,7 @@ class TaskHost(
         )
 
         validate(skill, parameters)?.let { return it }
+        precondition(skill)?.let { return it }
 
         val task = TaskRuntime(
             pinnedSkill = skill,
@@ -306,6 +310,33 @@ class TaskHost(
             }
         }
     }
+
+    /**
+     * 프로파일이 선언한 사전 조건(설계안 §3) — 접수 전에, 엔진에 닿기 전에. 호스트와 같은 평가기다(§15.100).
+     *
+     * **미믹의 손은 한 쌍이다.** 로봇의 파지는 [handsHold] — **가장 최근에 기록된 쥐는 태스크**의 것이다. 도는
+     * `pick_place` 가 `HOLDING` 이면 든 채고, 복구에 실패해 든 채로 끝났어도 그 뒤 다른 `pick_place` 가 놓고 끝났으면
+     * 빈손이다. 첫 판은 «어느 태스크든 HOLDING 이면 든 채» 로 로그 전체를 훑어, 종착한 옛 태스크의 파지가 뒤의 빈손
+     * 종착을 영원히 가렸다(리뷰 C1). 미믹은 언제나 관측한다: 못 보는 기종이 아니므로 `NOT_OBSERVABLE` 을 내지 않는다.
+     */
+    private fun precondition(skill: SkillDeclaration): StartOutcome.Rejected? {
+        if (skill.preconditionsCount == 0) return null
+        val violations = PreconditionCheck.check(skill, currentHold())
+        if (violations.isEmpty()) return null
+        return StartOutcome.Rejected(
+            RejectionCode.REJECTION_CODE_PRECONDITION_UNMET,
+            PreconditionCheck.rejectionDetail(violations),
+            subjects = PreconditionCheck.subjects(violations),
+        )
+    }
+
+    /** 가장 최근에 기록된 쥐는 태스크의 파지. 아무것도 쥔 적 없으면 빈손이다 — 미믹은 빈손으로 태어난다. */
+    private var handsHold: HoldState = EMPTY_HANDS
+
+    private fun currentHold(): HoldState =
+        // 도는 쥐는 태스크가 든 채면 그것이 먼저다 — 그 뒤에 접수된 다른 쥐는 태스크의 ACCEPTED 기록(빈손)이 덮지 못하게.
+        tasks.values.firstOrNull { !it.machine.state.isTerminal && it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold
+            ?: handsHold
 
     private fun validate(
         skill: SkillDeclaration,
@@ -582,6 +613,8 @@ class TaskHost(
     /** 현재 상태를 로그에 한 줄 적는다. 잔여 물리 상태도 이때 정한다. */
     fun record(task: TaskRuntime): TaskUpdate {
         task.hold = holdOf(task)
+        // 손은 한 쌍이다 — 쥐는 스킬의 기록만이 로봇의 파지를 바꾼다. 참조만 하는 태스크가 끝났다고 든 것이 놓이지 않는다.
+        if (ObjectReferences.grasps(task.skillType)) handsHold = task.hold
         return task.log.record(
             state = task.machine.state,
             revision = task.machine.revision,

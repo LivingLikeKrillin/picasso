@@ -45,17 +45,21 @@ import kotlin.test.assertTrue
 class HostParityTest {
 
     /** 기종이 없는 어댑터 — 협상은 프로파일의 투영에 대고 하므로 어댑터가 무엇을 들든 상관없다. */
-    private class PlainAdapter : RobotAdapter {
+    private class PlainAdapter(
+        private val hold: HoldObservation = HoldObservation.Empty,
+        /** 접수한 태스크가 다음 폴링에서 이 상태로 종착한다 — 호스트는 배타 실행이라(§4.9) 든 채로 끝난 뒤에야 다음 요청이 판정된다. */
+        private val settle: TaskState? = null,
+    ) : RobotAdapter {
         /** 갱신 합성을 드는 기체 노릇 — 셋 중 셋이 든다(§15.109). */
         override fun update(taskId: String, skillType: String, parameters: Map<String, Any>, at: java.time.Instant) = Applied.Ok
 
         override val state: TaskState get() = TaskState.TASK_STATE_UNSPECIFIED
         override fun accept(taskId: String, skillType: String, parameters: Map<String, Any>, startedAt: Instant) =
             Acceptance.Accepted(taskId)
-        override fun poll(now: Instant): TaskState = TaskState.TASK_STATE_RUNNING
+        override fun poll(now: Instant): TaskState = settle ?: TaskState.TASK_STATE_RUNNING
         override fun pause(): Applied = Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "없다")
         override fun cancel(): Applied = Applied.Refused(Refusal.NO_VENDOR_PRIMITIVE, "없다")
-        override fun hold(): HoldObservation = HoldObservation.Empty
+        override fun hold(): HoldObservation = hold
         override fun faults(): FaultObservation = FaultObservation.Observed(emptyList())
         override fun knownSiteNames(): SiteNames = SiteNames.Known(emptyList())
     }
@@ -165,5 +169,66 @@ class HostParityTest {
         const val ROBOT = "r1"
         const val CLIENT = "line-controller"
         val PROFILE: Path = Path.of("..", "profile", "fixtures", "minimal.json").normalize()
+    }
+
+    @Test
+    fun `쥔 채로 보낸 요청을 둘 다 같은 말로 거절한다`() {
+        // 설계안 §3 — 평가기가 `capability` 하나에 있음을 밖에서 확인한다. 미믹은 도는 pick_place 로 HOLDING 이 되고,
+        // 호스트는 앞 태스크가 든 채로 FAILED 로 끝나고(실패는 파지를 바꾸지 않는다) 어댑터가 HOLDING 을 보고한다.
+        // 둘의 거절이 코드·사유·조건 참조까지 같아야 한다.
+        val precond = Path.of("..", "profile", "fixtures", "precondition.json").normalize()
+        val mimic2 = Harness(mapOf(ROBOT to precond))
+        val robot2 = HostedRobot(
+            ROBOT, ProfileDocument.parse("precondition", Files.readString(precond)).getOrThrow(),
+            PlainAdapter(hold = HoldObservation.Holding("SEQ-IN-02.BIN-A"), settle = TaskState.TASK_STATE_FAILED),
+        )
+        val name2 = InProcessServerBuilder.generateName()
+        val host2 = AdapterHost(robot2, InProcessServerBuilder.forName(name2).directExecutor()).start()
+        val channel2: ManagedChannel = InProcessChannelBuilder.forName(name2).directExecutor().build()
+        try {
+            fun pv(k: String, v: String) = ParameterValue.newBuilder().setKey(k).setStringValue(v).build()
+            val pick = listOf(pv("object_id", "SEQ-IN-02.BIN-A"), pv("destination", "RACK-204.S01"))
+            val nav = listOf(pv("location", "RACK-204.S01"))
+            val answers = listOf(mimic2.client(CLIENT), PicassoClient(channel2, CLIENT)).map { client ->
+                client.start(ROBOT, "t-pick", revision = 1, skillType = "pick_place", parameters = pick)
+                val refused = client.start(ROBOT, "t-nav", revision = 1, skillType = "navigate_to", parameters = nav)
+                val r = refused.rejection
+                "${r.code.name}|${r.detail}|" + r.referencesList
+                    .filter { it.key.name == "KEY_PRECONDITION_SUBJECT" }.joinToString { "${it.key.name}=${it.value}" }
+            }
+            assertEquals(answers[0], answers[1], "미믹과 호스트의 사전 조건 거절이 갈렸다")
+            assertTrue(answers[0].startsWith("REJECTION_CODE_PRECONDITION_UNMET|"), "전제가 무너졌다 — 미믹이 거절하지 않는다: ${answers[0]}")
+        } finally {
+            channel2.shutdownNow(); host2.shutdown(); mimic2.close()
+        }
+    }
+
+    @Test
+    fun `도는 pick_place 뒤의 navigate_to 도 둘 다 같은 말로 거절한다`() {
+        // 리뷰 C9 — 호스트는 배타 실행 검사를 사전 조건보다 먼저 두어 «이미 도는 태스크» 로 답했고 미믹은 PRECONDITION_UNMET 로
+        // 답했다. 같은 물리 상태에는 같은 말이어야 한다 — 더 구체적인 쪽(무엇이 걸렸나)이 계약이다.
+        val precond = Path.of("..", "profile", "fixtures", "precondition.json").normalize()
+        val mimic2 = Harness(mapOf(ROBOT to precond))
+        val robot2 = HostedRobot(
+            ROBOT, ProfileDocument.parse("precondition", Files.readString(precond)).getOrThrow(),
+            PlainAdapter(hold = HoldObservation.Holding("SEQ-IN-02.BIN-A")),   // settle 없음 — pick 이 계속 돈다
+        )
+        val name2 = InProcessServerBuilder.generateName()
+        val host2 = AdapterHost(robot2, InProcessServerBuilder.forName(name2).directExecutor()).start()
+        val channel2: ManagedChannel = InProcessChannelBuilder.forName(name2).directExecutor().build()
+        try {
+            fun pv(k: String, v: String) = ParameterValue.newBuilder().setKey(k).setStringValue(v).build()
+            val pick = listOf(pv("object_id", "SEQ-IN-02.BIN-A"), pv("destination", "RACK-204.S01"))
+            val nav = listOf(pv("location", "RACK-204.S01"))
+            val answers = listOf(mimic2.client(CLIENT), PicassoClient(channel2, CLIENT)).map { client ->
+                client.start(ROBOT, "t-pick", revision = 1, skillType = "pick_place", parameters = pick)
+                val r = client.start(ROBOT, "t-nav", revision = 1, skillType = "navigate_to", parameters = nav).rejection
+                "${r.code.name}|${r.detail}|" + r.referencesList.filter { it.key.name == "KEY_PRECONDITION_SUBJECT" }.joinToString { "${it.key.name}=${it.value}" }
+            }
+            assertEquals(answers[0], answers[1], "도는 태스크가 있을 때 미믹과 호스트의 거절이 갈렸다")
+            assertTrue(answers[0].startsWith("REJECTION_CODE_PRECONDITION_UNMET|"), "전제가 무너졌다: ${answers[0]}")
+        } finally {
+            channel2.shutdownNow(); host2.shutdown(); mimic2.close()
+        }
     }
 }
