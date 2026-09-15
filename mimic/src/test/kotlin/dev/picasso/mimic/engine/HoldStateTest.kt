@@ -1,5 +1,7 @@
 package dev.picasso.mimic.engine
 
+import java.nio.file.Path
+import java.nio.file.Files
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.ParameterValue
@@ -226,5 +228,41 @@ class HoldStateTest {
         assertEquals(emptyList(), offenders)
         assertTrue(task.log.from(0).any { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }, "든 적이 없다면 이 시험은 공허하다")
         assertNotEquals(0, task.log.size)
+    }
+
+    // ── 로봇 수준의 파지 (리뷰 C1)
+
+    /** precondition.json — navigate_to 가 HOLD requires EMPTY 를 선언한다 — 에 취소를 켠 것. */
+    private fun preconditionDocument(): ProfileDocument {
+        val raw = Files.readString(Path.of("..", "profile", "fixtures", "precondition.json").normalize()).replace("\r\n", "\n")
+        val needle = "\"cancel_support\": \"NO\""
+        check(raw.split(needle).size == 2) { "픽스처에 cancel_support NO 가 하나가 아니다" }
+        return TaskMachineFixtures.document(raw.replace(needle, "\"cancel_support\": \"YES\""))
+    }
+
+    private fun navParams(): List<ParameterValue> = listOf(TaskMachineFixtures.param("location", "dock-3"))
+
+    @Test
+    fun `든 채로 끝난 옛 태스크가 뒤의 빈손 종착을 가리지 않는다`() {
+        // 로봇의 파지는 «가장 최근에 기록된 쥐는 태스크» 의 것이다 — 손은 한 쌍이다. 복구에 실패해 든 채로 끝난 t1 이
+        // 로그에 남아 있어도, 그 뒤 t2 pick_place 가 놓고 끝났으면 로봇은 빈손이고 navigate_to 는 접수돼야 한다.
+        // 첫 판은 «어느 태스크든 HOLDING 이면 든 채» 로 삽입 순서를 훑어 t1 이 t2 를 영원히 가렸다.
+        val clock = VirtualClock(Instant.EPOCH)
+        val tasks = host(preconditionDocument(), clock)
+
+        val t1 = runningPickPlace(tasks, "t1")
+        cancel(tasks, t1)
+        tasks.forceFault("LOCALIZATION_LOST", "t1")
+        assertEquals(TaskState.CANCELLED_RECOVERY_FAILED, t1.machine.state)
+        assertTrue(tasks.start("nav-0", 1, "navigate_to", navParams()) is StartOutcome.Rejected, "든 채인데 navigate_to 를 받았다")
+
+        val t2 = runningPickPlace(tasks, "t2")
+        clock.advance(Duration.ofMinutes(10))
+        tasks.tick()
+        assertEquals(TaskState.SUCCEEDED, t2.machine.state, "t2 가 소요시간을 채우고도 끝나지 않았다")
+        assertEquals(HoldKind.HOLD_KIND_EMPTY, t2.lastHold().kind)
+
+        val nav = tasks.start("nav-1", 1, "navigate_to", navParams())
+        assertTrue(nav is StartOutcome.Accepted, "옛 태스크의 HOLDING 이 빈손 종착을 가렸다: $nav")
     }
 }

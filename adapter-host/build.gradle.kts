@@ -21,3 +21,11 @@ dependencies {
     // in-process 전송은 포트가 없어서 "포트가 열린 뒤에 ONLINE 이 나가는가" 를 물을 수 없다.
     testImplementation(libs.grpc.netty.shaded)
 }
+
+// 시험이 `profile/fixtures` 를 직접 읽는다(minimal.json · precondition.json). 선언이 없으면 픽스처를 고쳐도
+// :adapter-host:test 가 UP-TO-DATE 로 넘어가 낡은 채 초록이다(CLAUDE.md §2-4, 리뷰 V1).
+tasks.withType<Test>().configureEach {
+    inputs.files(rootProject.file("profile/fixtures"))
+        .withPropertyName("profileInputs")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
