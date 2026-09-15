@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo.dark.png">
+    <img alt="picasso — Heterogeneous Robot Middleware" src="docs/assets/logo.png" width="560">
+  </picture>
+</p>
+
 # picasso — 이기종 로봇 표준 인터페이스 계약 및 운영 변경 체계
 
 [![ci](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml/badge.svg)](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml)
@@ -15,7 +22,7 @@
   <img alt="단일 계약 인터페이스가 핵심 이음매 역할을 수행합니다. 상류 시스템·picasso·contracts·adapter-host는 기종별 종속성을 갖지 않으며 게이트 검사 7이 이를 CI 실패 조건으로 강제합니다. 계약 하위 계층에는 기종별 어댑터 넷과, 단일 프로파일로 구동되는 mimic이 동일한 위치에 플러그인됩니다." src="docs/diagrams/seam.svg">
 </picture>
 
-**기종별 식별자와 종속성은 최하위 어댑터 계층에만 격리됩니다.** 상류 연계 계층부터 어댑터 호스트(Adapter Host)까지의 전 계층은 특정 기종에 대한 의존성을 갖지 않으며, 게이트 검사 7번이 공용 모듈의 소스코드를 정적 분석하여 기종 종속성 누출을 **CI 실패 조건**으로 차단합니다. 계약 하위 계층은 상호 호환 가능한 구조로 설계되어, 실물 기종 어댑터 넷이 배치되는 위치에 프로파일 주도 에뮬레이터인 `mimic`을 동일하게 바인딩할 수 있으며, `HostParityTest`를 통해 동일한 요청 사양에 대해 상호 동등한 응답을 보장합니다.
+**기종별 식별자와 종속성은 최하위 어댑터 계층에만 격리됩니다.** 상류 연계 계층부터 어댑터 호스트(Adapter Host)까지의 전 계층은 특정 기종에 대한 의존성을 갖지 않으며, 게이트 검사 7번이 공용 모듈의 소스코드를 정적 분석하여 기종 종속성 누출을 **CI 실패 조건**으로 차단합니다. 계약 하위 계층은 상호 호환 가능한 구조로 설계되어, 실물 기종 어댑터 넷이 배치되는 위치에 프로파일 주도 에뮬레이터인 `mimic`을 동일하게 바인딩할 수 있으며, `HostParityTest`를 통해 동일한 요청 사양에 대해 수락·거절 판정의 동등성을 검증합니다.
 
 **운영 변경 원칙 (비대칭성)**: 시스템 변경 통제는 *"신규 엔티티 추가는 안전하고, 기존 엔티티 삭제·수정은 잠재적 위험을 내포한다"*는 비대칭성 원리에 기초합니다.
 
@@ -80,9 +87,9 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 
 ## 검증 현황 및 한계 관리
 
-저장소 내 대외 문서 47종은 자동화 대조 검증을 완료한 상태입니다. 문서에 명시된 모든 기술적 주장은 자동화 테스트로 증명되거나, [`docs/limits.md`](docs/limits.md)의 미결 항목 대장에 등록되어 추적 관리됩니다. 각 문서 하단의 대조 도장(Hash Stamp)은 본문 내용과 연결되어 있어, `CompletionCriterionTest`를 통해 임의 변경 시 도장 갱신을 요구합니다.
+저장소 내 대외 문서 50종은 자동화 대조 검증을 완료한 상태입니다. 문서에 명시된 모든 기술적 주장은 자동화 테스트로 증명되거나, [`docs/limits.md`](docs/limits.md)의 미결 항목 대장에 등록되어 추적 관리됩니다. 각 문서 하단의 대조 도장(Hash Stamp)은 본문 내용과 연결되어 있어, `CompletionCriterionTest`를 통해 임의 변경 시 도장 갱신을 요구합니다.
 
-밖을 향한 문서가 드는 열림은 **117** 개이며, 그 상세 목록은 `limits.md`에 명시되어 있습니다. 특히 실물 어댑터가 넷 있다(기체 셋, 플릿 하나). 다만, 어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다(C-3)는 물리적 검증 한계가 존재하며, 이는 SDK 라이선스, JVM 바인딩 부재, 플릿 실기체 인스턴스 부재 등에 기인합니다.
+한계 대장(`limits.md`)에 등록된 미결 항목은 **36개**(내부 25개 · 외부 11개, 의도적 제외 13개 제외)이며, 그 상세 목록과 해결 조건은 `limits.md`에 명시되어 있습니다. 특히 실물 어댑터가 넷 있다(기체 셋, 플릿 하나). 다만, 어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다(C-3)는 물리적 검증 한계가 존재하며, 이는 SDK 라이선스, JVM 바인딩 부재, 플릿 실기체 인스턴스 부재 등에 기인합니다.
 
 실물 넷이 계약에 얼마나 닿나 확인한 정량 분석 결과는 [`profile/distance/`](profile/distance)에서 확인할 수 있습니다. 계약 개정판은 **0.8.0** 이다.
 
@@ -130,7 +137,7 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | **벤더 인터페이스** | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) | 벤더 API 표면 분석 및 플릿 관리 인터페이스 측정 노트 |
 | **현장 전제조건** | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) | 로봇 도입 현장의 인프라(도어, 바닥, 조명 등) 엔지니어링 전제조건 |
 | **벤더 매니페스트** | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) | 어댑터의 사우스바운드 포트 벤더 심볼 인용 대조 검증 도구 |
-| **미결 과제 대장** | [`docs/limits.md`](docs/limits.md) | 117개 미결 한계 항목 및 해결 조건 관리 대장 |
+| **미결 과제 대장** | [`docs/limits.md`](docs/limits.md) | 36개 미결 한계 항목 및 해결 조건 관리 대장 |
 
 ## 핵심 엔지니어링 규율
 
@@ -141,4 +148,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-09-15 · sha256:dda00104e9e4 · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-15 · sha256:9d782c5b1239 · 열림: C-3, §15.81
