@@ -190,6 +190,11 @@ data class ExecutionUnit(
     /** `IN_DOUBT` 에서 같은 참조로 다시 물은 횟수(13.2 ①). */
     var lookups: Int = 0,
     /**
+     * 발신자가 거절하며 지목한 사전 조건의 주어(계약 `KEY_PRECONDITION_SUBJECT`). 사건 번들이 이것을 옮겨 싣는다 —
+     * 자유 문자열에서 다시 뽑으면 두 곳의 판정이 어긋난다(설계안 §4.2).
+     */
+    var preconditionSubjects: List<String> = emptyList(),
+    /**
      * 하류가 종착에 실어 준 결과 참조 — 계약의 `partial_result`. 점검(③)의 *측정값 또는 증거 자료 참조*가 올 자리이며
      * 지금은 아무 발신자도 채우지 않는다(§15.76). 비어 있으면 `null`.
      */
@@ -223,6 +228,12 @@ data class ObservedEvent(
     val occurredAt: String,
     val kind: String,
     val detail: String,
+    /**
+     * 이 층이 적은 것인가, 계약의 이벤트 열에서 온 것인가. 계약 이벤트만 발행 번호가 단조 증가하고
+     * 겹치지 않는다 — 이 층의 관측(재동기화·연결·설비 신호)은 번호를 가질 자리가 없어 커서 값을 빌린다.
+     * 둘을 섞어 번호를 보면 «커서가 안 나아갔다» 로 읽힌다.
+     */
+    val local: Boolean = false,
 )
 
 /** 취소 응답(보고서 14.1) — 원상복구가 아니라 중단점과 잔여 물리 상태의 보고다. */

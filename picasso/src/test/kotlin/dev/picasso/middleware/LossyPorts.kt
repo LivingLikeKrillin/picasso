@@ -5,6 +5,9 @@ import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.CancelTaskResponse
 import dev.picasso.contracts.v1.ProgressBasis
+import dev.picasso.contracts.v1.Reference
+import dev.picasso.contracts.v1.Rejection
+import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.WatchTaskResponse
@@ -116,4 +119,30 @@ class AlienSubjectRobotPort(private val delegate: RobotPort) : RobotPort by dele
         }
         return builder.build()
     }
+}
+
+/**
+ * 무엇을 보내든 발신자가 **사전 조건으로 거절**하는 포트. 실물의 거절을 흉내내는 것이 목적이 아니라,
+ * 사건이 **첫 pump 에** 일어나 가상 시계가 원점에 머무르게 하는 것이 목적이다 — 번들 해시를 두 판
+ * 사이에서 대조하려면 사건 시각이 구동 횟수에 흔들리면 안 된다.
+ */
+class PreconditionRefusingRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    override fun start(
+        robotId: String,
+        taskId: String,
+        revision: Int,
+        skillType: String,
+        parameters: Map<String, String>,
+    ): StartTaskResponse = StartTaskResponse.newBuilder()
+        .setRejection(
+            Rejection.newBuilder()
+                .setCode(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET)
+                .setDetail("HOLD: 요구=EMPTY 관측=HOLDING")
+                .addReferences(
+                    Reference.newBuilder()
+                        .setKey(Reference.Key.KEY_PRECONDITION_SUBJECT)
+                        .setValue("HOLD"),
+                ),
+        )
+        .build()
 }
