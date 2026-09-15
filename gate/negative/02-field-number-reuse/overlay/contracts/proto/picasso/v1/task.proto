@@ -96,6 +96,81 @@ message WatchTaskRequest {
   uint64 from_update_index = 3;
 }
 
+// 잔여 물리 상태 — 이 갱신 시점에 로봇이 **무엇을 들고 있는가**.
+//
+// 설계 §4.4. `CANCELLED`와 `CANCELLED_RECOVERY_FAILED`를 나눈 이유가
+// *"로봇이 물건을 든 채 멈춰 있다"*였는데, 그 사실 자체를 실을 자리가
+// 없었다 — `partial_result` 자유 문자열뿐이었다(§15.84 후보 ②).
+//
+// 값이 넷인 이유는 `Support`가 3값인 이유와 같다 — "빈손"과 "볼 수 없다"를
+// 접으면 발신자가 거짓말을 하게 된다. 발신자마다 근거가 다르다:
+//   Spot  — `ManipulatorState.is_gripper_holding_item`(벤더가 판정을 준다)
+//   Digit — 파지 상태를 직접 발행하지 않는다. `get-execution-state`의
+//           노드 상태(`action-pick` 성공 ∧ `action-place` 미완)에서 추론한다
+//   G1    — 벤더가 판정을 안 준다. `HandState_.press_sensor_state`는 원시
+//           압력값이고 문턱을 우리가 정하면 그것은 벤더의 답이 아니다
+//   mimic — 대상을 쥐는 스킬(`grasps_object`)이 도는 동안 HOLDING. 참조만 하는
+//           스킬(`inspect`)은 빈손이다
+//
+// **불변식 하나.** `CANCELLED`(복구까지 마쳤다)와 함께 `HOLD_KIND_HOLDING`이
+// 올 수 없다. 들고 있으면 복구가 끝난 것이 아니고, 그것은
+// `CANCELLED_RECOVERY_FAILED`다. 역은 성립하지 않는다 — 복구 실패가 언제나
+// 들고 있음은 아니다(놓쳤을 수 있고, 그때는 `PAYLOAD_LOST`가 같이 선다).
+enum HoldKind {
+  // 발신자가 말하지 않았다 — 이 필드가 생기기 전의 발신자다.
+  HOLD_KIND_UNSPECIFIED = 0;
+
+  // 발신자가 **볼 수 없다** — 벤더가 파지 판정을 안 주거나 읽기가 실패했다.
+  // `HoldState.reason`에 이유가 실린다. 빈손이 아니다.
+  HOLD_KIND_NOT_OBSERVABLE = 1;
+
+  HOLD_KIND_EMPTY = 2;
+  HOLD_KIND_HOLDING = 3;
+}
+
+message HoldState {
+  HoldKind kind = 1;
+
+  // HOLDING이고 그것이 이 태스크의 대상이면 그 **이름** —
+  // `is_object_reference` 파라미터의 값이다. 이름 공간이지 벤더 id가
+  // 아니다(§15.78). 들고 있는데 무엇인지 모르면 비운다.
+  string object_ref = 2;
+
+  // NOT_OBSERVABLE의 이유. 사람이 읽는다.
+  string reason = 3;
+}
+
+// 진행률의 **근거** — `WatchTaskResponse.progress` 의 숫자가 무엇을 센 것인가.
+//
+// 값을 두 곳에 두지 않는다: 분수는 `progress` 하나이고 이것은 그 분수를 **자격 짓는다**
+// (`HoldState.kind`가 `object_ref`를 자격 짓는 것과 같은 모양).
+//
+// 이것이 없으면 **못 재는 기체와 아직 아무것도 안 한 기체가 `0.0` 으로 같아 보인다.**
+// 진행 정체로 개입을 판단하는 소비자에게 그 둘은 정반대다 — 앞은 판정할 근거가 없는
+// 것이고 뒤는 판정해야 할 것이다. 접으면 진행률을 안 내는 기종이 **언제나 멈춰 있는
+// 것으로** 보인다(설계 §15.112).
+enum ProgressKind {
+  // 옛 발신자. `progress`의 뜻을 모른다 — **측정된 것으로 읽지 않는다.**
+  PROGRESS_KIND_UNSPECIFIED = 0;
+
+  // 이 기체·이 스킬은 진행률을 낼 근거가 없다. `progress`의 0.0은 값이 아니다.
+  PROGRESS_KIND_NOT_OBSERVABLE = 1;
+
+  // `progress`가 유효하다. 무엇을 세었는지는 `basis`가 말한다.
+  PROGRESS_KIND_MEASURED = 2;
+}
+
+message ProgressBasis {
+  ProgressKind kind = 1;
+
+  // 무엇을 세었는가. 사람이 읽는다 — "행동 3/7", "실행 트리 잎 1/2", "경과 시간 비율".
+  // 기종마다 세는 단위가 다르다는 사실을 숨기지 않으려는 것이다.
+  string basis = 2;
+
+  // NOT_OBSERVABLE의 이유. 사람이 읽는다.
+  string reason = 3;
+}
+
 message WatchTaskResponse {
   MessageHeader header = 1;
 
@@ -107,12 +182,23 @@ message WatchTaskResponse {
 
   // 0.0..1.0. 단조 비감소는 (task_id, revision, attempt)가 같은 구간
   // 안에서만 성립하는 불변식이다.
+  //
+  // **이 숫자만으로는 부족하다** — 아래 progress_basis가 그것이 측정된
+  // 값인지 말한다(0.8.0).
   double progress = 5;
 
   string partial_result = 6;
 
   // 종착이 실패인 경우에만 채워진다.
   Fault fault = 7;
+
+  // 이 갱신 시점의 잔여 물리 상태. **종착 갱신의 것이 취소·실패 뒤의
+  // 잔여 상태다.** 위 HoldState 의 불변식이 여기 걸린다.
+  HoldState hold = 8;
+
+  // 위 progress가 무엇을 센 것인가(0.8.0). 비우면 UNSPECIFIED이고,
+  // 소비자는 그것을 "측정되지 않았다"로 읽는다 — 막는 방향이다(§15.41).
+  ProgressBasis progress_basis = 9;
 }
 
 message RetryTaskRequest {
