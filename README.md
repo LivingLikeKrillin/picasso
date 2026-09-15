@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo.dark.png">
-    <img alt="picasso — Heterogeneous Robot Middleware" src="docs/assets/logo.png" width="560">
-  </picture>
+  <img alt="picasso — Heterogeneous Robot Middleware" src="docs/assets/logo.png" width="560">
 </p>
 
 # picasso — 이기종 로봇 표준 인터페이스 계약 및 운영 변경 체계
@@ -148,4 +145,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-09-15 · sha256:9d782c5b1239 · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-15 · sha256:ce2204cf2aa3 · 열림: C-3, §15.81
