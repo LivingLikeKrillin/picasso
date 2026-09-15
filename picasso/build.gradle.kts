@@ -11,6 +11,7 @@ import org.gradle.api.tasks.PathSensitivity
 // `mimic`(로봇 더블)도 모른다. 시험만 하네스로 mimic 을 띄운다.
 dependencies {
     api(project(":contracts"))
+    implementation(project(":capability"))
     implementation(project(":client"))
 
     testImplementation(project(":harness"))

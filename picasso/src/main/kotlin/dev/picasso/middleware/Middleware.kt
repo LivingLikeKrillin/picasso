@@ -5,9 +5,12 @@ import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldKind
+import dev.picasso.capability.HoldEffects
+import dev.picasso.capability.PreconditionCheck
 import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.ProgressKind
 import dev.picasso.contracts.v1.RejectionCode
+import dev.picasso.contracts.v1.Reference
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.WatchTaskResponse
@@ -170,6 +173,7 @@ class Middleware(
 
         val planned = capability.plan(order)
         inconsistent(order, planned)?.let { return Submission.Rejected(it) }
+        chainViolation(robotId, planned)?.let { return Submission.Rejected(it) }
 
         val execution = Execution(
             executionId = "exec-${executions.size + 1}",
@@ -182,6 +186,46 @@ class Middleware(
         execution.physicalState = PhysicalState.ACCEPTED
         executions[execution.executionId] = execution
         return Submission.Accepted(execution)
+    }
+
+    /**
+     * 계획 시점 사슬 검사(설계안 §4) — 로봇이 선언한 사전 조건을 **접수 요청을 보내기 전에** 단위 사슬에 대고 본다.
+     *
+     * 출발점은 **지금 도는 단위의 관측**([liveHold])이고, 단위마다 카탈로그의 효과([HoldEffects])로 다음 파지를
+     * 계산한다. 어느 단위의 조건이 그 시점의 파지와 어긋나면 주문을 받지 않는다 — 받아 놓고 돌리면 그 단위가 발신자에서
+     * `PRECONDITION_UNMET` 으로 거절되기까지 앞 단위들이 물리적으로 움직인다.
+     *
+     * **권위는 발신자다.** 여기서 막는 것은 *알고도 보내는* 일뿐이다. 도는 단위가 없으면 관측이 없는 것이고 —
+     * 종착한 단위의 파지는 낡을 수 있으며 다시 볼 길이 없으므로(리뷰 C2) 쓰지 않는다 — 발신자가 접수 때 판정한다.
+     * 능력을 못 물은 로봇도, 계약에 없는 주어([PreconditionCheck.Unknown.DEFER])도 같다: 모르는 조건을 지어내지 않는다.
+     */
+    private fun chainViolation(robotId: String, planned: List<ExecutionUnit>): String? {
+        var hold = liveHold(robotId) ?: return null
+        val declared = robots.capabilities(robotId)?.skillsList?.associateBy { it.skillType } ?: return null
+        for (unit in planned) {
+            if (unit.route != Route.ROBOT) continue
+            val violations = declared[unit.skillType]
+                ?.let { PreconditionCheck.check(it, hold, PreconditionCheck.Unknown.DEFER) }
+                .orEmpty()
+            if (violations.isNotEmpty()) {
+                return "단위 ${unit.unitId}(${unit.skillType}) 의 사전 조건이 어긋난다 — " +
+                    PreconditionCheck.rejectionDetail(violations) + " (지금 도는 단위의 관측, 보내지 않았다)"
+            }
+            hold = HoldEffects.after(unit.skillType, hold)
+        }
+        return null
+    }
+
+    /**
+     * 이 기체에서 **지금 도는** 단위들의 파지 관측. 든 것이 하나라도 있으면 든 채(손은 한 쌍이다), 아니면 빈손 관측이
+     * 있으면 빈손, 도는 단위가 없으면 모른다(널). 종착한 실행의 관측은 쓰지 않는다.
+     */
+    private fun liveHold(robotId: String): HoldState? {
+        val live = executions.values
+            .filter { it.robotId == robotId && !it.physicalState.isSettled }
+            .mapNotNull { it.active }
+        return live.firstOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold
+            ?: live.firstOrNull { it.hold.kind == HoldKind.HOLD_KIND_EMPTY }?.hold
     }
 
     /**
@@ -212,9 +256,19 @@ class Middleware(
             return Submission.Rejected("종착한 실행에는 새 버전이 붙지 않는다 — 재작업은 새 주문이다(보고서 14.1)")
         }
 
+        // 개정판도 사슬 검사를 받는다 — 단, 이 개정이 실제로 교체·추가할 단위만(리뷰 C3). 이미 끝났거나 도는 단위를
+        // 다시 재단하면 끝난 일을 되돌리라는 말이 된다.
+        val fresh = execution.capability.plan(order)
+        val toPlan = fresh.filter { f ->
+            val current = execution.units.firstOrNull { it.unitId == f.unitId }
+            current == null || current.state == UnitState.PENDING ||
+                (current.state == UnitState.FAILED && current.taskId.isEmpty())
+        }
+        chainViolation(execution.robotId, toPlan)?.let { return Submission.Rejected(it) }
+
         // **확정된 단위 이후에만 붙는다.** 종착한 단위는 그대로(래치 — 계약이 이미 그렇게 한다),
         // 아직 안 시작한 단위는 새 계획으로 교체, 도는 단위는 계약의 갱신 규칙(§4.4)을 탄다.
-        val replanned = execution.capability.plan(order).associateBy { it.unitId }
+        val replanned = fresh.associateBy { it.unitId }
         val kept = execution.units.map { unit ->
             when (unit.state) {
                 UnitState.DONE, UnitState.UNVERIFIED, UnitState.ABORTED,
@@ -673,8 +727,20 @@ class Middleware(
                 execution.handle = response.handle
                 true
             } else {
-                unit.state = UnitState.FAILED
-                unit.failureClass = response.rejection.code.takeIf { it != RejectionCode.REJECTION_CODE_UNSPECIFIED }?.name ?: "REJECTED"
+                val rejection = response.rejection
+                if (rejection.code == RejectionCode.REJECTION_CODE_PRECONDITION_UNMET) {
+                    // 발신자가 사전 조건으로 거절했다 — 요청이 틀린 것이 아니라 **지금 못 받는** 것이다. 계약은 «기다리거나
+                    // 앞 단위를 바꾼다» 고 했고, 그 판단은 밖(운영자)에 있다. FAILED 로 접어 다음 단위로 넘어가면 그 판단이
+                    // 실행되지 않는다(리뷰 C10). 사유와 주어를 단위에 남긴다 — 응답만 보고 무엇이 걸렸는지 알 수 있게.
+                    unit.state = UnitState.OPERATOR_HOLD
+                    unit.failureClass = rejection.code.name
+                    val subjects = rejection.referencesList
+                        .filter { it.key == Reference.Key.KEY_PRECONDITION_SUBJECT }.joinToString { it.value }
+                    unit.note = "sender refused: ${rejection.detail} [subject=$subjects]"
+                } else {
+                    unit.state = UnitState.FAILED
+                    unit.failureClass = rejection.code.takeIf { it != RejectionCode.REJECTION_CODE_UNSPECIFIED }?.name ?: "REJECTED"
+                }
                 false
             }
         }
@@ -999,7 +1065,8 @@ class Middleware(
             inProgressUnit = if (refused) null else inProgress?.unitId,
             stoppedAfter = if (refused) inProgress.unitId else null,
             notStartedUnits = execution.units.filter { it.state == UnitState.PENDING }.map { it.unitId },
-            residualHold = hold ?: HoldState.getDefaultInstance(),
+            // 든 단위가 없으면 마지막 관측(빈손) — JobResponse 와 같은 규칙이다(§15.145, 리뷰 C7).
+            residualHold = hold ?: execution.units.lastOrNull { it.hold.kind != HoldKind.HOLD_KIND_UNSPECIFIED }?.hold ?: HoldState.getDefaultInstance(),
             cleanup = cleanup,
             finalState = PhysicalState.ABORTED,
             refusal = execution.cancelRefusal,
@@ -1028,7 +1095,10 @@ class Middleware(
                 it.state == UnitState.UNVERIFIED || it.state == UnitState.OPERATOR_HOLD ||
                     it.verification == Verification.MISMATCH || it.failureClass == SOURCE_MISMATCH
             } || execution.lastCancel?.cleanup == "failed" || execution.blockedBy.isNotEmpty(),
-            residualHold = units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold ?: HoldState.getDefaultInstance(),
+            // 든 단위가 있으면 그것, 없으면 마지막으로 관측한 파지(빈손) — "빈손" 을 "말하지 않았다" 로 접지 않는다(§15.145).
+            residualHold = units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold
+                ?: units.lastOrNull { it.hold.kind != HoldKind.HOLD_KIND_UNSPECIFIED }?.hold
+                ?: HoldState.getDefaultInstance(),
             inDoubtUnits = units.filter { it.state == UnitState.IN_DOUBT }.map { it.unitId },
             results = units.filter { it.state == UnitState.DONE && !it.result.isNullOrBlank() }.associate { it.unitId to it.result!! },
             blockedBy = execution.blockedBy.map { canonicalClassOf(it) },
