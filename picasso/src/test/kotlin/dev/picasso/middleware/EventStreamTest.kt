@@ -83,7 +83,9 @@ class EventStreamTest {
             assertTrue(raised.detail.startsWith("SKILL_EXECUTION_FAILED class=GRASP_FAILED"), raised.detail)
             assertTrue(raised.occurredAt.isNotBlank(), "발행 열의 시각을 다시 찍지 않고 그대로 든다")
             // 번호는 단조 증가 — 재생을 이어 붙인 것이지 다시 세운 것이 아니다.
-            val contractSeqs = exec.eventTrail.filter { it.kind != "RESYNC" }.map { it.sequence }
+            // **계약 이벤트만 본다.** 이 층이 적은 관측(재동기화·연결·설비 신호)은 발행 번호가 없어
+            // 커서 값을 빌리므로, 섞어 보면 「커서가 안 나아갔다」 로 읽힌다.
+            val contractSeqs = exec.eventTrail.filterNot { it.local }.map { it.sequence }
             assertEquals(contractSeqs.sorted(), contractSeqs)
             assertEquals(contractSeqs.distinct(), contractSeqs, "같은 이벤트를 두 번 자취에 남겼다 — 커서가 안 나아갔다")
             val view = w.mw.view(ROBOT)!!

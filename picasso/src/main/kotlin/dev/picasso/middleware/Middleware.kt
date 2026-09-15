@@ -14,6 +14,7 @@ import dev.picasso.contracts.v1.Reference
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.WatchTaskResponse
+import dev.picasso.contracts.wire.ContractIdentity
 import java.time.Duration
 import java.time.Instant
 import java.time.format.DateTimeParseException
@@ -50,6 +51,11 @@ class Middleware(
      * 것이고, 12.3 셋째 행대로 **불가 시 운영자**다. `pump()` 한 번에 한 번 묻는다.
      */
     private val lookupRetries: Int = 3,
+    /**
+     * 실 시계 — 사건 번들의 **현장 대조**용이다. [now] 와 나누는 이유는 [now] 가 시험에서 가상 시계이기
+     * 때문이다. 둘을 접으면 재현 판정과 현장 대조 중 하나를 잃는다(설계안 §4.2).
+     */
+    private val wallClock: () -> Instant = { Instant.now() },
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -85,6 +91,10 @@ class Middleware(
     private val outbox = mutableListOf<JobResponse>()
     private var responseSeq = 0
 
+    /** 열린 사건들(설계안 §4). **조회만 한다** — 이 목록이 이 층의 거동을 바꾸지 않는다. */
+    private val incidentLog = mutableListOf<IncidentBundle>()
+    private var incidentSeq = 0
+
     /** 실행 하나 — 주문·기체·단위 열·두 축의 상태. */
     inner class Execution(
         val executionId: String,
@@ -119,6 +129,12 @@ class Middleware(
 
         /** 이 실행이 도는 동안 기체가 낸 이벤트와 이 층의 관측 — 감사 자취(보고서 7장 *실행 추적·이벤트 전달·감사 기록*). */
         val eventTrail: MutableList<ObservedEvent> = mutableListOf()
+
+        /**
+         * 이번 라운드에 미완료로 닫혔거나 운영자 판단에 선 단위. **라운드 끝에** 번들로 봉한다 —
+         * 전이 순간에는 실행 수준의 사실(막는 결함)이 아직 안 정해져 있다.
+         */
+        internal val pendingIncidents: MutableSet<String> = linkedSetOf()
 
         /** 연결이 끊긴 채 도는 중인가 — 그동안 결과는 미확정이다(`scenarios.md` §4.4 넷째 행). */
         var linkBroken: Boolean = false
@@ -421,10 +437,15 @@ class Middleware(
     }
 
     private fun Execution.trail(kind: String, detail: String) {
-        eventTrail += ObservedEvent(views[robotId]?.cursor ?: 0, now().toString(), kind, detail)
+        eventTrail += ObservedEvent(views[robotId]?.cursor ?: 0, now().toString(), kind, detail, local = true)
     }
 
     private fun pump(execution: Execution) {
+        pumpRound(execution)
+        sealIncidents(execution)
+    }
+
+    private fun pumpRound(execution: Execution) {
         if (execution.physicalState.isSettled && execution.physicalState != PhysicalState.PARTIAL) return
 
         // **연결이 끊기면 도는 단위의 결과는 미확정이다.** 계약이 OFFLINE 과 CONNECTION_BROKEN 을 가른다(완료 기준 5);
@@ -693,7 +714,7 @@ class Middleware(
         // ② 물리 관측 — 요청 시각부터의 신호만 이 요청의 것이다.
         val requestedAt = unit.requestedAt!!
         val window = execution.capability.evidenceWindow
-        val signal = unit.destination?.let { cell.observe(it) }
+        val signal = execution.observeCell(unit)
         val observedAt = signal?.observedAt ?: now()
         val provisional = signal != null && signal.occupied &&
             (unit.expectedIdentity == null || signal.identity == unit.expectedIdentity) &&
@@ -713,6 +734,7 @@ class Middleware(
             unit.annotate("IN_DOUBT: response lost; no evidence at ${unit.destination} within grace; $why — no automatic re-execution")
         }
         unit.state = UnitState.OPERATOR_HOLD
+        execution.markIncident(unit)
         return true
     }
 
@@ -734,13 +756,14 @@ class Middleware(
                     // 실행되지 않는다(리뷰 C10). 사유와 주어를 단위에 남긴다 — 응답만 보고 무엇이 걸렸는지 알 수 있게.
                     unit.state = UnitState.OPERATOR_HOLD
                     unit.failureClass = rejection.code.name
-                    val subjects = rejection.referencesList
-                        .filter { it.key == Reference.Key.KEY_PRECONDITION_SUBJECT }.joinToString { it.value }
-                    unit.note = "sender refused: ${rejection.detail} [subject=$subjects]"
+                    unit.preconditionSubjects = rejection.referencesList
+                        .filter { it.key == Reference.Key.KEY_PRECONDITION_SUBJECT }.map { it.value }
+                    unit.note = "sender refused: ${rejection.detail} [subject=${unit.preconditionSubjects.joinToString()}]"
                 } else {
                     unit.state = UnitState.FAILED
                     unit.failureClass = rejection.code.takeIf { it != RejectionCode.REJECTION_CODE_UNSPECIFIED }?.name ?: "REJECTED"
                 }
+                execution.markIncident(unit)
                 false
             }
         }
@@ -753,6 +776,7 @@ class Middleware(
             } else {
                 unit.state = UnitState.FAILED
                 unit.failureClass = FLEET_REJECTED
+                execution.markIncident(unit)
                 false
             }
         }
@@ -797,6 +821,7 @@ class Middleware(
                 unit.state = UnitState.FAILED
                 unit.failureClass = SOURCE_MISMATCH
                 unit.note = status.observedContainer?.let { "observed=$it at ${unit.source}" }
+                execution.markIncident(unit)
             }
 
             TransportState.CANCELLED -> unit.state = UnitState.ABORTED
@@ -921,7 +946,7 @@ class Middleware(
         val current = now()
         unit.rechecks += 1
 
-        val signal = unit.destination?.let { cell.observe(it) }
+        val signal = execution.observeCell(unit)
         val observedAt = signal?.observedAt ?: current
         val inWindow = signal != null && signal.occupied &&
             !observedAt.isBefore(doneAt.minus(window.before)) && !observedAt.isAfter(doneAt.plus(window.after))
@@ -933,6 +958,7 @@ class Middleware(
                 unit.failureClass = MISMATCH
                 unit.evidenceAt = observedAt
                 unit.annotate("observed=${signal.identity} at ${unit.destination}")
+                execution.markIncident(unit)
             }
 
             inWindow -> {
@@ -973,7 +999,7 @@ class Middleware(
         unit.downstreamDoneAt = at
         if (execution.order.requiredEvidence > Evidence.E1) {
             val window = execution.capability.evidenceWindow
-            val signal = unit.destination?.let { cell.observe(it) }
+            val signal = execution.observeCell(unit)
             val observedAt = signal?.observedAt ?: now()
             val present = signal != null && signal.occupied &&
                 (unit.expectedIdentity == null || signal.identity == unit.expectedIdentity) &&
@@ -983,10 +1009,12 @@ class Middleware(
                 unit.evidenceAt = observedAt
                 unit.state = UnitState.OPERATOR_HOLD
                 unit.note = "downstream reported $failureClass ($detail) but evidence present at ${unit.destination}"
+                execution.markIncident(unit)
                 return
             }
         }
         unit.state = UnitState.FAILED
+        execution.markIncident(unit)
     }
 
     /**
@@ -1015,6 +1043,95 @@ class Middleware(
         execution.notedHold = null
         execution.physicalState = PhysicalState.RUNNING
         return true
+    }
+
+    // ── 사건 번들(설계안 §4) — 흩어진 사실을 한 사건으로 묶는다. 읽기만 한다.
+
+    /** 열린 순서대로. */
+    fun incidents(): List<IncidentBundle> = incidentLog.toList()
+
+    fun incident(incidentId: String): IncidentBundle? = incidentLog.firstOrNull { it.incidentId == incidentId }
+
+    /**
+     * 사후 대조 고리(설계안 §7) — 원인 지목은 가설이고 정답은 정비 실적과 재발 여부로 나중에 나온다.
+     * 되먹이지 않으면 정답 라벨 없는 자동 진단이 영영 검증되지 않는다. **자동으로 채우지 않는다.**
+     */
+    fun confirmIncident(incidentId: String, cause: String): Boolean {
+        val at = incidentLog.indexOfFirst { it.incidentId == incidentId }
+        if (at < 0) return false
+        incidentLog[at] = incidentLog[at].copy(postHocCause = cause)
+        return true
+    }
+
+    /** 이 단위가 이번 라운드에 닫혔다. 봉하는 것은 [sealIncidents] 다. */
+    private fun Execution.markIncident(unit: ExecutionUnit) {
+        pendingIncidents += unit.unitId
+    }
+
+    /**
+     * 라운드 끝에 번들을 봉한다. **전이 순간이 아니다** — 단위가 닫히는 그 자리에서는 실행 수준의
+     * 사실(무엇이 다음 단위를 막는가)이 아직 안 정해져 있고, 그것 없이 묶으면 번들이 "단위의 문제인지
+     * 기체의 문제인지" 를 가르지 못한다(설계안 §4.2 넷째 줄).
+     */
+    private fun sealIncidents(execution: Execution) {
+        if (execution.pendingIncidents.isEmpty()) return
+        val at = now()
+        val wall = wallClock()
+        val window = execution.capability.evidenceWindow
+        val inWindow = execution.eventTrail.filter { within(it, at.minus(window.before), at.plus(window.after)) }
+        execution.pendingIncidents.forEach { unitId ->
+            val unit = execution.units.firstOrNull { it.unitId == unitId } ?: return@forEach
+            incidentLog += IncidentBundle(
+                incidentId = "incident-${++incidentSeq}",
+                jobOrderId = execution.order.jobOrderId,
+                executionId = execution.executionId,
+                unitId = unit.unitId,
+                at = at,
+                wallClockAt = wall,
+                failureClass = unit.failureClass,
+                blockedBy = execution.blockedBy.map { canonicalClassOf(it) },
+                residualHold = residualHoldOf(execution.units),
+                unresolved = unit.state == UnitState.OPERATOR_HOLD || unit.state == UnitState.IN_DOUBT,
+                preconditionSubjects = unit.preconditionSubjects,
+                evidenceWindow = inWindow,
+                windowTruncated = inWindow.size < execution.eventTrail.size,
+                profileRevision = robots.capabilities(execution.robotId)?.profileRevision ?: 0,
+                contractSemver = ContractIdentity.semver,
+            )
+        }
+        execution.pendingIncidents.clear()
+    }
+
+    /**
+     * 창 안인가. **시각을 못 읽는 관측은 버리지 않는다** — 읽을 수 없다는 것이 창 밖이라는 뜻은 아니고,
+     * 조용히 빼면 창이 완전한 것처럼 보인다.
+     */
+    private fun within(event: ObservedEvent, from: Instant, to: Instant): Boolean {
+        val at = try {
+            Instant.parse(event.occurredAt)
+        } catch (_: DateTimeParseException) {
+            return true
+        }
+        return !at.isBefore(from) && !at.isAfter(to)
+    }
+
+    /** 든 단위가 있으면 그것, 없으면 마지막으로 관측한 파지(빈손) — "빈손" 을 "말하지 않았다" 로 접지 않는다(§15.145). */
+    private fun residualHoldOf(units: List<ExecutionUnit>): HoldState =
+        units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold
+            ?: units.lastOrNull { it.hold.kind != HoldKind.HOLD_KIND_UNSPECIFIED }?.hold
+            ?: HoldState.getDefaultInstance()
+
+    /** 설비에 묻고 **그 사실을 자취에 남긴다** — 조회하고 버리면 번들의 근거 창에서 설비 쪽이 빈다. */
+    private fun Execution.observeCell(unit: ExecutionUnit): SlotSignal? {
+        val where = unit.destination ?: return null
+        val signal = cell.observe(where)
+        val what = if (signal == null) {
+            "no signal"
+        } else {
+            "occupied=${signal.occupied} identity=${signal.identity ?: "(none)"} at=${signal.observedAt?.toString() ?: "(read now)"}"
+        }
+        trail("CELL_SIGNAL", "$where: $what")
+        return signal
     }
 
     private fun settleExecution(execution: Execution) {
@@ -1096,9 +1213,7 @@ class Middleware(
                     it.verification == Verification.MISMATCH || it.failureClass == SOURCE_MISMATCH
             } || execution.lastCancel?.cleanup == "failed" || execution.blockedBy.isNotEmpty(),
             // 든 단위가 있으면 그것, 없으면 마지막으로 관측한 파지(빈손) — "빈손" 을 "말하지 않았다" 로 접지 않는다(§15.145).
-            residualHold = units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold
-                ?: units.lastOrNull { it.hold.kind != HoldKind.HOLD_KIND_UNSPECIFIED }?.hold
-                ?: HoldState.getDefaultInstance(),
+            residualHold = residualHoldOf(units),
             inDoubtUnits = units.filter { it.state == UnitState.IN_DOUBT }.map { it.unitId },
             results = units.filter { it.state == UnitState.DONE && !it.result.isNullOrBlank() }.associate { it.unitId to it.result!! },
             blockedBy = execution.blockedBy.map { canonicalClassOf(it) },
