@@ -18,11 +18,11 @@
 | 프로토콜 파일 | 정의 사양 및 역할 |
 |---|---|
 | `common.proto` | 공통 엔벨로프 헤더, 요청 거절 코드(`RejectionReason`), 3값 지원 플래그(`Support`), 참조 식별자 |
-| `task.proto` | 태스크 수명주기 상태 11종, 상태 감시 스트림(`WatchTaskResponse`), 대기 상태(`HoldState`), 진행률 근거(`ProgressBasis`) |
+| `task.proto` | 태스크 수명주기 상태 10종, 상태 감시 스트림(`WatchTaskResponse`), 대기 상태(`HoldState`), 진행률 근거(`ProgressBasis`) |
 | `skill.proto` | 능력 투영 인터페이스 (`Capability`), 파라미터 메타데이터 선언, 런타임 협상(`Negotiation`) |
 | `skill_catalog.proto` | 4대 표준 스킬 파라미터 사양 (`pick_place`, `navigate_to`, `inspect`, `move_relative`) |
 | `event.proto` · `fault.proto` | 비동기 3대 이벤트 스트림 및 결함 진단 — 15종 정준 실패 분류 체계 (`FailureClass`) |
-| `src/main/kotlin/…/wire/` | 공통 헤더 10개 필드 주입 및 직렬화 규칙 (클라이언트/서버 간 드리프트 방지) |
+| `src/main/kotlin/…/wire/` | 공통 헤더 13개 필드 주입 및 직렬화 규칙 (클라이언트/서버 간 드리프트 방지) |
 
 계약의 공식 버전은 `contracts/build.gradle.kts`의 `contractSemver`에 명시되어 있으며, 버전별 변경 내역은 상단 주석에 누적 관리됩니다.
 
@@ -41,4 +41,4 @@
 - **인덱스 기본값 0의 미설정 혼동 가능성 (§15.25)**: `update_index` 및 `sequence`가 0부터 시작하여 Protobuf 기본값(미설정 상태)과 형태상 구분되지 않으나, `schema_id`를 통해 전송 방향을 식별하므로 런타임 오류는 발생하지 않습니다.
 - **`GetCapabilitiesResponse` 전용 Rejection 필드 부재 (§15.24)**: 해당 RPC만 신원 불일치 오류를 메시지 본문이 아닌 gRPC 상태 코드(Status)로 전달합니다.
 
-> 마지막 대조: 2026-09-15 · sha256:2ed1356d2468 · 열림: §15.24, §15.25, §15.22
+> 마지막 대조: 2026-09-15 · sha256:40aa4022c678 · 열림: §15.24, §15.25, §15.22
