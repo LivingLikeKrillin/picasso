@@ -1,5 +1,6 @@
 package dev.picasso.adapter.host
 
+import dev.picasso.contracts.v1.Reference
 import dev.picasso.adapter.core.Acceptance
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
@@ -801,5 +802,61 @@ class AdapterHostTest {
     private companion object {
         const val ROBOT = "fake-01"
         val PROFILE: Path = Path.of("..", "profile", "fixtures", "minimal.json").normalize()
+        /** minimal 에 `navigate_to: HOLD requires EMPTY` 를 더한 것 — 사전 조건 시험의 프로파일. */
+        val PRECOND: Path = Path.of("..", "profile", "fixtures", "precondition.json").normalize()
+    }
+
+    // ── 사전 조건 (설계안 §3 — 물리 동작 전, 남쪽 호출 전에 거절한다)
+
+    @Test
+    fun `쥔 채로 온 요청은 adapter accept 를 부르지 않는다`() {
+        World(profileJson = Files.readString(PRECOND)).use { w ->
+            w.adapter.holding = HoldObservation.Holding("tote-7")
+            val response = w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3"))
+            assertEquals(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET, response.rejection.code, response.rejection.toString())
+            assertEquals(
+                listOf("HOLD"),
+                response.rejection.referencesList.filter { it.key == Reference.Key.KEY_PRECONDITION_SUBJECT }.map { it.value },
+                "어느 조건인지 참조로 실려야 한다",
+            )
+            assertEquals(emptyList(), w.adapter.accepted, "조건 위반이 남쪽 호출까지 갔다")
+            // 빈손이면 같은 요청이 접수된다 — 막은 것은 조건이지 스킬이 아니다.
+            w.adapter.holding = HoldObservation.Empty
+            assertTrue(w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3")).hasHandle())
+        }
+    }
+
+    @Test
+    fun `관측 불가는 조건이 있는 스킬만 막는다`() {
+        World(profileJson = Files.readString(PRECOND)).use { w ->
+            // 빈손이 아니다 — 못 봤을 뿐이다. 조건이 있으면 접수하지 않는다(설계안 §3.2).
+            w.adapter.holding = HoldObservation.NotObservable("벤더가 파지 판정을 안 준다")
+            val nav = w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3"))
+            assertEquals(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET, nav.rejection.code, nav.rejection.toString())
+            assertTrue("벤더가 파지 판정을 안 준다" in nav.rejection.detail, nav.rejection.detail)
+            // 조건이 없는 스킬은 관측 불가여도 접수된다 — 선언하지 않은 조건은 제약 없음이다(설계안 §6).
+            assertTrue(w.start(taskId = "T-pick").hasHandle())
+        }
+    }
+
+    @Test
+    fun `벤더가 PRECONDITION_FAILED 로 거절하면 PRECONDITION_UNMET 이다`() {
+        World().use { w ->
+            // 선언된 조건은 벤더 거절을 대체하지 않는다(설계안 §3.4) — 다만 벤더가 "지금 못 받는다" 고 답하면
+            // 그것도 같은 자리다. 지금까지 INVALID_TRANSITION 에 사정을 붙여 냈다(§15.98 의 정직 메모).
+            w.adapter.refuseWith = Acceptance.Refused(
+                Refusal.VENDOR_REJECTED, "로봇이 그 명령을 받을 상태가 아니다",
+                failureClass = FailureClass.FAILURE_CLASS_PRECONDITION_FAILED, vendorDetail = "LOCOSTATE_NOT_AVAILABLE",
+            )
+            val response = w.start()
+            assertEquals(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET, response.rejection.code, response.rejection.toString())
+            assertTrue("PRECONDITION_FAILED" in response.rejection.detail, response.rejection.detail)
+            // 벤더 원천에는 선언된 주어가 없다 — 참조는 비고 detail 의 [class=…; vendor=…] 가 원천을 말한다(계약 주석과 같다).
+            assertTrue(response.rejection.referencesList.none { it.key == Reference.Key.KEY_PRECONDITION_SUBJECT }, response.rejection.toString())
+            assertTrue("[class=PRECONDITION_FAILED" in response.rejection.detail, response.rejection.detail)
+            // 다른 분류의 벤더 거절은 그대로다 — 자리가 생긴 것은 사전 조건뿐이다.
+            w.adapter.refuseWith = Acceptance.Refused(Refusal.VENDOR_REJECTED, "x", failureClass = FailureClass.FAILURE_CLASS_HARDWARE_FAULT)
+            assertEquals(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, w.start(taskId = "T-2").rejection.code)
+        }
     }
 }

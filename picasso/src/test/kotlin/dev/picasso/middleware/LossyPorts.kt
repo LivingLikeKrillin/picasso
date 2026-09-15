@@ -1,5 +1,8 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.Precondition
+import dev.picasso.contracts.v1.HoldKind
+import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.CancelTaskResponse
 import dev.picasso.contracts.v1.ProgressBasis
 import dev.picasso.contracts.v1.StartTaskResponse
@@ -98,3 +101,19 @@ class ProgressPort(
         }
 }
 
+/** 능력을 못 묻는 포트 — 계획 시점 사슬 검사가 건너뛰어야 하는 경우를 만든다(리뷰 C10). */
+class CapabilityBlindRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    override fun capabilities(robotId: String): Capability? = null
+}
+
+/** 로봇이 계약에 없는 주어(99)로 조건을 선언한 것처럼 보이게 하는 포트 — 새 계약의 발신자 흉내(리뷰 C5). */
+class AlienSubjectRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    override fun capabilities(robotId: String): Capability? {
+        val real = delegate.capabilities(robotId) ?: return null
+        val builder = real.toBuilder()
+        builder.skillsBuilderList.filter { it.skillType == "navigate_to" }.forEach { skill ->
+            skill.addPreconditions(Precondition.newBuilder().setSubjectValue(99).setRequires(HoldKind.HOLD_KIND_EMPTY))
+        }
+        return builder.build()
+    }
+}

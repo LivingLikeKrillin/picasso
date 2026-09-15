@@ -370,13 +370,14 @@ class TaskServiceImpl(
         hosted.headers.forResponse(descriptor)
 
     private fun rejectionOf(outcome: StartOutcome.Rejected, taskId: String): Rejection =
-        reject(outcome.code, outcome.detail, taskId, outcome.parameterKeys)
+        reject(outcome.code, outcome.detail, taskId, outcome.parameterKeys, outcome.subjects)
 
     private fun reject(
         code: RejectionCode,
         detail: String,
         taskId: String,
         parameterKeys: List<String> = emptyList(),
+        subjects: List<String> = emptyList(),
     ): Rejection = Rejection.newBuilder()
         .setCode(code)
         .setDetail(detail)
@@ -388,6 +389,11 @@ class TaskServiceImpl(
             parameterKeys.forEach {
                 builder.addReferences(
                     Reference.newBuilder().setKey(Reference.Key.KEY_PARAMETER_KEY).setValue(it),
+                )
+            }
+            subjects.forEach {
+                builder.addReferences(
+                    Reference.newBuilder().setKey(Reference.Key.KEY_PRECONDITION_SUBJECT).setValue(it),
                 )
             }
         }

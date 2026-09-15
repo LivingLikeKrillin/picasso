@@ -1,5 +1,6 @@
 package dev.picasso.mimic.transport
 
+import kotlin.test.assertNull
 import dev.picasso.contracts.v1.CancelTaskRequest
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.PauseTaskRequest
@@ -548,5 +549,26 @@ class TaskRpcTest {
         )
         assertEquals(before + 1, log().size)
         assertEquals(EngineState.PAUSED, log().last!!.state)
+    }
+
+    @Test
+    fun `쥔 채로 온 navigate_to 는 엔진에 닿기 전에 거절된다`() {
+        // 설계안 §3 — 미믹은 호스트와 같은 평가기를 쓴다. pick_place 가 도는 동안 미믹은 HOLDING 이고(§4.4),
+        // navigate_to 가 HOLD requires EMPTY 를 선언한 프로파일이면 접수 전에 PRECONDITION_UNMET 이다.
+        val raw = Files.readString(Path.of("..", "profile", "fixtures", "precondition.json").normalize())
+        GrpcFixture(mapOf("r1" to TaskMachineFixtures.document(raw)), clock).use { f ->
+            val pick = listOf(string("object_id", "SEQ-IN-02.BIN-A"), string("destination", "RACK-204.S01"))
+            val first = f.tasks.startTask(startRequest(taskId = "t-pick", skillType = "pick_place", parameters = pick))
+            assertTrue(first.hasHandle(), first.rejection.toString())
+
+            val second = f.tasks.startTask(startRequest(taskId = "t-nav", skillType = "navigate_to"))
+            assertEquals(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET, second.rejection.code, second.rejection.toString())
+            assertEquals(
+                listOf("HOLD"),
+                second.rejection.referencesList.filter { it.key == Reference.Key.KEY_PRECONDITION_SUBJECT }.map { it.value },
+            )
+            // 엔진에 닿지 않았다 — 태스크가 생기지 않는다.
+            assertNull(f.registry.require(GrpcFixture.requestHeader("r1")).instance.tasks.find("t-nav"), "거절이 엔진 뒤에서 났다")
+        }
     }
 }

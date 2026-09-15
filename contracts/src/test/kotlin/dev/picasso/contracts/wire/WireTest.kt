@@ -12,7 +12,7 @@ class ContractIdentityTest {
 
     @Test
     fun `계약 신원을 클래스패스에서 읽는다`() {
-        assertEquals("0.8.0", ContractIdentity.semver)
+        assertEquals("0.9.0", ContractIdentity.semver)
         assertTrue(
             ContractIdentity.digest.matches(Regex("[0-9a-f]{64}")),
             "다이제스트가 SHA-256 16진수가 아니다: ${ContractIdentity.digest}",
@@ -155,7 +155,10 @@ class RequestHeadersTest {
         // 올렸을 때 목록의 "0.2.0"이 Same이 되어 이 시험이 깨졌다 —
         // 계약을 고칠 때마다 시험을 고치게 되면 아무도 값을 안 보게 된다.
         val ours = ContractIdentity.semver
-        listOf("0.9.0", "0.0.1", "0.5.7")
+        // 우리보다 **높은** minor 하나는 ours 에서 파생한다 — 리터럴로 두면 계약을 올릴 때 겹치고(0.9.0 이 그랬다),
+        // 빼면 «상대가 더 새로워도 차단하지 않는다» 를 아무도 안 본다.
+        val newerMinor = ours.split(".").let { (major, minor, _) -> "$major.${minor.toInt() + 1}.0" }
+        listOf(newerMinor, "0.0.1", "0.5.7")
             .filterNot { it == ours }
             .also { assertEquals(3, it.size, "목록이 우리 버전과 겹친다: $ours") }
             .forEach { theirs ->

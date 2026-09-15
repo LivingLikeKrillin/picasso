@@ -120,7 +120,7 @@ class Check06Vocabulary : GateCheck {
                 return@forEach
             }
 
-            out += inPlace(head, old, same, newlyRequired)
+            out += inPlace(head, old, same, newlyRequired, registry, skipped)
         }
 
         out += optionalFieldChanges(base, head, newlyRequired)
@@ -133,6 +133,8 @@ class Check06Vocabulary : GateCheck {
         old: ProfileDocument.SkillEntry,
         new: ProfileDocument.SkillEntry,
         newlyRequired: Set<String>,
+        registry: LedgerQuery?,
+        skipped: MutableSet<Resource>,
     ): List<Finding> {
         val out = mutableListOf<Finding>()
         val oldParams = old.parameters.associateBy { it.key }
@@ -168,6 +170,20 @@ class Check06Vocabulary : GateCheck {
         newlyRequired
             .filter { path -> newParams.keys.any { path.endsWith(".$it") } }
             .forEach { needsMajor += "optional_fields의 '$it'가 REQUIRED가 됐다" }
+
+        // 사전 조건(설계안 §6, §15.143). **추가는 축소다** — 어제 든 채로 보내던 소비자가 오늘 거절된다.
+        // major 로 흡수할 수 없다: 프로파일의 major 는 계약 카탈로그의 major 에 묶여 있어(검사 4번)
+        // 프로파일이 혼자 올릴 수 없다. 그래서 스킬 제거와 같은 길을 간다 — §9.3 의 두 조회(active 소비자,
+        // 비종착 태스크)를 원장에 묻고, 원장이 없으면 건너뜀을 남긴다. 제거는 확장이라 막지 않되 침묵시키지 않는다.
+        // 값이 바뀐 조건은 제거 + 추가로 읽혀 축소가 된다.
+        val oldPre = old.preconditions.toSet()
+        val newPre = new.preconditions.toSet()
+        (newPre - oldPre).forEach {
+            out += shrink(location, "사전 조건 추가: $where 에 ${it.subject} requires ${it.requires}", old, registry, skipped)
+        }
+        (oldPre - newPre).forEach {
+            out += Finding(id, Severity.WARNING, "사전 조건 제거: $where 의 ${it.subject} requires ${it.requires} — 확장이다", location)
+        }
 
         when {
             needsMajor.isNotEmpty() -> out += Finding(

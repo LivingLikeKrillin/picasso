@@ -1,9 +1,12 @@
 package dev.picasso.capability
 
 import dev.picasso.contracts.v1.Capability
+import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.OptionalFieldDeclaration
 import dev.picasso.contracts.v1.OptionalFieldSupport
 import dev.picasso.contracts.v1.ParameterDeclaration
+import dev.picasso.contracts.v1.Precondition
+import dev.picasso.contracts.v1.PreconditionSubject
 import dev.picasso.contracts.v1.ProtocolLimits
 import dev.picasso.contracts.v1.PublishInterval
 import dev.picasso.contracts.v1.SkillDeclaration
@@ -70,6 +73,13 @@ object CapabilityProjection {
                 entry.deprecatedAfter?.let(builder::setDeprecatedAfter)
             }
             .addAllParameters(entry.parameters.map(::parameter))
+            .addAllPreconditions(entry.preconditions.map(::precondition))
+            .build()
+
+    private fun precondition(entry: ProfileDocument.PreconditionEntry): Precondition =
+        Precondition.newBuilder()
+            .setSubject(preconditionSubject(entry.subject))
+            .setRequires(requiredHold(entry.requires))
             .build()
 
     private fun parameter(entry: ProfileDocument.ParameterEntry): ParameterDeclaration =
@@ -117,6 +127,18 @@ object CapabilityProjection {
         "STRING" -> ValueType.VALUE_TYPE_STRING
         "ENUM" -> ValueType.VALUE_TYPE_ENUM
         else -> error("프로파일의 ValueType 값을 계약으로 옮길 수 없다: '$value'")
+    }
+
+    private fun preconditionSubject(value: String): PreconditionSubject = when (value) {
+        "HOLD" -> PreconditionSubject.PRECONDITION_SUBJECT_HOLD
+        else -> error("프로파일의 사전 조건 주어를 계약으로 옮길 수 없다: '$value'")
+    }
+
+    /** 조건이 요구할 수 있는 관측값은 둘뿐이다 — 나머지는 관측의 결손이지 조건이 아니다. */
+    private fun requiredHold(value: String): HoldKind = when (value) {
+        "EMPTY" -> HoldKind.HOLD_KIND_EMPTY
+        "HOLDING" -> HoldKind.HOLD_KIND_HOLDING
+        else -> error("프로파일의 사전 조건 요구값을 계약으로 옮길 수 없다: '$value'")
     }
 
     private fun optionalFieldSupport(value: String): OptionalFieldSupport = when (value) {

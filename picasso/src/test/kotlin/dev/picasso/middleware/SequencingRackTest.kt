@@ -1,5 +1,7 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.RejectionCode
+import dev.picasso.mimic.control.v1.ForceFaultRequest
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.harness.Harness
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
@@ -47,10 +49,10 @@ class SequencingRackTest {
             .forEach { program(it.id, it.properties["material"]) }
     }
 
-    private class World(profile: Path) : AutoCloseable {
+    private class World(profile: Path, port: (RobotPort) -> RobotPort = { it }) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to profile))
         val cell = CellMimic(now = { harness.clock.now() })
-        val mw = Middleware(ClientRobotPort(harness.client()), cell, now = { harness.clock.now() })
+        val mw = Middleware(port(ClientRobotPort(harness.client())), cell, now = { harness.clock.now() })
 
         fun tasks() = harness.oracle.dumpInternalState(
             DumpInternalStateRequest.newBuilder().setRobotId(ROBOT).build(),
@@ -72,10 +74,28 @@ class SequencingRackTest {
             error("조건에 못 미쳤다: tasks=${tasks().map { it.taskId to it.taskState }}")
         }
 
+        fun forceFault(errorType: String, taskId: String) = harness.oracle.forceFault(
+            ForceFaultRequest.newBuilder().setRobotId(ROBOT).setErrorType(errorType).setTaskId(taskId).build(),
+        ).taskState
+
         override fun close() = harness.close()
     }
 
     private fun world() = World(Path.of("..", "profile", "fixtures", "minimal.json").normalize())
+
+    /** minimal 에 `navigate_to: HOLD requires EMPTY` 와 차단하는 `PAYLOAD_LOST` 를 더한 프로파일. */
+    private val PRECOND: Path = Path.of("..", "profile", "fixtures", "precondition.json").normalize()
+
+    /** 점검 순회 주문 하나 — 첫 단위가 `navigate_to` 다. */
+    private fun inspection(jobOrderId: String = "PATROL-1", version: Int = 1, targets: Int = 1) = JobOrder(
+        jobOrderId = jobOrderId,
+        workMasterId = InspectAsset.WORK_MASTER,
+        version = version,
+        requiredEvidence = Evidence.E0,
+        equipmentRequirements = (1..targets).map {
+            EquipmentRequirement("PUMP-0$it", EquipmentUse.INSPECTION_TARGET, mapOf(EquipmentUse.PROP_LOCATION to "PUMP-ROOM-$it"))
+        },
+    )
 
     private fun Middleware.Execution.settled() = physicalState.isSettled && active == null
 
@@ -293,5 +313,123 @@ class SequencingRackTest {
         const val ROBOT = "hum-02"
         const val V17 = 17
         const val V18 = 18
+    }
+
+    // ── 사전 조건 (설계안 §4 — 계획 시점 사슬 검사) · 상관 실패
+
+    @Test
+    fun `든 채로 관측된 로봇에는 EMPTY 를 요구하는 첫 단위를 보내기 전에 제출이 막힌다`() {
+        // 미들웨어는 마지막 관측 파지(WatchTask 갱신)에서 출발해 카탈로그 효과로 단위를 따라가며 로봇이 선언한
+        // 조건과 대조한다. 어긋나면 접수 요청조차 보내지 않는다. 권위는 발신자다 — 관측이 없는 로봇은 미리 재단하지 않는다.
+        World(PRECOND).use { w ->
+            val rack = order(slots = mapOf("S01" to "A"), sources = mapOf("A" to "SEQ-IN-02.BIN-A"))
+            w.cell.perfect(rack)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack, ROBOT)).execution
+            // pick_place 가 도는 동안 로봇은 HOLDING 이다(§4.4) — 미들웨어가 그것을 관측할 때까지 민다.
+            w.drive(step = Duration.ofSeconds(1)) { exec.units.single().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+
+            val patrol = inspection()
+            val refused = assertIs<Middleware.Submission.Rejected>(w.mw.submit(patrol, ROBOT))
+            assertTrue("HOLD" in refused.reason && "navigate_to" in refused.reason, refused.reason)
+            assertEquals(1, w.tasks().size, "막혔는데 접수 요청이 나갔다")
+
+            // 놓고 끝나면(pick_place 는 releases_object) 같은 주문이 받아진다 — 막은 것은 파지이지 주문이 아니다.
+            w.drive { exec.settled() }
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol, ROBOT))
+        }
+    }
+
+    @Test
+    fun `적재를 잃은 실패는 단위·차단·잔여 파지 세 축에 다 적힌다`() {
+        // 상관 실패는 새 모양이 아니라 세 축의 결합이다 — 어느 단위가 왜 멈췄나(incompleteUnits), 무엇이 실행을
+        // 막나(blockedBy), 로봇이 무엇을 들고 있나(residualHold). 프로파일이 적재 유실을 can_accept_new_task=false 로
+        // 선언해야 둘째 축에 실린다 — 어댑터 골격의 규약이다. 셋째 축은 "말하지 않았다" 가 아니라 "빈손" 이어야 한다.
+        World(PRECOND).use { w ->
+            val rack = order(slots = mapOf("S01" to "A", "S02" to "B"), sources = mapOf("A" to "SEQ-IN-02.BIN-A", "B" to "SEQ-IN-02.BIN-B"))
+            // 셀에 증거를 두지 않는다 — 잃은 적재는 슬롯에 없다. 증거가 있으면 미들웨어는 "하류는 잃었다는데 셀엔 있다" 로
+            // 그 슬롯을 운영자 판단에 세우고(다른 규칙, 다른 시험의 몫) 다음 단위까지 가지 않는다.
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack, ROBOT)).execution
+            w.drive(step = Duration.ofSeconds(1)) { exec.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+
+            w.forceFault("PAYLOAD_LOST", exec.units.first().taskId)
+            w.drive(step = Duration.ofSeconds(1)) { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            val report = w.mw.pending().last()
+            assertEquals("PAYLOAD_LOST", report.incompleteUnits["RACK-204.S01"], report.incompleteUnits.toString())
+            assertEquals(listOf("PAYLOAD_LOST"), report.blockedBy)
+            assertEquals(HoldKind.HOLD_KIND_EMPTY, report.residualHold.kind, "잔여 파지가 빈손이 아니라 미정으로 나갔다")
+            assertTrue(report.operatorRequired)
+            assertEquals(1, w.tasks().size, "막혔는데 둘째 슬롯이 나갔다")
+        }
+    }
+
+    // ── 리뷰 개선 — 낡은 관측·개정판·발신자 거절·모르는 주어
+
+    @Test
+    fun `든 채로 끝난 뒤의 새 주문은 미들웨어가 막지 않는다 — 권위는 발신자다`() {
+        // 리뷰 C2 — 종착한 단위의 HOLDING 은 낡을 수 있고(사람이 비웠을 수 있다) 미들웨어에는 다시 볼 길이 없다.
+        // 계획 시점 검사는 «지금 도는 단위의 관측» 만 근거로 삼는다. 낡은 관측으로 거절하면 낡은 기록이 권위가 된다.
+        World(PRECOND).use { w ->
+            val rack = order(slots = mapOf("S01" to "A"), sources = mapOf("A" to "SEQ-IN-02.BIN-A"))
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack, ROBOT)).execution
+            w.drive(step = Duration.ofSeconds(1)) { exec.units.single().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+            w.forceFault("LOCALIZATION_LOST", exec.units.single().taskId)   // 든 채로 실패 — 파지는 안 바뀐다
+            w.drive(step = Duration.ofSeconds(1)) { exec.settled() }
+            assertEquals(HoldKind.HOLD_KIND_HOLDING, exec.units.single().hold.kind, "전제가 무너졌다 — 든 채로 끝나지 않았다")
+
+            // 도는 단위가 없다 — 미들웨어는 재단하지 않고 보낸다. 실제로 든 채면 발신자가 거절한다.
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(inspection(), ROBOT))
+        }
+    }
+
+    @Test
+    fun `개정판 주문도 사슬 검사를 받는다`() {
+        // 리뷰 C3 — 같은 주문의 새 버전은 revise() 로 가는데, 그 길에는 사슬 검사가 없었다.
+        World(PRECOND).use { w ->
+            val patrol = inspection(targets = 2)
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol, ROBOT))   // 아직 아무것도 안 돈다 — 통과
+            val rack = order(slots = mapOf("S01" to "A"), sources = mapOf("A" to "SEQ-IN-02.BIN-A"))
+            val rackExec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack, ROBOT)).execution
+            w.drive(step = Duration.ofSeconds(1)) { rackExec.units.single().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+
+            // 로봇이 든 채로 도는데 같은 순회의 v2 — 남은 navigate_to(HOLD requires EMPTY) 는 보내면 안 된다.
+            val revised = w.mw.submit(patrol.copy(version = 2), ROBOT)
+            assertIs<Middleware.Submission.Rejected>(revised, "개정판이 사슬 검사를 건너뛰었다: $revised")
+        }
+    }
+
+    @Test
+    fun `발신자가 사전 조건으로 거절하면 그 단위는 운영자 판단으로 서고 다음 단위는 나가지 않는다`() {
+        // 리뷰 C10 — 계획 시점 검사가 건너뛴 경우(능력을 못 물었다) 발신자의 PRECONDITION_UNMET 이 유일한 방어선이다.
+        // 그것을 FAILED 로 접고 다음 단위로 넘어가면 계약이 말한 «기다리거나 앞 단위를 바꾼다» 가 실행되지 않는다.
+        World(PRECOND, port = { CapabilityBlindRobotPort(it) }).use { w ->
+            val rack = order(slots = mapOf("S01" to "A"), sources = mapOf("A" to "SEQ-IN-02.BIN-A"))
+            val rackExec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack, ROBOT)).execution
+            w.drive(step = Duration.ofSeconds(1)) { rackExec.units.single().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+
+            val patrol = assertIs<Middleware.Submission.Accepted>(w.mw.submit(inspection(targets = 2), ROBOT)).execution
+            val nav = patrol.units.first()
+            w.drive(step = Duration.ofSeconds(1)) { nav.state != UnitState.PENDING }
+
+            assertEquals(UnitState.OPERATOR_HOLD, nav.state, "발신자의 사전 조건 거절이 FAILED 로 접혔다")
+            assertEquals(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET.name, nav.failureClass)
+            assertTrue(nav.note.orEmpty().contains("HOLD"), "거절 사유·주어가 단위에 남아야 한다: ${nav.note}")
+            // 실행 수준의 판단은 다음 pump 가 매긴다 — 운영자 판단 단위가 있으면 다음으로 가지 않는다.
+            w.drive(step = Duration.ofSeconds(1)) { patrol.physicalState == PhysicalState.OPERATOR_HOLD }
+            assertTrue(patrol.units.drop(1).all { it.state == UnitState.PENDING }, "다음 단위가 나갔다")
+            assertTrue(w.mw.pending().last().operatorRequired)
+        }
+    }
+
+    @Test
+    fun `소비자는 모르는 주어를 지어내지 않는다 — 유보하고 보낸다`() {
+        // 리뷰 C5 — 새 계약의 발신자가 모르는 주어를 선언하면 옛 미들웨어는 UNRECOGNIZED 로 읽는다. 거절이 아니라 유보다.
+        World(PRECOND, port = { AlienSubjectRobotPort(it) }).use { w ->
+            val first = assertIs<Middleware.Submission.Accepted>(w.mw.submit(inspection("PATROL-A"), ROBOT)).execution
+            w.drive(step = Duration.ofSeconds(1)) { first.units.first().hold.kind == HoldKind.HOLD_KIND_EMPTY }   // 도는 단위가 있어 관측이 살아 있다
+
+            // 빈손이고 아는 조건(HOLD requires EMPTY)은 만족한다 — 모르는 주어 하나 때문에 막으면 마이너 호환이 깨진다.
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(inspection("PATROL-B"), ROBOT))
+        }
     }
 }

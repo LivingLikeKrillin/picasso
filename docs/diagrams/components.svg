@@ -16,6 +16,7 @@
   <!-- edge: harness -> uplink -->
   <!-- edge: mimic -> capability -->
   <!-- edge: mimic -> uplink -->
+  <!-- edge: picasso -> capability -->
   <!-- edge: picasso -> client -->
   <!-- edge: registry -> gate -->
   <rect x="6" y="6" width="988" height="864" rx="14" fill="#ffffff" stroke="#d0d7de"/>

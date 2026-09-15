@@ -127,4 +127,29 @@ class ModelProfilesTest {
             assertTrue(it != null && it > narrow, "location의 최대 길이가 좁은 한계보다 작다: $it")
         }
     }
+
+    @Test
+    fun `참고 프로파일이 사전 조건을 선언한다`() {
+        // 설계안 §5 — 이 설계의 유일한 실증 자리. 기구를 쓰는 프로파일이 하나는 있어야 시험이 선다
+        // (`grip_force` 의 min_value 가 이 문서에만 있는 것과 같다).
+        val nav = skill(a, "navigate_to")!!
+        assertEquals(listOf(ProfileDocument.PreconditionEntry("HOLD", "EMPTY")), nav.preconditions)
+    }
+
+    @Test
+    fun `실물 프로파일은 v1 에서 조건을 선언하지 않는다`() {
+        // 설계안 §5 — 실물 넷 어느 것도 벤더 1차 자료로 "든 채로 이동 불가"가 확인되지 않았다.
+        // UNKNOWN 은 선언하지 않는 것이다(CLAUDE.md §2-5). 그리고 파지를 관측하지 못하는 기종(G1)은
+        // 조건을 적는 순간 영구 거절이 된다(설계안 §3.2). 실물에 조건이 들어가는 날은 벤더 조사가 먼저 갱신되는 날이다.
+        val dir = Path.of("..", "profile", "profiles").normalize()
+        val real = Files.list(dir).use { s -> s.filter { it.toString().endsWith(".json") }.toList() }
+            .map { p -> ProfileDocument.parse(p.toString(), Files.readString(p).replace("\r\n", "\n")).getOrThrow() }
+            .filter { it.vendor != "picasso-ref" }
+        assertTrue(real.size >= 3, "실물 프로파일을 못 찾았다: ${real.map { it.model }}")
+        real.forEach { doc ->
+            doc.skills.forEach { s ->
+                assertEquals(emptyList(), s.preconditions, "${doc.vendor}/${doc.model} 의 ${s.skillType} 가 조건을 선언했다")
+            }
+        }
+    }
 }

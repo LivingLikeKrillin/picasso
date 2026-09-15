@@ -19,6 +19,8 @@ import dev.picasso.contracts.v1.ProfileRef
 import dev.picasso.contracts.v1.ProgressBasis
 import dev.picasso.contracts.v1.ProgressKind
 import dev.picasso.contracts.v1.RejectionCode
+import dev.picasso.contracts.v1.Reference
+import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskSnapshot
 import dev.picasso.contracts.v1.TaskState
@@ -27,6 +29,7 @@ import dev.picasso.contracts.wire.ContractIdentity
 import dev.picasso.contracts.wire.TaskStates
 import dev.picasso.profile.ProfileDocument
 import dev.picasso.capability.CapabilityProjection
+import dev.picasso.capability.PreconditionCheck
 import dev.picasso.uplink.Publication
 import dev.picasso.uplink.Publisher
 import dev.picasso.uplink.Topics
@@ -163,7 +166,12 @@ class HostedRobot(
     sealed interface StartOutcome {
         data class Accepted(val task: HostedTask) : StartOutcome
         data class Idempotent(val task: HostedTask) : StartOutcome
-        data class Rejected(val code: RejectionCode, val detail: String) : StartOutcome
+        data class Rejected(
+            val code: RejectionCode,
+            val detail: String,
+            /** 응답만 보고 무엇이 걸렸는지 알 수 있게 — 사전 조건이면 그 주어. */
+            val references: List<Reference> = emptyList(),
+        ) : StartOutcome
         /** 계약이 답할 자리가 없는 사정 — gRPC 상태로 나간다. */
         data class Unavailable(val status: io.grpc.Status) : StartOutcome
     }
@@ -195,6 +203,10 @@ class HostedRobot(
                 else -> update(existing, revision, skillType, parameters)
             }
         }
+
+        // 사전 조건이 배타 실행 검사보다 먼저다 — 도는 태스크가 든 채인데 새 요청이 오면 «이미 도는 태스크» 보다
+        // «무엇이 걸렸나» 가 계약이다. 미믹은 배타 검사가 없어 그렇게 답하고, 둘이 같은 말을 해야 한다(리뷰 C9).
+        precondition(skillType)?.let { return it }
 
         current?.takeIf { !it.terminal }?.let {
             return StartOutcome.Rejected(
@@ -274,6 +286,25 @@ class HostedRobot(
      * 프로파일이 선언한 것에 대고 본다 — 선언 안 한 스킬, 빠진 필수 파라미터, 문자열 길이. **값의 범위와 허용 값은
      * 어댑터·로봇이 답한다**(미믹의 §10.4 ③ 검사를 여기서 다 흉내내지 않는다 — 여기는 로봇이 있다).
      */
+    /**
+     * 프로파일이 선언한 사전 조건(설계안 §3) — **남쪽 호출 전에** 판정한다. 관측은 [RobotAdapter.hold] 이고
+     * 평가기는 미믹과 같은 `capability` 의 것이다(§15.100). 조건이 없는 스킬은 묻지도 않는다 — 선언하지 않은
+     * 조건은 제약 없음이다. 갱신([update])에는 걸지 않는다: 도는 태스크 자신이 들고 있는 것이 정상이다.
+     */
+    private fun precondition(skillType: String): StartOutcome.Rejected? {
+        val declared = capability.skillsList.firstOrNull { it.skillType == skillType } ?: return null
+        if (declared.preconditionsCount == 0) return null
+        val violations = PreconditionCheck.check(declared, adapter.hold().toProto())
+        if (violations.isEmpty()) return null
+        return StartOutcome.Rejected(
+            RejectionCode.REJECTION_CODE_PRECONDITION_UNMET,
+            PreconditionCheck.rejectionDetail(violations),
+            PreconditionCheck.subjects(violations).map {
+                Reference.newBuilder().setKey(Reference.Key.KEY_PRECONDITION_SUBJECT).setValue(it).build()
+            },
+        )
+    }
+
     private fun validate(skillType: String, parameters: Map<String, Any>): StartOutcome.Rejected? {
         val skill = document.skills.firstOrNull { it.skillType == skillType }
             ?: return StartOutcome.Rejected(
@@ -298,7 +329,7 @@ class HostedRobot(
     /**
      * 어댑터의 거절 → 계약. **어휘가 하나씩 대응하지는 않는다** — 계약의 거절 코드는 소비자의 요청이 틀린 경우를 위해
      * 만들어졌고, 어댑터의 거절에는 *로봇이 지금 못 받는다* 도 있다. 그런 것은 `INVALID_TRANSITION` 에 사정을 붙인다
-     * (§15.98 정직 항목 — 계약에 그 자리가 없다). 우리 쪽 배선이 틀린 것(신원)과 남쪽이 안 닿는 것(링크)은 계약이 답할
+     * (§15.98 의 정직 메모 — 계약에 그 자리가 없었다. 0.9.0 이 사전 조건 위반에는 `PRECONDITION_UNMET` 을 줬고, 나머지는 그대로다). 우리 쪽 배선이 틀린 것(신원)과 남쪽이 안 닿는 것(링크)은 계약이 답할
      * 일이 아니라 gRPC 상태다.
      */
     private fun refused(refusal: Acceptance.Refused): StartOutcome = when (refusal.reason) {
@@ -310,7 +341,10 @@ class HostedRobot(
         Refusal.ALREADY_RUNNING, Refusal.TERMINAL_LATCHED, Refusal.NO_TASK, Refusal.NO_VENDOR_PRIMITIVE ->
             StartOutcome.Rejected(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, refusal.detail)
         Refusal.VENDOR_REJECTED -> StartOutcome.Rejected(
-            RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
+            // 로봇이 *지금 못 받는다*(PRECONDITION_FAILED)고 답하면 사전 조건의 자리다(계약 0.9.0, §15.144) — 소비자는
+            // 요청을 고치는 게 아니라 기다리거나 앞 단위를 바꾼다. 다른 분류는 여전히 INVALID_TRANSITION 에 사정을 붙인다.
+            if (refusal.failureClass == FailureClass.FAILURE_CLASS_PRECONDITION_FAILED) RejectionCode.REJECTION_CODE_PRECONDITION_UNMET
+            else RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
             "${refusal.detail} [class=${refusal.failureClass.name.removePrefix("FAILURE_CLASS_")}; vendor=${refusal.vendorDetail}]",
         )
         Refusal.CONTROL_AUTHORITY_LOST -> StartOutcome.Rejected(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, refusal.detail)

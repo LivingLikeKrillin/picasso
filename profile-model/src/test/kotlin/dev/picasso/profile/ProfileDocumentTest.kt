@@ -181,4 +181,18 @@ class ProfileDocumentTest {
         // 원본은 그대로여야 한다 — 검사 3번이 원문을 쓴다.
         assertEquals(4, fixture().failureModes.size)
     }
+
+    @Test
+    fun `사전 조건을 읽는다`() {
+        val d = ProfileDocument.parse("inline.json", """{"skills":[{"skill_type":"navigate_to","major":1,"minor":0,"pause_support":"YES","cancel_support":"YES",
+               "parameters":[],"preconditions":[{"subject":"HOLD","requires":"EMPTY"}]}]}""").getOrThrow()
+        val nav = assertNotNull(d.skills.firstOrNull { it.skillType == "navigate_to" })
+        assertEquals(listOf(ProfileDocument.PreconditionEntry(subject = "HOLD", requires = "EMPTY")), nav.preconditions)
+    }
+
+    @Test
+    fun `사전 조건이 없으면 빈 목록이다`() {
+        // 픽스처 어느 스킬도 조건을 선언하지 않는다 — 없는 것은 빈 것이지 미정이 아니다.
+        fixture().skills.forEach { assertEquals(emptyList(), it.preconditions, it.skillType) }
+    }
 }

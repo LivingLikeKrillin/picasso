@@ -194,6 +194,32 @@
           "type": "string",
           "format": "date-time",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "preconditions": {
+          "description": "접수 전에 평가되는 사전 조건. 투영에 들어간다. 없으면 조건이 없다 — 빈 배열과 같다(설계안 §6). 파지를 관측하지 못하는 기종은 HOLD 조건을 선언하면 안 된다: 선언하는 순간 그 스킬이 영구 거절이 된다(설계안 §3.2). 검사 6번이 추가를 능력 축소로 분류해 §9.3 원장 조회를 거치고, 제거는 확장으로 둔다.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/precondition"
+          }
+        }
+      }
+    },
+
+    "precondition": {
+      "description": "사전 조건 하나. 주어는 관측하는 어댑터가 있는 것만 든다(ADR 9) — 적재 질량은 관측 어댑터가 없어 없다.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "requires"],
+      "properties": {
+        "subject": {
+          "description": "조건이 보는 로봇 상태. HOLD 는 계약 task.proto 의 HoldKind 로 관측된다.",
+          "type": "string",
+          "enum": ["HOLD"]
+        },
+        "requires": {
+          "description": "요구하는 관측값. UNSPECIFIED·NOT_OBSERVABLE 은 조건이 아니라 관측의 결손이라 여기 없다.",
+          "type": "string",
+          "enum": ["EMPTY", "HOLDING"]
         }
       }
     },

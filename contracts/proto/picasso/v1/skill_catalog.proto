@@ -81,6 +81,13 @@ extend google.protobuf.MessageOptions {
   // 시나리오 ③(설비 점검 순회)을 하네스로 옮기다 드러났다 — 앞 판의 미믹이
   // 참조를 쥠으로 읽어 점검 중인 로봇이 대상을 든 채로 보고됐다(§15.87).
   bool grasps_object = 50008;
+
+  // 이 스킬은 끝날 때 **대상을 놓는다.**
+  //
+  // `grasps_object` 와 짝이다 — 쥐고(true) 놓으면(true) 끝난 뒤 빈손이고,
+  // 쥐고 안 놓으면 끝난 뒤에도 든 채다. 사슬의 다음 단위가 무엇을 요구할 수
+  // 있는지가 여기서 결정된다(설계안 §1.1).
+  bool releases_object = 50009;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +137,7 @@ message PickPlaceV1 {
   option (skill_type_major) = 1;
   option (skill_type_max_minor) = 2;
   option (grasps_object) = true;
+  option (releases_object) = true;
 
   // 집을 대상의 식별자.
   string object_id = 1 [(since_minor) = 0, (is_optional) = false, (is_object_reference) = true];

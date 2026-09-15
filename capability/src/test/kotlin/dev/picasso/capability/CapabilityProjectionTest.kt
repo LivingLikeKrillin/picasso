@@ -1,6 +1,8 @@
 package dev.picasso.capability
 
 import dev.picasso.contracts.v1.Capability
+import dev.picasso.contracts.v1.HoldKind
+import dev.picasso.contracts.v1.PreconditionSubject
 import dev.picasso.contracts.v1.OptionalFieldSupport
 import dev.picasso.contracts.v1.Support
 import dev.picasso.contracts.v1.ValueType
@@ -244,5 +246,20 @@ class CapabilityProjectionTest {
               "exclusive_control_required": false, "replay_buffer_size": 16
             }
         """.trimIndent()
+    }
+
+    @Test
+    fun `사전 조건이 투영에 실린다`() {
+        val d = ProfileDocument.parse("inline.json", """{"skills":[{"skill_type":"navigate_to","major":1,"minor":0,"pause_support":"YES","cancel_support":"YES",
+               "parameters":[],"preconditions":[{"subject":"HOLD","requires":"EMPTY"}]}]}""").getOrThrow()
+        val nav = CapabilityProjection.of(d).skillsList.single()
+        assertEquals(1, nav.preconditionsCount)
+        assertEquals(PreconditionSubject.PRECONDITION_SUBJECT_HOLD, nav.getPreconditions(0).subject)
+        assertEquals(HoldKind.HOLD_KIND_EMPTY, nav.getPreconditions(0).requires)
+    }
+
+    @Test
+    fun `조건이 없는 스킬은 투영에서도 비어 있다`() {
+        capability.skillsList.forEach { assertEquals(0, it.preconditionsCount, it.skillType) }
     }
 }

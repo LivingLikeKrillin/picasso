@@ -5,24 +5,11 @@
     "observed_at": "2026-09-05",
     "source": "참조 프로파일이다. 실물 벤더 문서에서 파생하지 않았다(설계 §7.4). 실물 기종이 오면 이 값이 진짜 파생 근거를 담아야 한다."
   },
-  "vendor": "picasso-ref",
-  "model": "humanoid-a",
-  "revision": 2,
+  "vendor": "fixture",
+  "model": "precondition",
+  "revision": 1,
 
   "skills": [
-    {
-      "skill_type": "navigate_to",
-      "major": 1,
-      "minor": 0,
-      "pause_support": "YES",
-      "cancel_support": "YES",
-      "parameters": [
-        { "key": "location", "value_type": "STRING", "optional": false, "max_length": 256 }
-      ],
-      "preconditions": [
-        { "subject": "HOLD", "requires": "EMPTY" }
-      ]
-    },
     {
       "skill_type": "pick_place",
       "major": 1,
@@ -33,18 +20,21 @@
         { "key": "object_id", "value_type": "STRING", "optional": false, "max_length": 64 },
         { "key": "destination", "value_type": "STRING", "optional": false, "max_length": 64 },
         { "key": "verify_grasp", "value_type": "BOOL", "optional": true },
-        { "key": "grip_force", "value_type": "NUMBER", "optional": true, "min_value": 0, "max_value": 120, "unit": "N" }
+        { "key": "grip_force", "value_type": "NUMBER", "optional": true, "min_value": 0, "max_value": 120, "unit": "N" },
+        { "key": "grasp_attempts", "value_type": "INTEGER", "optional": true, "min_value": 1, "max_value": 5, "unit": "count" }
       ]
     },
     {
-      "skill_type": "inspect",
+      "skill_type": "navigate_to",
       "major": 1,
-      "minor": 3,
-      "pause_support": "YES",
+      "minor": 0,
+      "pause_support": "UNKNOWN",
       "cancel_support": "YES",
       "parameters": [
-        { "key": "target", "value_type": "STRING", "optional": false, "max_length": 64 },
-        { "key": "mode", "value_type": "ENUM", "optional": true, "allowed_values": ["VISUAL", "THERMAL"] }
+        { "key": "location", "value_type": "STRING", "optional": false, "max_length": 64 }
+      ],
+      "preconditions": [
+        { "subject": "HOLD", "requires": "EMPTY" }
       ]
     }
   ],
@@ -59,9 +49,8 @@
   "exclusive_control_required": true,
 
   "durations": [
-    { "skill_type": "navigate_to", "seconds": 20 },
     { "skill_type": "pick_place", "seconds": 45, "jitter_ratio": 0.1 },
-    { "skill_type": "inspect", "seconds": 12 }
+    { "skill_type": "navigate_to", "seconds": 20 }
   ],
 
   "failure_modes": [
@@ -80,10 +69,26 @@
       "skill_type": "pick_place",
       "rate": 0.01,
       "can_continue_current_task": false,
-      "can_accept_new_task": true,
+      "can_accept_new_task": false,
       "resolution": "NEEDS_INTERVENTION",
       "error_hint": "떨어뜨린 대상을 회수해 원위치에 놓고 재시도하십시오.",
       "active_until": "UNTIL_CLEARED"
+    },
+    {
+      "error_type": "LOCALIZATION_LOST",
+      "rate": 0.002,
+      "can_continue_current_task": false,
+      "can_accept_new_task": false,
+      "resolution": "NEEDS_INTERVENTION",
+      "error_hint": "로봇을 알려진 랜드마크 앞으로 옮기고 재측위를 실행하십시오.",
+      "active_until": "UNTIL_CLEARED"
+    },
+    {
+      "error_type": "X_FIXTURE_SIMULATED_HARDWARE_FAULT",
+      "rate": 0.001,
+      "can_continue_current_task": false,
+      "can_accept_new_task": false,
+      "resolution": "TERMINAL"
     }
   ],
 
