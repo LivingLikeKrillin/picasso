@@ -29,7 +29,10 @@ plugins {
 //         정준 실패 분류가 계약을 탄다 — 어댑터가 벤더 코드를 옮기고 상류는
 //         이것으로만 분기한다(미들웨어 중앙 설계 §1.4, §15.91). 추가이므로
 //         major는 그대로다.
-val contractSemver = "0.8.0"
+// 0.9.0 — SkillDeclaration.preconditions(Precondition·PreconditionSubject), 카탈로그의
+// releases_object, REJECTION_CODE_PRECONDITION_UNMET·KEY_PRECONDITION_SUBJECT 추가.
+// 전부 추가 전용이다(설계안 §2·§6).
+val contractSemver = "0.9.0"
 
 // 이 모듈은 proto 파일과 거기서 나온 것, 그리고 **그 구조를 채우는 규칙**을
 // 담는다 — §5.5의 헤더 표와 계약 신원이다. 발신자 쪽에만 두면 client가 요청

@@ -6,6 +6,7 @@ option java_multiple_files = true;
 option java_package = "dev.picasso.contracts.v1";
 
 import "picasso/v1/common.proto";
+import "picasso/v1/task.proto";
 
 // 설계 §4.2. OPC UA Skill 모델(fortiss / VDMA·OPC Foundation SOArc)의 구조.
 // Reset은 RPC가 아니라 엔진 내부 전이다 — 외부에 노출하면
@@ -65,6 +66,27 @@ message ParameterDeclaration {
   optional uint32 max_length = 8;
 }
 
+// 사전 조건의 주어 — 조건이 보는 로봇 상태. 값이 느는 조건은 하나다:
+// 그것을 관측하는 어댑터가 있어야 한다(ADR 9). 적재 질량은 관측하는
+// 어댑터가 없어 여기 없다.
+enum PreconditionSubject {
+  PRECONDITION_SUBJECT_UNSPECIFIED = 0;
+
+  // 로봇이 무엇을 들고 있는가. task.proto 의 HoldKind 로 관측된다.
+  PRECONDITION_SUBJECT_HOLD = 1;
+}
+
+// 스킬 하나의 사전 조건. 프로파일이 선언하고 발신자가 접수 전에 평가한다.
+// 선언이 없으면 조건이 없다 — "선언하지 않았다"를 "제약이 있다"로 읽지
+// 않는 것은 위 min_value 의 이유와 같다.
+message Precondition {
+  PreconditionSubject subject = 1;
+
+  // subject 가 HOLD 일 때 요구하는 관측값. EMPTY 또는 HOLDING 만 유효하다 —
+  // UNSPECIFIED·NOT_OBSERVABLE 은 조건이 아니라 관측의 결손이다.
+  HoldKind requires = 2;
+}
+
 // 스킬 하나의 능력 선언.
 message SkillDeclaration {
   string skill_type = 1;
@@ -81,6 +103,9 @@ message SkillDeclaration {
 
   // RFC3339. 비어 있으면 폐기 예고가 없다는 뜻이다.
   string deprecated_after = 7;
+
+  // 접수 전에 평가되는 조건들. 비어 있으면 조건이 없다.
+  repeated Precondition preconditions = 8;
 }
 
 message OptionalFieldDeclaration {

@@ -13,6 +13,9 @@ message Reference {
     KEY_SKILL_ID = 2;
     KEY_ROBOT_ID = 3;
     KEY_PARAMETER_KEY = 4;
+
+    // 거절이 PRECONDITION_UNMET 일 때 어느 조건인가 — PreconditionSubject 의 이름.
+    KEY_PRECONDITION_SUBJECT = 5;
   }
 
   Key key = 1;
@@ -112,6 +115,20 @@ enum RejectionCode {
   // 드는 기체도 있다: Spot은 `StopMission`→`LoadMission`→`PlayMission`,
   // Digit은 `remove-action`→`add-sequential-actions`다(§15.109).
   REJECTION_CODE_UPDATE_UNSUPPORTED = 13;
+
+  // 프로파일이 선언한 사전 조건(SkillDeclaration.preconditions)을 요청 시점의
+  // 관측이 만족하지 않는다 — 물리 동작 전, 남쪽 호출 전에 난다(설계안 §3).
+  //
+  // INVALID_TRANSITION 과 가르는 이유는 소비자의 다음 행동이 다르기 때문이다 —
+  // 저쪽은 요청을 고치고, 이쪽은 **기다리거나 앞 단위를 바꾼다.** 지금까지
+  // "로봇이 지금 못 받는다"는 INVALID_TRANSITION 에 사정을 붙여 냈고(§15.98),
+  // 조건이 미리 선언되면서 그 거절이 계약이 예고한 결과가 됐다.
+  //
+  // 원천이 둘이다. (1) 프로파일이 **선언한** 조건 — 발신자가 접수 전에 평가했고, references 에
+  // KEY_PRECONDITION_SUBJECT 로 어느 조건인지 싣는다. (2) 로봇이 *지금 못 받는다* 고 답한 벤더 거절
+  // (정준 분류 PRECONDITION_FAILED) — 선언된 주어가 없으므로 references 는 비고, detail 의
+  // `[class=PRECONDITION_FAILED; vendor=…]` 가 원천을 말한다. 소비자의 다음 행동은 둘 다 같다: 기다린다.
+  REJECTION_CODE_PRECONDITION_UNMET = 14;
 }
 
 // 거절에는 언제나 이유가 붙는다. openTCS의 ExplainedBoolean(value, reason)을

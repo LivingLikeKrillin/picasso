@@ -56,6 +56,12 @@ class ProfileDocument private constructor(
                 pauseSupport = s.path("pause_support").asText(),
                 cancelSupport = s.path("cancel_support").asText(),
                 deprecatedAfter = s.field("deprecated_after")?.asText(),
+                preconditions = s.path("preconditions").map { p ->
+                    PreconditionEntry(
+                        subject = p.path("subject").asText(),
+                        requires = p.path("requires").asText(),
+                    )
+                },
                 parameters = s.path("parameters").map { p ->
                     ParameterEntry(
                         key = p.path("key").asText(),
@@ -140,6 +146,19 @@ class ProfileDocument private constructor(
         val cancelSupport: String,
         val deprecatedAfter: String?,
         val parameters: List<ParameterEntry>,
+        /** 없으면 조건이 없다 — 빈 목록이지 미정이 아니다(설계안 §6). */
+        val preconditions: List<PreconditionEntry> = emptyList(),
+    )
+
+    /**
+     * 접수 전에 평가되는 사전 조건 하나. 값 어휘를 enum 으로 좁히지 않는 이유는
+     * 이 파일 머리의 것과 같다 — 미지의 값은 검사 3번이 잡는다.
+     *
+     * 검사 6번이 **추가를 축소로**(§9.3 원장 조회), 제거를 확장으로 분류한다(설계안 §6, §15.143).
+     */
+    data class PreconditionEntry(
+        val subject: String,
+        val requires: String,
     )
 
     data class ParameterEntry(
