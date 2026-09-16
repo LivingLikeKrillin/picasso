@@ -199,23 +199,25 @@ class IncidentBundleTest {
             val bundle = assertNotNull(w.mw.incidents().single())
             val before = bundle.digest()
             assertEquals(before, bundle.copy(wallClockAt = bundle.wallClockAt.plusSeconds(3600)).digest(), "실 시계가 해시에 들어갔다")
-            assertTrue(w.mw.confirmIncident(bundle.incidentId, "그리퍼 정렬 불량"))
-            assertEquals(before, assertNotNull(w.mw.incident(bundle.incidentId)).digest(), "사후 확인이 해시를 바꿨다")
+            assertTrue(w.mw.reviewIncident(bundle.incidentId, ReviewVerdict.AGREED, "그리퍼 정렬 불량"))
+            assertEquals(before, assertNotNull(w.mw.incident(bundle.incidentId)).digest(), "사람의 검토가 해시를 바꿨다")
         }
     }
 
     @Test
-    fun `사후 확인을 적으면 번들이 그것을 든다`() {
-        // 설계안 §7 — 원인 지목은 가설이고 정답은 정비 실적으로 나중에 나온다. 되먹일 자리가
+    fun `사람의 검토를 적으면 번들이 그것을 든다`() {
+        // 설계안 §7.2 — 원인 지목은 가설이고 정답은 정비 실적으로 나중에 나온다. 되먹일 자리가
         // 처음부터 없으면 그 전의 사건에는 영영 자리가 없다(§9 마지막 문단).
         World(MINIMAL, port = { PreconditionRefusingRobotPort(it) }).use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(inspection(), ROBOT)).execution
             w.drive { exec.units.first().state == UnitState.OPERATOR_HOLD }
 
             val id = assertNotNull(w.mw.incidents().single()).incidentId
-            assertFalse(w.mw.confirmIncident("없는-사건", "아무것도"), "없는 사건에 확인을 적었다")
-            assertTrue(w.mw.confirmIncident(id, "그리퍼 정렬 불량"))
-            assertEquals("그리퍼 정렬 불량", assertNotNull(w.mw.incident(id)).postHocCause)
+            assertFalse(w.mw.reviewIncident("없는-사건", ReviewVerdict.AGREED, "아무것도"), "없는 사건에 검토를 적었다")
+            assertTrue(w.mw.reviewIncident(id, ReviewVerdict.DISPUTED, "그리퍼 정렬 불량"))
+            val review = assertNotNull(assertNotNull(w.mw.incident(id)).review)
+            assertEquals(ReviewVerdict.DISPUTED, review.verdict)
+            assertEquals("그리퍼 정렬 불량", review.cause)
         }
     }
 

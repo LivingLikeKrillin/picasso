@@ -1132,14 +1132,29 @@ class Middleware(
     fun incident(incidentId: String): IncidentBundle? = incidentLog.firstOrNull { it.incidentId == incidentId }
 
     /**
-     * 사후 대조 고리(설계안 §7) — 원인 지목은 가설이고 정답은 정비 실적과 재발 여부로 나중에 나온다.
-     * 되먹이지 않으면 정답 라벨 없는 자동 진단이 영영 검증되지 않는다. **자동으로 채우지 않는다.**
+     * 사람이 사건을 읽고 판정을 남긴다(설계안 §7.2). 원인 지목은 가설이고 정답은 정비 실적과 재발
+     * 여부로 나중에 나온다 — 되먹이지 않으면 정답 라벨 없는 자동 진단이 영원히 검증되지 않는다.
+     * **자동으로 채우지 않는다.** 동의도 사람이 눌러야 동의다.
      */
-    fun confirmIncident(incidentId: String, cause: String): Boolean {
+    fun reviewIncident(incidentId: String, verdict: ReviewVerdict, cause: String): Boolean {
         val at = incidentLog.indexOfFirst { it.incidentId == incidentId }
         if (at < 0) return false
-        incidentLog[at] = incidentLog[at].copy(postHocCause = cause)
+        incidentLog[at] = incidentLog[at].copy(review = IncidentReview(verdict, cause, wallClock()))
         return true
+    }
+
+    /**
+     * 검토가 실제로 일어나는가, 그리고 자동 진단이 맞는가(설계안 §7.2 둘째).
+     *
+     * @param since 실 시계 기준 이 시각부터의 사건만. 교대 단위로 보라고 있는 자리다. 널이면 전부.
+     */
+    fun reviewMetrics(since: Instant? = null): ReviewMetrics {
+        val scope = incidentLog.filter { since == null || !it.wallClockAt.isBefore(since) }
+        return ReviewMetrics(
+            total = scope.size,
+            reviewed = scope.count { it.review != null },
+            disputed = scope.count { it.review?.verdict == ReviewVerdict.DISPUTED },
+        )
     }
 
     /** 이 단위가 이번 라운드에 닫혔다. 봉하는 것은 [sealIncidents] 다. */
@@ -1175,6 +1190,8 @@ class Middleware(
                 evidenceWindow = inWindow,
                 windowTruncated = inWindow.size < execution.eventTrail.size,
                 effectMismatch = unit.holdMismatch?.name,
+                expectedHold = unit.holdExpected,
+                observedHold = unit.hold.kind,
                 profileRevision = robots.capabilities(execution.robotId)?.profileRevision ?: 0,
                 contractSemver = ContractIdentity.semver,
             )
@@ -1192,6 +1209,9 @@ class Middleware(
     private fun judgeEffectMismatch(execution: Execution, unit: ExecutionUnit, completed: Boolean) {
         if (unit.route != Route.ROBOT) return
         val expected = HoldEffects.expectedAtEnd(unit.skillType, unit.everHeld, completed) ?: return
+        // **어긋나지 않아도 기대를 남긴다.** 판단 경로는 판정이 났을 때만 필요한 것이 아니다 —
+        // «무엇을 기대했고 무엇을 봤는가» 가 있어야 읽는 사람이 왜 아무 판정도 안 났는지까지 따라간다.
+        unit.holdExpected = expected
         val mismatch: HoldMismatch = HoldEffects.compare(expected, unit.hold.kind) ?: return
         if (unit.holdMismatch == mismatch) return
         unit.holdMismatch = mismatch
