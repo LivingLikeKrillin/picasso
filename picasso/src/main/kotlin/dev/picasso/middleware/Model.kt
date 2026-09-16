@@ -4,6 +4,7 @@ import dev.picasso.capability.HoldMismatch
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.Fault
+import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.TaskState
 import java.time.Duration
@@ -205,6 +206,8 @@ data class ExecutionUnit(
      * 쥐었다가 놓지 못한 채 끝났으면 든 채여야 하고, 쥔 적이 없으면 기대할 것이 없다.
      */
     var everHeld: Boolean = false,
+    /** 끝난 시점에 **기대했던** 파지. 판정의 근거이고, 사건 번들이 판단 경로로 싣는다(설계안 §7.2 셋째). */
+    var holdExpected: HoldKind? = null,
     /**
      * 하류가 종착에 실어 준 결과 참조 — 계약의 `partial_result`. 점검(③)의 *측정값 또는 증거 자료 참조*가 올 자리이며
      * 지금은 아무 발신자도 채우지 않는다(§15.76). 비어 있으면 `null`.
