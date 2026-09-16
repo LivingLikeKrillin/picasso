@@ -59,6 +59,14 @@ class Middleware(
      * 때문이다. 둘을 접으면 재현 판정과 현장 대조 중 하나를 잃는다(설계안 §4.2).
      */
     private val wallClock: () -> Instant = { Instant.now() },
+    /**
+     * 몇 번에 한 번 제안을 **가릴 것인가**(설계안 §7.2 넷째 — 의도적 비자동화). 0 이면 가리지 않는다.
+     *
+     * 에이전트가 사건을 처리할수록 사람은 진단하는 연습을 잃고, 그러면 모델 밖 사건이 왔을 때 아무도
+     * 들어가지 못한다. 가리는 것은 **비용이다** — 그 사건에서 운영자가 더 오래 걸린다. 비용임을 알고
+     * 지불하는 결정이어야 유지되므로 기본값을 두지 않고 배치가 명시하게 한다. 0 을 고르는 것도 결정이다.
+     */
+    private val withholdEvery: Int = 0,
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -164,7 +172,16 @@ class Middleware(
          * 받지 않았다. [remedy] 가 있으면 **깨진 전제를 충족시키는 조치 열**이 계산됐다는 뜻이며,
          * 사람이 [approveRemedy] 로 승인해야 실행된다 — 승인 없이 도는 길은 없다(설계안 §6.4).
          */
-        data class Rejected(val reason: String, val remedy: Remedy? = null) : Submission
+        data class Rejected(
+            val reason: String,
+            val remedy: Remedy? = null,
+            /**
+             * 조치 열이 **계산됐으나 가려졌다**(설계안 §7.2 넷째). [remedy] 가 널이면서 이것이 참이면
+             * «대안이 없다» 가 아니라 «사람이 먼저 진단하라» 는 뜻이다. 둘을 접으면 의도적 비자동화가
+             * 능력 부재와 구별되지 않아, 운영자가 시스템을 고장으로 읽는다.
+             */
+            val remedyWithheld: Boolean = false,
+        ) : Submission
     }
 
     fun execution(executionId: String): Execution? = executions[executionId]
@@ -247,10 +264,17 @@ class Middleware(
                 // **대안은 여기서만 계산할 수 있다.** 관측(liveHold)과 선언이 둘 다 있는 자리가 여기뿐이다 —
                 // 스냅샷은 파지를 싣지 않으므로 도는 단위가 없으면 관측이 없다.
                 val remedy = target?.let { RemedySearch.search(it, declared, hold) }
-                if (remedy is Remedy.Found && remedy.steps.isNotEmpty()) {
-                    proposals[proposalKey(robotId, jobOrderId)] = remedy
-                }
-                return Submission.Rejected(reason, remedy)
+                if (remedy !is Remedy.Found || remedy.steps.isEmpty()) return Submission.Rejected(reason, remedy)
+
+                val key = proposalKey(robotId, jobOrderId)
+                proposals[key] = remedy
+                proposalsMade += 1
+                // **가릴 차례인가.** 이미 사람이 진단을 적어 둔 건은 다시 가리지 않는다 — 같은 값을
+                // 두 번 요구하면 그것은 학습이 아니라 절차다.
+                val hide = withholdEvery > 0 && proposalsMade % withholdEvery == 0 && key !in diagnoses
+                if (!hide) return Submission.Rejected(reason, remedy)
+                withheld += key
+                return Submission.Rejected(reason, remedy = null, remedyWithheld = true)
             }
             hold = HoldEffects.after(unit.skillType, hold)
         }
@@ -1079,10 +1103,62 @@ class Middleware(
      */
     private val proposals = mutableMapOf<String, Remedy.Found>()
 
+    /** 가려 둔 제안의 열쇠 — 사람이 먼저 진단해야 풀린다. */
+    private val withheld = mutableSetOf<String>()
+
+    /** 사람이 먼저 적은 진단. 가려 둔 제안을 푸는 값이고, 나중에 자동 진단과 대조할 재료다. */
+    private val diagnoses = mutableMapOf<String, String>()
+
+    /** 지금까지 낸 제안의 수 — 몇 번째를 가릴지 세는 데 쓴다. 결정적이다. */
+    private var proposalsMade = 0
+
+    /** 같은 조치가 승인된 횟수 — (기체, 걸음 열)마다. */
+    private val approvals = mutableMapOf<String, Int>()
+
     private fun proposalKey(robotId: String, jobOrderId: String) = "$robotId|$jobOrderId"
 
-    /** 이 (기체, 주문)에 서 있는 제안. 없으면 널. */
-    fun proposal(robotId: String, jobOrderId: String): Remedy.Found? = proposals[proposalKey(robotId, jobOrderId)]
+    /** 이 (기체, 주문)에 서 있는 제안. 없거나 **가려져 있으면** 널. */
+    fun proposal(robotId: String, jobOrderId: String): Remedy.Found? {
+        val key = proposalKey(robotId, jobOrderId)
+        if (key in withheld) return null
+        return proposals[key]
+    }
+
+    /**
+     * 가려 둔 제안이 있는가(설계안 §7.2 넷째). 조회가 널을 내는 이유가 «없다» 인지 «가렸다» 인지를 가른다.
+     */
+    fun withheldProposal(robotId: String, jobOrderId: String): Boolean = proposalKey(robotId, jobOrderId) in withheld
+
+    /**
+     * **사람이 먼저 진단한다.** 가려 둔 제안은 이것을 적어야 풀린다 — 제안을 보고 나서 적으면 그것은
+     * 진단이 아니라 동의다. 적은 값은 나중에 자동 진단과 대조할 재료로 남는다.
+     *
+     * @return 가려 둔 제안이 실제로 있었는가. 없으면 적히지 않는다 — 없는 사건에 진단을 남기지 않는다.
+     */
+    fun diagnose(robotId: String, jobOrderId: String, cause: String): Boolean {
+        val key = proposalKey(robotId, jobOrderId)
+        if (key !in withheld) return false
+        diagnoses[key] = cause
+        withheld.remove(key)
+        return true
+    }
+
+    /** 사람이 먼저 적은 진단. 안 적었으면 널. */
+    fun diagnosis(robotId: String, jobOrderId: String): String? = diagnoses[proposalKey(robotId, jobOrderId)]
+
+    /**
+     * 같은 조치가 거듭 승인된 것(설계안 §7.3) — **반복되는 임시 조치는 미해결 근본 원인의 지표다.**
+     *
+     * 임시 대안이 매끄럽게 작동할수록 근본 원인을 고칠 압력이 사라진다. 그리퍼를 교체해야 하는데 우회
+     * 경로가 매번 잘 돌아가면 아무도 교체하지 않는다. 그래서 시스템이 그것을 스스로 고발한다.
+     */
+    fun repeatedRemedies(atLeast: Int = 2): List<RepeatedRemedy> = approvals
+        .filterValues { it >= atLeast }
+        .map { (key, count) ->
+            val (robotId, steps) = key.split("|", limit = 2)
+            RepeatedRemedy(robotId, steps.split(">").filter { it.isNotEmpty() }, count)
+        }
+        .sortedByDescending { it.approvals }
 
     /**
      * 운영자가 제안을 **승인한다**(설계안 §6.4). 승인해야만 조치가 실행되고, 승인은 사람의 책임 있는
@@ -1095,6 +1171,9 @@ class Middleware(
      */
     fun approveRemedy(order: JobOrder, robotId: String, parameters: List<Map<String, String>>): Submission {
         val key = proposalKey(robotId, order.jobOrderId)
+        if (key in withheld) {
+            return Submission.Rejected("가려 둔 제안이다 — 사람이 먼저 진단해야 한다: $key")
+        }
         val proposal = proposals[key] ?: return Submission.Rejected("승인할 제안이 없다: $key")
         if (parameters.size != proposal.steps.size) {
             return Submission.Rejected("걸음 수와 파라미터 수가 다르다: ${proposal.steps.size} != ${parameters.size}")
@@ -1121,6 +1200,8 @@ class Middleware(
         }
 
         proposals.remove(key)
+        val signature = "$robotId|" + proposal.steps.joinToString(">") { it.skillType }
+        approvals[signature] = (approvals[signature] ?: 0) + 1
         return submit(order, robotId, prefix)
     }
 
