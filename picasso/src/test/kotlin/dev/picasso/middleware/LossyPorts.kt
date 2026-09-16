@@ -2,6 +2,7 @@ package dev.picasso.middleware
 
 import dev.picasso.contracts.v1.Precondition
 import dev.picasso.contracts.v1.HoldKind
+import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.CancelTaskResponse
 import dev.picasso.contracts.v1.ProgressBasis
@@ -10,6 +11,7 @@ import dev.picasso.contracts.v1.Rejection
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
+import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.WatchTaskResponse
 
 /**
@@ -145,4 +147,39 @@ class PreconditionRefusingRobotPort(private val delegate: RobotPort) : RobotPort
                 ),
         )
         .build()
+}
+
+/**
+ * 파지를 **볼 수 없는** 기체 — 갱신의 파지를 `NOT_OBSERVABLE` 로 덮는다.
+ *
+ * 미믹은 언제나 관측한다(못 보는 기종이 아니다). 그래서 설계안 §10.1 시나리오 4(관측 불가)를 만들 수단이
+ * 엔진 쪽에 없고, 만들려고 미믹을 고치면 다른 시험들이 기대는 성질이 흔들린다. 못 보는 것은 **선의 성질**이
+ * 아니라 기체의 성질이지만, 여기서는 그 기체를 흉내내는 더블이 이 자리에 있는 것이 맞다.
+ */
+class HoldBlindRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
+        delegate.watch(robotId, handle).map { update ->
+            update.toBuilder()
+                .setHold(HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_NOT_OBSERVABLE))
+                .build()
+        }
+}
+
+/**
+ * **그리퍼가 안 열린 기체** — 하류는 성공했다는데 끝난 갱신의 파지가 여전히 든 채다.
+ *
+ * 미믹은 성공에 언제나 빈손으로 두므로 이 상황을 못 만든다. 설계안 §5.1 표 둘째 줄(놓고 끝나야 하는데
+ * 들고 있음)이 겨냥하는 현실이고, 실물에서는 파지 해제 실패가 이 모양으로 온다.
+ */
+class StuckGripperRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
+        delegate.watch(robotId, handle).map { update ->
+            if (update.state != TaskState.TASK_STATE_SUCCEEDED) {
+                update
+            } else {
+                update.toBuilder()
+                    .setHold(HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_HOLDING).setObjectRef("stuck"))
+                    .build()
+            }
+        }
 }
