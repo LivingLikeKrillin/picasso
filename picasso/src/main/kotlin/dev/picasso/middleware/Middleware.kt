@@ -612,7 +612,7 @@ class Middleware(
         late.filter { it.state.isTerminal() }.forEach { execution.noteLate(unit, it) }
         val last = current.lastOrNull()
             ?: return late.lastOrNull { it.state.isTerminal() }?.let { settleLate(execution, unit, it) } ?: false
-        unit.hold = last.hold
+        unit.observeHold(last.hold)
         if (!last.state.isTerminal()) {
             noteProgress(execution, unit, last)
             execution.physicalState = when {
@@ -622,6 +622,7 @@ class Middleware(
             }
             return false
         }
+        judgeEffectMismatch(execution, unit, completed = last.state == TaskState.TASK_STATE_SUCCEEDED)
         when (last.state) {
             TaskState.TASK_STATE_SUCCEEDED -> {
                 // 하류가 실어 준 결과 참조(E0 의 내용). 비어 있으면 비어 있는 채로 — 지어내지 않는다.
@@ -660,7 +661,7 @@ class Middleware(
      * 없으면 `UNVERIFIED` 다. 실패·중단은 버전과 무관한 물리 사실이라 그대로 옮기되 어느 버전의 것인지를 남긴다.
      */
     private fun settleLate(execution: Execution, unit: ExecutionUnit, update: WatchTaskResponse): Boolean {
-        unit.hold = update.hold
+        unit.observeHold(update.hold)
         unit.annotate("late event: revision ${update.revision} ${update.state.name} arrived under revision ${unit.revision}")
         when (update.state) {
             TaskState.TASK_STATE_SUCCEEDED -> {
@@ -793,7 +794,7 @@ class Middleware(
     /** @return 단위가 종착했는가. */
     private fun pumpFleetUnit(execution: Execution, unit: ExecutionUnit): Boolean {
         val status = fleet.status(execution.transport!!)
-        unit.hold = holdOf(status, unit)
+        unit.observeHold(holdOf(status, unit))
         when (status.state) {
             TransportState.ACCEPTED, TransportState.PICKED_UP, TransportState.IN_TRANSIT -> {
                 unit.note = null
@@ -1082,7 +1083,6 @@ class Middleware(
         val inWindow = execution.eventTrail.filter { within(it, at.minus(window.before), at.plus(window.after)) }
         execution.pendingIncidents.forEach { unitId ->
             val unit = execution.units.firstOrNull { it.unitId == unitId } ?: return@forEach
-            judgeEffectMismatch(unit)
             incidentLog += IncidentBundle(
                 incidentId = "incident-${++incidentSeq}",
                 jobOrderId = execution.order.jobOrderId,
@@ -1112,12 +1112,22 @@ class Middleware(
      * **플릿의 운반은 보지 않는다** — 카탈로그에 없는 단위의 효과를 지어내지 않는다. 그리고 관측이 없거나
      * 볼 수 없으면 [HoldEffects.mismatch] 가 판정하지 않는다(§5.2).
      */
-    private fun judgeEffectMismatch(unit: ExecutionUnit) {
+    private fun judgeEffectMismatch(execution: Execution, unit: ExecutionUnit, completed: Boolean) {
         if (unit.route != Route.ROBOT) return
-        val mismatch: HoldMismatch = HoldEffects.mismatch(unit.skillType, unit.hold.kind) ?: return
+        val expected = HoldEffects.expectedAtEnd(unit.skillType, unit.everHeld, completed) ?: return
+        val mismatch: HoldMismatch = HoldEffects.compare(expected, unit.hold.kind) ?: return
         if (unit.holdMismatch == mismatch) return
         unit.holdMismatch = mismatch
-        unit.annotate("effect/observation mismatch: ${mismatch.name} (hold=${unit.hold.kind.name})")
+        unit.annotate("effect/observation mismatch: ${mismatch.name} (expected=${expected.name} hold=${unit.hold.kind.name})")
+        // **성공으로 끝났는데 어긋난 경우에도 사건을 연다.** 하류는 끝났다는데 손에 남아 있다 —
+        // 운영자가 봐야 하는 사실이고, 사건이 없으면 그 사실이 어디에도 안 실린다.
+        execution.markIncident(unit)
+    }
+
+    /** 관측을 한 곳으로 — 쥔 것을 본 적이 있는지는 중단 시점의 기대를 정한다(설계안 §5). */
+    private fun ExecutionUnit.observeHold(observed: HoldState) {
+        hold = observed
+        if (observed.kind == HoldKind.HOLD_KIND_HOLDING) everHeld = true
     }
 
     /**

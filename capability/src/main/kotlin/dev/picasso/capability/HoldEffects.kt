@@ -37,23 +37,27 @@ object HoldEffects {
     }
 
     /**
-     * 선언된 효과와 마지막 관측이 어긋났는가(설계안 §5.1).
+     * 이 단위가 **끝난 시점에** 기대되는 파지(설계안 §5, 중단 시점 기준). 기대할 것이 없으면 `null`.
+     *
+     * 종료가 성공이면 효과대로다 — 놓는 스킬은 빈손으로 끝나야 한다. 성공이 아니면 **어디까지 갔는지**가
+     * 기대를 정한다: 쥐었다가 놓지 못한 채 끝났으면 든 채여야 한다. 쥔 적이 없으면 기대할 것이 없다.
+     *
+     * 종료 시점의 효과([after])만으로 기대를 잡으면 «쥐고 실패했는데 빈손» 이 정상으로 읽힌다 — 그것이
+     * 설계안 §1.1 과 §10.1 둘째 시나리오가 겨냥한 바로 그 경우다.
+     */
+    fun expectedAtEnd(skillType: String, everHeld: Boolean, completed: Boolean): HoldKind? = when {
+        !grasps(skillType) && !releases(skillType) -> null
+        completed -> after(skillType, HoldState.getDefaultInstance()).kind
+        everHeld -> HoldKind.HOLD_KIND_HOLDING
+        else -> null
+    }
+
+    /**
+     * 기대와 관측을 맞댄다.
      *
      * **관측이 없거나 볼 수 없으면 판정하지 않는다.** 효과는 관측이 있을 때만 미결을 줄인다 — 관측 없이
      * 선언만으로 판정하면 선언을 근거로 현실을 단정하는 것이 되고, 관측 경로가 죽었을 때 고장난 기체가
      * 멀쩡해 보인다(§5.2). 그래서 `NOT_OBSERVABLE` 과 침묵은 둘 다 `null` 이다.
-     *
-     * 효과를 선언하지 않은 스킬도 `null` 이다 — [after] 가 관측을 그대로 돌려주므로 어긋날 것이 없다.
-     */
-    fun mismatch(skillType: String, observed: HoldKind): HoldMismatch? {
-        if (observed != HoldKind.HOLD_KIND_EMPTY && observed != HoldKind.HOLD_KIND_HOLDING) return null
-        return compare(after(skillType, HoldState.newBuilder().setKind(observed).build()).kind, observed)
-    }
-
-    /**
-     * 기대와 관측을 맞대는 자리. [mismatch] 에서 갈라 둔 이유는 **카탈로그가 표의 한 줄을 아직 못 겨냥하기**
-     * 때문이다 — 쥐고 놓지 않는 스킬이 없어 `PAYLOAD_LOST` 쪽은 카탈로그를 통해서는 도달할 수 없다.
-     * 규칙을 대칭으로 두되 양쪽 다 시험이 닿게 한다. 닿지 않는 가지는 규칙이 아니라 주석일 뿐이다.
      */
     fun compare(expected: HoldKind, observed: HoldKind): HoldMismatch? = when {
         expected == observed -> null

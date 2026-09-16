@@ -2,7 +2,6 @@ package dev.picasso.capability
 
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.HoldState
-import dev.picasso.contracts.v1.SkillCatalog
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -36,50 +35,46 @@ class HoldEffectsTest {
         assertEquals(holding, HoldEffects.after("transport", holding))
     }
 
-    // ── 효과와 관측의 어긋남(설계안 §5.1)
+    // ── 끝난 시점의 기대와 관측(설계안 §5, 중단 시점 기준)
 
     @Test
-    fun `놓고 끝나야 하는데 들고 있으면 미완료 파지다`() {
-        assertEquals(HoldMismatch.INCOMPLETE_RELEASE, HoldEffects.mismatch("pick_place", HoldKind.HOLD_KIND_HOLDING))
+    fun `놓기까지 마쳤으면 기대는 효과대로다`() {
+        assertEquals(HoldKind.HOLD_KIND_EMPTY, HoldEffects.expectedAtEnd("pick_place", everHeld = true, completed = true))
     }
 
     @Test
-    fun `들고 끝나야 하는데 빈손이면 적재 유실이다`() {
-        // 표 첫째 줄. 카탈로그에 쥐고 놓지 않는 스킬이 없어 스킬 이름으로는 도달할 수 없으므로
-        // 비교 자체를 겨냥한다 — 닿지 않는 가지는 규칙이 아니라 주석이다.
+    fun `쥐었다가 놓지 못한 채 끝났으면 기대는 든 채다`() {
+        // 종료 시점의 효과만 보면 «쥐고 실패했는데 빈손» 이 정상으로 읽힌다. 어디까지 갔는지가 기대를 정한다.
+        assertEquals(HoldKind.HOLD_KIND_HOLDING, HoldEffects.expectedAtEnd("pick_place", everHeld = true, completed = false))
+    }
+
+    @Test
+    fun `쥔 적이 없으면 기대할 것이 없다`() {
+        assertNull(HoldEffects.expectedAtEnd("pick_place", everHeld = false, completed = false))
+    }
+
+    @Test
+    fun `효과를 선언하지 않은 스킬은 기대할 것이 없다`() {
+        for (skill in listOf("navigate_to", "inspect", "move_relative", "transport")) {
+            assertNull(HoldEffects.expectedAtEnd(skill, everHeld = true, completed = true), skill)
+            assertNull(HoldEffects.expectedAtEnd(skill, everHeld = true, completed = false), skill)
+        }
+    }
+
+    @Test
+    fun `기대와 관측이 어긋나면 그 모양을 말한다`() {
         assertEquals(HoldMismatch.PAYLOAD_LOST, HoldEffects.compare(HoldKind.HOLD_KIND_HOLDING, HoldKind.HOLD_KIND_EMPTY))
         assertEquals(HoldMismatch.INCOMPLETE_RELEASE, HoldEffects.compare(HoldKind.HOLD_KIND_EMPTY, HoldKind.HOLD_KIND_HOLDING))
         assertNull(HoldEffects.compare(HoldKind.HOLD_KIND_EMPTY, HoldKind.HOLD_KIND_EMPTY))
-    }
-
-    @Test
-    fun `쥐고 놓지 않는 스킬이 카탈로그에 생기면 알린다`() {
-        // 표 첫째 줄이 스킬로 도달 가능해지는 날을 고정한다. 그날 이 시험이 빨개지고, 그것이
-        // «첫째 줄을 겨냥한 종단 시험을 함께 쓰라» 는 뜻이다.
-        val graspOnly = SkillCatalog.getDescriptor().messageTypes
-            .mapNotNull { it.options.getExtension(SkillCatalog.skillTypeName).takeIf { n -> !n.isNullOrEmpty() } }
-            .filter { HoldEffects.grasps(it) && !HoldEffects.releases(it) }
-        assertEquals(emptyList(), graspOnly, "쥐고 놓지 않는 스킬이 생겼다 — §5.1 표 첫째 줄의 종단 시험이 필요하다")
-    }
-
-    @Test
-    fun `효과와 관측이 맞으면 어긋남이 아니다`() {
-        assertNull(HoldEffects.mismatch("pick_place", HoldKind.HOLD_KIND_EMPTY))
+        assertNull(HoldEffects.compare(HoldKind.HOLD_KIND_HOLDING, HoldKind.HOLD_KIND_HOLDING))
     }
 
     @Test
     fun `관측이 없거나 볼 수 없으면 판정하지 않는다`() {
-        // §5.2 — 이 절의 핵심. 효과는 관측이 있을 때만 미결을 줄인다. 선언으로 현실을 단정하면
-        // 관측 경로가 죽었을 때 고장난 기체가 멀쩡해 보인다.
-        assertNull(HoldEffects.mismatch("pick_place", HoldKind.HOLD_KIND_NOT_OBSERVABLE), "관측 불가를 판정했다")
-        assertNull(HoldEffects.mismatch("pick_place", HoldKind.HOLD_KIND_UNSPECIFIED), "침묵을 판정했다")
-    }
-
-    @Test
-    fun `효과를 선언하지 않은 스킬은 어긋날 것이 없다`() {
-        for (skill in listOf("navigate_to", "inspect", "move_relative", "transport")) {
-            assertNull(HoldEffects.mismatch(skill, HoldKind.HOLD_KIND_HOLDING), skill)
-            assertNull(HoldEffects.mismatch(skill, HoldKind.HOLD_KIND_EMPTY), skill)
+        // §5.2 — 이 줄이 뚫리면 나머지 규율이 무의미해진다. 선언을 근거로 현실을 단정하는 것이기 때문이다.
+        for (observed in listOf(HoldKind.HOLD_KIND_NOT_OBSERVABLE, HoldKind.HOLD_KIND_UNSPECIFIED)) {
+            assertNull(HoldEffects.compare(HoldKind.HOLD_KIND_HOLDING, observed), observed.name)
+            assertNull(HoldEffects.compare(HoldKind.HOLD_KIND_EMPTY, observed), observed.name)
         }
     }
 

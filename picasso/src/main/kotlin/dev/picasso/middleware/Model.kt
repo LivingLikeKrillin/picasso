@@ -201,6 +201,11 @@ data class ExecutionUnit(
      */
     var holdMismatch: HoldMismatch? = null,
     /**
+     * 이 단위가 도는 동안 **한 번이라도 쥔 것이 관측됐는가.** 중단 시점의 기대를 정한다(설계안 §5) —
+     * 쥐었다가 놓지 못한 채 끝났으면 든 채여야 하고, 쥔 적이 없으면 기대할 것이 없다.
+     */
+    var everHeld: Boolean = false,
+    /**
      * 하류가 종착에 실어 준 결과 참조 — 계약의 `partial_result`. 점검(③)의 *측정값 또는 증거 자료 참조*가 올 자리이며
      * 지금은 아무 발신자도 채우지 않는다(§15.76). 비어 있으면 `null`.
      */

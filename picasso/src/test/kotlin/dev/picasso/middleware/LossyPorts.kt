@@ -11,6 +11,7 @@ import dev.picasso.contracts.v1.Rejection
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
+import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.WatchTaskResponse
 
 /**
@@ -161,5 +162,24 @@ class HoldBlindRobotPort(private val delegate: RobotPort) : RobotPort by delegat
             update.toBuilder()
                 .setHold(HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_NOT_OBSERVABLE))
                 .build()
+        }
+}
+
+/**
+ * **그리퍼가 안 열린 기체** — 하류는 성공했다는데 끝난 갱신의 파지가 여전히 든 채다.
+ *
+ * 미믹은 성공에 언제나 빈손으로 두므로 이 상황을 못 만든다. 설계안 §5.1 표 둘째 줄(놓고 끝나야 하는데
+ * 들고 있음)이 겨냥하는 현실이고, 실물에서는 파지 해제 실패가 이 모양으로 온다.
+ */
+class StuckGripperRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
+        delegate.watch(robotId, handle).map { update ->
+            if (update.state != TaskState.TASK_STATE_SUCCEEDED) {
+                update
+            } else {
+                update.toBuilder()
+                    .setHold(HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_HOLDING).setObjectRef("stuck"))
+                    .build()
+            }
         }
 }

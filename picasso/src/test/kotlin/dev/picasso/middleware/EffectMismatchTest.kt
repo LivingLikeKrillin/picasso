@@ -81,14 +81,44 @@ class EffectMismatchTest {
     }
 
     @Test
-    fun `놓고 끝나야 하는 스킬이 든 채로 끝나면 미완료 파지로 판정한다`() {
-        // 표 둘째 줄. 결함 통지는 «스킬이 실패했다» 까지만 말하고 적재가 어디 있는지는 말하지 않는다.
-        // 효과가 있으면 그 자리를 «아직 들고 있다» 로 채울 수 있다.
+    fun `쥐었다가 빈손으로 끝나면 적재 유실로 판정한다`() {
+        // 표 첫째 줄. 쥐는 단계까지 갔다가 놓지 못한 채 끝났으면 기대는 든 채다. 빈손이 관측되면
+        // 대상이 손에 없다는 뜻이고, 그것이 «모른다» 를 대신할 수 있는 판정이다(§1.1 · §10.1 둘째 시나리오).
+        World(PRECOND).use { w ->
+            val exec = w.failWhileHolding("PAYLOAD_LOST")
+            val unit = exec.units.first()
+
+            assertEquals(HoldKind.HOLD_KIND_EMPTY, unit.hold.kind)
+            assertEquals(HoldMismatch.PAYLOAD_LOST, unit.holdMismatch)
+            assertEquals("PAYLOAD_LOST", assertNotNull(w.mw.incidents().last()).effectMismatch)
+        }
+    }
+
+    @Test
+    fun `든 채로 실패한 것은 어긋남이 아니다`() {
+        // 쥐고 실패했는데 여전히 들고 있으면 기대와 관측이 맞는다. 정상인 것을 어긋났다고 적으면
+        // 운영자가 곧 이 판정을 무시한다.
         World(PRECOND).use { w ->
             val exec = w.failWhileHolding("SKILL_EXECUTION_FAILED")
             val unit = exec.units.first()
 
             assertEquals(HoldKind.HOLD_KIND_HOLDING, unit.hold.kind, "미믹이 실패에 파지를 비웠다 — 전제가 깨졌다")
+            assertNull(unit.holdMismatch, "든 채로 실패한 것을 어긋남으로 적었다")
+        }
+    }
+
+    @Test
+    fun `놓았다는데 들고 있으면 미완료 파지로 판정하고 사건을 연다`() {
+        // 표 둘째 줄. 하류는 성공이라는데 손에 남아 있다 — 사건을 안 열면 이 사실이 어디에도 안 실린다.
+        World(PRECOND, port = { StuckGripperRobotPort(it) }).use { w ->
+            val order = rack()
+            order.equipmentRequirements.filter { it.equipmentUse == "destination" }
+                .forEach { w.cell.program(it.id, it.properties["material"]) }
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order, ROBOT)).execution
+            w.drive(rounds = 250) { w.mw.incidents().isNotEmpty() }
+
+            val unit = exec.units.first()
+            assertEquals(HoldKind.HOLD_KIND_HOLDING, unit.hold.kind, "그리퍼가 걸린 상황을 만들지 못했다")
             assertEquals(HoldMismatch.INCOMPLETE_RELEASE, unit.holdMismatch)
             assertEquals("INCOMPLETE_RELEASE", assertNotNull(w.mw.incidents().last()).effectMismatch)
         }
@@ -97,26 +127,13 @@ class EffectMismatchTest {
     @Test
     fun `관측 불가면 판정하지 않는다 — 효과가 관측을 대체하지 않는다`() {
         // §5.2. 이 줄이 뚫리면 나머지 규율이 무의미해진다 — 선언을 근거로 현실을 단정하는 것이기 때문이다.
-        // 같은 시나리오이고 다른 것은 파지를 볼 수 있는가뿐이다.
         World(PRECOND, port = { HoldBlindRobotPort(it) }).use { w ->
-            val exec = w.failWhileHolding("SKILL_EXECUTION_FAILED")
+            val exec = w.failWhileHolding("PAYLOAD_LOST")
             val unit = exec.units.first()
 
             assertEquals(HoldKind.HOLD_KIND_NOT_OBSERVABLE, unit.hold.kind, "관측 불가를 만들지 못했다")
             assertNull(unit.holdMismatch, "관측 없이 효과만으로 판정했다")
             assertNull(assertNotNull(w.mw.incidents().last()).effectMismatch, "번들이 근거 없는 판정을 실었다")
-        }
-    }
-
-    @Test
-    fun `적재 유실 통지가 온 실패는 어긋남이 아니다`() {
-        // 결함 통지가 이미 답한 자리에 두 번째 판정을 적지 않는다 — 인과를 한 단위에 두 분류로 적는 일이다(§8).
-        World(PRECOND).use { w ->
-            val exec = w.failWhileHolding("PAYLOAD_LOST")
-            val unit = exec.units.first()
-
-            assertEquals(HoldKind.HOLD_KIND_EMPTY, unit.hold.kind)
-            assertNull(unit.holdMismatch, "효과와 관측이 맞는데 어긋났다고 적었다")
         }
     }
 
