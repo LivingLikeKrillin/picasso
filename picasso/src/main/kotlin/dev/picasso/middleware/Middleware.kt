@@ -6,6 +6,7 @@ import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.capability.HoldEffects
+import dev.picasso.capability.HoldMismatch
 import dev.picasso.capability.PreconditionCheck
 import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.ProgressKind
@@ -1081,6 +1082,7 @@ class Middleware(
         val inWindow = execution.eventTrail.filter { within(it, at.minus(window.before), at.plus(window.after)) }
         execution.pendingIncidents.forEach { unitId ->
             val unit = execution.units.firstOrNull { it.unitId == unitId } ?: return@forEach
+            judgeEffectMismatch(unit)
             incidentLog += IncidentBundle(
                 incidentId = "incident-${++incidentSeq}",
                 jobOrderId = execution.order.jobOrderId,
@@ -1095,11 +1097,27 @@ class Middleware(
                 preconditionSubjects = unit.preconditionSubjects,
                 evidenceWindow = inWindow,
                 windowTruncated = inWindow.size < execution.eventTrail.size,
+                effectMismatch = unit.holdMismatch?.name,
                 profileRevision = robots.capabilities(execution.robotId)?.profileRevision ?: 0,
                 contractSemver = ContractIdentity.semver,
             )
         }
         execution.pendingIncidents.clear()
+    }
+
+    /**
+     * 설계안 §5 — 선언된 효과와 마지막 관측을 대조해, 운영자에게 «모른다» 로 나갈 자리 중 **근거로 판정할 수
+     * 있는 것을 판정으로 바꾼다.** 미결이 «손에 없다»·«아직 들고 있다» 가 되면 다음 행동이 갈린다(§5.3).
+     *
+     * **플릿의 운반은 보지 않는다** — 카탈로그에 없는 단위의 효과를 지어내지 않는다. 그리고 관측이 없거나
+     * 볼 수 없으면 [HoldEffects.mismatch] 가 판정하지 않는다(§5.2).
+     */
+    private fun judgeEffectMismatch(unit: ExecutionUnit) {
+        if (unit.route != Route.ROBOT) return
+        val mismatch: HoldMismatch = HoldEffects.mismatch(unit.skillType, unit.hold.kind) ?: return
+        if (unit.holdMismatch == mismatch) return
+        unit.holdMismatch = mismatch
+        unit.annotate("effect/observation mismatch: ${mismatch.name} (hold=${unit.hold.kind.name})")
     }
 
     /**

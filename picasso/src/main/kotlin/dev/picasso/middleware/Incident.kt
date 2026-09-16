@@ -36,6 +36,11 @@ data class IncidentBundle(
     val evidenceWindow: List<ObservedEvent>,
     /** 창 밖이라 버린 관측이 있는가. 조용히 자르면 읽는 사람이 창을 완전한 것으로 오해한다. */
     val windowTruncated: Boolean,
+    /**
+     * 효과-관측 어긋남(설계안 §5) — 번들이 **새로 계산하는 유일한 사실**이다. 나머지는 전부 옮겨 싣는 것이다.
+     * 관측이 없거나 볼 수 없으면 `null` 이고, 그때 운영자가 받는 것은 여전히 «모른다» 다(§5.2).
+     */
+    val effectMismatch: String?,
     /** 그때 무슨 모델이었나. 모델이 바뀐 뒤에 사건을 읽으면 이것 없이는 오독한다. */
     val profileRevision: Int,
     val contractSemver: String,
@@ -66,6 +71,7 @@ data class IncidentBundle(
             appendLine(unresolved.toString())
             appendLine(preconditionSubjects.joinToString(","))
             appendLine(windowTruncated.toString())
+            appendLine(effectMismatch.orEmpty())
             evidenceWindow.forEach { appendLine("${it.sequence}|${it.occurredAt}|${it.kind}|${it.local}|${it.detail}") }
             appendLine(profileRevision.toString())
             appendLine(contractSemver)

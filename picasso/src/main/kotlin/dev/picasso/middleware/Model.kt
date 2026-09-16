@@ -1,5 +1,6 @@
 package dev.picasso.middleware
 
+import dev.picasso.capability.HoldMismatch
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.Fault
@@ -194,6 +195,11 @@ data class ExecutionUnit(
      * 자유 문자열에서 다시 뽑으면 두 곳의 판정이 어긋난다(설계안 §4.2).
      */
     var preconditionSubjects: List<String> = emptyList(),
+    /**
+     * 선언된 효과와 마지막 관측이 어긋났는가(설계안 §5). **결함 통지가 없어도** 내는 판정이며, 이 설계가
+     * 새로 계산하는 유일한 사실이다. 관측이 없거나 볼 수 없으면 `null` — 선언으로 현실을 단정하지 않는다.
+     */
+    var holdMismatch: HoldMismatch? = null,
     /**
      * 하류가 종착에 실어 준 결과 참조 — 계약의 `partial_result`. 점검(③)의 *측정값 또는 증거 자료 참조*가 올 자리이며
      * 지금은 아무 발신자도 채우지 않는다(§15.76). 비어 있으면 `null`.
