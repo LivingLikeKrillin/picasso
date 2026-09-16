@@ -121,3 +121,12 @@ data class ReviewMetrics(val total: Int, val reviewed: Int, val disputed: Int) {
     val reviewRate: Double? = if (total == 0) null else reviewed.toDouble() / total
     val disputeRate: Double? = if (reviewed == 0) null else disputed.toDouble() / reviewed
 }
+
+/**
+ * 같은 조치가 거듭 승인된 사실(설계안 §7.3).
+ *
+ * **임시 대안이 매끄럽게 작동할수록 근본 원인을 고칠 압력이 사라진다.** 이것은 계열이 알려진 실패
+ * 양식이다 — 응급 조치가 표준 작업으로 굳는 것, 자동화가 수작업 부담을 가려 근본 수정을 미루는 것.
+ * 그래서 반복 자체를 지표로 올린다.
+ */
+data class RepeatedRemedy(val robotId: String, val steps: List<String>, val approvals: Int)
