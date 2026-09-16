@@ -7,6 +7,8 @@ import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.capability.HoldEffects
 import dev.picasso.capability.HoldMismatch
+import dev.picasso.capability.Remedy
+import dev.picasso.capability.RemedySearch
 import dev.picasso.capability.PreconditionCheck
 import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.ProgressKind
@@ -158,10 +160,17 @@ class Middleware(
     sealed interface Submission {
         data class Accepted(val execution: Execution) : Submission
         data class Idempotent(val execution: Execution) : Submission
-        data class Rejected(val reason: String) : Submission
+        /**
+         * 받지 않았다. [remedy] 가 있으면 **깨진 전제를 충족시키는 조치 열**이 계산됐다는 뜻이며,
+         * 사람이 [approveRemedy] 로 승인해야 실행된다 — 승인 없이 도는 길은 없다(설계안 §6.4).
+         */
+        data class Rejected(val reason: String, val remedy: Remedy? = null) : Submission
     }
 
     fun execution(executionId: String): Execution? = executions[executionId]
+
+    /** 지금 이 층이 든 실행 전부. 조회만 한다. */
+    fun executions(): List<Execution> = executions.values.toList()
 
     /** 상류에 갈 결과 통보 중 아직 ack 되지 않은 것 — 아웃박스. 통보 재시도의 자리다(보고서 13.3). */
     fun pending(): List<JobResponse> = outbox.filter { it.ack != UpstreamAck.ACKED }
@@ -174,7 +183,13 @@ class Middleware(
      * JobOrder 를 받는다. 같은 `jobOrderId` 가 오면 버전으로 판정한다 — 같으면 멱등,
      * 낮으면 거절, 높으면 **갱신**(보고서 15.3: 새 버전은 확정된 단위 이후에만 붙는다).
      */
-    fun submit(order: JobOrder, robotId: String): Submission {
+    fun submit(order: JobOrder, robotId: String): Submission = submit(order, robotId, prefix = emptyList())
+
+    /**
+     * @param prefix 승인된 조치 열(설계안 §6.4). **[approveRemedy] 만 채운다** — 밖에서 부를 길이 없으므로
+     *   승인 없이 조치가 실행되는 경로가 생기지 않는다.
+     */
+    private fun submit(order: JobOrder, robotId: String, prefix: List<ExecutionUnit>): Submission {
         val capability = capabilities[order.workMasterId]
             ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
         // 보고서 11.3 — 능력은 최고 등급을 선언하고 요청은 요구 등급을 지정한다. 확인 수단이 없으면 제공 불가다.
@@ -188,9 +203,9 @@ class Middleware(
         val existing = executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }
         if (existing != null) return revise(existing, order)
 
-        val planned = capability.plan(order)
-        inconsistent(order, planned)?.let { return Submission.Rejected(it) }
-        chainViolation(robotId, planned)?.let { return Submission.Rejected(it) }
+        val planned = prefix + capability.plan(order)
+        inconsistent(order, capability.plan(order))?.let { return Submission.Rejected(it) }
+        chainViolation(robotId, order.jobOrderId, planned)?.let { return it }
 
         val execution = Execution(
             executionId = "exec-${executions.size + 1}",
@@ -216,17 +231,26 @@ class Middleware(
      * 종착한 단위의 파지는 낡을 수 있으며 다시 볼 길이 없으므로(리뷰 C2) 쓰지 않는다 — 발신자가 접수 때 판정한다.
      * 능력을 못 물은 로봇도, 계약에 없는 주어([PreconditionCheck.Unknown.DEFER])도 같다: 모르는 조건을 지어내지 않는다.
      */
-    private fun chainViolation(robotId: String, planned: List<ExecutionUnit>): String? {
+    private fun chainViolation(robotId: String, jobOrderId: String, planned: List<ExecutionUnit>): Submission.Rejected? {
         var hold = liveHold(robotId) ?: return null
-        val declared = robots.capabilities(robotId)?.skillsList?.associateBy { it.skillType } ?: return null
+        val declared = robots.capabilities(robotId)?.skillsList ?: return null
+        val byType = declared.associateBy { it.skillType }
         for (unit in planned) {
             if (unit.route != Route.ROBOT) continue
-            val violations = declared[unit.skillType]
+            val target = byType[unit.skillType]
+            val violations = target
                 ?.let { PreconditionCheck.check(it, hold, PreconditionCheck.Unknown.DEFER) }
                 .orEmpty()
             if (violations.isNotEmpty()) {
-                return "단위 ${unit.unitId}(${unit.skillType}) 의 사전 조건이 어긋난다 — " +
+                val reason = "단위 ${unit.unitId}(${unit.skillType}) 의 사전 조건이 어긋난다 — " +
                     PreconditionCheck.rejectionDetail(violations) + " (지금 도는 단위의 관측, 보내지 않았다)"
+                // **대안은 여기서만 계산할 수 있다.** 관측(liveHold)과 선언이 둘 다 있는 자리가 여기뿐이다 —
+                // 스냅샷은 파지를 싣지 않으므로 도는 단위가 없으면 관측이 없다.
+                val remedy = target?.let { RemedySearch.search(it, declared, hold) }
+                if (remedy is Remedy.Found && remedy.steps.isNotEmpty()) {
+                    proposals[proposalKey(robotId, jobOrderId)] = remedy
+                }
+                return Submission.Rejected(reason, remedy)
             }
             hold = HoldEffects.after(unit.skillType, hold)
         }
@@ -281,7 +305,7 @@ class Middleware(
             current == null || current.state == UnitState.PENDING ||
                 (current.state == UnitState.FAILED && current.taskId.isEmpty())
         }
-        chainViolation(execution.robotId, toPlan)?.let { return Submission.Rejected(it) }
+        chainViolation(execution.robotId, order.jobOrderId, toPlan)?.let { return it }
 
         // **확정된 단위 이후에만 붙는다.** 종착한 단위는 그대로(래치 — 계약이 이미 그렇게 한다),
         // 아직 안 시작한 단위는 새 계획으로 교체, 도는 단위는 계약의 갱신 규칙(§4.4)을 탄다.
@@ -1045,6 +1069,59 @@ class Middleware(
         execution.notedHold = null
         execution.physicalState = PhysicalState.RUNNING
         return true
+    }
+
+    // ── 제안과 승인(설계안 §6.4)
+
+    /**
+     * 서 있는 제안 — (기체, 주문) 하나에 하나. **승인은 이 표에 있는 것만 받는다.** 없는 제안을 승인으로
+     * 지어내면 «승인 없이 실행되는 경로» 가 그 자리에서 생긴다.
+     */
+    private val proposals = mutableMapOf<String, Remedy.Found>()
+
+    private fun proposalKey(robotId: String, jobOrderId: String) = "$robotId|$jobOrderId"
+
+    /** 이 (기체, 주문)에 서 있는 제안. 없으면 널. */
+    fun proposal(robotId: String, jobOrderId: String): Remedy.Found? = proposals[proposalKey(robotId, jobOrderId)]
+
+    /**
+     * 운영자가 제안을 **승인한다**(설계안 §6.4). 승인해야만 조치가 실행되고, 승인은 사람의 책임 있는
+     * 행위로 기록된다.
+     *
+     * 파라미터는 **사람이 준다.** 탐색기는 어느 스킬을 딛을지까지만 계산하며, 그 스킬이 요구하는 값(어디에
+     * 놓을 것인가 같은)은 지어낼 수 없다 — 지어내면 승인은 무엇을 승인하는지 모르는 채 누르는 단추가 된다.
+     *
+     * @param parameters 걸음마다 하나씩, 걸음 순서대로.
+     */
+    fun approveRemedy(order: JobOrder, robotId: String, parameters: List<Map<String, String>>): Submission {
+        val key = proposalKey(robotId, order.jobOrderId)
+        val proposal = proposals[key] ?: return Submission.Rejected("승인할 제안이 없다: $key")
+        if (parameters.size != proposal.steps.size) {
+            return Submission.Rejected("걸음 수와 파라미터 수가 다르다: ${proposal.steps.size} != ${parameters.size}")
+        }
+        val declared = robots.capabilities(robotId)?.skillsList?.associateBy { it.skillType }
+            ?: return Submission.Rejected("능력을 못 물어봤다 — 조치가 실행 가능한지 확인할 수 없다")
+
+        val prefix = proposal.steps.mapIndexed { at, step ->
+            val given = parameters[at]
+            val missing = declared[step.skillType]?.parametersList.orEmpty()
+                .filterNot { it.optional }.map { it.key }.filterNot { it in given }
+            if (missing.isNotEmpty()) {
+                return Submission.Rejected("조치 ${at + 1}(${step.skillType}) 에 필요한 파라미터가 없다: $missing")
+            }
+            ExecutionUnit(
+                unitId = "remedy-${at + 1}-${step.skillType}",
+                route = Route.ROBOT,
+                skillType = step.skillType,
+                parameters = given,
+                expectedIdentity = null,
+                source = null,
+                destination = null,
+            )
+        }
+
+        proposals.remove(key)
+        return submit(order, robotId, prefix)
     }
 
     // ── 사건 번들(설계안 §4) — 흩어진 사실을 한 사건으로 묶는다. 읽기만 한다.
