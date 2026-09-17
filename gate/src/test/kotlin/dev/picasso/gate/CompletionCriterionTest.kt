@@ -6,11 +6,11 @@ import kotlin.test.assertEquals
 class CompletionCriterionTest {
 
     @Test
-    fun `주장의 자리가 쉰이다`() {
+    fun `주장의 자리가 쉰둘이다`() {
         // **세어서 적은 것을 다시 센다.** 자리가 늘거나 줄면 이 수가 먼저 빨개지고,
         // 그때 스펙 §2 를 다시 읽어야 한다.
         val docs = ClaimSurface.documents()
-        assertEquals(51, docs.size, docs.joinToString("\n") { ClaimSurface.relative(it) })
+        assertEquals(52, docs.size, docs.joinToString("\n") { ClaimSurface.relative(it) })
     }
 
     @Test
