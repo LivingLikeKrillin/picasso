@@ -35,6 +35,15 @@ class CellMimic(
     private val latched = mutableSetOf<String>()
     private val silenced = mutableSetOf<String>()
 
+    /**
+     * 이 자재를 든 자리들. **침묵한 자리는 안 센다** — 신호가 없는 자리를 «없다» 에 넣으면 그것이
+     * 곧 없다는 답이 된다.
+     */
+    override fun holding(material: String): List<String> = programmed
+        .filterKeys { it !in silenced }
+        .filterValues { it.occupied && it.identity == material }
+        .keys.sorted()
+
     /** 그 자리에 그것(부품 타입·용기 태그)이 있다고 답하게 한다. 시각은 안 준다 — 읽는 순간이다. */
     fun program(location: String, identity: String?) {
         silenced -= location

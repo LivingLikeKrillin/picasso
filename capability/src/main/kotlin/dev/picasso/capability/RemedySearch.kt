@@ -53,8 +53,13 @@ sealed interface Remedy {
  * **기종을 모른다.** 입력은 선언과 관측뿐이며 기체 식별자도 벤더 이름도 받지 않는다 — 게이트 7번이
  * 이 모듈에서 그것을 집행한다.
  *
- * **플래너 라이브러리를 들이지 않는다.** v1 의 상태 공간은 파지 하나(4값)라 너비 우선으로 충분하고,
+ * **플래너 라이브러리를 들이지 않는다.** 이 탐색의 상태 공간은 파지 하나(4값)라 너비 우선으로 충분하고,
  * 라이브러리를 들이면 이 판단이 라이브러리의 판단으로 바뀐다.
+ *
+ * **셀 자원의 점유는 여기 안 들어온다**(§15.153). 이 탐색이 도는 것은 **계약이 선언한 능력 전이**인데,
+ * 계약의 `PreconditionSubject` 는 *"조건이 보는 로봇 상태"* 이고 값이 늘려면 *"관측하는 어댑터"* 가 있어야
+ * 한다. 슬롯 점유를 보는 것은 어댑터가 아니라 셀 설비이므로 그 축은 미들웨어의 관문이 든다
+ * (`CellOccupancy`). 점유가 늘어도 이 상태 공간은 넷 그대로다.
  */
 object RemedySearch {
 
@@ -82,7 +87,7 @@ object RemedySearch {
             return Remedy.None(violations(target, start), Remedy.None.Cause.NO_CAPABILITY)
         }
 
-        // 너비 우선 — 같은 깊이면 걸음이 적은 쪽이 먼저 나온다. 상태가 넷뿐이라 방문 집합으로 충분하다.
+        // 너비 우선 — 같은 깊이면 걸음이 적은 쪽이 먼저 나온다. 파지 값이 넷뿐이라 방문 집합으로 충분하다.
         val seen = mutableSetOf(start)
         var frontier = listOf(start to emptyList<RemedyStep>())
         var depth = 0
