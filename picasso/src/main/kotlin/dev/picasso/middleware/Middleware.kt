@@ -81,6 +81,11 @@ class Middleware(
      * 모든 자리가 «선언 안 됨» 이고 관문이 아무것도 막지 않는다.
      */
     private val floors: FloorOwnership = FloorOwnership.None,
+    /**
+     * 자리가 속한 작업 구역(§15.153). **붙이지 않은 배치에서는 모든 자리가 구역 밖**이고 관문이
+     * 아무것도 막지 않는다 — 구역을 안 붙인 현장에서 라인이 서면 이 관문이 곧 꺼진다.
+     */
+    private val workspace: Workspace = Workspace.None,
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -279,8 +284,52 @@ class Middleware(
         chainRefusal(robotId, planned)?.let { return Admission.Refused(it) }
         occupancyViolation(planned)?.let { return Admission.Refused(it) }
         unownedFloor(planned)?.let { return Admission.Refused(it) }
+        workspaceViolation(robotId, planned)?.let { return Admission.Refused(it) }
         return Admission.Passed
     }
+
+    /**
+     * **같은 작업 구역에서 두 기체가 동시에 일하지 않는다**(§15.153).
+     *
+     * 두 기체의 작업 반경이 겹치면 그것도 셀 전용 자원의 경쟁이다. 슬롯 점유가 «같은 자리에 둘을 놓지
+     * 않는다» 라면 이것은 «같은 공간에 둘이 들어가지 않는다» 이고, 자원의 성질이 달라 세는 법도 다르다 —
+     * 여기서는 `destination` 의 두 뜻(놓을 자리·갈 자리)이 **둘 다 센다.** 어느 쪽이든 기체가 그 공간을
+     * 차지하기 때문이다.
+     *
+     * **같은 기체는 보지 않는다.** 한 기체가 두 자리에 동시에 있을 수 없고, 그 배타는 발신자가 든다.
+     */
+    private fun workspaceViolation(robotId: String, planned: List<ExecutionUnit>): Submission.Rejected? {
+        val busy = liveZones(excluding = robotId)
+        for (unit in planned) {
+            val zone = zoneOf(unit) ?: continue
+            val holder = busy[zone] ?: continue
+            val where = unit.destination
+            return Submission.Rejected(
+                "작업 구역 $zone 에서 ${holder.robotId}(${holder.jobOrderId}) 가 일하고 있다 — " +
+                    "$where 로 보내면 반경이 겹친다",
+            )
+        }
+        return null
+    }
+
+    /**
+     * 이 단위가 차지하는 구역. **구역을 모르면 `null` 이고 그때는 검사에서 빠진다.**
+     *
+     * 세는 쪽과 대는 쪽이 같은 함수를 쓴다 — 두 벌로 두면 한쪽만 «모름» 을 다르게 다루는 날이 오고,
+     * 그때 구역 밖 자리끼리 서로를 막거나 겹치는 자리가 안 막힌다.
+     */
+    private fun zoneOf(unit: ExecutionUnit): String? = unit.destination?.let { workspace.zoneOf(it) }
+
+    /** 다른 기체들이 지금 쓰는 구역. 종착한 실행과 끝난 단위는 놓는다 — 자리 점유와 같은 규칙이다. */
+    private fun liveZones(excluding: String): Map<String, ZoneUse> = executions.values
+        .filter { it.robotId != excluding && !it.physicalState.isSettled }
+        .flatMap { execution ->
+            execution.units.filter { it.state != UnitState.DONE }.mapNotNull { unit ->
+                val zone = zoneOf(unit) ?: return@mapNotNull null
+                ZoneUse(zone, execution.executionId, execution.order.jobOrderId, execution.robotId)
+            }
+        }
+        .associateBy { it.zone }
 
     /**
      * **소유자 없는 자원에는 명령을 내지 않는다**(§15.154) — deny by default.
