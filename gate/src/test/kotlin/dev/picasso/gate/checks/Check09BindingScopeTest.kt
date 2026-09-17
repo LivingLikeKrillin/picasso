@@ -152,7 +152,7 @@ class Check09BindingScopeTest {
 
             data class SiteBinding(val name: String, val owner: String, val mapVersion: String)
 
-            sealed interface ActiveMap
+            sealed interface ActiveRevision
 
             interface SiteBindingSource
 

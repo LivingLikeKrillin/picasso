@@ -8,7 +8,7 @@ import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
-import dev.picasso.adapter.core.ActiveMap
+import dev.picasso.adapter.core.ActiveRevision
 import dev.picasso.adapter.core.SiteBinding
 import dev.picasso.adapter.core.SiteBindingSource
 import dev.picasso.adapter.core.SiteNames
@@ -128,13 +128,17 @@ class AdapterHostTest {
         }
     }
 
-    /** 결속 정본 각본. 활성 판과 표를 시험이 정한다. */
+    /** 결속 정본 각본. 축 둘의 활성 판과 이름별 등록 판을 시험이 정한다. */
     private class ScriptedBindings(
-        var active: ActiveMap = ActiveMap.NotConfigured,
+        var active: ActiveRevision = ActiveRevision.NotConfigured,
+        var calibration: ActiveRevision = ActiveRevision.NotConfigured,
         val table: MutableMap<String, String> = mutableMapOf(),
+        val taught: MutableMap<String, String> = mutableMapOf(),
     ) : SiteBindingSource {
-        override fun activeMap(): ActiveMap = active
-        override fun binding(name: String): SiteBinding? = table[name]?.let { SiteBinding(name, "site-registry", it) }
+        override fun activeMap(): ActiveRevision = active
+        override fun activeCalibration(): ActiveRevision = calibration
+        override fun binding(name: String): SiteBinding? =
+            table[name]?.let { SiteBinding(name, "site-registry", it, taught[name] ?: "cal-1") }
     }
 
     private class World(
@@ -841,7 +845,7 @@ class AdapterHostTest {
         // 지도가 갱신되면 같은 이름이 다른 자리를 가리킨다. **푸는 것보다 먼저 막는다** —
         // 뒤에 두면 이미 옛 좌표로 움직인 뒤에 판을 보게 된다.
         World().use { w ->
-            w.bindings.active = ActiveMap.Known("map-8")
+            w.bindings.active = ActiveRevision.Known("map-8")
             w.bindings.table["dock-3"] = "map-7"
             val response = w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3"))
 
@@ -855,7 +859,7 @@ class AdapterHostTest {
     fun `재등록하면 다시 흐른다`() {
         // 막는 것이 이름이 아니라 판이라는 것 — 판을 맞추면 같은 요청이 그대로 통과한다.
         World().use { w ->
-            w.bindings.active = ActiveMap.Known("map-8")
+            w.bindings.active = ActiveRevision.Known("map-8")
             w.bindings.table["dock-3"] = "map-7"
             assertFalse(w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3")).hasHandle())
 
@@ -869,7 +873,7 @@ class AdapterHostTest {
         // 어느 판에서 배운 것인지 알 근거가 없다. 기체가 우연히 풀 수도 있으나 **확인 못 한 것을
         // 통과로 접지 않는다.** 자리 이름이 틀린 것과 같은 자리로 낸다(`SITE_NAME_UNKNOWN` 과 같다).
         World().use { w ->
-            w.bindings.active = ActiveMap.Known("map-8")
+            w.bindings.active = ActiveRevision.Known("map-8")
             val response = w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3"))
 
             assertEquals(RejectionCode.REJECTION_CODE_PARAMETER_INVALID, response.rejection.code, response.rejection.toString())
@@ -882,7 +886,7 @@ class AdapterHostTest {
         // **모르면 멈춘다.** 빈 답을 «판이 같다» 로 접으면 지도가 바뀐 뒤에도 명령이 계속 나간다.
         // 요청이 틀린 것이 아니라 우리 쪽 상류가 안 닿는 것이라 거절이 아니라 gRPC 상태다.
         World().use { w ->
-            w.bindings.active = ActiveMap.Unavailable("정본 응답 없음")
+            w.bindings.active = ActiveRevision.Unavailable("정본 응답 없음")
             val thrown = assertFailsWith<StatusRuntimeException> {
                 w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3"))
             }
@@ -892,10 +896,32 @@ class AdapterHostTest {
     }
 
     @Test
+    fun `개체를 교체하면 같은 지도라도 막힌다`() {
+        // **지도 축만으로는 통과하던 경우다.** 기체를 교체하고 세계 모델을 복원해도 티칭 기준이 달라
+        // 같은 이름이 다른 자세를 뜻한다. 계약의 자리는 지도 축과 같다 — 소비자는 요청을 고치는 것이
+        // 아니라 재티칭을 기다린다.
+        World().use { w ->
+            w.bindings.active = ActiveRevision.Known("map-8")
+            w.bindings.calibration = ActiveRevision.Known("cal-2")
+            w.bindings.table["dock-3"] = "map-8"
+            w.bindings.taught["dock-3"] = "cal-1"
+
+            val response = w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3"))
+            assertEquals(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET, response.rejection.code, response.rejection.toString())
+            assertTrue("캘리브레이션" in response.rejection.detail, response.rejection.detail)
+            assertEquals(emptyList(), w.adapter.accepted, "개체 판이 어긋난 자리가 남쪽 호출까지 갔다")
+
+            // 재티칭하면 다시 흐른다 — 막은 것이 이름이 아니라 판이다.
+            w.bindings.taught["dock-3"] = "cal-2"
+            assertTrue(w.start(taskId = "T-nav2", skill = "navigate_to", params = mapOf("location" to "dock-3")).hasHandle())
+        }
+    }
+
+    @Test
     fun `자리 둘을 나르는 단위는 둘 다 이 판의 것이어야 한다`() {
         // `pick_place` 는 대상과 목적지를 함께 나른다. 하나만 보면 나머지가 옛 판인 채로 나간다.
         World().use { w ->
-            w.bindings.active = ActiveMap.Known("map-8")
+            w.bindings.active = ActiveRevision.Known("map-8")
             w.bindings.table["tote-7"] = "map-8"
             w.bindings.table["rack-1"] = "map-7"
             val response = w.start(
