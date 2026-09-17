@@ -72,6 +72,10 @@ class Middleware(
      * 계산은 tick 안에서 한다. 순위 계산을 통째로 밖에 두면 읽은 시점과 적용 시점이 갈라진다.
      */
     private val cost: AssignmentCost = AssignmentCost(),
+    /**
+     * 재할당의 진동 방지(설계안 §7). **라인을 멈추지 않는 것이 최적성보다 우선한다** — 값은 배치가 준다.
+     */
+    private val reassignPolicy: ReassignPolicy = ReassignPolicy(),
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -115,12 +119,16 @@ class Middleware(
     inner class Execution(
         val executionId: String,
         var order: JobOrder,
-        val robotId: String,
+        /** 지금 이 일을 든 기체. **재할당으로 바뀐다** — 옮긴 이력은 자취에 남는다. */
+        var robotId: String,
         val capability: LogicalCapability,
         val units: MutableList<ExecutionUnit>,
     ) {
         var physicalState: PhysicalState = PhysicalState.REQUESTED
             internal set
+
+        /** 지금 기체에 배정된 시각. 최소 유지 시간의 기준이고 재할당 때 다시 찍힌다. */
+        internal var assignedAt: Instant = now()
         var upstreamAck: UpstreamAck = UpstreamAck.NOT_SENT
             internal set
         internal var active: ExecutionUnit? = null
@@ -321,13 +329,65 @@ class Middleware(
     fun assign(order: JobOrder, candidates: List<String>): Submission =
         adopt(order, cost.rank(candidates, live = ::liveExecutionCount, holding = ::isHolding))
 
-    /** 이 기체에서 지금 도는 실행 수. 비용의 항이고 관문의 입력은 아니다. */
-    private fun liveExecutionCount(robotId: String): Int =
-        executions.values.count { it.robotId == robotId && !it.physicalState.isSettled }
+    /**
+     * 이 기체에서 지금 도는 실행 수. 비용의 항이고 관문의 입력은 아니다.
+     *
+     * [excluding] 은 재할당이 쓴다 — **옮길 일 자신을 양쪽에서 빼야** 두 기체의 부담을 같은 자로 잰다.
+     * 빼지 않으면 지금 든 쪽이 그 일 하나만큼 늘 불리해 보여, 이득이 없어도 옮기는 쪽으로 기운다.
+     */
+    private fun liveExecutionCount(robotId: String, excluding: String? = null): Int =
+        executions.values.count {
+            it.robotId == robotId && !it.physicalState.isSettled && it.executionId != excluding
+        }
 
     /** 지금 든 채인가. [liveHold] 의 답을 비용이 읽는 모양으로 줄인 것이다. */
     private fun isHolding(robotId: String): Boolean =
         liveHold(robotId)?.kind == HoldKind.HOLD_KIND_HOLDING
+
+    /**
+     * 이 실행을 다른 기체로 옮긴다(설계안 §7) — **진동 방지가 붙은 자리.**
+     *
+     * 언제 부를지는 배정 정책의 몫이고(ADR 41), 트리거는 **이미 사건 번들이 생기는 그 자리**다 —
+     * 실패 판정·깨진 전제·잔여 파지. 이 층이 하는 일은 «옮겨도 되는가» 를 판정하는 것뿐이며,
+     * 막는 장치가 셋이다: 도는 단위, 최소 유지 시간, 이득의 문턱.
+     *
+     * **도는 단위가 있으면 안 옮긴다.** 물리적으로 움직이는 중인 일을 옮기면 한 물건에 소유자가 둘이 된다.
+     */
+    fun reassign(executionId: String, candidates: List<String>): Reassignment {
+        val execution = executions[executionId]
+            ?: return Reassignment.Kept("", "모르는 실행이다: $executionId")
+        val from = execution.robotId
+        if (execution.physicalState.isSettled) return Reassignment.Kept(from, "종착한 실행이다 — 옮길 것이 없다")
+        if (execution.active != null) return Reassignment.Kept(from, "도는 단위가 있다 — 움직이는 중인 일은 안 옮긴다")
+
+        val held = Duration.between(execution.assignedAt, now())
+        if (held < reassignPolicy.minHold) {
+            return Reassignment.Kept(from, "최소 유지 시간 안이다 — ${held.seconds}초 지났고 ${reassignPolicy.minHold.seconds}초가 필요하다")
+        }
+
+        // 남은 단위로만 관문을 건다 — 끝난 단위는 사실이고 다시 재단하지 않는다.
+        val remaining = execution.units.filter { it.state != UnitState.DONE }
+        val mine = liveExecutionCount(from, excluding = executionId)
+        var best: Pair<String, Int>? = null
+        for (robotId in candidates) {
+            if (robotId == from) continue
+            if (admits(execution.order, robotId, remaining) !is Admission.Passed) continue
+            val load = liveExecutionCount(robotId, excluding = executionId)
+            if (best == null || load < best.second) best = robotId to load
+        }
+        val target = best ?: return Reassignment.Kept(from, "관문을 통과하는 후보가 없다")
+
+        // **더 싸야 옮긴다.** 같으면 그대로 둔다 — 동점에서 움직이는 것이 진동의 시작이다.
+        val saved = mine - target.second
+        if (saved <= reassignPolicy.margin) {
+            return Reassignment.Kept(from, "이득이 문턱 이하다 — ${saved} 이고 문턱은 ${reassignPolicy.margin} 이다")
+        }
+
+        execution.robotId = target.first
+        execution.assignedAt = now()
+        execution.trail("REASSIGNED", "$from -> ${target.first} (부담 차 $saved)")
+        return Reassignment.Moved(from, target.first, saved)
+    }
 
     /**
      * 계획 시점 사슬 검사(설계안 §4) — 로봇이 선언한 사전 조건을 **접수 요청을 보내기 전에** 단위 사슬에 대고 본다.
