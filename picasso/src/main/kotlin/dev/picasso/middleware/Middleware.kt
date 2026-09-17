@@ -76,6 +76,11 @@ class Middleware(
      * 재할당의 진동 방지(설계안 §7). **라인을 멈추지 않는 것이 최적성보다 우선한다** — 값은 배치가 준다.
      */
     private val reassignPolicy: ReassignPolicy = ReassignPolicy(),
+    /**
+     * 자원 소유 대장(§15.154). **대장은 현장의 것이고 이 저장소 밖에 산다** — 붙이지 않은 배치에서는
+     * 모든 자리가 «선언 안 됨» 이고 관문이 아무것도 막지 않는다.
+     */
+    private val floors: FloorOwnership = FloorOwnership.None,
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -273,7 +278,29 @@ class Middleware(
             ?.let { return Admission.Refused(Submission.Rejected(it)) }
         chainRefusal(robotId, planned)?.let { return Admission.Refused(it) }
         occupancyViolation(planned)?.let { return Admission.Refused(it) }
+        unownedFloor(planned)?.let { return Admission.Refused(it) }
         return Admission.Passed
+    }
+
+    /**
+     * **소유자 없는 자원에는 명령을 내지 않는다**(§15.154) — deny by default.
+     *
+     * 걷는 기체가 셀을 나가면 그 바닥의 소유자가 없고, 플릿은 자기 AMR 만 승인한다. 그러면 이 층이 내는
+     * 명령이 아무 관문도 통과하지 않고 물리 세계로 나간다. 무승인 통행을 허용하는 선택지는 없으므로,
+     * 소유자가 정해지기 전까지의 올바른 상태는 **그 구역으로 명령을 내지 않는 것**이다.
+     *
+     * **대장을 안 붙인 배치는 막지 않는다.** 「자리는 아는데 주인이 없다」와 「대장 자체가 없다」는 뜻이
+     * 반대다 — 접으면 대장 없는 현장이 통째로 서고, 그러면 이 관문이 곧 꺼진다.
+     */
+    private fun unownedFloor(planned: List<ExecutionUnit>): Submission.Rejected? {
+        for (unit in planned) {
+            val where = unit.destination ?: continue
+            if (floors.ownerOf(where) != FloorOwner.Unowned) continue
+            return Submission.Rejected(
+                "자리 $where 의 바닥에 소유자가 없다 — 승인할 쪽이 없으므로 보내지 않는다(자원 소유 대장)",
+            )
+        }
+        return null
     }
 
     /**
