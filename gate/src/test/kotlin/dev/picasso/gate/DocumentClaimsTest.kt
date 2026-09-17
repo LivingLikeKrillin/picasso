@@ -36,10 +36,19 @@ class DocumentClaimsTest {
     /** 백틱 안이지만 기호가 아닌 것 — 거절의 **값**이지 관문의 이름이 아니다. */
     private val notSymbols = setOf("null", "true", "false")
 
-    /** 출하 소스 전문. 기호 하나마다 파일을 다시 읽지 않는다. */
+    /**
+     * **모든 모듈의** 출하 소스 전문. 기호 하나마다 파일을 다시 읽지 않는다.
+     *
+     * ★한 모듈만 훑던 판이 있었다. 대장의 관문은 미들웨어에만 있는 것이 아니라 어댑터 경계에도 있고
+     * (`SiteBindingCheck`), 훑는 범위가 좁으면 **멀쩡한 기호가 «코드에 없다» 로 나온다** — 그때 고쳐지는
+     * 것은 검사가 아니라 문서이고, 그러면 대장이 검사를 피해 쓰이기 시작한다.
+     */
     private val mainSource by lazy {
-        Files.walk(Repo.path("picasso/src/main")).use { paths ->
-            paths.filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
+        Files.walk(repo).use { paths ->
+            paths.filter {
+                val at = it.toString().replace('\\', '/')
+                Files.isRegularFile(it) && at.endsWith(".kt") && "/src/main/" in at && "/build/" !in at
+            }
                 .map { Files.readString(it) }
                 .toList()
                 .joinToString("\n")
@@ -151,7 +160,7 @@ class DocumentClaimsTest {
                 Regex("(fun|interface|class|object|val) " + part + "[^A-Za-z0-9_]").containsMatchIn(source)
             }
         }
-        assertEquals(emptyList(), broken, "자원 소유 대장이 대는 관문이 picasso/src/main 에 없다")
+        assertEquals(emptyList(), broken, "자원 소유 대장이 대는 관문이 출하 소스에 없다")
 
         // ★**관문이 없는 행은 한계 대장의 id 를 대야 한다.** 이것이 이 표의 요점이다 — 빈 칸이 무승인
         // 경로인데, 빈 칸을 근거 없이 적으면 그 사실이 어디에도 추적되지 않고 «알고 안 한 것» 과

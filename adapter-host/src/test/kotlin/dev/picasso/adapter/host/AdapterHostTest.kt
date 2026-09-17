@@ -8,6 +8,9 @@ import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
+import dev.picasso.adapter.core.ActiveMap
+import dev.picasso.adapter.core.SiteBinding
+import dev.picasso.adapter.core.SiteBindingSource
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.adapter.core.classifiedFault
 import dev.picasso.contracts.v1.CancelTaskRequest
@@ -125,12 +128,27 @@ class AdapterHostTest {
         }
     }
 
-    private class World(profileJson: String = Files.readString(PROFILE)) : AutoCloseable {
+    /** 결속 정본 각본. 활성 판과 표를 시험이 정한다. */
+    private class ScriptedBindings(
+        var active: ActiveMap = ActiveMap.NotConfigured,
+        val table: MutableMap<String, String> = mutableMapOf(),
+    ) : SiteBindingSource {
+        override fun activeMap(): ActiveMap = active
+        override fun binding(name: String): SiteBinding? = table[name]?.let { SiteBinding(name, "site-registry", it) }
+    }
+
+    private class World(
+        profileJson: String = Files.readString(PROFILE),
+        val bindings: ScriptedBindings = ScriptedBindings(),
+    ) : AutoCloseable {
         var now: Instant = Instant.parse("2026-09-10T00:00:00Z")
         val adapter = ScriptedAdapter()
         val published = RecordingPublisher()
         val flaky = FlakyPublisher(published)
-        val robot = HostedRobot(ROBOT, ProfileDocument.parse("test", profileJson).getOrThrow(), adapter, publisher = flaky, site = "line-a") { now }
+        val robot = HostedRobot(
+            ROBOT, ProfileDocument.parse("test", profileJson).getOrThrow(), adapter,
+            publisher = flaky, site = "line-a", bindings = bindings,
+        ) { now }
         val handshakes = RecordingHandshakeReporter()
         private val name = InProcessServerBuilder.generateName()
         val host = AdapterHost(robot, InProcessServerBuilder.forName(name).directExecutor(), handshakes).start()
@@ -807,6 +825,87 @@ class AdapterHostTest {
     }
 
     // ── 사전 조건 (설계안 §3 — 물리 동작 전, 남쪽 호출 전에 거절한다)
+
+    // ── 자리 결속의 기준 지도 판(§15.155)
+
+    @Test
+    fun `정본을 안 붙이면 자리 판을 묻지 않는다`() {
+        // 정본 없는 배치를 통째로 멈추면 이 검사가 곧 꺼진다. 안 붙인 것도 명시된 상태다.
+        World().use { w ->
+            assertTrue(w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3")).hasHandle())
+        }
+    }
+
+    @Test
+    fun `옛 판에서 배운 자리로는 보내지 않는다`() {
+        // 지도가 갱신되면 같은 이름이 다른 자리를 가리킨다. **푸는 것보다 먼저 막는다** —
+        // 뒤에 두면 이미 옛 좌표로 움직인 뒤에 판을 보게 된다.
+        World().use { w ->
+            w.bindings.active = ActiveMap.Known("map-8")
+            w.bindings.table["dock-3"] = "map-7"
+            val response = w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3"))
+
+            assertEquals(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET, response.rejection.code, response.rejection.toString())
+            assertTrue("map-7" in response.rejection.detail && "map-8" in response.rejection.detail, response.rejection.detail)
+            assertEquals(emptyList(), w.adapter.accepted, "판이 어긋난 자리가 남쪽 호출까지 갔다")
+        }
+    }
+
+    @Test
+    fun `재등록하면 다시 흐른다`() {
+        // 막는 것이 이름이 아니라 판이라는 것 — 판을 맞추면 같은 요청이 그대로 통과한다.
+        World().use { w ->
+            w.bindings.active = ActiveMap.Known("map-8")
+            w.bindings.table["dock-3"] = "map-7"
+            assertFalse(w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3")).hasHandle())
+
+            w.bindings.table["dock-3"] = "map-8"
+            assertTrue(w.start(taskId = "T-nav2", skill = "navigate_to", params = mapOf("location" to "dock-3")).hasHandle())
+        }
+    }
+
+    @Test
+    fun `정본이 모르는 이름은 파라미터가 틀린 것이다`() {
+        // 어느 판에서 배운 것인지 알 근거가 없다. 기체가 우연히 풀 수도 있으나 **확인 못 한 것을
+        // 통과로 접지 않는다.** 자리 이름이 틀린 것과 같은 자리로 낸다(`SITE_NAME_UNKNOWN` 과 같다).
+        World().use { w ->
+            w.bindings.active = ActiveMap.Known("map-8")
+            val response = w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3"))
+
+            assertEquals(RejectionCode.REJECTION_CODE_PARAMETER_INVALID, response.rejection.code, response.rejection.toString())
+            assertEquals(emptyList(), w.adapter.accepted)
+        }
+    }
+
+    @Test
+    fun `정본에 못 물어보면 명령을 내지 않는다`() {
+        // **모르면 멈춘다.** 빈 답을 «판이 같다» 로 접으면 지도가 바뀐 뒤에도 명령이 계속 나간다.
+        // 요청이 틀린 것이 아니라 우리 쪽 상류가 안 닿는 것이라 거절이 아니라 gRPC 상태다.
+        World().use { w ->
+            w.bindings.active = ActiveMap.Unavailable("정본 응답 없음")
+            val thrown = assertFailsWith<StatusRuntimeException> {
+                w.start(taskId = "T-nav", skill = "navigate_to", params = mapOf("location" to "dock-3"))
+            }
+            assertEquals(Status.Code.UNAVAILABLE, thrown.status.code, thrown.message)
+            assertEquals(emptyList(), w.adapter.accepted)
+        }
+    }
+
+    @Test
+    fun `자리 둘을 나르는 단위는 둘 다 이 판의 것이어야 한다`() {
+        // `pick_place` 는 대상과 목적지를 함께 나른다. 하나만 보면 나머지가 옛 판인 채로 나간다.
+        World().use { w ->
+            w.bindings.active = ActiveMap.Known("map-8")
+            w.bindings.table["tote-7"] = "map-8"
+            w.bindings.table["rack-1"] = "map-7"
+            val response = w.start(
+                taskId = "T-pp", skill = "pick_place",
+                params = mapOf("object_id" to "tote-7", "destination" to "rack-1"),
+            )
+            assertEquals(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET, response.rejection.code, response.rejection.toString())
+            assertTrue("rack-1" in response.rejection.detail, response.rejection.detail)
+        }
+    }
 
     @Test
     fun `쥔 채로 온 요청은 adapter accept 를 부르지 않는다`() {
