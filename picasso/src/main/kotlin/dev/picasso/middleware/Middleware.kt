@@ -67,6 +67,11 @@ class Middleware(
      * 지불하는 결정이어야 유지되므로 기본값을 두지 않고 배치가 명시하게 한다. 0 을 고르는 것도 결정이다.
      */
     private val withholdEvery: Int = 0,
+    /**
+     * 배정 비용의 가중치(설계안 §7). **정책은 데이터로 밖에, 평가는 안에서** — 값은 배치가 주고
+     * 계산은 tick 안에서 한다. 순위 계산을 통째로 밖에 두면 읽은 시점과 적용 시점이 갈라진다.
+     */
+    private val cost: AssignmentCost = AssignmentCost(),
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -228,9 +233,10 @@ class Middleware(
         if (existing != null) return revise(existing, order)
 
         val planned = prefix + capability.plan(order)
-        inconsistent(order, capability.plan(order))?.let { return Submission.Rejected(it) }
-        chainViolation(robotId, order.jobOrderId, planned)?.let { return it }
-        occupancyViolation(planned)?.let { return it }
+        when (val admission = admits(order, robotId, planned)) {
+            is Admission.Refused -> return record(robotId, order.jobOrderId, admission.rejection)
+            Admission.Passed -> Unit
+        }
 
         val execution = Execution(
             executionId = "exec-${executions.size + 1}",
@@ -246,6 +252,84 @@ class Middleware(
     }
 
     /**
+     * **배정 관문**(설계안 §7) — 이 기체가 이 주문을 받을 수 있는가.
+     *
+     * **순수 술어다. 상태를 바꾸지 않고 후보를 고르지 않는다.** 부작용이 있으면 후보 셋을 물어보는
+     * 것만으로 제안이 셋 쌓이고 가림 차례가 세 칸 돌아간다 — 묻는 것이 곧 결정이 된다. 그래서 제안의
+     * 기록은 [record] 가 맡고, 채택을 시도한 쪽만 그것을 부른다.
+     *
+     * 고르지 않는 것도 같은 이유다. 순위는 배정 정책의 것이고, 여기서 고르기 시작하면 이 층이 배정기가 된다.
+     */
+    fun admits(order: JobOrder, robotId: String, planned: List<ExecutionUnit>): Admission {
+        inconsistent(order, planned.filter { it.unitId.startsWith("remedy-").not() })
+            ?.let { return Admission.Refused(Submission.Rejected(it)) }
+        chainRefusal(robotId, planned)?.let { return Admission.Refused(it) }
+        occupancyViolation(planned)?.let { return Admission.Refused(it) }
+        return Admission.Passed
+    }
+
+    /**
+     * 관문이 낸 거절을 **기록으로 만든다** — 제안을 남기고, 가릴 차례면 가린다.
+     *
+     * 관문에서 뗀 이유는 이것이 부작용이기 때문이다. 후보를 물어보는 것과 그 기체에 내려다 막힌 것은
+     * 다른 일이고, 앞엣것에 기록이 붙으면 «물어봤다» 가 «시도했다» 로 쌓인다.
+     */
+    private fun record(robotId: String, jobOrderId: String, rejection: Submission.Rejected): Submission.Rejected {
+        val remedy = rejection.remedy
+        if (remedy !is Remedy.Found || remedy.steps.isEmpty()) return rejection
+
+        val key = proposalKey(robotId, jobOrderId)
+        proposals[key] = remedy
+        proposalsMade += 1
+        // **가릴 차례인가.** 이미 사람이 진단을 적어 둔 건은 다시 가리지 않는다 — 같은 값을
+        // 두 번 요구하면 그것은 학습이 아니라 절차다.
+        val hide = withholdEvery > 0 && proposalsMade % withholdEvery == 0 && key !in diagnoses
+        if (!hide) return rejection
+        withheld += key
+        return Submission.Rejected(rejection.reason, remedy = null, remedyWithheld = true)
+    }
+
+    /**
+     * **제안 포트**(설계안 §7) — 순위 목록을 받아 위에서부터 첫 통과를 채택한다.
+     *
+     * 순서는 배정기의 것이고 이 층은 그것을 다시 정렬하지 않는다. 다만 **채택 시점에 관문을 다시 묻는다** —
+     * 순위가 만들어진 뒤 그 기체의 상태가 바뀌었을 수 있고, 그 창은 통신 지연이 아니라 읽는 자와 쓰는 자가
+     * 다르기 때문에 생긴다. 낡은 제안은 여기서 걸린다.
+     *
+     * 전부 떨어지면 [Unassigned] 다. **재계산을 요청하지 않는다** — 요청하면 이 층이 중재자가 된다.
+     */
+    fun adopt(order: JobOrder, ranked: List<String>): Submission {
+        val capability = capabilities[order.workMasterId]
+            ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
+        val planned = capability.plan(order)
+        val refusals = linkedMapOf<String, String>()
+        for (robotId in ranked) {
+            when (val admission = admits(order, robotId, planned)) {
+                Admission.Passed -> return submit(order, robotId)
+                is Admission.Refused -> refusals[robotId] = admission.rejection.reason
+            }
+        }
+        return Unassigned(refusals)
+    }
+
+    /**
+     * 비용으로 순위를 매기고 채택한다 — 배정기가 붙기 전의 기본 정책.
+     *
+     * 항은 이 층이 실제로 아는 것뿐이다([AssignmentCost]). 가중치를 바꾸면 순위가 바뀌고 **관문의 답은
+     * 그대로다** — 정책이 판정을 흔들지 않는다는 것이 이 배선의 요점이다.
+     */
+    fun assign(order: JobOrder, candidates: List<String>): Submission =
+        adopt(order, cost.rank(candidates, live = ::liveExecutionCount, holding = ::isHolding))
+
+    /** 이 기체에서 지금 도는 실행 수. 비용의 항이고 관문의 입력은 아니다. */
+    private fun liveExecutionCount(robotId: String): Int =
+        executions.values.count { it.robotId == robotId && !it.physicalState.isSettled }
+
+    /** 지금 든 채인가. [liveHold] 의 답을 비용이 읽는 모양으로 줄인 것이다. */
+    private fun isHolding(robotId: String): Boolean =
+        liveHold(robotId)?.kind == HoldKind.HOLD_KIND_HOLDING
+
+    /**
      * 계획 시점 사슬 검사(설계안 §4) — 로봇이 선언한 사전 조건을 **접수 요청을 보내기 전에** 단위 사슬에 대고 본다.
      *
      * 출발점은 **지금 도는 단위의 관측**([liveHold])이고, 단위마다 카탈로그의 효과([HoldEffects])로 다음 파지를
@@ -256,7 +340,7 @@ class Middleware(
      * 종착한 단위의 파지는 낡을 수 있으며 다시 볼 길이 없으므로(리뷰 C2) 쓰지 않는다 — 발신자가 접수 때 판정한다.
      * 능력을 못 물은 로봇도, 계약에 없는 주어([PreconditionCheck.Unknown.DEFER])도 같다: 모르는 조건을 지어내지 않는다.
      */
-    private fun chainViolation(robotId: String, jobOrderId: String, planned: List<ExecutionUnit>): Submission.Rejected? {
+    private fun chainRefusal(robotId: String, planned: List<ExecutionUnit>): Submission.Rejected? {
         var hold = liveHold(robotId) ?: return null
         val declared = robots.capabilities(robotId)?.skillsList ?: return null
         val byType = declared.associateBy { it.skillType }
@@ -271,18 +355,9 @@ class Middleware(
                     PreconditionCheck.rejectionDetail(violations) + " (지금 도는 단위의 관측, 보내지 않았다)"
                 // **대안은 여기서만 계산할 수 있다.** 관측(liveHold)과 선언이 둘 다 있는 자리가 여기뿐이다 —
                 // 스냅샷은 파지를 싣지 않으므로 도는 단위가 없으면 관측이 없다.
+                // **계산은 여기서, 기록은 밖에서.** 탐색 자체는 부작용이 없으므로 관문 안에 둘 수 있다.
                 val remedy = target?.let { RemedySearch.search(it, declared, hold) }
-                if (remedy !is Remedy.Found || remedy.steps.isEmpty()) return Submission.Rejected(reason, remedy)
-
-                val key = proposalKey(robotId, jobOrderId)
-                proposals[key] = remedy
-                proposalsMade += 1
-                // **가릴 차례인가.** 이미 사람이 진단을 적어 둔 건은 다시 가리지 않는다 — 같은 값을
-                // 두 번 요구하면 그것은 학습이 아니라 절차다.
-                val hide = withholdEvery > 0 && proposalsMade % withholdEvery == 0 && key !in diagnoses
-                if (!hide) return Submission.Rejected(reason, remedy)
-                withheld += key
-                return Submission.Rejected(reason, remedy = null, remedyWithheld = true)
+                return Submission.Rejected(reason, remedy)
             }
             hold = HoldEffects.after(unit.skillType, hold)
         }
@@ -400,7 +475,7 @@ class Middleware(
             current == null || current.state == UnitState.PENDING ||
                 (current.state == UnitState.FAILED && current.taskId.isEmpty())
         }
-        chainViolation(execution.robotId, order.jobOrderId, toPlan)?.let { return it }
+        chainRefusal(execution.robotId, toPlan)?.let { return record(execution.robotId, order.jobOrderId, it) }
 
         // **확정된 단위 이후에만 붙는다.** 종착한 단위는 그대로(래치 — 계약이 이미 그렇게 한다),
         // 아직 안 시작한 단위는 새 계획으로 교체, 도는 단위는 계약의 갱신 규칙(§4.4)을 탄다.
