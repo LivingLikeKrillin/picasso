@@ -30,6 +30,22 @@ class DocumentClaimsTest {
 
     private fun read(relative: String): String = Repo.read(relative)
 
+    /** 관문 칸의 백틱 기호. `Type.member` 또는 `member` 꼴만 본다. */
+    private val gateSymbol = Regex("`([A-Za-z][A-Za-z0-9]*(?:\\.[A-Za-z][A-Za-z0-9]*)?)`")
+
+    /** 백틱 안이지만 기호가 아닌 것 — 거절의 **값**이지 관문의 이름이 아니다. */
+    private val notSymbols = setOf("null", "true", "false")
+
+    /** 출하 소스 전문. 기호 하나마다 파일을 다시 읽지 않는다. */
+    private val mainSource by lazy {
+        Files.walk(Repo.path("picasso/src/main")).use { paths ->
+            paths.filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
+                .map { Files.readString(it) }
+                .toList()
+                .joinToString("\n")
+        }
+    }
+
     private val readme by lazy { read("README.md") }
     private val design by lazy { read("docs/superpowers/specs/2026-09-05-picasso-design.md") }
 
@@ -106,6 +122,54 @@ class DocumentClaimsTest {
         // **목록이 두 곳에 있다.** 코드가 정본이고 문서는 그것을 옮긴 것이므로, 어긋나면 문서가 틀린 것이다.
         val listed = Check07ModelBranching.MODULES.joinToString(" · ") { "`$it`" }
         assertTrue(listed in design, "설계 §11.2 의 7번 목록이 코드와 다르다 — 코드: $listed")
+    }
+
+    @Test
+    fun `자원 소유 대장이 대는 관문이 코드에 실재한다`() {
+        // `orchestration.md` 는 *"이 자원으로 가는 명령은 누구의 관문을 지나나"* 에 답하는 표다. 거기 적힌
+        // 기호가 사라지거나 이름이 바뀌면 **그 답이 틀린 답이 된다** — 이름을 바꾼 사람은 그 문서를 안 본다.
+        val doc = Repo.read("docs/orchestration.md")
+        val table = doc.lines().dropWhile { !it.startsWith("## 2.") }.takeWhile { !it.startsWith("### ") }
+            .filter { it.startsWith("|") }
+            .filterNot { it.startsWith("| 자원 ") || it.startsWith("|---") }
+
+        // ★**못 읽은 줄을 실패로 적는다**(§15.120 이 남긴 규율). 한 줄의 모양만 바꿔도 그 줄이 조용히
+        // 빠지면 검사 범위가 줄고, 줄어든 것을 아무도 모른다.
+        val row = Regex("""\| ([^|]+) \| ([^|]+) \| ([^|]+) \| ([^|]+) \|""")
+        val unreadable = table.filterNot { row.matchEntire(it) != null }
+        assertEquals(emptyList(), unreadable, "대장 줄을 못 읽었다 — 모양이 바뀌면 검사가 그 줄을 건너뛴다")
+
+        val rows = table.mapNotNull { row.matchEntire(it) }
+        assertTrue(rows.size >= 9, "대장이 " + rows.size + " 줄이다 — 자원을 지우면 그 자원의 무승인 경로가 안 보인다")
+
+        // 관문 칸의 백틱 기호. `null` 처럼 기호가 아닌 것은 뺀다 — 거절의 값이지 관문의 이름이 아니다.
+        val source = mainSource
+        val broken = rows.flatMap { hit ->
+            gateSymbol.findAll(hit.groupValues[3]).map { it.groupValues[1] }.filterNot { it in notSymbols }
+        }.filterNot { symbol ->
+            symbol.split(".").all { part ->
+                Regex("(fun|interface|class|object|val) " + part + "[^A-Za-z0-9_]").containsMatchIn(source)
+            }
+        }
+        assertEquals(emptyList(), broken, "자원 소유 대장이 대는 관문이 picasso/src/main 에 없다")
+
+        // ★**관문이 없는 행은 한계 대장의 id 를 대야 한다.** 이것이 이 표의 요점이다 — 빈 칸이 무승인
+        // 경로인데, 빈 칸을 근거 없이 적으면 그 사실이 어디에도 추적되지 않고 «알고 안 한 것» 과
+        // «잊은 것» 이 같은 모양이 된다.
+        val known = LimitsLedger.allIds()
+        val unledgered = rows.filter { it.groupValues[3].trim().let { cell -> cell == "—" || cell == "**없음**" } }
+            .filterNot { hit -> known.any { it in hit.groupValues[4] } }
+            .map { it.groupValues[1].trim() }
+        assertEquals(emptyList(), unledgered, "관문이 없는 자원인데 한계 대장의 id 를 안 댄다")
+    }
+
+    @Test
+    fun `한계 대장의 항목 수를 README 가 맞게 적는다`() {
+        // ★**세어서 적은 것을 다시 센다.** 이 줄은 손으로 적힌 채 낡아 있었다(실측 2026-09-17: 문서는 37,
+        // 실제는 40). 산문의 숫자는 아무도 다시 안 세므로 여기서 센다.
+        // ★**행을 센다. id 를 세지 않는다** — 한 칸에 id 를 `·` 로 이어 적은 행이 있어서 둘이 다르다.
+        val open = LimitsLedger.rows(Repo.read("docs/limits.md")).count { it.first == 2 || it.first == 3 }
+        assertEquals(open, claimed("""미결 한계 항목 (\S+)개"""), "미결 항목이 늘었는데 README 가 그대로다")
     }
 
     @Test
