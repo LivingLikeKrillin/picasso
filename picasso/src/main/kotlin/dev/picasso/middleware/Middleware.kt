@@ -181,6 +181,13 @@ class Middleware(
              * 능력 부재와 구별되지 않아, 운영자가 시스템을 고장으로 읽는다.
              */
             val remedyWithheld: Boolean = false,
+            /**
+             * 출발 자리가 비었을 때 **그 자재를 든 다른 자리**(§15.153). 셀이 그 질문에 답하지 않으면 널이고,
+             * 빈 목록은 «든 자리가 하나도 없다» 는 답이다 — 둘을 접으면 못 물어본 것이 재고 부족으로 읽힌다.
+             *
+             * 자리 이름만 낸다. 어느 자리를 쓸지는 주문을 고치는 쪽의 결정이고, 이 층은 고르지 않는다.
+             */
+            val alternativeLocations: List<String>? = null,
         ) : Submission
     }
 
@@ -223,6 +230,7 @@ class Middleware(
         val planned = prefix + capability.plan(order)
         inconsistent(order, capability.plan(order))?.let { return Submission.Rejected(it) }
         chainViolation(robotId, order.jobOrderId, planned)?.let { return it }
+        occupancyViolation(planned)?.let { return it }
 
         val execution = Execution(
             executionId = "exec-${executions.size + 1}",
@@ -280,6 +288,69 @@ class Middleware(
         }
         return null
     }
+
+    /**
+     * 셀 자리의 점유를 하달 전에 본다(§15.153) — **자리 경쟁**과 **출발 결품** 둘.
+     *
+     * 파지가 «이 기체가 무엇을 들었나» 라면 이것은 «저 자리가 지금 쓰이는가» 다. 축이 하나뿐일 때는 두
+     * 주문이 같은 슬롯을 목적지로 삼아도 둘 다 접수됐고, 출발 자리가 비어 있어도 하달한 뒤에야 실패했다.
+     *
+     * **권위가 둘이라 순서가 있다.** 자리 경쟁은 이 층이 아는 사실(진행 중 실행)이라 단정하고, 결품은
+     * 설비 관측이라 **말이 없으면 판정하지 않는다.** 없는 관측을 위반으로 세면 신호가 죽은 셀이 통째로 선다.
+     */
+    private fun occupancyViolation(planned: List<ExecutionUnit>): Submission.Rejected? {
+        val claimed = liveClaims()
+
+        for (unit in planned) {
+            val where = unit.destination ?: continue
+            // 같은 주문이 자기 자리에 걸릴 일은 없다 — 같은 `jobOrderId` 는 위에서 `revise` 로 갈린다.
+            val holder = claimed[where] ?: continue
+            return Submission.Rejected(
+                "자리 $where 를 ${holder.jobOrderId}(${holder.executionId}) 가 이미 잡고 있다 — " +
+                    "같은 자리에 둘을 놓지 않는다",
+            )
+        }
+
+        for (unit in planned) {
+            // **이 층이 집으러 보내는 단위만 본다.** 플릿 위임은 플릿이 인수 시점에 대조하고 불일치를
+            // 보고한다 — 여기서 막으면 그 경로가 영영 안 밟히고, 계약이 약속한 보고가 사라진다.
+            if (unit.route != Route.ROBOT) continue
+            val from = unit.source ?: continue
+            val check = CellOccupancy.sourceCheck(cell.observe(from), unit.expectedIdentity)
+            if (check !is SourceCheck.Missing) continue
+
+            val material = unit.expectedIdentity
+            // **이 주문이 채울 자리도 뺀다.** 지금은 그 자재가 놓여 있어도 이 주문이 쓸 자리이고,
+            // 제시하면 자기 목적지에서 집어 자기 목적지에 놓으라는 말이 된다.
+            val taken = claimed.keys + planned.mapNotNull { it.destination }
+            val alternatives = material?.let { CellOccupancy.alternatives(cell.holding(it), taken, exclude = from) }
+            val seen = check.observed?.let { "'$it' 이 있다" } ?: "비었다"
+            return Submission.Rejected(
+                "출발 자리 $from 에 ${material ?: "요구한 것"} 이 없다 — $seen (설비 관측, 보내지 않았다)",
+                alternativeLocations = alternatives,
+            )
+        }
+        return null
+    }
+
+    /**
+     * 진행 중인 실행들이 잡고 있는 자리. **종착한 실행은 놓는다** — 끝난 주문이 자리를 영원히 물고 있으면
+     * 그 자리는 다시 못 쓴다. 유효 기간을 시각으로 두지 않고 실행의 생애로 두는 이유는, 시각으로 두면
+     * 만료된 예약이 아직 도는 실행의 목적지를 남에게 내주기 때문이다(§15.159).
+     */
+    private fun liveClaims(): Map<String, SlotClaim> = executions.values
+        .filter { !it.physicalState.isSettled }
+        .flatMap { execution ->
+            execution.units.filter { it.state != UnitState.DONE }.mapNotNull { unit ->
+                // ★**`destination` 은 두 뜻을 진다** — «놓을 자리» 와 «갈 자리». 점검 순회의 `navigate_to`
+                //   도 목적지를 들지만 그 자리를 채우지는 않는다. 점유는 **아는 것을 놓는 자리**뿐이고,
+                //   그것을 가르는 표시가 `expectedIdentity` 다. 목적지만 보면 같은 설비를 두 번 살피는
+                //   주문이 서로를 막는다(§15.159).
+                val what = unit.expectedIdentity ?: return@mapNotNull null
+                unit.destination?.let { SlotClaim(it, execution.executionId, execution.order.jobOrderId, what) }
+            }
+        }
+        .associateBy { it.location }
 
     /**
      * 이 기체에서 **지금 도는** 단위들의 파지 관측. 든 것이 하나라도 있으면 든 채(손은 한 쌍이다), 아니면 빈손 관측이

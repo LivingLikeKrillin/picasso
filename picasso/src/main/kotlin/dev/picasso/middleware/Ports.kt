@@ -204,6 +204,17 @@ interface CellSignals {
     /** 그 자리에 무엇이 있는가. 신호가 없으면 `null` — 빈 자리가 아니라 **말이 없다**. */
     fun observe(location: String): SlotSignal?
 
+    /**
+     * 이 자재를 **든 자리들**(§15.153). 출발 자리가 비었을 때 다른 자리를 제시하는 데 쓴다.
+     *
+     * `null` 은 **설비가 그 질문에 답하지 않는다**는 뜻이고 빈 목록과 다르다. 빈 목록은 «그 자재를 든
+     * 자리가 하나도 없다» 는 답이다. 둘을 접으면 못 물어본 것이 «없다» 로 읽혀 운영자가 재고를 의심한다.
+     *
+     * 기본값이 `null` 인 것은 **이 질문에 답할 수 있는 설비가 흔하지 않기** 때문이다 — 슬롯마다 신호만
+     * 내는 접점은 자기 자리밖에 모른다. 답할 수 있는 쪽(WMS 를 낀 셀 제어기)이 구현한다.
+     */
+    fun holding(material: String): List<String>? = null
+
     object None : CellSignals {
         override fun observe(location: String): SlotSignal? = null
     }
