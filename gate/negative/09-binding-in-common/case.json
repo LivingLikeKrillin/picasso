@@ -1,0 +1,6 @@
+{
+  "targets": "9",
+  "needs": [],
+  "expect": "SiteBindingSource",
+  "reason": "공통 계층이 자리 결속 타입을 참조 — 결속은 어댑터 경계의 지식이다(ADR 34 · 35)"
+}

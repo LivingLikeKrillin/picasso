@@ -77,7 +77,7 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 
 - **인터페이스 계약 (Contracts)**: 명령/질의는 gRPC, 상태/이벤트/연결 스트리밍은 MQTT를 사용합니다. 태스크는 `(task_id, revision)` 튜플로 멱등성을 보장하며, 수명주기 상태 전이와 파지 상태(`hold`) 갱신을 전달합니다. 계약은 특정 도메인 수치나 파라미터 제약조건을 하드코딩하지 않으며, 이는 프로파일에 위임합니다.
 - **기종 프로파일 (Profile)**: 각 로봇 기종의 지원 역량을 선언하는 JSON 스펙 문서입니다. 기능 지원 여부는 3값 논리(`YES`, `NO`, `UNKNOWN`)를 채택하여, 명확히 입증되지 않은 사양을 `NO`로 단정하여 발생하는 정보 왜곡을 방지합니다.
-- **품질 및 아키텍처 게이트 (Gate)**: 계약 스펙과 프로파일 간의 불일치 시 PR 병합을 차단합니다. 검사 여덟이 있고 CI 와 `registry` 가 기준선만 달리해 같은 코드를 부른다. 네거티브 테스트 케이스는 코드가 아닌 데이터 기반으로 관리됩니다.
+- **품질 및 아키텍처 게이트 (Gate)**: 계약 스펙과 프로파일 간의 불일치 시 PR 병합을 차단합니다. 검사 아홉이 있고 CI 와 `registry` 가 기준선만 달리해 같은 코드를 부른다. 네거티브 테스트 케이스는 코드가 아닌 데이터 기반으로 관리됩니다.
 - **프로파일 에뮬레이터 (Mimic)**: 기종 프로파일을 로드하여 계약 인터페이스를 에뮬레이션합니다. 시드(Seed)와 가상 클록(Virtual Clock)을 고정하여 결정론적(Deterministic) 이벤트 시퀀스를 생성하며, 제어 채널을 통해 네트워크 지연·유실·래치 위반 등의 결함을 주입할 수 있습니다.
 - **로봇 어댑터 (Adapter)**: 노스바운드(Northbound)는 표준 계약을 구현하고, 사우스바운드(Southbound)는 벤더 API 포트로 연결됩니다. 벤더 독점 SDK는 저장소에 일절 포함하지 않으며, `@VendorSurface` 어노테이션과 `vendor-manifest.txt` 매니페스트(심볼명 및 SHA-256 해시)를 통해 정합성을 검증합니다. 어댑터가 벤더의 어느 추상화 계층에 연동되든 상위 계약 면에서는 투명해야 합니다.
 - **운영 레지스트리 (Registry)**: Spring Boot 및 PostgreSQL 기반의 서비스 관리 모듈입니다. 개정판 관리, 어댑터 라이프사이클, 의존성 원장, 변경 계획 수립, 사이트 카탈로그 및 진단 표면 열 개를 제공합니다. 환경변수 기반 무상태 구성을 원칙으로 합니다.
@@ -135,7 +135,7 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | **벤더 인터페이스** | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) | 벤더 API 표면 분석 및 플릿 관리 인터페이스 측정 노트 |
 | **현장 전제조건** | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) | 로봇 도입 현장의 인프라(도어, 바닥, 조명 등) 엔지니어링 전제조건 |
 | **벤더 매니페스트** | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) | 어댑터의 사우스바운드 포트 벤더 심볼 인용 대조 검증 도구 |
-| **미결 과제 대장** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 43개(내부·외부) 및 해결 조건 관리 대장 |
+| **미결 과제 대장** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 44개(내부·외부) 및 해결 조건 관리 대장 |
 
 ## 핵심 엔지니어링 규율
 
@@ -146,4 +146,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-09-17 · sha256:70838003cc2b · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-17 · sha256:69c9b5e98688 · 열림: C-3, §15.81

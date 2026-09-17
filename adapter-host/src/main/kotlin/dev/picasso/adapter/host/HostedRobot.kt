@@ -2,6 +2,9 @@ package dev.picasso.adapter.host
 
 import com.google.protobuf.Descriptors
 import dev.picasso.adapter.core.Acceptance
+import dev.picasso.adapter.core.ActiveMap
+import dev.picasso.adapter.core.SiteBindingCheck
+import dev.picasso.adapter.core.SiteBindingSource
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.ProgressObservation
@@ -29,6 +32,7 @@ import dev.picasso.contracts.wire.ContractIdentity
 import dev.picasso.contracts.wire.TaskStates
 import dev.picasso.profile.ProfileDocument
 import dev.picasso.capability.CapabilityProjection
+import dev.picasso.capability.SiteReferences
 import dev.picasso.capability.PreconditionCheck
 import dev.picasso.uplink.Publication
 import dev.picasso.uplink.Publisher
@@ -73,6 +77,11 @@ class HostedRobot(
     private val publisher: Publisher = Publisher.NONE,
     /** §5.5 토픽의 두 번째 레벨. 헤더에는 없다. */
     val site: String = "default",
+    /**
+     * 자리 이름의 결속 정본에 묻는 자리(§15.155). **기본값은 «안 붙였다» 이고 그것도 결정이다** — 붙이지
+     * 않은 배치에서는 판 검사가 없고, 없다는 사실이 [ActiveMap.NotConfigured] 로 드러난다.
+     */
+    private val bindings: SiteBindingSource = SiteBindingSource.None,
     /** 마지막 인자다 — 시험이 후행 람다로 시계를 준다. */
     private val clock: () -> Instant = { Instant.now() },
 ) {
@@ -216,6 +225,8 @@ class HostedRobot(
         }
 
         validate(skillType, parameters)?.let { return it }
+        // **푸는 것보다 먼저 묻는다.** 뒤에 두면 이미 옛 좌표로 움직인 뒤에 판을 보게 된다.
+        binding(skillType, parameters)?.let { return it }
 
         return when (val accepted = adapter.accept(taskId, skillType, parameters, clock())) {
             is Acceptance.Accepted -> {
@@ -305,6 +316,19 @@ class HostedRobot(
         )
     }
 
+    /**
+     * 자리 이름이 **지금 판에서 유효한가**(§15.155). 어느 칸이 자리 이름인지는 계약 카탈로그가 말하고
+     * (`is_site_reference`), 그 이름이 어느 판에서 등록된 것인지는 결속 정본이 말한다.
+     *
+     * **여기서 이름을 풀지 않는다.** 푸는 것은 기체의 일이고(ADR 35), 이 층이 묻는 것은 풀어도 되는지다.
+     * 거절은 [refused] 한 곳을 지난다 — 어휘 대응표를 두 벌로 두지 않는다.
+     */
+    private fun binding(skillType: String, parameters: Map<String, Any>): StartOutcome? {
+        val names = SiteReferences.of(skillType).mapNotNull { parameters[it] as? String }
+        val refusal = SiteBindingCheck.refusalFor(names, bindings) ?: return null
+        return refused(Acceptance.Refused(refusal, SiteBindingCheck.detailFor(refusal, names, bindings)))
+    }
+
     private fun validate(skillType: String, parameters: Map<String, Any>): StartOutcome.Rejected? {
         val skill = document.skills.firstOrNull { it.skillType == skillType }
             ?: return StartOutcome.Rejected(
@@ -335,8 +359,15 @@ class HostedRobot(
     private fun refused(refusal: Acceptance.Refused): StartOutcome = when (refusal.reason) {
         Refusal.UNSUPPORTED_SKILL -> StartOutcome.Rejected(RejectionCode.REJECTION_CODE_SKILL_ABSENT, refusal.detail)
         Refusal.PARAMETER_MISSING -> StartOutcome.Rejected(RejectionCode.REJECTION_CODE_REQUIRED_OPTIONAL_MISSING, refusal.detail)
-        Refusal.SITE_NAME_UNKNOWN, Refusal.SITE_NAME_AMBIGUOUS ->
+        Refusal.SITE_NAME_UNKNOWN, Refusal.SITE_NAME_AMBIGUOUS, Refusal.SITE_BINDING_ABSENT ->
             StartOutcome.Rejected(RejectionCode.REJECTION_CODE_PARAMETER_INVALID, refusal.detail)
+        // 판이 어긋난 것은 «요청이 틀렸다» 가 아니라 «지금은 그 자리로 못 간다» 다 — 소비자는 요청을 고치는
+        // 것이 아니라 재등록을 기다린다. 사전 조건의 자리이고, **새 이유 코드를 만들지 않는다**.
+        Refusal.SITE_BINDING_STALE ->
+            StartOutcome.Rejected(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET, refusal.detail)
+        // 못 물어본 것은 소비자의 잘못이 아니라 우리 쪽 상류가 안 닿는 것이다 — LINK_ERROR 와 같은 자리.
+        Refusal.SITE_BINDING_UNVERIFIABLE ->
+            StartOutcome.Unavailable(io.grpc.Status.UNAVAILABLE.withDescription(refusal.detail))
         Refusal.VENDOR_SURFACE_ABSENT -> StartOutcome.Rejected(RejectionCode.REJECTION_CODE_CAPABILITY_WITHDRAWN, refusal.detail)
         Refusal.ALREADY_RUNNING, Refusal.TERMINAL_LATCHED, Refusal.NO_TASK, Refusal.NO_VENDOR_PRIMITIVE ->
             StartOutcome.Rejected(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, refusal.detail)
