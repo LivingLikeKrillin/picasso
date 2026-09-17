@@ -78,7 +78,7 @@ object RemedySearch {
 
         // **못 보는 것은 조치로 못 덮는다.** 효과는 파지를 바꾸지 관측 가능성을 바꾸지 못한다 — 여기서
         // 선언된 효과로 «이제 빈손이다» 라고 답하면 그것이 바로 선언으로 현실을 단정하는 일이다(§5.2).
-        if (start != HoldKind.HOLD_KIND_EMPTY && start != HoldKind.HOLD_KIND_HOLDING) {
+        if (!start.isConcreteObservation) {
             return Remedy.None(violations(target, start), Remedy.None.Cause.NO_CAPABILITY)
         }
 
