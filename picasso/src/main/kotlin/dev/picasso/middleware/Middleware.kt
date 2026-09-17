@@ -360,6 +360,13 @@ class Middleware(
      */
     private fun record(robotId: String, jobOrderId: String, rejection: Submission.Rejected): Submission.Rejected {
         val remedy = rejection.remedy
+
+        // **못 찾은 것도 답이다.** 여기서 버리면 밖에서 «이 기체로는 안 된다» 와 «아예 안 찾아봤다» 가
+        // 같은 침묵이 된다. 계산은 이미 끝났고 남는 일은 옮겨 싣는 것뿐이다(ADR 40).
+        if (remedy is Remedy.None) {
+            note(robotId, jobOrderId, RemedyOutcome.None(remedy.cause, remedy.unmet))
+            return rejection
+        }
         if (remedy !is Remedy.Found || remedy.steps.isEmpty()) return rejection
 
         val key = proposalKey(robotId, jobOrderId)
@@ -368,8 +375,13 @@ class Middleware(
         // **가릴 차례인가.** 이미 사람이 진단을 적어 둔 건은 다시 가리지 않는다 — 같은 값을
         // 두 번 요구하면 그것은 학습이 아니라 절차다.
         val hide = withholdEvery > 0 && proposalsMade % withholdEvery == 0 && key !in diagnoses
-        if (!hide) return rejection
+        if (!hide) {
+            note(robotId, jobOrderId, RemedyOutcome.Found(remedy.steps))
+            return rejection
+        }
         withheld += key
+        // **걸음은 안 싣는다.** 대장이 가린 것의 내용을 내면 조회 한 번으로 가림이 풀린다.
+        note(robotId, jobOrderId, RemedyOutcome.Withheld)
         return Submission.Rejected(rejection.reason, remedy = null, remedyWithheld = true)
     }
 
@@ -1396,6 +1408,36 @@ class Middleware(
 
     /** 같은 조치가 승인된 횟수 — (기체, 걸음 열)마다. */
     private val approvals = mutableMapOf<String, Int>()
+
+    /** 탐색이 답한 것들(설계안 §6.3). **조회만 한다** — 이 대장이 이 층의 거동을 바꾸지 않는다. */
+    private val remedyLog = mutableListOf<RemedySearchRecord>()
+    private var remedySeq = 0
+
+    /**
+     * 탐색 한 번을 대장에 적는다.
+     *
+     * **묻기만 한 것은 안 적는다.** 부르는 자리가 [record] 뿐인 것이 그 규율이다 — 관문([admits])은 순수
+     * 술어라 후보 셋에 물어봐도 아무것도 안 쌓이고, 쌓는 것은 실제로 그 기체에 내려 본 쪽이다(§15.161).
+     * 그래서 이 대장은 «무엇을 물어봤나» 가 아니라 **«무엇을 시도했고 무엇을 답받았나»** 다.
+     */
+    private fun note(robotId: String, jobOrderId: String, outcome: RemedyOutcome) {
+        remedyLog += RemedySearchRecord(
+            searchId = "search-${++remedySeq}",
+            robotId = robotId,
+            jobOrderId = jobOrderId,
+            at = now(),
+            wallClockAt = wallClock(),
+            outcome = outcome,
+        )
+    }
+
+    /**
+     * 지금까지의 탐색 결과 전부, **답한 순서대로.**
+     *
+     * 순서는 이 층이 보증한다 — 읽는 쪽이 `searchId` 를 뜯어 번호를 꺼내면 그 순간 형식에 묶이고,
+     * 그 형식을 대는 시험은 어디에도 없다.
+     */
+    fun remedySearches(): List<RemedySearchRecord> = remedyLog.toList()
 
     private fun proposalKey(robotId: String, jobOrderId: String) = "$robotId|$jobOrderId"
 

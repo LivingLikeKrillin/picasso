@@ -177,8 +177,16 @@ class DocumentClaimsTest {
         // ★**세어서 적은 것을 다시 센다.** 이 줄은 손으로 적힌 채 낡아 있었다(실측 2026-09-17: 문서는 37,
         // 실제는 40). 산문의 숫자는 아무도 다시 안 세므로 여기서 센다.
         // ★**행을 센다. id 를 세지 않는다** — 한 칸에 id 를 `·` 로 이어 적은 행이 있어서 둘이 다르다.
-        val open = LimitsLedger.rows(Repo.read("docs/limits.md")).count { it.first == 2 || it.first == 3 }
+        val rows = LimitsLedger.rows(Repo.read("docs/limits.md"))
+        val open = rows.count { it.first == 2 || it.first == 3 }
         assertEquals(open, claimed("""미결 한계 항목 (\S+)개"""), "미결 항목이 늘었는데 README 가 그대로다")
+
+        // ★**같은 수를 두 자리에 적었고 한쪽만 셌더니 다른 쪽이 낡았다**(실측 2026-09-18: 한쪽은 46,
+        // 다른 쪽은 37). 센 자리만 안 낡는다 — 그러니 갈래별 수까지 여기서 센다.
+        assertEquals(open, claimed("""등록된 미결 항목은 \*\*(\S+?)개\*\*"""), "미결 합을 README 가 두 값으로 적는다")
+        assertEquals(rows.count { it.first == 2 }, claimed("""내부 (\S+?)개"""), "내부 미결 수가 대장과 다르다")
+        assertEquals(rows.count { it.first == 3 }, claimed("""외부 (\S+?)개"""), "외부 미결 수가 대장과 다르다")
+        assertEquals(rows.count { it.first == 1 }, claimed("""의도적 제외 (\S+?)개"""), "의도적 제외 수가 대장과 다르다")
     }
 
     @Test
