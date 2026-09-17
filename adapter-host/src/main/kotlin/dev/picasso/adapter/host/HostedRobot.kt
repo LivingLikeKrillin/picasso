@@ -2,7 +2,7 @@ package dev.picasso.adapter.host
 
 import com.google.protobuf.Descriptors
 import dev.picasso.adapter.core.Acceptance
-import dev.picasso.adapter.core.ActiveMap
+import dev.picasso.adapter.core.ActiveRevision
 import dev.picasso.adapter.core.SiteBindingCheck
 import dev.picasso.adapter.core.SiteBindingSource
 import dev.picasso.adapter.core.Applied
@@ -363,7 +363,7 @@ class HostedRobot(
             StartOutcome.Rejected(RejectionCode.REJECTION_CODE_PARAMETER_INVALID, refusal.detail)
         // 판이 어긋난 것은 «요청이 틀렸다» 가 아니라 «지금은 그 자리로 못 간다» 다 — 소비자는 요청을 고치는
         // 것이 아니라 재등록을 기다린다. 사전 조건의 자리이고, **새 이유 코드를 만들지 않는다**.
-        Refusal.SITE_BINDING_STALE ->
+        Refusal.SITE_BINDING_STALE_MAP, Refusal.SITE_BINDING_STALE_CALIBRATION ->
             StartOutcome.Rejected(RejectionCode.REJECTION_CODE_PRECONDITION_UNMET, refusal.detail)
         // 못 물어본 것은 소비자의 잘못이 아니라 우리 쪽 상류가 안 닿는 것이다 — LINK_ERROR 와 같은 자리.
         Refusal.SITE_BINDING_UNVERIFIABLE ->
