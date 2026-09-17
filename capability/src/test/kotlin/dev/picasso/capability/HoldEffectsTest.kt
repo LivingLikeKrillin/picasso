@@ -72,10 +72,29 @@ class HoldEffectsTest {
     @Test
     fun `관측이 없거나 볼 수 없으면 판정하지 않는다`() {
         // §5.2 — 이 줄이 뚫리면 나머지 규율이 무의미해진다. 선언을 근거로 현실을 단정하는 것이기 때문이다.
-        for (observed in listOf(HoldKind.HOLD_KIND_NOT_OBSERVABLE, HoldKind.HOLD_KIND_UNSPECIFIED)) {
+        //
+        // ★**열거를 여기 다시 적지 않는다.** 앞 판은 `listOf(NOT_OBSERVABLE, UNSPECIFIED)` 로 돌아,
+        //   구체 관측이 아닌 값이 하나 더 생기면 **초록인 채로 그 값을 한 번도 안 봤다**. 분류에서 파생하면
+        //   새 값이 저절로 들어오고, 새 값이 구체 관측이면 이 시험이 아니라 `compare` 의 `when` 이 깨진다.
+        val notObserved = HoldKind.values().filter { !it.isConcreteObservation && it != HoldKind.UNRECOGNIZED }
+        assertTrue(notObserved.isNotEmpty(), "구체 관측이 아닌 값이 하나도 없다 — 이 시험이 빈 목록을 돈다")
+
+        for (observed in notObserved) {
             assertNull(HoldEffects.compare(HoldKind.HOLD_KIND_HOLDING, observed), observed.name)
             assertNull(HoldEffects.compare(HoldKind.HOLD_KIND_EMPTY, observed), observed.name)
+            // 기대 쪽이 볼 수 없는 값이어도 같다 — 한쪽만 막으면 반만 막힌다.
+            assertNull(HoldEffects.compare(observed, HoldKind.HOLD_KIND_EMPTY), observed.name)
         }
+    }
+
+    @Test
+    fun `구체 관측은 빈손과 파지 둘뿐이다`() {
+        // 방벽이 무엇을 참으로 두고 있는지 고정한다. 부류가 바뀌면 이 줄이 먼저 빨개지고,
+        // 그때 «바꾼 것이 맞는가» 를 묻게 된다 — 값이 늘 때의 컴파일 오류와 짝이다.
+        assertEquals(
+            listOf(HoldKind.HOLD_KIND_EMPTY, HoldKind.HOLD_KIND_HOLDING),
+            HoldKind.values().filter { it.isConcreteObservation }.sortedBy { it.name },
+        )
     }
 
 }
