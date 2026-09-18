@@ -152,6 +152,64 @@ class LedgerExportTest {
         assertEquals(2.0, step.getValue("at").numberValue)
         assertEquals(2, step.getValue("plan").listValue.valuesCount, "계획이 값으로 안 나갔다")
         assertEquals(1, step.getValue("completed").listValue.valuesCount)
+
+        assertEquals("ROBOT", line.getValue("route").stringValue, "누구의 일인지가 값으로 안 나갔다")
+
+        val intent = line.getValue("intent").structValue.fieldsMap
+        assertEquals("PrepareSequencedRack", intent.getValue("workMasterId").stringValue)
+        assertEquals("pick_place", intent.getValue("skillType").stringValue)
+        assertEquals("RACK-204.S01", intent.getValue("destination").stringValue)
+        assertEquals("ENGINE-COVER-A", intent.getValue("expectedIdentity").stringValue)
+        assertEquals("PT30S", intent.getValue("evidenceWindowBefore").stringValue, "창이 왜 그 범위였는지가 안 나갔다")
+        assertEquals(
+            "SEQ-IN-02.BIN-A",
+            intent.getValue("unitParameters").structValue.fieldsMap.getValue("object_id").stringValue,
+            "단위에 실린 값이 안 나갔다",
+        )
+        assertEquals(
+            1.0,
+            intent.getValue("materials").listValue.getValues(0).structValue.fieldsMap.getValue("quantity").numberValue,
+        )
+
+        val observation = line.getValue("observation").structValue.fieldsMap
+        assertTrue(observation.getValue("linkBroken").hasBoolValue())
+        // ★★**3값이다.** 널을 거짓으로 접으면 «못 물어봤다» 가 «못 잰다» 가 된다.
+        assertTrue(observation.getValue("progressObservable").hasNullValue(), "3값의 널이 접혔다")
+        assertEquals(0, observation.getValue("lateEvents").listValue.valuesCount)
+    }
+
+    @Test
+    fun `사건에 대해 할 말을 바꾸는 값은 해시를 바꾼다`() {
+        // ★★**이 목록이 곧 「무엇이 결정적인가」의 답이다.** 칸이 늘 때마다 여기 한 줄을 더해야
+        //   «해시에 넣었다» 가 말로만 남지 않는다 — 실제로 빠뜨린 적이 있다(경로가 그랬다).
+        val b = bundle(fault = FAULT)
+        val changed = mapOf(
+            "기체" to b.copy(robotId = "다른-기체"),
+            "경로" to b.copy(route = "FLEET"),
+            "요구 등급" to b.copy(requiredEvidence = Evidence.E0),
+            "도달 등급" to b.copy(reachedEvidence = Evidence.E2),
+            "설비 대조" to b.copy(verification = Verification.MISMATCH),
+            "분류의 근거" to b.copy(fault = FAULT.copy(vendorDetail = "다른-원문")),
+            "막는 결함" to b.copy(blockedBy = listOf(FAULT)),
+            "걸음 위치" to b.copy(step = b.step.copy(at = 1)),
+            "의도" to b.copy(intent = b.intent.copy(destination = "다른-자리")),
+            "관측 신뢰" to b.copy(observation = b.observation.copy(linkBroken = true)),
+        )
+
+        changed.forEach { (what, other) ->
+            assertTrue(b.digest() != other.digest(), "$what 가 해시에 안 들어갔다")
+        }
+    }
+
+    @Test
+    fun `맵의 순회 순서가 해시를 바꾸지 않는다`() {
+        // ★의도가 맵 둘을 데려온다. 순회 순서가 해시를 바꾸면 **같은 사건이 두 값을 갖고**, 읽는 쪽의
+        //   멱등이 그 위에 서 있으므로 같은 사건을 두 번 처리한다.
+        val forward = bundle().let { it.copy(intent = it.intent.copy(unitParameters = linkedMapOf("a" to "1", "b" to "2"))) }
+        val backward = bundle().let { it.copy(intent = it.intent.copy(unitParameters = linkedMapOf("b" to "2", "a" to "1"))) }
+
+        assertEquals(forward.intent.unitParameters, backward.intent.unitParameters, "이 시험의 전제가 비었다")
+        assertEquals(forward.digest(), backward.digest(), "맵의 순회 순서가 해시를 바꿨다")
     }
 
     @Test
@@ -263,6 +321,28 @@ class LedgerExportTest {
         reachedEvidence = Evidence.E0,
         verification = Verification.NOT_REQUESTED,
         step = StepPosition(2, listOf("RACK-204.S01", "RACK-204.S02"), listOf("RACK-204.S01")),
+        route = "ROBOT",
+        intent = Intent(
+            workMasterId = "PrepareSequencedRack",
+            orderVersion = 17,
+            orderParameters = mapOf("priority" to "normal"),
+            materials = listOf(MaterialRequirement("ENGINE-COVER-A", 1)),
+            equipment = listOf(EquipmentRequirement("RACK-204.S01", "destination", mapOf("material" to "ENGINE-COVER-A"))),
+            capabilityMaxEvidence = Evidence.E2,
+            evidenceWindowBefore = "PT30S",
+            evidenceWindowAfter = "PT15S",
+            skillType = "pick_place",
+            unitParameters = mapOf("destination" to "RACK-204.S01", "object_id" to "SEQ-IN-02.BIN-A"),
+            source = "SEQ-IN-02.BIN-A",
+            destination = "RACK-204.S01",
+            expectedIdentity = "ENGINE-COVER-A",
+        ),
+        observation = ObservationTrust(
+            linkBroken = false,
+            lateEvents = emptyList(),
+            progressObservable = null,
+            progressStalled = false,
+        ),
         profileRevision = 1,
         contractSemver = "0.9.0",
         review = review,

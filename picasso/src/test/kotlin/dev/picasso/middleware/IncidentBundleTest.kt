@@ -1,10 +1,12 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.wire.ContractIdentity
 import dev.picasso.harness.Harness
 import dev.picasso.mimic.control.v1.ForceFaultRequest
+import dev.picasso.mimic.control.v1.SetConnectionRequest
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
@@ -13,6 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -28,7 +31,10 @@ class IncidentBundleTest {
     private class World(profile: Path, port: (RobotPort) -> RobotPort = { it }) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to profile))
         val cell = CellMimic(now = { harness.clock.now() })
-        val mw = Middleware(port(ClientRobotPort(harness.client())), cell, now = { harness.clock.now() })
+
+        /** 경로가 둘이어야 «누구의 일인가» 를 가르는 시험이 뭔가를 본다. */
+        val fleet = AmrFleetMimic(now = { harness.clock.now() })
+        val mw = Middleware(port(ClientRobotPort(harness.client())), cell, fleet, now = { harness.clock.now() })
 
         fun drive(rounds: Int = 40, step: Duration = Duration.ofSeconds(1), until: () -> Boolean) {
             repeat(rounds) {
@@ -41,6 +47,10 @@ class IncidentBundleTest {
             }
             error("조건에 못 미쳤다")
         }
+
+        fun setConnection(state: ConnectionState) = harness.oracle.setConnection(
+            SetConnectionRequest.newBuilder().setRobotId(ROBOT).setState(state.name).build(),
+        )
 
         fun forceFault(errorType: String, taskId: String) = harness.oracle.forceFault(
             ForceFaultRequest.newBuilder().setRobotId(ROBOT).setErrorType(errorType).setTaskId(taskId).build(),
@@ -58,6 +68,18 @@ class IncidentBundleTest {
         equipmentRequirements = slots.map { (slot, m) ->
             EquipmentRequirement("RACK-204.$slot", "destination", mapOf("material" to "ENGINE-COVER-$m"))
         } + listOf(EquipmentRequirement("SEQ-IN-02.BIN-A", "source", mapOf("material" to "ENGINE-COVER-A"))),
+    )
+
+    /** 용기 공급 하나. **출발지를 비워 둔다** — 플릿이 인수하지 않으므로 경로가 `FLEET` 인 사건이 열린다. */
+    private fun deliver() = JobOrder(
+        jobOrderId = "WT-781",
+        workMasterId = DeliverContainer.WORK_MASTER,
+        version = 1,
+        requiredEvidence = Evidence.E2,
+        equipmentRequirements = listOf(
+            EquipmentRequirement("OUT-07", EquipmentUse.SOURCE, mapOf(EquipmentUse.PROP_CONTAINER to "HU-1042")),
+            EquipmentRequirement("SEQ-IN-02", EquipmentUse.DESTINATION),
+        ),
     )
 
     private fun inspection(jobOrderId: String = "PATROL-1") = JobOrder(
@@ -204,6 +226,94 @@ class IncidentBundleTest {
             assertTrue(bundle.step.plan.size >= 2, "걸음이 하나면 «몇 걸음 중» 이 비어 이 시험이 아무것도 안 본다")
             assertEquals(bundle.step.plan.indexOf(bundle.unitId) + 1, bundle.step.at, "몇 번째인지가 계획과 어긋난다")
             assertEquals(exec.completedUnits, bundle.step.completed, "어디까지 갔는지가 안 실렸다")
+        }
+    }
+
+    // ── 되짚지 않고 읽을 재료 둘째 묶음(§15.178)
+
+    @Test
+    fun `번들이 무엇을 하려던 일이었는지 말한다`() {
+        // ★★분류와 그 근거는 «무엇이 어긋났나» 이고 이것은 «무엇을 하려 했나» 다. 뒤엣것이 없으면
+        //   설명이 어긋남의 재진술에 머문다 — 어느 자리에 무엇을 놓으려 했는지를 모르면 «잘못 놓았다»
+        //   가 무슨 뜻인지 말할 수 없다.
+        World(PRECOND).use { w ->
+            val order = rack()
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order, ROBOT)).execution
+            w.drive { exec.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+            w.forceFault("PAYLOAD_LOST", exec.units.first().taskId)
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            val bundle = assertNotNull(w.mw.incidents().lastOrNull())
+            val unit = assertNotNull(exec.units.firstOrNull { it.unitId == bundle.unitId })
+            val intent = bundle.intent
+
+            // 상류가 적은 것
+            assertEquals(order.workMasterId, intent.workMasterId)
+            assertEquals(order.version, intent.orderVersion)
+            assertEquals(order.materialRequirements, intent.materials, "주문이 선언한 자재가 안 실렸다")
+            assertEquals(order.equipmentRequirements, intent.equipment, "주문이 지정한 설비가 안 실렸다")
+            // 이 층이 편 것
+            assertEquals(unit.skillType, intent.skillType)
+            assertEquals(unit.parameters, intent.unitParameters, "단위에 실제로 실린 값이 안 실렸다")
+            assertEquals(unit.destination, intent.destination)
+            assertEquals(unit.expectedIdentity, intent.expectedIdentity)
+            // 창이 왜 그 범위였나
+            assertEquals(exec.capability.maxEvidence, intent.capabilityMaxEvidence)
+            assertEquals(exec.capability.evidenceWindow.before.toString(), intent.evidenceWindowBefore)
+            assertEquals(exec.capability.evidenceWindow.after.toString(), intent.evidenceWindowAfter)
+        }
+    }
+
+    @Test
+    fun `번들이 누구의 일인지 말한다`() {
+        // ★★**경로가 없으면 책임 소재를 못 가른다.** 같은 «실패» 라도 기체와 어댑터의 일인지 플릿의
+        //   일인지가 다음에 누구에게 물을지를 정한다.
+        World(PRECOND).use { w ->
+            val robotSide = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack(), ROBOT)).execution
+            w.drive { robotSide.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+            w.forceFault("PAYLOAD_LOST", robotSide.units.first().taskId)
+            w.drive { robotSide.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            // 출발지에 요청한 용기가 없다 — 플릿이 접수 시점에 확인하고 인수하지 않는다.
+            val fleetSide = assertIs<Middleware.Submission.Accepted>(w.mw.submit(deliver(), ROBOT)).execution
+            w.drive { fleetSide.units.first().state == UnitState.FAILED }
+
+            val byExecution = w.mw.incidents().associateBy { it.executionId }
+            assertEquals("ROBOT", assertNotNull(byExecution[robotSide.executionId]).route)
+            assertEquals("FLEET", assertNotNull(byExecution[fleetSide.executionId]).route, "플릿에 맡긴 단위가 기체의 일로 적혔다")
+        }
+    }
+
+    @Test
+    fun `번들이 관측을 얼마나 믿을 수 있는지 말한다`() {
+        // ★선이 끊긴 채 돈 실행과 내내 붙어 있던 실행은 같은 등급이라도 같은 값이 아니다.
+        World(PRECOND).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack(), ROBOT)).execution
+            w.drive { exec.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+            w.setConnection(ConnectionState.CONNECTION_STATE_CONNECTION_BROKEN)
+            w.mw.pump()
+            w.forceFault("PAYLOAD_LOST", exec.units.first().taskId)
+            w.drive { w.mw.incidents().isNotEmpty() }
+
+            val bundle = assertNotNull(w.mw.incidents().lastOrNull())
+            val unit = assertNotNull(exec.units.firstOrNull { it.unitId == bundle.unitId })
+            assertTrue(bundle.observation.linkBroken, "선이 끊긴 채 난 사건인데 그 사실이 안 실렸다")
+            assertEquals(unit.progressObservable, bundle.observation.progressObservable)
+            assertEquals(unit.progressStalled, bundle.observation.progressStalled)
+            assertEquals(emptyList(), bundle.observation.lateEvents)
+        }
+    }
+
+    @Test
+    fun `진행률을 못 물어본 단위는 널로 남는다`() {
+        // ★★**3값이다.** 널이 «아직 갱신을 못 봤다» 이고, 거짓으로 접으면 «못 물어봤다» 가 «못 잰다»
+        //   가 된다. 진행률의 0.0 을 정체로 읽으면 진행률을 안 내는 기종이 언제나 멈춰 있는 것으로 보인다.
+        World(PRECOND).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(deliver(), ROBOT)).execution
+            w.drive { exec.units.first().state == UnitState.FAILED }
+
+            val bundle = assertNotNull(w.mw.incidents().lastOrNull())
+            assertNull(bundle.observation.progressObservable, "하달도 안 된 단위의 진행률 관측 가능성이 참·거짓으로 단정됐다")
         }
     }
 

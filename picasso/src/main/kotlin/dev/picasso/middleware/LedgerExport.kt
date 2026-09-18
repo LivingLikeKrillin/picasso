@@ -33,8 +33,11 @@ object LedgerExport {
      *
      * `2` 에서 사건 줄이 기체·근거 등급·걸음 위치를 싣고 `blockedBy` 가 분류 이름에서 결함 객체로
      * 바뀌었다(§15.177). **칸이 는 것이 아니라 모양이 바뀐 자리가 있으므로** 읽는 쪽이 판을 봐야 한다.
+     *
+     * `3` 에서 의도(`intent`)·경로(`route`)·관측 신뢰(`observation`)가 붙었다(§15.178). 이쪽은 칸이
+     * 는 것뿐이라 모르는 칸을 무시하는 읽는 쪽은 그대로 돈다.
      */
-    const val SCHEMA_VERSION: String = "2"
+    const val SCHEMA_VERSION: String = "3"
 
     const val INCIDENTS: String = "incidents.jsonl"
     const val REMEDY_SEARCHES: String = "remedy-searches.jsonl"
@@ -103,6 +106,9 @@ object LedgerExport {
         .str("reachedEvidence", b.reachedEvidence.name)
         .str("verification", b.verification.name)
         .raw("step", step(b.step))
+        .str("route", b.route)
+        .raw("intent", intent(b.intent))
+        .raw("observation", observation(b.observation))
         .num("profileRevision", b.profileRevision)
         .str("contractSemver", b.contractSemver)
         .raw("approvedBy", b.approvedBy?.let { approver(it) } ?: "null")
@@ -162,6 +168,50 @@ object LedgerExport {
         .str("value", r.value)
         .done()
 
+    /** 무엇을 하려던 일이었나 — 상류가 적은 것과 이 층이 편 것을 함께. */
+    private fun intent(i: Intent): String = Obj()
+        .str("workMasterId", i.workMasterId)
+        .num("orderVersion", i.orderVersion)
+        .raw("orderParameters", mapOfStrings(i.orderParameters))
+        .raw("materials", i.materials.joinToJson { material(it) })
+        .raw("equipment", i.equipment.joinToJson { equipment(it) })
+        .str("capabilityMaxEvidence", i.capabilityMaxEvidence.name)
+        .str("evidenceWindowBefore", i.evidenceWindowBefore)
+        .str("evidenceWindowAfter", i.evidenceWindowAfter)
+        .str("skillType", i.skillType)
+        .raw("unitParameters", mapOfStrings(i.unitParameters))
+        .str("source", i.source)
+        .str("destination", i.destination)
+        .str("expectedIdentity", i.expectedIdentity)
+        .done()
+
+    private fun material(m: MaterialRequirement): String = Obj()
+        .str("materialDefinitionId", m.materialDefinitionId)
+        .num("quantity", m.quantity)
+        .done()
+
+    private fun equipment(e: EquipmentRequirement): String = Obj()
+        .str("id", e.id)
+        .str("equipmentUse", e.equipmentUse)
+        .raw("properties", mapOfStrings(e.properties))
+        .done()
+
+    /** 관측이 온전했는가. **`progressObservable` 은 3값이라 널을 거짓으로 접지 않는다.** */
+    private fun observation(o: ObservationTrust): String = Obj()
+        .bool("linkBroken", o.linkBroken)
+        .raw("lateEvents", o.lateEvents.joinToJson { lateEvent(it) })
+        .raw("progressObservable", o.progressObservable?.toString() ?: "null")
+        .bool("progressStalled", o.progressStalled)
+        .done()
+
+    private fun lateEvent(l: LateEvent): String = Obj()
+        .str("unitId", l.unitId)
+        .num("revision", l.revision)
+        .num("currentRevision", l.currentRevision)
+        .str("downstreamState", l.downstreamState)
+        .str("occurredAt", l.occurredAt.toString())
+        .done()
+
     /** 총수는 `plan` 의 길이다 — 따로 적지 않는다. */
     private fun step(s: StepPosition): String = Obj()
         .num("at", s.at)
@@ -206,6 +256,11 @@ object LedgerExport {
 
     private fun arrayOfStrings(values: List<String>): String =
         values.joinToString(",", "[", "]") { Json.quote(it) }
+
+    /** **키 순서로 적는다** — 순회 순서가 줄을 바꾸면 같은 사건이 두 모양으로 나간다. */
+    private fun mapOfStrings(values: Map<String, String>): String = values.entries
+        .sortedBy { it.key }
+        .joinToString(",", "{", "}") { "${Json.quote(it.key)}:${Json.quote(it.value)}" }
 
 }
 
