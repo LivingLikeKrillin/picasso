@@ -1,0 +1,216 @@
+package dev.picasso.middleware
+
+import com.google.protobuf.MessageOrBuilder
+import com.google.protobuf.util.JsonFormat
+import dev.picasso.capability.PreconditionViolation
+import dev.picasso.capability.RemedyStep
+import dev.picasso.contracts.wire.ContractIdentity
+import java.time.Instant
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * 두 대장을 밖이 읽는 모양으로 **인코딩한다**(`docs/orchestration.md` §6).
+ *
+ * ## 전송은 여기 없다
+ *
+ * 문자열만 만든다 — 파일도 소켓도 자기 시계도 건드리지 않는다. 담는 쪽이 그것을 어디에 쓸지 정하고
+ * (§6 의 사다리 C → A), 담는 쪽이 바뀌어도 이 인코딩은 그대로다. 순수 함수라서 **인프라 없이
+ * 시험이 문다** — 그것이 v1 에서 파일을 고른 이유의 절반이다.
+ *
+ * ## 「없음」을 키 누락으로 적지 않는다
+ *
+ * 값이 없으면 `null` 을, 빈 목록은 `[]` 를 적는다. 키를 빼면 «값이 없다» 와 «이 판이 아직 그 필드를
+ * 안 낸다» 가 같은 모양이 되고, 읽는 쪽에는 둘을 가를 방법이 없다.
+ *
+ * **계약 메시지도 같은 규칙을 받는다.** protobuf JSON 의 기본은 기본값 필드를 빼는 것이라, 그대로 쓰면
+ * `HoldState` 가 `HOLD_KIND_UNSPECIFIED` 일 때 통째로 `{}` 가 된다 — **「빈손」과 「말하지 않았다」가
+ * 접히는 것**이고 §15.145 가 막은 바로 그 일이다. 그래서 기본값도 적는다.
+ */
+object LedgerExport {
+
+    /** 이 규약의 판. 읽는 쪽이 모르는 판을 만나면 멈출 수 있게 한 벌마다 싣는다. */
+    const val SCHEMA_VERSION: String = "1"
+
+    const val INCIDENTS: String = "incidents.jsonl"
+    const val REMEDY_SEARCHES: String = "remedy-searches.jsonl"
+
+    /** **맨 마지막에 나타난다.** 이것이 보이는 것이 «한 벌이 다 나왔다» 는 신호다. */
+    const val MANIFEST: String = "manifest.json"
+
+    private val runs = AtomicLong()
+
+    /**
+     * 한 번의 구동을 가리키는 값. **이 내보내기에서 유일하게 결정적이지 않다.**
+     *
+     * 나머지는 전부 같은 시드면 같은 값이다 — `IncidentBundle.digest()` 도 `incident-N` 도 그렇게
+     * 설계됐고 그것이 재현의 근거다. 그런데 읽는 쪽이 멱등 열쇠를 그 값들로 들면, 같은 시드로 다시 돌린
+     * 두 번째 구동의 사건이 전부 «이미 본 것» 으로 접혀 **아무 신호 없이 처리가 사라진다.** 로그도 예외도
+     * 없고, 그 침묵은 «설명이 아직 안 붙었다» 와 구별되지 않는다.
+     *
+     * 그래서 이 값 하나만 실 시계에서 나오고, 같은 밀리초 안에서도 안 겹치게 세는 수를 뒤에 붙인다.
+     * **결정적으로 바꾸지 말 것** — 바꾸는 순간 위의 고장이 조용히 돌아온다. 시험이 그것을 든다.
+     */
+    fun newRunId(writtenAt: Instant): String = "run-$writtenAt-${runs.incrementAndGet()}"
+
+    /** 사건 번들 한 줄씩. 열린 순서 그대로이며 마지막 줄에도 줄바꿈이 붙는다. */
+    fun incidents(bundles: List<IncidentBundle>): String =
+        bundles.joinToString("") { line(it) + "\n" }
+
+    /** 탐색 결과 한 줄씩. 사건과 **합치지 않는다** — 합치면 읽는 쪽이 갈래를 다시 나눠야 한다. */
+    fun remedySearches(records: List<RemedySearchRecord>): String =
+        records.joinToString("") { line(it) + "\n" }
+
+    fun manifest(
+        runId: String,
+        writtenAt: Instant,
+        virtualNow: Instant,
+        incidents: Int,
+        remedySearches: Int,
+    ): String = Obj()
+        .str("schemaVersion", SCHEMA_VERSION)
+        .str("runId", runId)
+        .str("writtenAt", writtenAt.toString())
+        .str("virtualNow", virtualNow.toString())
+        .str("contractSemver", ContractIdentity.semver)
+        .raw("counts", Obj().num("incidents", incidents).num("remedySearches", remedySearches).done())
+        .done()
+
+    private fun line(b: IncidentBundle): String = Obj()
+        .str("incidentId", b.incidentId)
+        .str("jobOrderId", b.jobOrderId)
+        .str("executionId", b.executionId)
+        .str("unitId", b.unitId)
+        .str("at", b.at.toString())
+        .str("wallClockAt", b.wallClockAt.toString())
+        .str("failureClass", b.failureClass)
+        .raw("blockedBy", arrayOfStrings(b.blockedBy))
+        .raw("residualHold", proto(b.residualHold))
+        .bool("unresolved", b.unresolved)
+        .raw("preconditionSubjects", arrayOfStrings(b.preconditionSubjects))
+        .raw("evidenceWindow", b.evidenceWindow.joinToJson { event(it) })
+        .bool("windowTruncated", b.windowTruncated)
+        .str("expectedHold", b.expectedHold?.name)
+        .str("observedHold", b.observedHold.name)
+        .str("effectMismatch", b.effectMismatch)
+        .num("profileRevision", b.profileRevision)
+        .str("contractSemver", b.contractSemver)
+        .raw("review", b.review?.let { review(it) } ?: "null")
+        // **이미 계산되는 값이다.** 읽는 쪽이 같은 사건을 두 번 받았는지 가르는 유일한 결정적 열쇠다.
+        .str("digest", b.digest())
+        .done()
+
+    /**
+     * 탐색 결과는 **평평하게** 적는다 — `outcome` 이 갈래이고 나머지는 그 갈래의 값이다.
+     *
+     * **`WITHHELD` 줄에는 `steps` 키가 없다.** 이것이 적재면의 방벽이고 코드의 방벽과 같은 성질이다
+     * (§15.164). 여기서 편의로 제안 표의 걸음을 꺼내 실으면 **조회 한 번으로 가림이 풀린다.**
+     */
+    private fun line(r: RemedySearchRecord): String {
+        val o = Obj()
+            .str("searchId", r.searchId)
+            .str("robotId", r.robotId)
+            .str("jobOrderId", r.jobOrderId)
+            .str("at", r.at.toString())
+            .str("wallClockAt", r.wallClockAt.toString())
+        return when (val outcome = r.outcome) {
+            is RemedyOutcome.Found -> o
+                .str("outcome", "FOUND")
+                .raw("steps", outcome.steps.joinToJson { step(it) })
+            is RemedyOutcome.None -> o
+                .str("outcome", "NONE")
+                .str("cause", outcome.cause.name)
+                .raw("unmet", outcome.unmet.joinToJson { violation(it) })
+            RemedyOutcome.Withheld -> o.str("outcome", "WITHHELD")
+        }.done()
+    }
+
+    private fun event(e: ObservedEvent): String = Obj()
+        .num("sequence", e.sequence)
+        .str("occurredAt", e.occurredAt)
+        .str("kind", e.kind)
+        .str("detail", e.detail)
+        .bool("local", e.local)
+        .done()
+
+    private fun review(r: IncidentReview): String = Obj()
+        .str("verdict", r.verdict.name)
+        .str("cause", r.cause)
+        .str("at", r.at.toString())
+        .done()
+
+    private fun step(s: RemedyStep): String = Obj()
+        .str("skillType", s.skillType)
+        .raw("requires", s.requires.joinToJson { proto(it) })
+        .str("expectedHold", s.expectedHold.name)
+        .str("onFailureHold", s.onFailureHold.name)
+        .done()
+
+    private fun violation(v: PreconditionViolation): String = Obj()
+        .str("subject", v.subject.name)
+        .str("required", v.required.name)
+        .str("observed", v.observed.name)
+        .str("detail", v.detail)
+        .done()
+
+    /** 계약 메시지는 protobuf JSON 규약으로. **기본값도 적는다** — 위의 이유다. */
+    private fun proto(message: MessageOrBuilder): String = PRINTER.print(message)
+
+    private val PRINTER: JsonFormat.Printer = JsonFormat.printer()
+        .alwaysPrintFieldsWithNoPresence()
+        .omittingInsignificantWhitespace()
+
+    private fun <T> List<T>.joinToJson(of: (T) -> String): String =
+        joinToString(",", "[", "]") { of(it) }
+
+    private fun arrayOfStrings(values: List<String>): String =
+        values.joinToString(",", "[", "]") { Json.quote(it) }
+
+    /** 키를 순서대로 붙이는 최소한의 것. 키를 빼는 길이 없는 것이 이 클래스의 요점이다. */
+    private class Obj {
+        private val sb = StringBuilder("{")
+        private var first = true
+
+        private fun key(name: String): Obj {
+            if (!first) sb.append(',')
+            first = false
+            sb.append(Json.quote(name)).append(':')
+            return this
+        }
+
+        fun str(name: String, value: String?): Obj =
+            key(name).also { sb.append(if (value == null) "null" else Json.quote(value)) }
+
+        fun num(name: String, value: Number): Obj = key(name).also { sb.append(value) }
+
+        fun bool(name: String, value: Boolean): Obj = key(name).also { sb.append(value) }
+
+        /** 이미 JSON 인 값. */
+        fun raw(name: String, value: String): Obj = key(name).also { sb.append(value) }
+
+        fun done(): String = sb.append('}').toString()
+    }
+}
+
+/**
+ * JSON 문자열 한 줄. **사람이 적은 글이 여기로 나간다** — 진단 사유와 검토 의견이 그렇다.
+ * 따옴표 하나만 새어도 그 줄이 통째로 못 읽히고, 읽는 쪽에는 «한 줄이 사라졌다» 로만 보인다.
+ */
+internal object Json {
+
+    fun quote(value: String): String {
+        val sb = StringBuilder(value.length + 2).append('"')
+        for (ch in value) {
+            when {
+                ch == '"' -> sb.append("\\\"")
+                ch == '\\' -> sb.append("\\\\")
+                ch == '\n' -> sb.append("\\n")
+                ch == '\r' -> sb.append("\\r")
+                ch == '\t' -> sb.append("\\t")
+                // 제어 문자는 그대로 두면 JSON 이 아니다. 한글은 UTF-8 로 그대로 나간다.
+                ch < ' ' -> sb.append("\\u%04x".format(ch.code))
+                else -> sb.append(ch)
+            }
+        }
+        return sb.append('"').toString()
+    }
+}

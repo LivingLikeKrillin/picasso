@@ -14,6 +14,11 @@ dependencies {
     implementation(project(":capability"))
     implementation(project(":client"))
 
+    // 계약 메시지를 protobuf JSON 으로 적는다(`LedgerExport`). 기존 적재 표면이 이미 그 규약이라
+    // 다른 규약을 쓰면 읽는 쪽이 갈린다. **전송이 아니라 인코딩이다** - 이 모듈은 여전히 파일도
+    // 소켓도 모른다.
+    implementation(libs.protobuf.java.util)
+
     testImplementation(project(":harness"))
     testImplementation(project(":mimic"))
     testImplementation(kotlin("test"))
