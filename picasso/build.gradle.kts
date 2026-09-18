@@ -28,6 +28,9 @@ tasks.withType<Test>().configureEach {
     inputs.files(
         rootProject.file("profile/fixtures"),
         rootProject.file("profile/schema"),
+        // 인계 지점의 한 벌을 `HandoffFixtureTest` 가 읽는다. 선언 안 하면 그 파일이 바뀌어도
+        // 태스크가 UP-TO-DATE 로 건너뛰고, 낡은 한 벌이 초록인 채로 나간다(CLAUDE.md 2-4).
+        rootProject.file("handoff"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

@@ -1,0 +1,38 @@
+picasso 가 실물로 낸 한 벌 둘 (2026-09-18, main=b548c5f)
+
+**이 자리가 인계 지점이다.** 받는 쪽이 여기서 복사해 간다 — 내는 쪽은 자기 저장소만 건드리고,
+무엇을 들일지는 받는 쪽이 정한다. 반대로 하면 두 층이 다른 저장소에 있다는 증명이 깨진다.
+산출: ./gradlew :picasso:test --tests '*ExportFixtureTest*'  →  picasso/build/export/run-{1,2}
+
+봉투가 없다. 최상위가 바로 기록이다 — nexus 처럼 data 를 벗길 것이 없다.
+manifest.json 이 마지막에 나타나는 것이 「한 벌이 다 나왔다」는 신호다.
+
+두 벌은 같은 시나리오를 두 번 돌린 것이다.
+  digest  전부 동일  (동일)
+  runId   run-1  run-2026-09-18T05:20:28.840276300Z-1
+          run-2  run-2026-09-18T05:20:33.643123100Z-2
+  → 멱등 열쇠를 digest 로만 걸면 run-2 가 통째로 접힌다. (runId, digest) 로 건다.
+
+remedy-searches.jsonl  3줄
+  search-1   FOUND      steps=1
+  search-2   NONE       cause=NO_CAPABILITY
+  search-3   WITHHELD   
+  WITHHELD 줄에는 steps 키도 cause 키도 없다. 값이 비는 것이 아니라 키가 없는 것이 답이다.
+  NONE(DEPTH_LIMIT) 은 이 한 벌에 없다 — picasso 미들웨어 경로로는 도달 불가(§15.170).
+
+incidents.jsonl  3줄
+  incident-1   PAYLOAD_LOST       approvedBy=AGENT(narrator-1)      residualHold=HOLD_KIND_EMPTY
+  incident-2   PAYLOAD_LOST       approvedBy=null                   residualHold=HOLD_KIND_EMPTY
+  incident-3   LOCALIZATION_LOST  approvedBy=null                   residualHold=HOLD_KIND_EMPTY
+  approvedBy 는 해시에 든다 — 다른 쪽이 승인한 같은 모양의 사건은 다른 사건이다.
+  residualHold 의 objectRef·reason 이 빈 문자열로 남아 있다. 표준 protobuf JSON printer 였으면
+  그 키들이 통째로 빠진다 — 빈손과 침묵이 접히는 자리이고, picasso 가 기본값 출력을 켜서 막았다.
+  kind 가 UNSPECIFIED 인 줄은 없다. 하달된 단위는 기체가 파지를 답하고,
+  하달 전에 실패한 것은 사건을 열지 않는다.
+
+없는 값은 키를 빼지 않고 null 로 온다. 빈 목록도 [] 로 온다.
+at 은 가상 시계, wallClockAt 은 실 시계다. 두 벌에서 at 은 같고 wallClockAt 은 다르다.
+
+
+이 한 벌은 스냅샷이라 낡을 수 있다. 인코더가 칸을 늘리거나 줄이면
+`HandoffFixtureTest` 가 빨개진다 — 그때 build/export 에서 다시 복사해 온다.
