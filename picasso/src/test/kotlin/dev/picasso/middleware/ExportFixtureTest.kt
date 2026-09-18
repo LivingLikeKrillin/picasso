@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -39,7 +40,17 @@ class ExportFixtureTest {
             now = { harness.clock.now() },
             // 셋째 제안이 가려진다 — 한 벌에 FOUND 와 WITHHELD 가 둘 다 있어야 읽는 쪽이 둘을 가른다.
             withholdEvery = 2,
-            entitlements = Declared(mapOf(AGENT.id to Entitlement(AGENT.id, setOf(PrepareSequencedRack.SKILL), setOf(FOUND_ROBOT), FAR))),
+            // 사람이 **목적지만** 적는다 — 무엇을 들었는지는 기체가 말한다(ADR 44).
+            entitlements = Declared(
+                mapOf(
+                    AGENT.id to Entitlement(
+                        AGENT.id,
+                        listOf(DeclaredAction(PrepareSequencedRack.SKILL, mapOf(PrepareSequencedRack.P_DESTINATION to "RACK-204.S01"))),
+                        setOf(FOUND_ROBOT),
+                        FAR,
+                    ),
+                ),
+            ),
         )
 
         private var racks = 0
@@ -93,18 +104,23 @@ class ExportFixtureTest {
         // **기체를 셋으로 가른다.** 한 기체는 태스크를 하나씩만 든다(§15.98) — 한 기체에 몰면 앞
         // 실행이 끝나기를 기다리는 동안 시나리오가 서로를 막는다.
 
-        // ① 대안 있음 — 든 채로 점검 순회를 밀어 넣고, 그 랙은 정상 완주시킨다.
+        // ① 대안 있음 — 든 채로 점검 순회를 밀어 넣는다.
         val held = w.holdingRack(FOUND_ROBOT)
         assertIs<Middleware.Submission.Rejected>(w.mw.submit(patrol("PATROL-1"), FOUND_ROBOT))
-        w.drive(rounds = 250) { held.physicalState.isSettled }
 
-        // ② 그 제안을 에이전트가 승인한다 — 이 실행의 사건이 승인자를 싣는다.
-        val remedied = assertIs<Middleware.Submission.Accepted>(
-            w.mw.approveRemedy(patrol("PATROL-1"), FOUND_ROBOT, listOf(PLACE), AGENT),
-        ).execution
-        w.drive { remedied.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+        // ② **든 채 그대로** 에이전트가 밖의 문으로 승인한다 — 값을 하나도 안 싣는다(ADR 44).
+        //    대상의 이름은 «지금 든 것» 의 관측에서 오므로, 그 랙을 먼저 완주시키면 출처가 사라진다.
+        val approved = assertIs<ApprovalOutcome.Approved>(
+            w.mw.attemptApproval(
+                ApprovalAttempt(AGENT, FOUND_ROBOT, "PATROL-1", listOf(PrepareSequencedRack.SKILL)),
+            ),
+        )
+        val remedied = assertNotNull(w.mw.execution(approved.executionId))
+        // 조치는 그 랙이 끝나야 자기 차례가 온다 — 기체는 태스크를 하나씩만 든다(§15.98).
+        w.drive(rounds = 250) { remedied.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
         w.forceFault(FOUND_ROBOT, "PAYLOAD_LOST", remedied.units.first().taskId)
         w.drive(rounds = 250) { remedied.physicalState == PhysicalState.OPERATOR_HOLD }
+        w.drive(rounds = 250) { held.physicalState.isSettled }
 
         // ③ 대안 없음 — 든 채로는 딛을 스킬이 없는 기체다.
         val stuck = w.holdingRack(NONE_ROBOT)
@@ -206,11 +222,6 @@ class ExportFixtureTest {
 
         val AGENT = Approver("narrator-1", ApproverKind.AGENT)
         private val FAR: Instant = Instant.parse("2099-01-01T00:00:00Z")
-
-        private val PLACE = mapOf(
-            PrepareSequencedRack.P_OBJECT to "ENGINE-COVER-A",
-            PrepareSequencedRack.P_DESTINATION to "RACK-204.S01",
-        )
 
         private fun patrol(jobOrderId: String) = JobOrder(
             jobOrderId = jobOrderId,

@@ -1,6 +1,7 @@
 package dev.picasso.middleware
 
 import dev.picasso.capability.Remedy
+import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.harness.Harness
 import dev.picasso.mimic.control.v1.ForceFaultRequest
@@ -15,30 +16,47 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * 자동 승인 자격 — **밖에서 선언되고 안에서 판정된다**(ADR 43 · §15.165).
+ * 자동 승인 자격 — **밖에서 선언되고 안에서 판정된다**(ADR 43 · 44 · §15.165).
  *
  * 계산된 자격은 계산이 틀리면 조용히 넓어진다. 선언된 자격은 사람의 행위이므로 감사 가능하고 만료를
  * 걸 수 있다. 런타임이 하는 일은 **선언 목록에 있는가** 를 보는 것뿐이고, 좁히는 방향으로만 작동한다.
+ *
+ * ## 문이 둘이고 힘이 다르다(ADR 44)
+ *
+ * **사람의 문**([Middleware.approveRemedy])은 값을 든다. **밖의 문**([Middleware.attemptApproval])은
+ * 값을 실을 칸이 없고, 주문도 걸음도 못 싣는다 — 부르는 쪽이 할 수 있는 말은 «그것을 하라» 하나뿐이다.
+ * 이 시험이 거는 것은 그 비대칭이며, 에이전트 승인은 전부 밖의 문으로 지난다.
  */
 class EntitlementTest {
 
     /** 시험이 선언 목록을 든다. 값이 어디에 사는지는 이 층이 모른다 — 배치의 결정이다. */
-    private class Declared(private val rows: Map<String, Entitlement>) : Entitlements {
+    private class Declared(var rows: Map<String, Entitlement> = emptyMap()) : Entitlements {
         override fun declaredFor(approverId: String): Entitlement? = rows[approverId]
+    }
+
+    /** 제안이 선 **뒤에** 능력을 못 물어보게 된 기체 — 제안과 승인 사이에 선이 끊긴 경우. */
+    private class GoesBlind(private val delegate: RobotPort) : RobotPort by delegate {
+        var blind = false
+        override fun capabilities(robotId: String): Capability? =
+            if (blind) null else delegate.capabilities(robotId)
     }
 
     private class World(
         entitlements: Entitlements = Entitlements.None,
         withholdEvery: Int = 0,
+        floors: FloorOwnership = FloorOwnership.None,
+        pair: Boolean = false,
     ) : AutoCloseable {
-        val harness = Harness(mapOf(ROBOT to PRECOND))
+        val harness = Harness(if (pair) mapOf(ROBOT to PRECOND, OTHER to PRECOND) else mapOf(ROBOT to PRECOND))
         val cell = CellMimic(now = { harness.clock.now() })
+        val robots = GoesBlind(ClientRobotPort(harness.client()))
         val mw = Middleware(
-            ClientRobotPort(harness.client()),
+            robots,
             cell,
             now = { harness.clock.now() },
             withholdEvery = withholdEvery,
             entitlements = entitlements,
+            floors = floors,
         )
 
         private var racks = 0
@@ -68,7 +86,7 @@ class EntitlementTest {
                 requiredEvidence = Evidence.E2,
                 materialRequirements = listOf(MaterialRequirement("ENGINE-COVER-A", 1)),
                 equipmentRequirements = listOf(
-                    EquipmentRequirement("RACK-204.S01", "destination", mapOf("material" to "ENGINE-COVER-A")),
+                    EquipmentRequirement("RACK-204.S0$racks", "destination", mapOf("material" to "ENGINE-COVER-A")),
                     EquipmentRequirement("SEQ-IN-02.BIN-A", "source", mapOf("material" to "ENGINE-COVER-A")),
                 ),
             )
@@ -82,13 +100,16 @@ class EntitlementTest {
         /**
          * 든 채로 점검 순회를 밀어 넣어 제안을 하나 세운다.
          *
+         * **든 채로 둔 채 돌려준다.** 자동 승인의 대상은 «지금 든 것» 이고 그 관측은 승인 시점에 다시
+         * 본다(ADR 44) — 여기서 실행을 종착시키면 기체가 이미 놓은 뒤라 그 출처가 사라지고, 시험은
+         * 값의 출처가 아니라 값이 없는 상황을 보게 된다.
+         *
          * **돌려주는 것이 널일 수 있다** — 가릴 차례면 제안이 조회로 안 보인다. 그것이 가림의 성질이고,
          * 여기서 널이 아니라고 단정하면 가림을 쓰는 시험이 전제부터 틀린다.
          */
         fun standingProposal(jobOrderId: String = "PATROL-1"): Remedy.Found? {
-            val exec = holdingRack()
+            holdingRack()
             assertIs<Middleware.Submission.Rejected>(mw.submit(patrol(jobOrderId), ROBOT))
-            drive(rounds = 250) { exec.physicalState.isSettled }
             return mw.proposal(ROBOT, jobOrderId)
         }
 
@@ -103,7 +124,22 @@ class EntitlementTest {
         //   명부가 되고, 한 명 빠진 날 라인이 선다.
         World(Entitlements.None).use { w ->
             w.standingProposal()
-            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), OPERATOR))
+            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR))
+        }
+    }
+
+    @Test
+    fun `에이전트는 값을 실어 승인하지 못한다`() {
+        // ★★**값을 실을 수 있다는 것이 곧 조치를 기술할 수 있다는 뜻이다**(ADR 44). 선언이 덮는 것은
+        //   «어느 스킬» 까지인데 값을 부르는 쪽이 고르면 실제 권한이 선언보다 넓어진다 — `pick_place`
+        //   자격 하나로 무엇이든 어디에든 놓게 된다. 프로세스 안에서는 안 드러났다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val answer = assertIs<Middleware.Submission.Rejected>(
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), AGENT),
+            )
+            assertTrue("값을 실어 승인하지 못한다" in answer.reason, answer.reason)
+            assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "거절이 제안을 소모했다")
         }
     }
 
@@ -113,8 +149,7 @@ class EntitlementTest {
         //   그러나 사람이 누를 수 있으므로 라인은 서지 않는다.
         World(Entitlements.None).use { w ->
             w.standingProposal()
-            val answer = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
-            assertTrue("선언돼 있지 않다" in answer.reason, answer.reason)
+            assertEquals(ApprovalRefusal.NOT_DECLARED, refusal(w.mw.attemptApproval(attempt())))
         }
     }
 
@@ -122,19 +157,70 @@ class EntitlementTest {
     fun `선언된 에이전트는 승인한다`() {
         World(Declared(mapOf(AGENT.id to full()))).use { w ->
             w.standingProposal()
-            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
+            assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
         }
     }
 
-    // ── 선언이 좁히는 네 축
+    // ── 값은 어디서 오나(ADR 44) — 선언과 관측 둘뿐이다
+
+    @Test
+    fun `자동 승인의 값은 선언과 관측에서 오고 그 둘이 답에 돌아온다`() {
+        // ★★부르는 쪽은 값을 하나도 안 보냈다. 목적지는 **사람이 미리 적은 것**이고 대상은 **기체가
+        //   말한 것**이다. 돌려주지 않으면 부르는 쪽에서도 눈 감고 누르는 단추가 된다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val held = assertNotNull(heldObject(w), "기체가 든 것의 이름을 안 줬다 — 이 시험의 전제가 비었다")
+
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+            val step = assertNotNull(approved.steps.singleOrNull(), "걸음이 하나가 아니다: ${approved.steps}")
+            assertEquals(PrepareSequencedRack.SKILL, step.skillType)
+            assertEquals(DROP_SLOT, step.parameters[PrepareSequencedRack.P_DESTINATION], "목적지가 선언에서 안 왔다")
+            assertEquals(held, step.parameters[PrepareSequencedRack.P_OBJECT], "대상이 관측에서 안 왔다")
+        }
+    }
+
+    @Test
+    fun `필수 값이 선언에 없으면 자동 승인이 거절된다`() {
+        // ★빈 값을 채워 넣는 갈래를 두면 그 순간 승인이 무엇을 승인하는지 모르는 채 눌린다.
+        World(Declared(mapOf(AGENT.id to full(actions = listOf(DeclaredAction(PrepareSequencedRack.SKILL, emptyMap())))))).use { w ->
+            w.standingProposal()
+            assertEquals(ApprovalRefusal.VALUE_NOT_DECLARED, refusal(w.mw.attemptApproval(attempt())))
+        }
+    }
+
+    @Test
+    fun `선언이 대상을 적으면 좁히기로만 쓰인다`() {
+        // 관측과 같으면 통과한다 — 선언은 «이 상황의 자격» 이라고 좁힌 것이고, 그 좁힘은 유효하다.
+        // **이름을 여기 적지 않는다** — 적으면 어느 칸이 대상의 이름인지를 시험이 다시 정하게 되고,
+        // 그 판단은 계약(`is_object_reference`)의 것이다.
+        val rows = Declared()
+        World(rows).use { w ->
+            w.standingProposal()
+            val held = assertNotNull(heldObject(w), "기체가 든 것의 이름을 안 줬다 — 이 시험의 전제가 비었다")
+            rows.rows = mapOf(AGENT.id to full(actions = listOf(narrowed(held))))
+
+            assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+        }
+    }
+
+    @Test
+    fun `선언한 대상과 든 것이 다르면 자동 승인이 거절된다`() {
+        // ★★**선언은 사실을 못 이긴다.** 덮어쓸 수 있으면 자동 승인이 엉뚱한 것을 집고, 그 사고는
+        //   선언을 적은 사람의 의도와도 무관하다.
+        World(Declared(mapOf(AGENT.id to full(actions = listOf(narrowed("다른-물건")))))).use { w ->
+            w.standingProposal()
+            assertEquals(ApprovalRefusal.DECLARED_CONTRADICTS_OBSERVED, refusal(w.mw.attemptApproval(attempt())))
+        }
+    }
+
+    // ── 선언이 좁히는 세 축
 
     @Test
     fun `만료된 선언으로는 승인하지 못한다`() {
         // ★만료 없는 선언은 다시 들여다볼 일이 없다. 그러면 프로파일이 바뀌어도 그 자격이 그대로 남는다.
         World(Declared(mapOf(AGENT.id to full(expiresAt = Instant.parse("2020-01-01T00:00:00Z"))))).use { w ->
             w.standingProposal()
-            val answer = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
-            assertTrue("만료됐다" in answer.reason, answer.reason)
+            assertEquals(ApprovalRefusal.EXPIRED, refusal(w.mw.attemptApproval(attempt())))
         }
     }
 
@@ -142,29 +228,27 @@ class EntitlementTest {
     fun `범위 밖 기체는 승인하지 못한다`() {
         World(Declared(mapOf(AGENT.id to full(robotIds = setOf("다른-기체"))))).use { w ->
             w.standingProposal()
-            val answer = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
-            assertTrue("범위 밖 기체다" in answer.reason, answer.reason)
+            assertEquals(ApprovalRefusal.ROBOT_OUT_OF_SCOPE, refusal(w.mw.attemptApproval(attempt())))
         }
     }
 
     @Test
     fun `선언이 안 덮는 조치 유형은 승인하지 못한다`() {
-        World(Declared(mapOf(AGENT.id to full(skillTypes = setOf("다른_스킬"))))).use { w ->
+        World(Declared(mapOf(AGENT.id to full(actions = listOf(DeclaredAction("다른_스킬", emptyMap())))))).use { w ->
             val proposal = assertNotNull(w.standingProposal())
-            val answer = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
-            assertTrue("안 덮는 조치 유형이다" in answer.reason, answer.reason)
+            val answer = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(ApprovalRefusal.SKILL_OUT_OF_SCOPE, answer.refusal)
             assertTrue(proposal.steps.first().skillType in answer.reason, answer.reason)
         }
     }
 
     @Test
-    fun `빈 조치 유형 집합은 전부가 아니라 아무것도 아니다`() {
-        // ★빈 집합을 «전부» 로 읽으면 선언을 반쯤 적은 배치가 무제한 자격을 얻는다. 넓히려면 적어야 한다.
+    fun `빈 조치 목록은 전부가 아니라 아무것도 아니다`() {
+        // ★빈 것을 «전부» 로 읽으면 선언을 반쯤 적은 배치가 무제한 자격을 얻는다. 넓히려면 적어야 한다.
         // ★**다른 축은 채워 둔다** — 앞 관문이 먼저 막으면 이 시험이 무엇을 보는지 알 수 없다.
-        World(Declared(mapOf(AGENT.id to full(skillTypes = emptySet())))).use { w ->
+        World(Declared(mapOf(AGENT.id to full(actions = emptyList())))).use { w ->
             w.standingProposal()
-            val answer = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
-            assertTrue("안 덮는 조치 유형이다" in answer.reason, answer.reason)
+            assertEquals(ApprovalRefusal.SKILL_OUT_OF_SCOPE, refusal(w.mw.attemptApproval(attempt())))
         }
     }
 
@@ -172,10 +256,25 @@ class EntitlementTest {
     fun `빈 기체 집합도 전부가 아니라 아무것도 아니다`() {
         World(Declared(mapOf(AGENT.id to full(robotIds = emptySet())))).use { w ->
             w.standingProposal()
-            val answer = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
-            assertTrue("범위 밖 기체다" in answer.reason, answer.reason)
+            assertEquals(ApprovalRefusal.ROBOT_OUT_OF_SCOPE, refusal(w.mw.attemptApproval(attempt())))
         }
     }
+
+    @Test
+    fun `같은 조치 유형을 두 번 선언하면 선언 자체가 안 선다`() {
+        // 어느 값이 쓰이는지 선언이 답하지 않는다. 하나를 고르는 규칙을 만들면 그 규칙이 선언보다 세진다.
+        val twice = runCatching {
+            Entitlement(
+                AGENT.id,
+                listOf(narrowed("가"), narrowed("나")),
+                setOf(ROBOT),
+                Instant.parse("2099-01-01T00:00:00Z"),
+            )
+        }
+        assertTrue(twice.isFailure, "같은 유형 둘을 든 선언이 그대로 섰다")
+    }
+
+    // ── 가림과 자격의 순서
 
     @Test
     fun `가려 둔 제안은 자격이 있어도 승인하지 못한다`() {
@@ -184,8 +283,31 @@ class EntitlementTest {
         World(Declared(mapOf(AGENT.id to full())), withholdEvery = 1).use { w ->
             assertNull(w.standingProposal(), "가릴 차례인데 제안이 조회로 보인다 — 이 시험의 전제가 틀렸다")
             assertTrue(w.mw.withheldProposal(ROBOT, "PATROL-1"))
-            val answer = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
-            assertTrue("사람이 먼저 진단해야 한다" in answer.reason, answer.reason)
+            assertEquals(ApprovalRefusal.WITHHELD, refusal(w.mw.attemptApproval(attempt())))
+        }
+    }
+
+    @Test
+    fun `가림이 자격보다 먼저 판정된다`() {
+        // ★★**순서가 규약이다.** 자격을 먼저 보면 선언 없는 에이전트가 «자격 없음» 을 받고, 가림이
+        //   있었다는 사실이 답에서 사라진다 — 사람이 먼저 진단해야 한다는 지시가 전달되지 않는다.
+        //   가려진 줄에는 걸음이 없으므로 부르는 쪽은 그 제안을 달리 알아볼 방법도 없다.
+        World(Entitlements.None, withholdEvery = 1).use { w ->
+            assertNull(w.standingProposal(), "가릴 차례인데 제안이 조회로 보인다 — 이 시험의 전제가 틀렸다")
+            assertEquals(ApprovalRefusal.WITHHELD, refusal(w.mw.attemptApproval(attempt())))
+        }
+    }
+
+    // ── 부르는 쪽이 본 것과 지금이 다르면
+
+    @Test
+    fun `본 조치 열과 지금 제안이 다르면 거절된다`() {
+        // 읽은 뒤 제안이 바뀌면 부르는 쪽은 **자기가 못 본 것**을 자기 이름으로 승인하는 중이다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val stale = attempt(saw = listOf("navigate_to", PrepareSequencedRack.SKILL))
+            assertEquals(ApprovalRefusal.PROPOSAL_CHANGED, refusal(w.mw.attemptApproval(stale)))
+            assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "거절이 제안을 소모했다")
         }
     }
 
@@ -197,10 +319,10 @@ class EntitlementTest {
         //   사람까지 누를 것을 잃는다. 자격은 좁히기만 하지 없애지 않는다.
         World(Entitlements.None).use { w ->
             w.standingProposal()
-            assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
+            assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
 
             assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "에이전트 거절이 제안을 소모했다")
-            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), OPERATOR))
+            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR))
         }
     }
 
@@ -209,9 +331,45 @@ class EntitlementTest {
         // ★만료가 라인을 세우면 아무도 만료를 짧게 걸지 않는다. 내려오는 길이 있어야 비대칭이 유지된다.
         World(Declared(mapOf(AGENT.id to full(expiresAt = Instant.parse("2020-01-01T00:00:00Z"))))).use { w ->
             w.standingProposal()
-            assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
+            assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
 
-            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), OPERATOR))
+            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR))
+        }
+    }
+
+    @Test
+    fun `관문이 거절해도 제안은 남는다`() {
+        // ★★자리 경쟁이나 무소유 바닥으로 못 들어간 것은 **자격의 문제가 아니다.** 그 순간 제안을
+        //   소모하면 조건이 풀린 뒤 누를 것이 사라지고, 사람도 다시 못 누른다.
+        World(Declared(mapOf(AGENT.id to full())), floors = UNOWNED_PUMP_ROOM).use { w ->
+            w.standingProposal()
+            val answer = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(ApprovalRefusal.REFUSED_BY_GATE, answer.refusal)
+            assertTrue("소유자가 없다" in answer.reason, answer.reason)
+            assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "관문 거절이 제안을 소모했다")
+        }
+    }
+
+    @Test
+    fun `제안이 선 뒤 능력을 못 물어보면 거절된다`() {
+        // 선이 끊긴 사이에 승인하면 조치가 실행 가능한지 확인할 방법이 없다. «모른다» 로 보내지 않는다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            w.robots.blind = true
+            assertEquals(ApprovalRefusal.CAPABILITY_UNKNOWN, refusal(w.mw.attemptApproval(attempt())))
+        }
+    }
+
+    @Test
+    fun `그 주문이 이미 다른 기체에서 돌면 승인으로 안 센다`() {
+        // ★★접수가 멱등으로 접히면 **조치 열이 안 나간다.** 성공으로 내면 «승인했는데 아무 일도 안
+        //   일어났다» 가 초록으로 보이고, 그것이 이 저장소가 반복해 물린 조용한 통과의 모양이다.
+        World(Declared(mapOf(AGENT.id to full())), pair = true).use { w ->
+            w.standingProposal()
+            // 같은 주문을 빈손인 다른 기체가 받는다 — 이제 그 주문에는 실행이 하나 서 있다.
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol(), OTHER))
+
+            assertEquals(ApprovalRefusal.REMEDY_NOT_APPLIED, refusal(w.mw.attemptApproval(attempt())))
         }
     }
 
@@ -221,13 +379,16 @@ class EntitlementTest {
     fun `승인으로 시작한 실행의 사건이 누가 눌렀는지 싣는다`() {
         World(Declared(mapOf(AGENT.id to full()))).use { w ->
             w.standingProposal()
-            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT)).execution
-            w.drive(rounds = 250) { exec.physicalState.isSettled }
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+            val exec = assertNotNull(w.mw.execution(approved.executionId))
+            // **기다리는 것은 종착이 아니라 사건이다.** 승인으로 선 실행이 어디서 멈추든 이 시험이 보는
+            // 것은 그 사건에 승인자가 실렸는가이고, 종착을 기다리면 그 조건이 시험의 뜻과 어긋난다.
+            w.drive(rounds = 400) { w.mw.incidents().any { one -> one.approvedBy != null } }
 
-            val approved = w.mw.incidents().mapNotNull { it.approvedBy }
-            assertTrue(approved.isNotEmpty(), "승인으로 시작한 실행의 사건에 승인자가 안 실렸다: ${w.mw.incidents().size}건")
-            assertEquals(ApproverKind.AGENT, approved.first().kind)
-            assertEquals(AGENT.id, approved.first().id)
+            val byWhom = w.mw.incidents().mapNotNull { it.approvedBy }
+            assertTrue(byWhom.isNotEmpty(), "승인으로 시작한 실행의 사건에 승인자가 안 실렸다: ${w.mw.incidents().size}건")
+            assertEquals(ApproverKind.AGENT, byWhom.first().kind)
+            assertEquals(AGENT.id, byWhom.first().id)
         }
     }
 
@@ -252,8 +413,11 @@ class EntitlementTest {
         //   사람 승인이 그것을 희석한다.
         World(Declared(mapOf(AGENT.id to full()))).use { w ->
             w.standingProposal("PATROL-1")
-            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol("PATROL-1"), ROBOT, listOf(PLACE), AGENT)).execution
-            w.drive(rounds = 250) { exec.physicalState.isSettled }
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+            val exec = assertNotNull(w.mw.execution(approved.executionId))
+            // **기다리는 것은 종착이 아니라 사건이다.** 승인으로 선 실행이 어디서 멈추든 이 시험이 보는
+            // 것은 그 사건에 승인자가 실렸는가이고, 종착을 기다리면 그 조건이 시험의 뜻과 어긋난다.
+            w.drive(rounds = 400) { w.mw.incidents().any { one -> one.approvedBy != null } }
 
             val opened = w.mw.incidents().filter { it.approvedBy != null }
             assertTrue(opened.isNotEmpty(), "승인으로 시작한 사건이 없다")
@@ -274,9 +438,9 @@ class EntitlementTest {
         //   한 번과 에이전트 한 번이 둘이 아니라 하나와 하나가 되어 한도에 안 걸린다.
         World(Declared(mapOf(AGENT.id to full()))).use { w ->
             w.standingProposal("PATROL-A")
-            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol("PATROL-A"), ROBOT, listOf(PLACE), OPERATOR))
+            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(ROBOT, "PATROL-A", listOf(PLACE), OPERATOR))
             w.standingProposal("PATROL-B")
-            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol("PATROL-B"), ROBOT, listOf(PLACE), AGENT))
+            assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt(jobOrderId = "PATROL-B")))
 
             val repeated = assertNotNull(w.mw.repeatedRemedies().singleOrNull(), "한 통이 아니다: ${w.mw.repeatedRemedies()}")
             assertEquals(2, repeated.approvals, "사람 승인과 에이전트 승인이 다른 통에 쌓였다")
@@ -290,8 +454,12 @@ class EntitlementTest {
         // 누가 눌렀는지가 이 사건에 대해 할 말을 바꾼다. 해시가 같으면 읽는 쪽이 둘을 한 사건으로 접는다.
         World(Entitlements.None).use { w ->
             w.standingProposal()
-            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), OPERATOR)).execution
-            w.drive(rounds = 250) { exec.physicalState.isSettled }
+            val exec = assertIs<Middleware.Submission.Accepted>(
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR),
+            ).execution
+            // **기다리는 것은 종착이 아니라 사건이다.** 승인으로 선 실행이 어디서 멈추든 이 시험이 보는
+            // 것은 그 사건에 승인자가 실렸는가이고, 종착을 기다리면 그 조건이 시험의 뜻과 어긋난다.
+            w.drive(rounds = 400) { w.mw.incidents().any { one -> one.approvedBy != null } }
 
             val bundle = assertNotNull(w.mw.incidents().firstOrNull { it.approvedBy != null })
             assertEquals(bundle.digest(), bundle.copy().digest())
@@ -306,6 +474,8 @@ class EntitlementTest {
 
     companion object {
         const val ROBOT = "hum-02"
+        const val OTHER = "hum-09"
+        const val DROP_SLOT = "DROP-01"
 
         /** 사람이 누른다 — 선언 목록을 안 본다. */
         val OPERATOR = Approver("op-1", ApproverKind.PERSON)
@@ -315,14 +485,55 @@ class EntitlementTest {
 
         private val PLACE = mapOf(
             PrepareSequencedRack.P_OBJECT to "ENGINE-COVER-A",
-            PrepareSequencedRack.P_DESTINATION to "RACK-204.S01",
+            PrepareSequencedRack.P_DESTINATION to DROP_SLOT,
         )
 
+        /**
+         * **셀 안은 주인이 있고 순회가 나가는 자리는 없는** 배치(§15.154).
+         *
+         * 전부 무소유로 두면 랙 주문부터 안 서고, 그러면 이 시험은 관문이 아니라 자기 전제를 본다.
+         */
+        private val UNOWNED_PUMP_ROOM = object : FloorOwnership {
+            override fun ownerOf(location: String): FloorOwner =
+                if (location.startsWith("RACK-") || location.startsWith("SEQ-IN")) {
+                    FloorOwner.Declared("셀")
+                } else {
+                    FloorOwner.Unowned
+                }
+        }
+
+        private fun refusal(outcome: ApprovalOutcome): ApprovalRefusal =
+            assertIs<ApprovalOutcome.Refused>(outcome).refusal
+
+        /** 지금 기체가 들었다고 **말한** 것의 이름. 선언이 아니라 관측이다. */
+        private fun heldObject(w: World): String? = w.mw.executions()
+            .flatMap { it.units }
+            .firstOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }
+            ?.hold?.objectRef?.takeIf { it.isNotEmpty() }
+
+        /** 사람이 **목적지만** 적은 선언 — 대상은 관측에서 온다. */
         private fun full(
-            skillTypes: Set<String> = setOf(PrepareSequencedRack.SKILL),
+            actions: List<DeclaredAction> = listOf(
+                DeclaredAction(PrepareSequencedRack.SKILL, mapOf(PrepareSequencedRack.P_DESTINATION to DROP_SLOT)),
+            ),
             robotIds: Set<String> = setOf(ROBOT),
             expiresAt: Instant = Instant.parse("2099-01-01T00:00:00Z"),
-        ) = Entitlement("narrator-1", skillTypes, robotIds, expiresAt)
+        ) = Entitlement("narrator-1", actions, robotIds, expiresAt)
+
+        /** 대상까지 적어 **좁힌** 선언. */
+        private fun narrowed(objectId: String) = DeclaredAction(
+            PrepareSequencedRack.SKILL,
+            mapOf(
+                PrepareSequencedRack.P_DESTINATION to DROP_SLOT,
+                PrepareSequencedRack.P_OBJECT to objectId,
+            ),
+        )
+
+        private fun attempt(
+            approver: Approver = AGENT,
+            jobOrderId: String = "PATROL-1",
+            saw: List<String> = listOf(PrepareSequencedRack.SKILL),
+        ) = ApprovalAttempt(approver, ROBOT, jobOrderId, saw)
 
         private fun patrol(jobOrderId: String = "PATROL-1") = JobOrder(
             jobOrderId = jobOrderId,
