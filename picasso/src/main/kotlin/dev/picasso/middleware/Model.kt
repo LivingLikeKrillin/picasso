@@ -166,6 +166,12 @@ data class ExecutionUnit(
     var verification: Verification = Verification.NOT_REQUESTED,
     /** 실패의 정준 분류. 어댑터가 벤더 코드에서 옮긴 것이 계약의 `Fault.error_type` 으로 온다. */
     var failureClass: String? = null,
+    /**
+     * [failureClass] 가 그 값이 된 **결함 원문**(§15.177). 하류가 결함 없이 실패를 알렸으면 널이다.
+     *
+     * 분류만 들면 사건 번들이 «왜 그 분류가 됐나» 에 분류를 되풀이하는 것 말고 답할 수 없다.
+     */
+    var fault: dev.picasso.contracts.v1.Fault? = null,
     /** 종착이 아닌 사정 — 인계 대기, 관측한 태그, 신호의 시각 같은 것. 지연 보고와 기록의 내용이다. */
     var note: String? = null,
     var hold: HoldState = HoldState.getDefaultInstance(),

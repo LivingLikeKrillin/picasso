@@ -28,8 +28,13 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object LedgerExport {
 
-    /** 이 규약의 판. 읽는 쪽이 모르는 판을 만나면 멈출 수 있게 한 벌마다 싣는다. */
-    const val SCHEMA_VERSION: String = "1"
+    /**
+     * 이 규약의 판. 읽는 쪽이 모르는 판을 만나면 멈출 수 있게 한 벌마다 싣는다.
+     *
+     * `2` 에서 사건 줄이 기체·근거 등급·걸음 위치를 싣고 `blockedBy` 가 분류 이름에서 결함 객체로
+     * 바뀌었다(§15.177). **칸이 는 것이 아니라 모양이 바뀐 자리가 있으므로** 읽는 쪽이 판을 봐야 한다.
+     */
+    const val SCHEMA_VERSION: String = "2"
 
     const val INCIDENTS: String = "incidents.jsonl"
     const val REMEDY_SEARCHES: String = "remedy-searches.jsonl"
@@ -79,11 +84,13 @@ object LedgerExport {
         .str("incidentId", b.incidentId)
         .str("jobOrderId", b.jobOrderId)
         .str("executionId", b.executionId)
+        .str("robotId", b.robotId)
         .str("unitId", b.unitId)
         .str("at", b.at.toString())
         .str("wallClockAt", b.wallClockAt.toString())
         .str("failureClass", b.failureClass)
-        .raw("blockedBy", arrayOfStrings(b.blockedBy))
+        .raw("fault", b.fault?.let { fault(it) } ?: "null")
+        .raw("blockedBy", b.blockedBy.joinToJson { fault(it) })
         .raw("residualHold", proto(b.residualHold))
         .bool("unresolved", b.unresolved)
         .raw("preconditionSubjects", arrayOfStrings(b.preconditionSubjects))
@@ -92,6 +99,10 @@ object LedgerExport {
         .str("expectedHold", b.expectedHold?.name)
         .str("observedHold", b.observedHold.name)
         .str("effectMismatch", b.effectMismatch)
+        .str("requiredEvidence", b.requiredEvidence.name)
+        .str("reachedEvidence", b.reachedEvidence.name)
+        .str("verification", b.verification.name)
+        .raw("step", step(b.step))
         .num("profileRevision", b.profileRevision)
         .str("contractSemver", b.contractSemver)
         .raw("approvedBy", b.approvedBy?.let { approver(it) } ?: "null")
@@ -131,6 +142,31 @@ object LedgerExport {
         .str("kind", e.kind)
         .str("detail", e.detail)
         .bool("local", e.local)
+        .done()
+
+    /** 결함 하나 — 정준 분류와 벤더 원문을 함께. 빈 값도 키를 빼지 않고 빈 문자열로 적는다. */
+    private fun fault(f: FaultDetail): String = Obj()
+        .str("failureClass", f.failureClass)
+        .str("errorType", f.errorType)
+        .str("vendorDetail", f.vendorDetail)
+        .str("errorHint", f.errorHint)
+        .raw("references", f.references.joinToJson { reference(it) })
+        .bool("canContinueCurrentTask", f.canContinueCurrentTask)
+        .bool("canAcceptNewTask", f.canAcceptNewTask)
+        .str("activeUntilKind", f.activeUntilKind)
+        .str("activeUntilTime", f.activeUntilTime)
+        .done()
+
+    private fun reference(r: FaultReference): String = Obj()
+        .str("key", r.key)
+        .str("value", r.value)
+        .done()
+
+    /** 총수는 `plan` 의 길이다 — 따로 적지 않는다. */
+    private fun step(s: StepPosition): String = Obj()
+        .num("at", s.at)
+        .raw("plan", arrayOfStrings(s.plan))
+        .raw("completed", arrayOfStrings(s.completed))
         .done()
 
     private fun approver(a: Approver): String = Obj()

@@ -109,6 +109,41 @@ class HandoffFixtureTest {
         assertTrue(approvers.any { it.hasStructValue() }, "승인을 거친 사건이 없다")
     }
 
+    @Test
+    fun `인계한 한 벌이 되짚지 않고 읽을 재료를 든다`() {
+        // ★★**칸을 만들어도 시나리오가 안 채우면 빈 칸이다**(§15.177). 받는 쪽이 이 한 벌로 골든셋을
+        //   짜므로, 갈래가 비어 있으면 그쪽은 다시 추론으로 돌아간다 — 분류에서 기종을 역추론하는
+        //   것이 정확히 그렇게 생겼다.
+        val incidents = lines("run-1", LedgerExport.INCIDENTS).map { parse(it) }
+        assertTrue(incidents.isNotEmpty(), "인계한 한 벌에 사건이 없다")
+
+        assertTrue(
+            incidents.all { it.getValue("robotId").stringValue.isNotBlank() },
+            "어느 기체인지 안 적힌 줄이 있다",
+        )
+        assertTrue(
+            incidents.any { one ->
+                val fault = one.getValue("fault")
+                fault.hasStructValue() && fault.structValue.fieldsMap.getValue("vendorDetail").stringValue.isNotBlank()
+            },
+            "벤더 원문이 실린 사건이 없다 — 분류를 되풀이하는 것 말고 할 수 있는 것이 없다",
+        )
+        assertTrue(
+            incidents.any { it.getValue("failureClass").stringValue == "UNCLASSIFIED" },
+            "안 좁혀진 사건이 없다 — 1순위 원인 지표가 맞는 답만 보게 된다",
+        )
+        assertTrue(
+            incidents.any { it.getValue("step").structValue.fieldsMap.getValue("at").numberValue > 1 },
+            "전부 첫 걸음에서 깨졌다 — 「몇 걸음 중 어디서」를 가려 주는 사건이 없다",
+        )
+        assertTrue(
+            incidents.any {
+                it.getValue("requiredEvidence").stringValue != it.getValue("reachedEvidence").stringValue
+            },
+            "요구 등급과 도달 등급이 갈리는 사건이 없다 — 「얼마나 믿어야 하나」를 잴 것이 없다",
+        )
+    }
+
     companion object {
         private val HANDOFF: Path = Path.of("..", "handoff", "narrator").normalize()
         private val RUNS = listOf("run-1", "run-2")
@@ -135,6 +170,7 @@ class HandoffFixtureTest {
             incidentId = "incident-1",
             jobOrderId = "SEQ-204",
             executionId = "exec-1",
+            robotId = "hum-02",
             unitId = "RACK-204.S01",
             at = AT,
             wallClockAt = AT,
@@ -148,6 +184,10 @@ class HandoffFixtureTest {
             expectedHold = null,
             observedHold = HoldKind.HOLD_KIND_EMPTY,
             effectMismatch = null,
+            requiredEvidence = Evidence.E2,
+            reachedEvidence = Evidence.E0,
+            verification = Verification.NOT_REQUESTED,
+            step = StepPosition(1, listOf("RACK-204.S01"), emptyList()),
             profileRevision = 1,
             contractSemver = ContractIdentity.semver,
             approvedBy = null,
