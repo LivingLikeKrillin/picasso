@@ -189,6 +189,32 @@ class EntitlementTest {
         }
     }
 
+    // ── 거절이 사람의 길을 막지 않는다
+
+    @Test
+    fun `에이전트가 거절돼도 제안은 사람에게 남는다`() {
+        // ★거부가 제안을 소모하면 «사람에게 남는다» 가 성립하지 않는다 — 자격이 없다는 이유로
+        //   사람까지 누를 것을 잃는다. 자격은 좁히기만 하지 없애지 않는다.
+        World(Entitlements.None).use { w ->
+            w.standingProposal()
+            assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
+
+            assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "에이전트 거절이 제안을 소모했다")
+            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), OPERATOR))
+        }
+    }
+
+    @Test
+    fun `선언이 만료돼도 사람 승인으로 복귀한다`() {
+        // ★만료가 라인을 세우면 아무도 만료를 짧게 걸지 않는다. 내려오는 길이 있어야 비대칭이 유지된다.
+        World(Declared(mapOf(AGENT.id to full(expiresAt = Instant.parse("2020-01-01T00:00:00Z"))))).use { w ->
+            w.standingProposal()
+            assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), AGENT))
+
+            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol(), ROBOT, listOf(PLACE), OPERATOR))
+        }
+    }
+
     // ── 승인자가 기록으로 남는다
 
     @Test
