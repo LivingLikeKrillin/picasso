@@ -8,6 +8,7 @@ import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.capability.HoldEffects
 import dev.picasso.capability.HoldMismatch
 import dev.picasso.capability.Remedy
+import dev.picasso.capability.RemedyStep
 import dev.picasso.capability.RemedySearch
 import dev.picasso.capability.PreconditionCheck
 import dev.picasso.contracts.v1.HoldState
@@ -86,6 +87,11 @@ class Middleware(
      * 아무것도 막지 않는다 — 구역을 안 붙인 현장에서 라인이 서면 이 관문이 곧 꺼진다.
      */
     private val workspace: Workspace = Workspace.None,
+    /**
+     * 자동 승인 자격의 선언 목록(ADR 43). **기본값은 아무것도 선언 안 된 것**이고 그때 에이전트 승인은
+     * 전부 거절된다 — 사람 승인은 선언을 안 보므로 라인은 서지 않는다.
+     */
+    private val entitlements: Entitlements = Entitlements.None,
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -139,6 +145,14 @@ class Middleware(
 
         /** 지금 기체에 배정된 시각. 최소 유지 시간의 기준이고 재할당 때 다시 찍힌다. */
         internal var assignedAt: Instant = now()
+
+        /**
+         * 이 실행이 **승인된 조치로 시작됐다면** 그것을 누른 쪽. 아니면 널이다.
+         *
+         * 사건이 이 실행에서 열리면 번들이 이 값을 싣고, 그래서 «에이전트가 승인한 조치의 이의율» 을
+         * 사람 승인과 따로 잴 수 있다(ADR 43 §4).
+         */
+        internal var approvedBy: Approver? = null
         var upstreamAck: UpstreamAck = UpstreamAck.NOT_SENT
             internal set
         internal var active: ExecutionUnit? = null
@@ -236,7 +250,7 @@ class Middleware(
      * @param prefix 승인된 조치 열(설계안 §6.4). **[approveRemedy] 만 채운다** — 밖에서 부를 길이 없으므로
      *   승인 없이 조치가 실행되는 경로가 생기지 않는다.
      */
-    private fun submit(order: JobOrder, robotId: String, prefix: List<ExecutionUnit>): Submission {
+    private fun submit(order: JobOrder, robotId: String, prefix: List<ExecutionUnit>, approvedBy: Approver? = null): Submission {
         val capability = capabilities[order.workMasterId]
             ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
         // 보고서 11.3 — 능력은 최고 등급을 선언하고 요청은 요구 등급을 지정한다. 확인 수단이 없으면 제공 불가다.
@@ -264,6 +278,7 @@ class Middleware(
             units = planned.toMutableList(),
         )
         execution.units.forEach { it.revision = order.version }
+        execution.approvedBy = approvedBy
         execution.physicalState = PhysicalState.ACCEPTED
         executions[execution.executionId] = execution
         return Submission.Accepted(execution)
@@ -1491,14 +1506,25 @@ class Middleware(
      * 파라미터는 **사람이 준다.** 탐색기는 어느 스킬을 딛을지까지만 계산하며, 그 스킬이 요구하는 값(어디에
      * 놓을 것인가 같은)은 지어낼 수 없다 — 지어내면 승인은 무엇을 승인하는지 모르는 채 누르는 단추가 된다.
      *
+     * **누가 눌렀는지 없이는 승인이 안 된다**(ADR 43). 기본값을 두면 그 기본값이 무기명 승인 경로가 되고,
+     * 자원 소유 대장이 비워 두면 안 된다고 적은 자리가 바로 거기다.
+     *
      * @param parameters 걸음마다 하나씩, 걸음 순서대로.
+     * @param approver 누른 쪽. 에이전트면 선언 목록과 대조한다.
      */
-    fun approveRemedy(order: JobOrder, robotId: String, parameters: List<Map<String, String>>): Submission {
+    fun approveRemedy(
+        order: JobOrder,
+        robotId: String,
+        parameters: List<Map<String, String>>,
+        approver: Approver,
+    ): Submission {
         val key = proposalKey(robotId, order.jobOrderId)
         if (key in withheld) {
             return Submission.Rejected("가려 둔 제안이다 — 사람이 먼저 진단해야 한다: $key")
         }
         val proposal = proposals[key] ?: return Submission.Rejected("승인할 제안이 없다: $key")
+        // **무엇을 승인하는지 알아야 자격을 판정한다.** 그래서 제안을 찾은 뒤다.
+        entitlementRefusal(approver, robotId, proposal.steps)?.let { return Submission.Rejected(it) }
         if (parameters.size != proposal.steps.size) {
             return Submission.Rejected("걸음 수와 파라미터 수가 다르다: ${proposal.steps.size} != ${parameters.size}")
         }
@@ -1524,9 +1550,39 @@ class Middleware(
         }
 
         proposals.remove(key)
+        // **승인자 종류로 가르지 않는다**(ADR 43 §4). 이 수가 재는 것은 «같은 조치가 몇 번 반복됐나» 이고
+        // 근본 원인은 누가 눌렀는지 모른다. 가르면 사람 다섯 번과 에이전트 다섯 번이 열이 아니라
+        // 다섯과 다섯이 되어 한도에 안 걸린다 — 지표가 자기 집계 방식에 진다.
         val signature = "$robotId|" + proposal.steps.joinToString(">") { it.skillType }
         approvals[signature] = (approvals[signature] ?: 0) + 1
-        return submit(order, robotId, prefix)
+        return submit(order, robotId, prefix, approvedBy = approver)
+    }
+
+    /**
+     * 이 승인자가 이 조치를 **사람 대신** 누를 수 있는가(ADR 43).
+     *
+     * **사람에게는 선언을 요구하지 않는다.** 선언 목록이 있는 이유는 «사람 대신» 누르는 것을 허락하는
+     * 것이고, 사람까지 대조하면 그 목록이 운영자 명부가 된다 — 명부가 한 명 빠진 날 라인이 선다.
+     *
+     * 거절 사유를 넷으로 가르는 이유는 다음 행동이 넷 다 다르기 때문이다 — 올리거나, 갱신하거나,
+     * 범위를 넓히거나, 사람이 누르거나.
+     */
+    private fun entitlementRefusal(approver: Approver, robotId: String, steps: List<RemedyStep>): String? {
+        if (approver.kind == ApproverKind.PERSON) return null
+
+        val declared = entitlements.declaredFor(approver.id)
+            ?: return "자동 승인 자격이 선언돼 있지 않다: ${approver.id}"
+        if (!now().isBefore(declared.expiresAt)) {
+            return "자동 승인 자격이 만료됐다: ${approver.id} (${declared.expiresAt} 까지였다)"
+        }
+        if (robotId !in declared.robotIds) {
+            return "자동 승인 자격의 범위 밖 기체다: $robotId"
+        }
+        val uncovered = steps.map { it.skillType }.distinct().filterNot { it in declared.skillTypes }
+        if (uncovered.isNotEmpty()) {
+            return "자동 승인 자격이 안 덮는 조치 유형이다: $uncovered"
+        }
+        return null
     }
 
     // ── 사건 번들(설계안 §4) — 흩어진 사실을 한 사건으로 묶는다. 읽기만 한다.
@@ -1553,6 +1609,28 @@ class Middleware(
      *
      * @param since 실 시계 기준 이 시각부터의 사건만. 교대 단위로 보라고 있는 자리다. 널이면 전부.
      */
+    /**
+     * 승인자 종류별로 가른 것(ADR 43 §4) — **에이전트 승인의 이의율은 사람 승인과 따로 잰다.**
+     *
+     * 이 지표가 재는 것은 자원의 상태가 아니라 **판단 주체의 성능**이다. 에이전트 승인이 바로 그
+     * 시험 대상이므로 한 통에 담으면 사람 승인이 그것을 희석한다. 반복 카운터를 안 가르는 것과
+     * 반대인 이유가 그것이다 — 가를지는 재는 대상이 자원인지 주체인지로 갈린다.
+     *
+     * **승인을 거치지 않은 사건은 어느 통에도 안 들어간다.** 대부분의 사건이 그렇고, 그것을 사람 쪽에
+     * 몰아 넣으면 사람 승인의 이의율이 승인과 무관한 사건으로 희석된다.
+     */
+    fun reviewMetricsByApprover(since: Instant? = null): Map<ApproverKind, ReviewMetrics> = incidentLog
+        .filter { since == null || !it.wallClockAt.isBefore(since) }
+        .mapNotNull { bundle -> bundle.approvedBy?.let { it.kind to bundle } }
+        .groupBy({ it.first }, { it.second })
+        .mapValues { (_, scope) ->
+            ReviewMetrics(
+                total = scope.size,
+                reviewed = scope.count { it.review != null },
+                disputed = scope.count { it.review?.verdict == ReviewVerdict.DISPUTED },
+            )
+        }
+
     fun reviewMetrics(since: Instant? = null): ReviewMetrics {
         val scope = incidentLog.filter { since == null || !it.wallClockAt.isBefore(since) }
         return ReviewMetrics(
@@ -1599,6 +1677,7 @@ class Middleware(
                 observedHold = unit.hold.kind,
                 profileRevision = robots.capabilities(execution.robotId)?.profileRevision ?: 0,
                 contractSemver = ContractIdentity.semver,
+                approvedBy = execution.approvedBy,
             )
         }
         execution.pendingIncidents.clear()
