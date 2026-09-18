@@ -8,7 +8,7 @@
 ## 1. 빌드 및 테스트 명령
 
 ```bash
-# 전체 빌드 및 테스트 실행 (총 1,766개 테스트)
+# 전체 빌드 및 테스트 실행 (총 1,775개 테스트)
 ./gradlew build
 
 # 아키텍처 및 품질 게이트 검증만 실행
@@ -16,6 +16,9 @@
 
 # 문서와 코드 간의 정합성 대조 검증만 실행
 ./gradlew :gate:test --tests '*DocumentClaimsTest*'
+
+# 실행 계층을 세워 두고 루프백에 승인 입을 엽니다 (docs/orchestration.md §7.5)
+./gradlew :picasso:runApprovalHost --args="--port 8770 --seconds 1800"
 ```
 
 ## 2. 핵심 엔지니어링 및 테스트 원칙

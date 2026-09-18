@@ -24,6 +24,24 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
+/**
+ * **실행 계층을 세워 두고 승인 입을 연다**(`docs/orchestration.md` §7.4).
+ *
+ *     ./gradlew :picasso:runApprovalHost
+ *     ./gradlew :picasso:runApprovalHost --args="--port 8770 --seconds 1800"
+ *
+ * 시험 소스에서 돈다. `picasso` 는 라이브러리라 진입점을 안 들고(§6), v1 에서 실행 계층을 실제로
+ * 구동하는 주체는 시나리오 구동기뿐이라 그것이 담는 쪽이다 — 파일 내보내기가 같은 자리에 있는 이유와 같다.
+ */
+tasks.register<JavaExec>("runApprovalHost") {
+    group = "application"
+    description = "미들웨어를 세워 두고 루프백에 승인 입을 연다"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("dev.picasso.middleware.host.ScenarioHost")
+    // Windows 콘솔 코드페이지에서 한글 안내가 깨진다. 기동 안내가 유일한 산출물이다.
+    jvmArgs("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
+}
+
 tasks.withType<Test>().configureEach {
     inputs.files(
         rootProject.file("profile/fixtures"),

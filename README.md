@@ -86,7 +86,7 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 
 저장소 내 대외 문서 56종은 자동화 대조 검증을 완료한 상태입니다. 문서에 명시된 모든 기술적 주장은 자동화 테스트로 증명되거나, [`docs/limits.md`](docs/limits.md)의 미결 항목 대장에 등록되어 추적 관리됩니다. 각 문서 하단의 대조 도장(Hash Stamp)은 본문 내용과 연결되어 있어, `CompletionCriterionTest`를 통해 임의 변경 시 도장 갱신을 요구합니다.
 
-한계 대장(`limits.md`)에 등록된 미결 항목은 **53개**(내부 33개 · 외부 20개, 의도적 제외 12개 제외)이며, 그 상세 목록과 해결 조건은 `limits.md`에 명시되어 있습니다. 특히 실물 어댑터가 넷 있다(기체 셋, 플릿 하나). 다만, 어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다(C-3)는 물리적 검증 한계가 존재하며, 이는 SDK 라이선스, JVM 바인딩 부재, 플릿 실기체 인스턴스 부재 등에 기인합니다.
+한계 대장(`limits.md`)에 등록된 미결 항목은 **54개**(내부 34개 · 외부 20개, 의도적 제외 12개 제외)이며, 그 상세 목록과 해결 조건은 `limits.md`에 명시되어 있습니다. 특히 실물 어댑터가 넷 있다(기체 셋, 플릿 하나). 다만, 어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다(C-3)는 물리적 검증 한계가 존재하며, 이는 SDK 라이선스, JVM 바인딩 부재, 플릿 실기체 인스턴스 부재 등에 기인합니다.
 
 실물 넷이 계약에 얼마나 닿나 확인한 정량 분석 결과는 [`profile/distance/`](profile/distance)에서 확인할 수 있습니다. 계약 개정판은 **0.9.0** 이다.
 
@@ -135,7 +135,7 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | **벤더 인터페이스** | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) | 벤더 API 표면 분석 및 플릿 관리 인터페이스 측정 노트 |
 | **현장 전제조건** | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) | 로봇 도입 현장의 인프라(도어, 바닥, 조명 등) 엔지니어링 전제조건 |
 | **벤더 매니페스트** | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) | 어댑터의 사우스바운드 포트 벤더 심볼 인용 대조 검증 도구 |
-| **미결 과제 대장** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 53개(내부·외부) 및 해결 조건 관리 대장 |
+| **미결 과제 대장** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 54개(내부·외부) 및 해결 조건 관리 대장 |
 
 ## 핵심 엔지니어링 규율
 
@@ -146,4 +146,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-09-18 · sha256:d98cd51effae · 열림: C-3, §15.81
+> 마지막 대조: 2026-09-18 · sha256:1d19d811e91c · 열림: C-3, §15.81
