@@ -9,8 +9,8 @@ manifest.json 이 마지막에 나타나는 것이 「한 벌이 다 나왔다�
 
 두 벌은 같은 시나리오를 두 번 돌린 것이다.
   digest  전부 동일  (동일)
-  runId   run-1  run-2026-09-18T10:27:43.060827900Z-1
-          run-2  run-2026-09-18T10:27:47.806078600Z-2
+  runId   run-1  run-2026-09-18T14:19:13.521788500Z-1
+          run-2  run-2026-09-18T14:19:20.556658Z-2
   → 멱등 열쇠를 digest 로만 걸면 run-2 가 통째로 접힌다. (runId, digest) 로 건다.
 
 remedy-searches.jsonl  3줄
@@ -20,11 +20,28 @@ remedy-searches.jsonl  3줄
   WITHHELD 줄에는 steps 키도 cause 키도 없다. 값이 비는 것이 아니라 키가 없는 것이 답이다.
   NONE(DEPTH_LIMIT) 은 이 한 벌에 없다 — picasso 미들웨어 경로로는 도달 불가(§15.170).
 
-incidents.jsonl  3줄
-  incident-1   PAYLOAD_LOST       approvedBy=AGENT(narrator-1)      residualHold=HOLD_KIND_EMPTY
-  incident-2   PAYLOAD_LOST       approvedBy=null                   residualHold=HOLD_KIND_EMPTY
-  incident-3   LOCALIZATION_LOST  approvedBy=null                   residualHold=HOLD_KIND_EMPTY
+incidents.jsonl  4줄   ※ schemaVersion 2 부터 아래 칸이 늘었다
+  incident-1  hum-02  PAYLOAD_LOST       approvedBy=AGENT  step 1/3
+  incident-2  hum-04  GRASP_FAILED       approvedBy=null   step 1/1   fault.vendorDetail=X_FIXTURE_GRIPPER_SLIP
+  incident-3  hum-05  LOCALIZATION_LOST  approvedBy=null   step 1/2
+  incident-4  hum-06  UNCLASSIFIED       approvedBy=null   step 2/2   completed=[RACK-204.S04]
+
+  robotId        어느 기체인가. 분류에서 기종을 역추론하지 말 것 — 그 추론은 도메인 사실이 아니라
+                 어댑터 매핑 공백을 읽는 것이고, 매핑 한 줄이 늘면 조용히 틀린다.
+  requiredEvidence / reachedEvidence / verification
+                 이 판정이 얼마나 센가. 등급은 순서가 곧 세기다(E0 자기 보고 · E1 플릿 · E2 독립 설비 ·
+                 E3 업무 ack). incident-2·4 는 E2 를 요구했는데 E0 에 머물렀다.
+                 verification 은 NOT_REQUESTED / MATCHED / ABSENT / MISMATCH 이며 다음 행동이 다 다르다.
+  fault          이 단위의 failureClass 가 그 값이 된 근거. 결함 없이 실패를 알린 경우엔 null 이다.
+                 벤더 이름공간(X_)이면 vendorDetail 에 원문이 실린다 — 매핑표를 인용할 재료가 이것이다.
+  blockedBy      **다음 단위를 막는** 결함이라 다음 단위가 없으면 빈 목록이다. fault 와 다른 축이다.
+                 schemaVersion 1 에서는 분류 이름의 배열이었고 2 에서 객체 배열이 됐다.
+  step           at(1부터) · plan(순서대로) · completed. 총수는 plan 의 길이다 — 따로 안 싣는다.
+
+  incident-4 는 **안 좁혀진 사건**이다(UNCLASSIFIED). 합성이라 주입한 쪽이 정답을 알고,
+  그래서 1순위 원인 지표가 맞는 답만 보는 일이 안 생긴다.
   approvedBy 는 해시에 든다 — 다른 쪽이 승인한 같은 모양의 사건은 다른 사건이다.
+  새 칸은 전부 해시에 든다. 실 시계와 나중의 판정(wallClockAt · review)만 빠진다.
   residualHold 의 objectRef·reason 이 빈 문자열로 남아 있다. 표준 protobuf JSON printer 였으면
   그 키들이 통째로 빠진다 — 빈손과 침묵이 접히는 자리이고, picasso 가 기본값 출력을 켜서 막았다.
   kind 가 UNSPECIFIED 인 줄은 없다. 하달된 단위는 기체가 파지를 답하고,

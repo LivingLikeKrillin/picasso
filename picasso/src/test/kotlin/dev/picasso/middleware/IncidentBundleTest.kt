@@ -106,8 +106,104 @@ class IncidentBundleTest {
 
             val bundle = assertNotNull(w.mw.incidents().lastOrNull())
             assertEquals("PAYLOAD_LOST", bundle.failureClass)
-            assertEquals(listOf("PAYLOAD_LOST"), bundle.blockedBy, "실행을 막는 결함이 번들에 없다")
+            assertEquals(listOf("PAYLOAD_LOST"), bundle.blockedBy.map { it.failureClass }, "실행을 막는 결함이 번들에 없다")
             assertEquals(HoldKind.HOLD_KIND_EMPTY, bundle.residualHold.kind, "잔여 파지를 «말하지 않았다» 로 접었다")
+        }
+    }
+
+    // ── 읽어서 답할 수 있는가(§15.177) — 되짚지 않고
+
+    @Test
+    fun `번들이 어느 기체인지 말한다`() {
+        // ★★**없으면 읽는 쪽이 분류에서 기종을 역추론한다.** 그 추론은 도메인 사실이 아니라 어댑터
+        //   매핑 공백을 읽는 것이라, 매핑 한 줄이 늘면 조용히 틀린 답이 된다. 기종 비인지를 거꾸로
+        //   돌리는 것이고, 원인은 읽을 것을 안 준 이 층에 있다.
+        World(PRECOND).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack(), ROBOT)).execution
+            w.drive { exec.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+            w.forceFault("PAYLOAD_LOST", exec.units.first().taskId)
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            val bundle = assertNotNull(w.mw.incidents().lastOrNull())
+            assertEquals(ROBOT, bundle.robotId, "번들이 «이 기체가» 를 안 싣는다")
+            assertEquals(exec.robotId, bundle.robotId)
+            // ★해시에 든다 — 같은 모양의 실패라도 **어느 기체에서 났는지가 할 말을 바꾼다.** 안 들면
+            //   읽는 쪽이 두 기체의 같은 실패를 한 사건으로 접는다.
+            assertTrue(
+                bundle.digest() != bundle.copy(robotId = "다른-기체").digest(),
+                "기체가 해시에 안 들어갔다",
+            )
+        }
+    }
+
+    @Test
+    fun `번들이 이 판정을 얼마나 믿어야 하는지 말한다`() {
+        // ★★등급은 **순서가 곧 세기**다(E0 자기 보고 · E1 플릿 · E2 독립 설비 · E3 업무 ack).
+        //   요구와 도달을 맞대야 «이 결론은 로봇 자기 보고 하나에 기대고 있다» 를 말할 수 있고,
+        //   그것이 이 시스템에서 가장 1급인 진단 문장이다. 셋이 없으면 그 문장을 쓸 수 없다.
+        World(PRECOND).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack(), ROBOT)).execution
+            w.drive { exec.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+            w.forceFault("PAYLOAD_LOST", exec.units.first().taskId)
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            val bundle = assertNotNull(w.mw.incidents().lastOrNull())
+            val unit = assertNotNull(exec.units.firstOrNull { it.unitId == bundle.unitId })
+            assertEquals(Evidence.E2, bundle.requiredEvidence, "요구 등급이 주문에서 안 왔다")
+            assertEquals(unit.reached, bundle.reachedEvidence, "도달 등급이 단위에서 안 왔다")
+            assertEquals(unit.verification, bundle.verification, "설비 대조 결과가 단위에서 안 왔다")
+            // 요구가 도달보다 세다 — 이 사건은 «요구한 만큼 확인되지 않았다» 다. 그 비교가 성립하는 것이 요점이다.
+            assertTrue(bundle.requiredEvidence > bundle.reachedEvidence, "이 시험의 전제가 비었다: ${bundle.requiredEvidence} vs ${bundle.reachedEvidence}")
+        }
+    }
+
+    @Test
+    fun `번들이 왜 그 분류가 됐는지 말할 재료를 싣는다`() {
+        // ★★**원문이 없으면 분류를 되풀이하는 것 말고 할 수 있는 것이 없다.** 계약이 칸을 갖고 있고
+        //   이 층도 읽는데 번들만 버리고 있었다. 원문이 있으면 읽는 쪽이 어댑터 매핑표를 인용해
+        //   «이 벤더 코드가 이 분류로 왔다» 를 설명한다 — 그게 번역이고 이 층의 본업이다.
+        // **공용 픽스처가 아니다.** 모드를 더하면 추첨의 인출 수가 달라져 같은 시드가 다른 순서를 낸다.
+        World(VENDOR_FAULT).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack(), ROBOT)).execution
+            w.drive { exec.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+            w.forceFault("X_FIXTURE_GRIPPER_SLIP", exec.units.first().taskId)
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            val bundle = assertNotNull(w.mw.incidents().lastOrNull())
+            // ★**이 단위 자신의 실패를 설명하는 자리가 따로 있어야 한다.** `blockedBy` 는 다음 단위를
+            //   막는 결함이라 다음 단위가 없으면 비고, 그러면 대부분의 사건이 원문 없이 남는다.
+            val fault = assertNotNull(bundle.fault, "분류가 그 값이 된 근거가 안 실렸다")
+            assertEquals(bundle.failureClass, fault.failureClass, "분류와 그 근거가 서로 다른 것을 가리킨다")
+            assertEquals("GRASP_FAILED", fault.failureClass, "정준 분류가 안 실렸다")
+            assertEquals("X_FIXTURE_GRIPPER_SLIP", fault.errorType, "어댑터가 낸 오류 유형이 안 실렸다")
+            assertEquals("X_FIXTURE_GRIPPER_SLIP", fault.vendorDetail, "벤더 원문이 안 실렸다")
+            assertTrue(fault.errorHint.isNotBlank(), "사람이 취할 조치가 안 실렸다")
+            assertFalse(fault.canAcceptNewTask, "결함의 성질이 안 실렸다")
+            assertEquals("KIND_UNTIL_CLEARED", fault.activeUntilKind)
+            // 스킬 수준 결함이므로 무엇을 지목했는지가 온다 — 로봇 수준이면 빈 목록이고, 그 구분이 §4.6 이다.
+            assertEquals(
+                listOf("KEY_SKILL_ID" to PrepareSequencedRack.SKILL),
+                fault.references.filter { it.key == "KEY_SKILL_ID" }.map { it.key to it.value },
+                "결함이 지목한 스킬이 안 실렸다: ${fault.references}",
+            )
+        }
+    }
+
+    @Test
+    fun `번들이 몇 걸음 중 어디서 깨졌는지 말한다`() {
+        // ★단위 이름만으로는 그것이 첫 걸음인지 마지막 걸음인지 알 수 없고, 그러면 «거의 다 끝났는데
+        //  깨졌다» 와 «시작하자마자 깨졌다» 가 같은 모양이 된다.
+        World(PRECOND).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack(), ROBOT)).execution
+            w.drive { exec.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING }
+            w.forceFault("PAYLOAD_LOST", exec.units.first().taskId)
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            val bundle = assertNotNull(w.mw.incidents().lastOrNull())
+            assertEquals(exec.units.map { it.unitId }, bundle.step.plan, "계획이 순서대로 안 실렸다")
+            assertTrue(bundle.step.plan.size >= 2, "걸음이 하나면 «몇 걸음 중» 이 비어 이 시험이 아무것도 안 본다")
+            assertEquals(bundle.step.plan.indexOf(bundle.unitId) + 1, bundle.step.at, "몇 번째인지가 계획과 어긋난다")
+            assertEquals(exec.completedUnits, bundle.step.completed, "어디까지 갔는지가 안 실렸다")
         }
     }
 
@@ -227,5 +323,6 @@ class IncidentBundleTest {
 
         /** minimal 에 `navigate_to: HOLD requires EMPTY` 와 차단하는 `PAYLOAD_LOST` 를 더한 프로파일. */
         private val PRECOND: Path = Path.of("..", "profile", "fixtures", "precondition.json").normalize()
+        private val VENDOR_FAULT: Path = Path.of("..", "profile", "fixtures", "vendor-fault.json").normalize()
     }
 }

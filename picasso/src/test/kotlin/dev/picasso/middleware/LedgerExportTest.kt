@@ -129,6 +129,32 @@ class LedgerExportTest {
     }
 
     @Test
+    fun `되짚지 않고 읽을 칸이 값까지 실려 나간다`() {
+        // ★★**키만 맞대는 시험은 값이 비는 것을 못 본다.** 인코더가 벤더 원문을 빈 문자열로 내도
+        //   키는 그대로 있고, 인계본은 이미 찍힌 스냅샷이라 안 바뀐다 — 그 사이로 새는 자리가 있었다.
+        val line = parse(LedgerExport.incidents(listOf(bundle(fault = FAULT))).trim())
+
+        assertEquals(ROBOT, line.getValue("robotId").stringValue, "어느 기체인지가 값으로 안 나갔다")
+        assertEquals("E2", line.getValue("requiredEvidence").stringValue)
+        assertEquals("E0", line.getValue("reachedEvidence").stringValue)
+        assertEquals("NOT_REQUESTED", line.getValue("verification").stringValue)
+
+        val fault = line.getValue("fault").structValue.fieldsMap
+        assertEquals("GRASP_FAILED", fault.getValue("failureClass").stringValue)
+        assertEquals("X_FIXTURE_GRIPPER_SLIP", fault.getValue("errorType").stringValue)
+        assertEquals("X_FIXTURE_GRIPPER_SLIP", fault.getValue("vendorDetail").stringValue, "벤더 원문이 값으로 안 나갔다")
+        assertEquals("패드를 점검하라", fault.getValue("errorHint").stringValue)
+        val reference = fault.getValue("references").listValue.getValues(0).structValue.fieldsMap
+        assertEquals("KEY_SKILL_ID", reference.getValue("key").stringValue)
+        assertEquals("pick_place", reference.getValue("value").stringValue)
+
+        val step = line.getValue("step").structValue.fieldsMap
+        assertEquals(2.0, step.getValue("at").numberValue)
+        assertEquals(2, step.getValue("plan").listValue.valuesCount, "계획이 값으로 안 나갔다")
+        assertEquals(1, step.getValue("completed").listValue.valuesCount)
+    }
+
+    @Test
     fun `번들의 해시를 함께 적는다`() {
         // 읽는 쪽이 같은 사건을 두 번 받았는지 가르는 유일한 결정적 열쇠다.
         val b = bundle()
@@ -202,14 +228,28 @@ class LedgerExportTest {
     private fun record(outcome: RemedyOutcome) =
         RemedySearchRecord("search-1", ROBOT, "PATROL-1", AT, AT, outcome)
 
-    private fun bundle(review: IncidentReview? = null) = IncidentBundle(
+    private val FAULT = FaultDetail(
+        failureClass = "GRASP_FAILED",
+        errorType = "X_FIXTURE_GRIPPER_SLIP",
+        vendorDetail = "X_FIXTURE_GRIPPER_SLIP",
+        errorHint = "패드를 점검하라",
+        references = listOf(FaultReference("KEY_SKILL_ID", "pick_place")),
+        canContinueCurrentTask = false,
+        canAcceptNewTask = false,
+        activeUntilKind = "KIND_UNTIL_CLEARED",
+        activeUntilTime = "",
+    )
+
+    private fun bundle(review: IncidentReview? = null, fault: FaultDetail? = null) = IncidentBundle(
         incidentId = "incident-1",
         jobOrderId = "SEQ-204",
         executionId = "exec-1",
+        robotId = ROBOT,
         unitId = "RACK-204.S01",
         at = AT,
         wallClockAt = AT,
-        failureClass = null,
+        failureClass = fault?.failureClass,
+        fault = fault,
         blockedBy = emptyList(),
         residualHold = HoldState.getDefaultInstance(),
         unresolved = false,
@@ -219,6 +259,10 @@ class LedgerExportTest {
         expectedHold = null,
         observedHold = HoldKind.HOLD_KIND_EMPTY,
         effectMismatch = null,
+        requiredEvidence = Evidence.E2,
+        reachedEvidence = Evidence.E0,
+        verification = Verification.NOT_REQUESTED,
+        step = StepPosition(2, listOf("RACK-204.S01", "RACK-204.S02"), listOf("RACK-204.S01")),
         profileRevision = 1,
         contractSemver = "0.9.0",
         review = review,

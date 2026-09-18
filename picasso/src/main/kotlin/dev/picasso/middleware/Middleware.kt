@@ -995,7 +995,11 @@ class Middleware(
                 // 계약이 실은 **정준 분류**로만 분기한다(어댑터가 벤더 코드에서 옮긴 것, 미믹은 프로파일
                 // 모드에서). 하류 상태 이름·모드 이름·벤더 원문은 note 에 동반할 뿐이다 — 상류에는 분류만
                 // 간다(보고서 16장). 분류가 없으면 UNCLASSIFIED 이지 지어낸 분류가 아니다.
-                failWithEvidenceCheck(execution, unit, canonicalClass(last), detail = downstreamDetail(last), at = stateTime(last))
+                failWithEvidenceCheck(
+                    execution, unit, canonicalClass(last),
+                    detail = downstreamDetail(last), at = stateTime(last),
+                    fault = last.fault.takeIf { last.hasFault() },
+                )
             }
         }
         if (execution.cancelRequested) {
@@ -1027,7 +1031,11 @@ class Middleware(
                 if (unit.state == UnitState.VERIFYING) return false
             }
             TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> unit.state = UnitState.ABORTED
-            else -> failWithEvidenceCheck(execution, unit, canonicalClass(update), detail = downstreamDetail(update), at = stateTime(update))
+            else -> failWithEvidenceCheck(
+                execution, unit, canonicalClass(update),
+                detail = downstreamDetail(update), at = stateTime(update),
+                fault = update.fault.takeIf { update.hasFault() },
+            )
         }
         return true
     }
@@ -1353,8 +1361,17 @@ class Middleware(
      * 요구 등급이 설비 확인을 포함하면 지금 묻고, 시간창 안에 기대한 것이 있으면 `FAILED` 로
      * 적지 않고 [UnitState.OPERATOR_HOLD] 로 세운다 — 운영자가 [resolve] 로 판단한다.
      */
-    private fun failWithEvidenceCheck(execution: Execution, unit: ExecutionUnit, failureClass: String, detail: String, at: Instant) {
+    private fun failWithEvidenceCheck(
+        execution: Execution,
+        unit: ExecutionUnit,
+        failureClass: String,
+        detail: String,
+        at: Instant,
+        /** 분류가 그 값이 된 근거. 하류가 결함 없이 실패를 알렸으면 널이다(§15.177). */
+        fault: Fault? = null,
+    ) {
         unit.failureClass = failureClass
+        unit.fault = fault
         unit.note = detail
         unit.downstreamDoneAt = at
         if (execution.order.requiredEvidence > Evidence.E1) {
@@ -1795,11 +1812,13 @@ class Middleware(
                 incidentId = "incident-${++incidentSeq}",
                 jobOrderId = execution.order.jobOrderId,
                 executionId = execution.executionId,
+                robotId = execution.robotId,
                 unitId = unit.unitId,
                 at = at,
                 wallClockAt = wall,
                 failureClass = unit.failureClass,
-                blockedBy = execution.blockedBy.map { canonicalClassOf(it) },
+                fault = unit.fault?.let { faultDetailOf(it) },
+                blockedBy = execution.blockedBy.map { faultDetailOf(it) },
                 residualHold = residualHoldOf(execution.units),
                 unresolved = unit.state == UnitState.OPERATOR_HOLD || unit.state == UnitState.IN_DOUBT,
                 preconditionSubjects = unit.preconditionSubjects,
@@ -1808,6 +1827,14 @@ class Middleware(
                 effectMismatch = unit.holdMismatch?.name,
                 expectedHold = unit.holdExpected,
                 observedHold = unit.hold.kind,
+                requiredEvidence = execution.order.requiredEvidence,
+                reachedEvidence = unit.reached,
+                verification = unit.verification,
+                step = StepPosition(
+                    at = execution.units.indexOfFirst { it.unitId == unit.unitId } + 1,
+                    plan = execution.units.map { it.unitId },
+                    completed = execution.completedUnits,
+                ),
                 profileRevision = robots.capabilities(execution.robotId)?.profileRevision ?: 0,
                 contractSemver = ContractIdentity.semver,
                 approvedBy = execution.approvedBy,
@@ -1984,6 +2011,25 @@ class Middleware(
     /** 계약의 정준 분류 이름(접두사 없이). 결함이 없거나 분류가 비어 있으면 [UNCLASSIFIED]. */
     private fun canonicalClass(update: WatchTaskResponse): String =
         if (update.hasFault()) canonicalClassOf(update.fault) else UNCLASSIFIED
+
+    /**
+     * 결함 하나를 번들이 드는 모양으로 — **정준 분류와 벤더 원문을 함께**(§15.177).
+     *
+     * **새로 판단하지 않는다.** 분류는 [canonicalClassOf] 가 이미 매긴 것이고 나머지는 계약이 실어 준
+     * 값을 옮기는 것뿐이다. 상류 통보는 여전히 분류만 낸다 — 그쪽은 계약 소비자가 분기할 값이고
+     * 이쪽은 사람이 원인을 말할 재료라, 성질이 다르므로 싣는 것도 다르다.
+     */
+    private fun faultDetailOf(fault: Fault): FaultDetail = FaultDetail(
+        failureClass = canonicalClassOf(fault),
+        errorType = fault.errorType,
+        vendorDetail = fault.vendorDetail,
+        errorHint = fault.errorHint,
+        references = fault.referencesList.map { FaultReference(it.key.name, it.value) },
+        canContinueCurrentTask = fault.canContinueCurrentTask,
+        canAcceptNewTask = fault.canAcceptNewTask,
+        activeUntilKind = fault.activeUntil.kind.name,
+        activeUntilTime = fault.activeUntil.until,
+    )
 
     private fun canonicalClassOf(fault: Fault): String =
         fault.failureClass

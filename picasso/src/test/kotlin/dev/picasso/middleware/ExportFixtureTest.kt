@@ -32,7 +32,15 @@ class ExportFixtureTest {
     }
 
     private class World : AutoCloseable {
-        val harness = Harness(mapOf(FOUND_ROBOT to PRECOND, NONE_ROBOT to NO_REMEDY, OTHER_ROBOT to PRECOND, SILENT_ROBOT to PRECOND))
+        val harness = Harness(
+            mapOf(
+                FOUND_ROBOT to PRECOND,
+                NONE_ROBOT to NO_REMEDY,
+                OTHER_ROBOT to VENDOR_FAULT,
+                SILENT_ROBOT to PRECOND,
+                UNMAPPED_ROBOT to PRECOND,
+            ),
+        )
         val cell = CellMimic(now = { harness.clock.now() })
         val mw = Middleware(
             ClientRobotPort(harness.client()),
@@ -71,17 +79,23 @@ class ExportFixtureTest {
             ForceFaultRequest.newBuilder().setRobotId(robotId).setErrorType(errorType).setTaskId(taskId).build(),
         )
 
-        fun holdingRack(robotId: String): Middleware.Execution {
+        /**
+          * @param slots 슬롯 수. **둘이면 첫 걸음이 끝난 뒤 둘째에서 깨뜨릴 수 있다** — 한 벌의 사건이
+          *   전부 «1 / N» 이면 「몇 걸음 중 어디서」가 값으로는 있어도 가려 주는 것이 없다(§15.177).
+          */
+        fun holdingRack(robotId: String, slots: Int = 1): Middleware.Execution {
+            val first = racks + 1
+            val ids = (0 until slots).map { "RACK-204.S0${racks + 1 + it}" }
+            racks += slots
             val order = JobOrder(
-                jobOrderId = "SEQ-${++racks}",
+                jobOrderId = "SEQ-$first",
                 workMasterId = PrepareSequencedRack.WORK_MASTER,
                 version = 17,
                 requiredEvidence = Evidence.E2,
-                materialRequirements = listOf(MaterialRequirement("ENGINE-COVER-A", 1)),
-                equipmentRequirements = listOf(
-                    EquipmentRequirement("RACK-204.S0${racks}", "destination", mapOf("material" to "ENGINE-COVER-A")),
-                    EquipmentRequirement("SEQ-IN-02.BIN-A", "source", mapOf("material" to "ENGINE-COVER-A")),
-                ),
+                materialRequirements = listOf(MaterialRequirement("ENGINE-COVER-A", slots)),
+                equipmentRequirements = ids.map {
+                    EquipmentRequirement(it, "destination", mapOf("material" to "ENGINE-COVER-A"))
+                } + listOf(EquipmentRequirement("SEQ-IN-02.BIN-A", "source", mapOf("material" to "ENGINE-COVER-A"))),
             )
             order.equipmentRequirements.filter { it.equipmentUse == "destination" }
                 .forEach { cell.program(it.id, it.properties["material"]) }
@@ -128,9 +142,13 @@ class ExportFixtureTest {
         w.drive(rounds = 250) { stuck.physicalState.isSettled }
 
         // ④ 가려짐 — 둘째 제안이 가릴 차례다. 그리고 이 실행의 사건은 승인자가 없다.
+        //
+        //    **벤더 이름공간의 결함을 쓴다**(§15.177). 정준 분류 이름을 오류 유형 자리에 그대로 넣으면
+        //    벤더 원문 칸이 통째로 비고, 읽는 쪽은 «이 벤더 코드가 이 분류로 왔다» 를 짚을 수 없다 —
+        //    칸을 만들어도 시나리오가 안 채우면 빈 칸이다.
         val again = w.holdingRack(OTHER_ROBOT)
         assertIs<Middleware.Submission.Rejected>(w.mw.submit(patrol("PATROL-3"), OTHER_ROBOT))
-        w.forceFault(OTHER_ROBOT, "PAYLOAD_LOST", again.units.first().taskId)
+        w.forceFault(OTHER_ROBOT, "X_FIXTURE_GRIPPER_SLIP", again.units.first().taskId)
         w.drive(rounds = 250) { again.physicalState == PhysicalState.OPERATOR_HOLD }
 
         // ⑤ 안 드는 단위가 실패한다 — 파지를 바꾸지 않는 스킬의 사건도 한 벌에 있어야 한다.
@@ -144,6 +162,18 @@ class ExportFixtureTest {
         }
         w.forceFault(SILENT_ROBOT, "LOCALIZATION_LOST", patrolled.units.first().taskId)
         w.drive(rounds = 250) { patrolled.physicalState == PhysicalState.OPERATOR_HOLD }
+
+        // ⑥ **안 좁혀지는 사건** — 분류가 `UNCLASSIFIED` 다. 한 벌에 이것이 없으면 읽는 쪽의 «1순위
+        //    원인» 지표가 언제나 맞는 답만 보게 되고, 그 지표는 아무것도 재지 않는다. 합성이라
+        //    주입한 쪽이 정답을 안다.
+        //    **둘째 걸음에서 깨뜨린다** — 첫 걸음이 끝난 뒤라 「몇 걸음 중 어디서」가 1 이 아니고
+        //    끝난 단위 목록도 비지 않는다.
+        val unmapped = w.holdingRack(UNMAPPED_ROBOT, slots = 2)
+        w.drive(rounds = 400) {
+            unmapped.completedUnits.isNotEmpty() && unmapped.units[1].hold.kind == HoldKind.HOLD_KIND_HOLDING
+        }
+        w.forceFault(UNMAPPED_ROBOT, "X_FIXTURE_SIMULATED_HARDWARE_FAULT", unmapped.units[1].taskId)
+        w.drive(rounds = 250) { unmapped.physicalState.isSettled || unmapped.physicalState == PhysicalState.OPERATOR_HOLD }
     }
 
     private fun write(w: World, dir: Path) {
@@ -173,6 +203,9 @@ class ExportFixtureTest {
         val runIds = mutableListOf<String>()
         val outcomes = mutableListOf<List<String>>()
         val approvers = mutableListOf<List<String?>>()
+        val vendorDetails = mutableListOf<List<String>>()
+        val classes = mutableListOf<List<String?>>()
+        val steps = mutableListOf<List<Int>>()
         val lines = mutableListOf<String>()
 
         dirs.forEach { dir ->
@@ -188,6 +221,11 @@ class ExportFixtureTest {
                     }
                 }
                 approvers += w.mw.incidents().map { it.approvedBy?.kind?.name }
+                vendorDetails += w.mw.incidents()
+                    .flatMap { b -> (listOfNotNull(b.fault) + b.blockedBy).map { it.vendorDetail } }
+                    .filter { it.isNotBlank() }
+                classes += w.mw.incidents().map { it.failureClass }
+                steps += w.mw.incidents().map { it.step.at }
                 lines += Files.readString(dir.resolve(LedgerExport.INCIDENTS))
                 runIds += Regex(""""runId":"([^"]+)"""")
                     .find(Files.readString(dir.resolve(LedgerExport.MANIFEST)))!!.groupValues[1]
@@ -200,6 +238,12 @@ class ExportFixtureTest {
         assertTrue("WITHHELD" in outcomes[0], "탐색 결과에 WITHHELD 가 없다: ${outcomes[0]}")
         assertTrue(null in approvers[0], "승인을 안 거친 사건이 없다: ${approvers[0]}")
         assertTrue("AGENT" in approvers[0], "에이전트가 승인한 사건이 없다: ${approvers[0]}")
+
+        // ★**칸을 만들어도 시나리오가 안 채우면 빈 칸이다**(§15.177). 벤더 원문이 실린 사건과
+        //   안 좁혀진 사건이 한 벌에 각각 있어야 읽는 쪽이 그 갈래를 실물로 본다.
+        assertTrue(vendorDetails[0].isNotEmpty(), "벤더 원문이 실린 결함이 한 벌에 없다")
+        assertTrue("UNCLASSIFIED" in classes[0], "안 좁혀진 사건이 한 벌에 없다: ${classes[0]}")
+        assertTrue(steps[0].any { it > 1 }, "전부 첫 걸음에서 깨졌다 — 「몇 걸음 중 어디서」를 가려 주는 사건이 없다: ${steps[0]}")
         // ★**기본값 필드가 실물 줄에 남아 있다.** protobuf JSON 의 표준 설정이었으면 빈 문자열 키가
         //   통째로 빠지고, 그러면 계약 메시지 안에서 «없다» 와 «이 판이 안 낸다» 가 접힌다(§15.145).
         assertTrue(
@@ -219,6 +263,7 @@ class ExportFixtureTest {
         const val NONE_ROBOT = "hum-03"
         const val OTHER_ROBOT = "hum-04"
         const val SILENT_ROBOT = "hum-05"
+        const val UNMAPPED_ROBOT = "hum-06"
 
         val AGENT = Approver("narrator-1", ApproverKind.AGENT)
         private val FAR: Instant = Instant.parse("2099-01-01T00:00:00Z")
@@ -235,5 +280,14 @@ class ExportFixtureTest {
 
         private val PRECOND: Path = Path.of("..", "profile", "fixtures", "precondition.json").normalize()
         private val NO_REMEDY: Path = Path.of("..", "profile", "fixtures", "no-remedy.json").normalize()
+
+        /**
+         * 벤더 이름공간의 결함 모드를 하나 더 든 픽스처.
+         *
+         * ★**공용 픽스처에 모드를 더하면 안 된다.** 추첨이 해당하는 모드마다 한 번씩 뽑으므로
+         *   모드가 하나 늘면 같은 시드가 다른 순서를 낸다 — `FailureDraw` 가 그 자리를 적어 뒀고,
+         *   실제로 `WithholdingTest` 둘이 빨개졌다.
+         */
+        private val VENDOR_FAULT: Path = Path.of("..", "profile", "fixtures", "vendor-fault.json").normalize()
     }
 }
