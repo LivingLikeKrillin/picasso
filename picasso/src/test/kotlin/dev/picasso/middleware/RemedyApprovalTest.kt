@@ -116,7 +116,7 @@ class RemedyApprovalTest {
         // 없는 제안을 승인으로 지어내면 «승인 없이 실행되는 경로» 가 그 자리에서 생긴다.
         World(PRECOND).use { w ->
             val answer = assertIs<Middleware.Submission.Rejected>(
-                w.mw.approveRemedy(patrol(), ROBOT, listOf(emptyMap()), OPERATOR),
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(emptyMap()), OPERATOR),
             )
             assertTrue(answer.reason.contains("승인할 제안이 없다"), answer.reason)
             assertTrue(w.mw.executions().none { it.order.jobOrderId == "PATROL-1" })
@@ -129,7 +129,7 @@ class RemedyApprovalTest {
         World(PRECOND).use { w ->
             w.rejectedWhileHolding()
             val answer = assertIs<Middleware.Submission.Rejected>(
-                w.mw.approveRemedy(patrol(), ROBOT, listOf(emptyMap()), OPERATOR),
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(emptyMap()), OPERATOR),
             )
             assertTrue(answer.reason.contains("파라미터가 없다"), answer.reason)
             assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "거절해 놓고 제안을 지웠다")
@@ -141,7 +141,7 @@ class RemedyApprovalTest {
         World(PRECOND).use { w ->
             w.rejectedWhileHolding()
             val answer = assertIs<Middleware.Submission.Rejected>(
-                w.mw.approveRemedy(patrol(), ROBOT, emptyList(), OPERATOR),
+                w.mw.approveRemedy(ROBOT, "PATROL-1", emptyList(), OPERATOR),
             )
             assertTrue(answer.reason.contains("걸음 수와 파라미터 수가 다르다"), answer.reason)
         }
@@ -158,7 +158,7 @@ class RemedyApprovalTest {
                 PrepareSequencedRack.P_DESTINATION to "RACK-204.S01",
             )
             val accepted = assertIs<Middleware.Submission.Accepted>(
-                w.mw.approveRemedy(patrol(), ROBOT, List(found.steps.size) { place }, OPERATOR),
+                w.mw.approveRemedy(ROBOT, "PATROL-1", List(found.steps.size) { place }, OPERATOR),
             )
 
             assertEquals("remedy-1-pick_place", accepted.execution.units.first().unitId, "조치가 앞에 서지 않았다")

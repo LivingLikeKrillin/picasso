@@ -111,7 +111,7 @@ class WithholdingTest {
         World(PRECOND, withholdEvery = 1).use { w ->
             w.rejectedWhileHolding()
             val answer = assertIs<Middleware.Submission.Rejected>(
-                w.mw.approveRemedy(patrol("PATROL-1"), ROBOT, listOf(place), OPERATOR),
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(place), OPERATOR),
             )
             assertTrue(answer.reason.contains("사람이 먼저 진단해야 한다"), answer.reason)
         }
@@ -127,7 +127,7 @@ class WithholdingTest {
             assertFalse(w.mw.withheldProposal(ROBOT, "PATROL-1"))
             assertEquals("그리퍼에 부품이 남아 있다", w.mw.diagnosis(ROBOT, "PATROL-1"))
             assertIs<Remedy.Found>(assertNotNull(w.mw.proposal(ROBOT, "PATROL-1")))
-            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol("PATROL-1"), ROBOT, listOf(place), OPERATOR))
+            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(place), OPERATOR))
         }
     }
 
@@ -148,7 +148,7 @@ class WithholdingTest {
         World(PRECOND, withholdEvery = 0).use { w ->
             listOf("PATROL-A", "PATROL-B").forEach { id ->
                 w.rejectedWhileHolding(id)
-                assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol(id), ROBOT, listOf(place), OPERATOR))
+                assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(ROBOT, id, listOf(place), OPERATOR))
             }
 
             val repeated = assertNotNull(w.mw.repeatedRemedies().singleOrNull(), "반복이 안 잡혔다: ${w.mw.repeatedRemedies()}")
@@ -163,7 +163,7 @@ class WithholdingTest {
         // 한 번은 조치이고 두 번부터가 양식이다. 한 번에 고발하면 지표가 곧 소음이 된다.
         World(PRECOND, withholdEvery = 0).use { w ->
             w.rejectedWhileHolding("PATROL-A")
-            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(patrol("PATROL-A"), ROBOT, listOf(place), OPERATOR))
+            assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(ROBOT, "PATROL-A", listOf(place), OPERATOR))
 
             assertEquals(emptyList(), w.mw.repeatedRemedies())
             assertEquals(1, w.mw.repeatedRemedies(atLeast = 1).single().approvals)

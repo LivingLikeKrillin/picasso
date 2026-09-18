@@ -266,7 +266,7 @@ class Middleware(
 
         val planned = prefix + capability.plan(order)
         when (val admission = admits(order, robotId, planned)) {
-            is Admission.Refused -> return record(robotId, order.jobOrderId, admission.rejection)
+            is Admission.Refused -> return record(robotId, order, admission.rejection)
             Admission.Passed -> Unit
         }
 
@@ -373,7 +373,8 @@ class Middleware(
      * 관문에서 뗀 이유는 이것이 부작용이기 때문이다. 후보를 물어보는 것과 그 기체에 내려다 막힌 것은
      * 다른 일이고, 앞엣것에 기록이 붙으면 «물어봤다» 가 «시도했다» 로 쌓인다.
      */
-    private fun record(robotId: String, jobOrderId: String, rejection: Submission.Rejected): Submission.Rejected {
+    private fun record(robotId: String, order: JobOrder, rejection: Submission.Rejected): Submission.Rejected {
+        val jobOrderId = order.jobOrderId
         val remedy = rejection.remedy
 
         // **못 찾은 것도 답이다.** 여기서 버리면 밖에서 «이 기체로는 안 된다» 와 «아예 안 찾아봤다» 가
@@ -385,7 +386,7 @@ class Middleware(
         if (remedy !is Remedy.Found || remedy.steps.isEmpty()) return rejection
 
         val key = proposalKey(robotId, jobOrderId)
-        proposals[key] = remedy
+        proposals[key] = Proposal(order, remedy)
         proposalsMade += 1
         // **가릴 차례인가.** 이미 사람이 진단을 적어 둔 건은 다시 가리지 않는다 — 같은 값을
         // 두 번 요구하면 그것은 학습이 아니라 절차다.
@@ -638,7 +639,7 @@ class Middleware(
             current == null || current.state == UnitState.PENDING ||
                 (current.state == UnitState.FAILED && current.taskId.isEmpty())
         }
-        chainRefusal(execution.robotId, toPlan)?.let { return record(execution.robotId, order.jobOrderId, it) }
+        chainRefusal(execution.robotId, toPlan)?.let { return record(execution.robotId, order, it) }
 
         // **확정된 단위 이후에만 붙는다.** 종착한 단위는 그대로(래치 — 계약이 이미 그렇게 한다),
         // 아직 안 시작한 단위는 새 계획으로 교체, 도는 단위는 계약의 갱신 규칙(§4.4)을 탄다.
@@ -1409,8 +1410,14 @@ class Middleware(
     /**
      * 서 있는 제안 — (기체, 주문) 하나에 하나. **승인은 이 표에 있는 것만 받는다.** 없는 제안을 승인으로
      * 지어내면 «승인 없이 실행되는 경로» 가 그 자리에서 생긴다.
+     *
+     * **주문을 함께 든다**(ADR 44). 승인하는 쪽이 주문을 들고 오면 그것을 **지어낼** 수 있고, 그 순간
+     * 승인 표면이 일반 접수 표면이 된다 — 밖에서 부를 길이 생기고 나서야 보이는 구멍이다.
      */
-    private val proposals = mutableMapOf<String, Remedy.Found>()
+    private val proposals = mutableMapOf<String, Proposal>()
+
+    /** 서 있는 제안 하나 — 무엇에 대한 제안인지까지. */
+    private data class Proposal(val order: JobOrder, val remedy: Remedy.Found)
 
     /** 가려 둔 제안의 열쇠 — 사람이 먼저 진단해야 풀린다. */
     private val withheld = mutableSetOf<String>()
@@ -1460,7 +1467,7 @@ class Middleware(
     fun proposal(robotId: String, jobOrderId: String): Remedy.Found? {
         val key = proposalKey(robotId, jobOrderId)
         if (key in withheld) return null
-        return proposals[key]
+        return proposals[key]?.remedy
     }
 
     /**
@@ -1500,89 +1507,215 @@ class Middleware(
         .sortedByDescending { it.approvals }
 
     /**
-     * 운영자가 제안을 **승인한다**(설계안 §6.4). 승인해야만 조치가 실행되고, 승인은 사람의 책임 있는
-     * 행위로 기록된다.
+     * **사람의 문**(설계안 §6.4) — 운영자가 그 자리의 값을 들고 제안을 승인한다.
      *
      * 파라미터는 **사람이 준다.** 탐색기는 어느 스킬을 딛을지까지만 계산하며, 그 스킬이 요구하는 값(어디에
      * 놓을 것인가 같은)은 지어낼 수 없다 — 지어내면 승인은 무엇을 승인하는지 모르는 채 누르는 단추가 된다.
+     *
+     * **주문을 안 받는다**(ADR 44). 승인은 «무엇을 하라» 가 아니라 «그것을 하라» 이므로, 가리킬 제안의
+     * 열쇠만 받고 주문은 제안과 함께 이 층이 들고 있던 것을 쓴다.
+     *
+     * **에이전트는 이 문으로 못 들어온다.** 값을 실을 수 있다는 것이 곧 조치를 기술할 수 있다는 뜻이고,
+     * 그러면 선언이 덮는 것이 «어느 스킬» 까지라서 실제 권한이 선언보다 넓어진다. 에이전트의 문은
+     * [attemptApproval] 이며 그쪽에는 값을 실을 칸이 없다.
      *
      * **누가 눌렀는지 없이는 승인이 안 된다**(ADR 43). 기본값을 두면 그 기본값이 무기명 승인 경로가 되고,
      * 자원 소유 대장이 비워 두면 안 된다고 적은 자리가 바로 거기다.
      *
      * @param parameters 걸음마다 하나씩, 걸음 순서대로.
-     * @param approver 누른 쪽. 에이전트면 선언 목록과 대조한다.
      */
     fun approveRemedy(
-        order: JobOrder,
         robotId: String,
+        jobOrderId: String,
         parameters: List<Map<String, String>>,
         approver: Approver,
     ): Submission {
-        val key = proposalKey(robotId, order.jobOrderId)
-        if (key in withheld) {
-            return Submission.Rejected("가려 둔 제안이다 — 사람이 먼저 진단해야 한다: $key")
+        if (approver.kind == ApproverKind.AGENT) {
+            return Submission.Rejected("에이전트는 값을 실어 승인하지 못한다 — 값은 선언과 관측에서 온다: ${approver.id}")
         }
-        val proposal = proposals[key] ?: return Submission.Rejected("승인할 제안이 없다: $key")
-        // **무엇을 승인하는지 알아야 자격을 판정한다.** 그래서 제안을 찾은 뒤다.
-        entitlementRefusal(approver, robotId, proposal.steps)?.let { return Submission.Rejected(it) }
-        if (parameters.size != proposal.steps.size) {
-            return Submission.Rejected("걸음 수와 파라미터 수가 다르다: ${proposal.steps.size} != ${parameters.size}")
+        return when (val judgment = judge(robotId, jobOrderId, approver, given = parameters, saw = null)) {
+            is Judgment.No -> Submission.Rejected(judgment.reason)
+            is Judgment.Go -> commit(judgment, approver)
         }
-        val declared = robots.capabilities(robotId)?.skillsList?.associateBy { it.skillType }
-            ?: return Submission.Rejected("능력을 못 물어봤다 — 조치가 실행 가능한지 확인할 수 없다")
+    }
 
-        val prefix = proposal.steps.mapIndexed { at, step ->
-            val given = parameters[at]
-            val missing = declared[step.skillType]?.parametersList.orEmpty()
-                .filterNot { it.optional }.map { it.key }.filterNot { it in given }
-            if (missing.isNotEmpty()) {
-                return Submission.Rejected("조치 ${at + 1}(${step.skillType}) 에 필요한 파라미터가 없다: $missing")
+    /**
+     * **밖의 문**(ADR 44) — 값을 싣지 못하는 승인 시도.
+     *
+     * 부르는 쪽의 권한이 여기서 «승인 시도 한 번» 을 넘지 않는 것은 규율이 아니라 **표면의 모양** 때문이다:
+     * 주문도 걸음도 값도 실을 칸이 없다. 값은 사람의 선언과 기체의 관측에서만 오며 이 함수를 부르는 쪽은
+     * 둘 다 못 바꾼다.
+     *
+     * **선언이 없으면 거절이다 — 승인자 종류를 안 가린다.** 사람이 선언 없이 누를 수 있는 것은 값을 들고
+     * 오기 때문이고(ADR 43), 값 없이 들어오는 문에서는 선언이 곧 값의 출처다. 종류로 가르면 사람 이름을
+     * 단 시도가 값 없이 통과하는 길이 생긴다.
+     */
+    fun attemptApproval(attempt: ApprovalAttempt): ApprovalOutcome {
+        val judgment = judge(
+            attempt.robotId,
+            attempt.jobOrderId,
+            attempt.approver,
+            given = null,
+            saw = attempt.sawSkillTypes,
+        )
+        return when (judgment) {
+            is Judgment.No -> ApprovalOutcome.Refused(judgment.refusal, judgment.reason)
+            is Judgment.Go -> when (val submission = commit(judgment, attempt.approver)) {
+                // **실린 값을 돌려준다** — 부르는 쪽이 고르지 않았으므로, 자기 이름으로 무엇이 나갔는지
+                // 아는 길이 이것뿐이다.
+                is Submission.Accepted -> ApprovalOutcome.Approved(
+                    submission.execution.executionId,
+                    judgment.prefix.map { ApprovedStep(it.skillType, it.parameters) },
+                )
+                is Submission.Rejected -> ApprovalOutcome.Refused(ApprovalRefusal.REFUSED_BY_GATE, submission.reason)
+                // **멱등은 승인이 아니다.** 같은 판이 이미 서 있으면 접수가 접히고 조치 열은 안 나간다
+                // (§15.175). 성공으로 내면 «승인했는데 아무 일도 안 일어났다» 가 초록으로 보인다.
+                is Submission.Idempotent -> ApprovalOutcome.Refused(
+                    ApprovalRefusal.REMEDY_NOT_APPLIED,
+                    "그 주문이 이미 같은 판으로 서 있다 — 조치 열이 안 나갔다: ${submission.execution.executionId}",
+                )
+                // **[adopt] 만 내는 값이다.** 여기로 오면 접수 경로가 바뀐 것이고, 조용히 삼키면
+                // 승인이 안 된 채로 답만 돌아간다.
+                is Unassigned -> error("접수가 이 값을 낼 자리가 아니다: $submission")
             }
+        }
+    }
+
+    /** 승인 시도의 판정. 두 문이 같은 판정을 쓰고 **모양만 다르게 낸다.** */
+    private sealed interface Judgment {
+        data class Go(
+            val key: String,
+            val robotId: String,
+            val order: JobOrder,
+            val steps: List<RemedyStep>,
+            val prefix: List<ExecutionUnit>,
+        ) : Judgment
+
+        data class No(val refusal: ApprovalRefusal, val reason: String) : Judgment
+    }
+
+    /**
+     * 이 시도가 서는가 — 그리고 서면 무엇이 나가는가.
+     *
+     * @param given 사람이 그 자리에서 준 값. 널이면 **선언과 관측**에서 채운다([RemedyValues]).
+     * @param saw 부르는 쪽이 본 조치 열. 널이면 대조하지 않는다 — 프로세스 안에서 제안을 방금 읽은 쪽이다.
+     */
+    private fun judge(
+        robotId: String,
+        jobOrderId: String,
+        approver: Approver,
+        given: List<Map<String, String>>?,
+        saw: List<String>?,
+    ): Judgment {
+        val key = proposalKey(robotId, jobOrderId)
+        // **가림이 맨 앞이다.** 가려 둔 것은 자격이 있어도 값이 맞아도 안 눌린다. 뒤로 물리면 자격 없는
+        // 시도가 «자격 없음» 을 받고, 가림이 있었다는 사실이 답에서 사라진다.
+        if (key in withheld) {
+            return Judgment.No(ApprovalRefusal.WITHHELD, "가려 둔 제안이다 — 사람이 먼저 진단해야 한다: $key")
+        }
+        val standing = proposals[key]
+            ?: return Judgment.No(ApprovalRefusal.NO_PROPOSAL, "승인할 제안이 없다: $key")
+        val steps = standing.remedy.steps
+
+        // 읽은 뒤 제안이 바뀌었으면 부르는 쪽은 **자기가 못 본 것**을 승인하는 중이다.
+        val now = steps.map { it.skillType }
+        if (saw != null && saw != now) {
+            return Judgment.No(ApprovalRefusal.PROPOSAL_CHANGED, "본 조치 열과 지금 제안이 다르다: $saw != $now")
+        }
+
+        val declared = robots.capabilities(robotId)?.skillsList?.associateBy { it.skillType }
+            ?: return Judgment.No(
+                ApprovalRefusal.CAPABILITY_UNKNOWN,
+                "능력을 못 물어봤다 — 조치가 실행 가능한지 확인할 수 없다",
+            )
+
+        val parameters: List<Map<String, String>>
+        if (given != null) {
+            if (given.size != steps.size) {
+                return Judgment.No(
+                    ApprovalRefusal.VALUE_NOT_DECLARED,
+                    "걸음 수와 파라미터 수가 다르다: ${steps.size} != ${given.size}",
+                )
+            }
+            steps.forEachIndexed { at, step ->
+                val missing = declared[step.skillType]?.parametersList.orEmpty()
+                    .filterNot { it.optional }.map { it.key }.filterNot { it in given[at] }
+                if (missing.isNotEmpty()) {
+                    return Judgment.No(
+                        ApprovalRefusal.VALUE_NOT_DECLARED,
+                        "조치 ${at + 1}(${step.skillType}) 에 필요한 파라미터가 없다: $missing",
+                    )
+                }
+            }
+            parameters = given
+        } else {
+            val entitlement = entitlements.declaredFor(approver.id)
+                ?: return Judgment.No(
+                    ApprovalRefusal.NOT_DECLARED,
+                    "자동 승인 자격이 선언돼 있지 않다: ${approver.id}",
+                )
+            scopeRefusal(entitlement, robotId, steps)?.let { return it }
+            // **관측은 지금 다시 본다.** 제안이 설 때의 파지를 들고 있으면 그 사이 기체가 놓았거나
+            // 다른 것을 들었을 때 낡은 사실로 승인하게 된다.
+            parameters = when (val filled = RemedyValues.resolve(steps, declared, entitlement, liveHold(robotId))) {
+                is RemedyValues.Resolution.Refused -> return Judgment.No(filled.refusal, filled.reason)
+                is RemedyValues.Resolution.Filled -> filled.parameters
+            }
+        }
+
+        val prefix = steps.mapIndexed { at, step ->
             ExecutionUnit(
                 unitId = "remedy-${at + 1}-${step.skillType}",
                 route = Route.ROBOT,
                 skillType = step.skillType,
-                parameters = given,
+                parameters = parameters[at],
                 expectedIdentity = null,
                 source = null,
                 destination = null,
             )
         }
-
-        proposals.remove(key)
-        // **승인자 종류로 가르지 않는다**(ADR 43 §4). 이 수가 재는 것은 «같은 조치가 몇 번 반복됐나» 이고
-        // 근본 원인은 누가 눌렀는지 모른다. 가르면 사람 다섯 번과 에이전트 다섯 번이 열이 아니라
-        // 다섯과 다섯이 되어 한도에 안 걸린다 — 지표가 자기 집계 방식에 진다.
-        val signature = "$robotId|" + proposal.steps.joinToString(">") { it.skillType }
-        approvals[signature] = (approvals[signature] ?: 0) + 1
-        return submit(order, robotId, prefix, approvedBy = approver)
+        return Judgment.Go(key, robotId, standing.order, steps, prefix)
     }
 
     /**
-     * 이 승인자가 이 조치를 **사람 대신** 누를 수 있는가(ADR 43).
+     * 선언이 좁히는 세 축(ADR 43).
      *
-     * **사람에게는 선언을 요구하지 않는다.** 선언 목록이 있는 이유는 «사람 대신» 누르는 것을 허락하는
-     * 것이고, 사람까지 대조하면 그 목록이 운영자 명부가 된다 — 명부가 한 명 빠진 날 라인이 선다.
-     *
-     * 거절 사유를 넷으로 가르는 이유는 다음 행동이 넷 다 다르기 때문이다 — 올리거나, 갱신하거나,
-     * 범위를 넓히거나, 사람이 누르거나.
+     * 거절 사유를 가르는 이유는 다음 행동이 다 다르기 때문이다 — 갱신하거나, 범위를 넓히거나, 사람이 누르거나.
      */
-    private fun entitlementRefusal(approver: Approver, robotId: String, steps: List<RemedyStep>): String? {
-        if (approver.kind == ApproverKind.PERSON) return null
-
-        val declared = entitlements.declaredFor(approver.id)
-            ?: return "자동 승인 자격이 선언돼 있지 않다: ${approver.id}"
+    private fun scopeRefusal(declared: Entitlement, robotId: String, steps: List<RemedyStep>): Judgment.No? {
         if (!now().isBefore(declared.expiresAt)) {
-            return "자동 승인 자격이 만료됐다: ${approver.id} (${declared.expiresAt} 까지였다)"
+            return Judgment.No(
+                ApprovalRefusal.EXPIRED,
+                "자동 승인 자격이 만료됐다: ${declared.approverId} (${declared.expiresAt} 까지였다)",
+            )
         }
         if (robotId !in declared.robotIds) {
-            return "자동 승인 자격의 범위 밖 기체다: $robotId"
+            return Judgment.No(ApprovalRefusal.ROBOT_OUT_OF_SCOPE, "자동 승인 자격의 범위 밖 기체다: $robotId")
         }
         val uncovered = steps.map { it.skillType }.distinct().filterNot { it in declared.skillTypes }
         if (uncovered.isNotEmpty()) {
-            return "자동 승인 자격이 안 덮는 조치 유형이다: $uncovered"
+            return Judgment.No(ApprovalRefusal.SKILL_OUT_OF_SCOPE, "자동 승인 자격이 안 덮는 조치 유형이다: $uncovered")
         }
         return null
+    }
+
+    /**
+     * 판정이 선 뒤 실제로 내린다.
+     *
+     * **관문이 거절하면 제안을 안 지운다.** 자리 경쟁으로 못 들어간 것은 자격의 문제가 아니고, 그 순간
+     * 제안을 소모하면 사람이 나중에 누를 것까지 함께 사라진다 — 조건이 풀리면 같은 제안이 그대로 선다.
+     */
+    private fun commit(go: Judgment.Go, approver: Approver): Submission {
+        val submission = submit(go.order, go.robotId, go.prefix, approvedBy = approver)
+        if (submission !is Submission.Accepted) return submission
+
+        proposals.remove(go.key)
+        // **승인자 종류로 가르지 않는다**(ADR 43 §4). 이 수가 재는 것은 «같은 조치가 몇 번 반복됐나» 이고
+        // 근본 원인은 누가 눌렀는지 모른다. 가르면 사람 다섯 번과 에이전트 다섯 번이 열이 아니라
+        // 다섯과 다섯이 되어 한도에 안 걸린다 — 지표가 자기 집계 방식에 진다.
+        val signature = "${go.robotId}|" + go.steps.joinToString(">") { it.skillType }
+        approvals[signature] = (approvals[signature] ?: 0) + 1
+        return submission
     }
 
     // ── 사건 번들(설계안 §4) — 흩어진 사실을 한 사건으로 묶는다. 읽기만 한다.

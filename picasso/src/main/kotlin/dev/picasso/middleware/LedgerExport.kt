@@ -171,30 +171,31 @@ object LedgerExport {
     private fun arrayOfStrings(values: List<String>): String =
         values.joinToString(",", "[", "]") { Json.quote(it) }
 
-    /** 키를 순서대로 붙이는 최소한의 것. 키를 빼는 길이 없는 것이 이 클래스의 요점이다. */
-    private class Obj {
-        private val sb = StringBuilder("{")
-        private var first = true
+}
 
-        private fun key(name: String): Obj {
-            if (!first) sb.append(',')
-            first = false
-            sb.append(Json.quote(name)).append(':')
-            return this
-        }
+/** 키를 순서대로 붙이는 최소한의 것. 키를 빼는 길이 없는 것이 이 클래스의 요점이다. */
+internal class Obj {
+    private val sb = StringBuilder("{")
+    private var first = true
 
-        fun str(name: String, value: String?): Obj =
-            key(name).also { sb.append(if (value == null) "null" else Json.quote(value)) }
-
-        fun num(name: String, value: Number): Obj = key(name).also { sb.append(value) }
-
-        fun bool(name: String, value: Boolean): Obj = key(name).also { sb.append(value) }
-
-        /** 이미 JSON 인 값. */
-        fun raw(name: String, value: String): Obj = key(name).also { sb.append(value) }
-
-        fun done(): String = sb.append('}').toString()
+    private fun key(name: String): Obj {
+        if (!first) sb.append(',')
+        first = false
+        sb.append(Json.quote(name)).append(':')
+        return this
     }
+
+    fun str(name: String, value: String?): Obj =
+        key(name).also { sb.append(if (value == null) "null" else Json.quote(value)) }
+
+    fun num(name: String, value: Number): Obj = key(name).also { sb.append(value) }
+
+    fun bool(name: String, value: Boolean): Obj = key(name).also { sb.append(value) }
+
+    /** 이미 JSON 인 값. */
+    fun raw(name: String, value: String): Obj = key(name).also { sb.append(value) }
+
+    fun done(): String = sb.append('}').toString()
 }
 
 /**
