@@ -1,9 +1,11 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.harness.Harness
 import dev.picasso.mimic.control.v1.ForceFaultRequest
+import dev.picasso.mimic.control.v1.SetConnectionRequest
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -39,12 +41,17 @@ class ExportFixtureTest {
                 OTHER_ROBOT to VENDOR_FAULT,
                 SILENT_ROBOT to PRECOND,
                 UNMAPPED_ROBOT to PRECOND,
+                CUT_ROBOT to PRECOND,
             ),
         )
         val cell = CellMimic(now = { harness.clock.now() })
+
+        /** **경로가 둘이어야 책임 소재를 가르는 것이 보인다**(§15.178). 운반은 플릿의 일이다. */
+        val fleet = AmrFleetMimic(now = { harness.clock.now() })
         val mw = Middleware(
             ClientRobotPort(harness.client()),
             cell,
+            fleet,
             now = { harness.clock.now() },
             // 셋째 제안이 가려진다 — 한 벌에 FOUND 와 WITHHELD 가 둘 다 있어야 읽는 쪽이 둘을 가른다.
             withholdEvery = 2,
@@ -74,6 +81,10 @@ class ExportFixtureTest {
             }
             error("조건에 못 미쳤다")
         }
+
+        fun setConnection(robotId: String, state: ConnectionState) = harness.oracle.setConnection(
+            SetConnectionRequest.newBuilder().setRobotId(robotId).setState(state.name).build(),
+        )
 
         fun forceFault(robotId: String, errorType: String, taskId: String) = harness.oracle.forceFault(
             ForceFaultRequest.newBuilder().setRobotId(robotId).setErrorType(errorType).setTaskId(taskId).build(),
@@ -168,12 +179,25 @@ class ExportFixtureTest {
         //    주입한 쪽이 정답을 안다.
         //    **둘째 걸음에서 깨뜨린다** — 첫 걸음이 끝난 뒤라 「몇 걸음 중 어디서」가 1 이 아니고
         //    끝난 단위 목록도 비지 않는다.
-        val unmapped = w.holdingRack(UNMAPPED_ROBOT, slots = 2)
+        val unmapped = w.holdingRack(UNMAPPED_ROBOT, slots = 2)  // @formatter:off
         w.drive(rounds = 400) {
             unmapped.completedUnits.isNotEmpty() && unmapped.units[1].hold.kind == HoldKind.HOLD_KIND_HOLDING
         }
         w.forceFault(UNMAPPED_ROBOT, "X_FIXTURE_SIMULATED_HARDWARE_FAULT", unmapped.units[1].taskId)
         w.drive(rounds = 250) { unmapped.physicalState.isSettled || unmapped.physicalState == PhysicalState.OPERATOR_HOLD }
+
+        // ⑦ **플릿의 일** — 출발지에 요청한 용기가 없어 인수되지 않는다. 경로가 `FLEET` 인 사건이
+        //    한 벌에 하나는 있어야 «이 실패를 누구에게 물을 것인가» 가 값으로 갈린다.
+        val delivery = assertIs<Middleware.Submission.Accepted>(w.mw.submit(deliver(), NONE_ROBOT)).execution
+        w.drive(rounds = 250) { delivery.physicalState.isSettled || delivery.units.first().state == UnitState.FAILED }
+
+        // ⑧ **선이 끊긴 채 난 사건** — 그동안의 결과는 미확정이고, 같은 등급이라도 같은 값이 아니다.
+        //    돌려놓지 않는다: 복구하면 봉인 시점에는 이미 거짓이라 한 벌이 그 상태를 못 보여 준다.
+        val cut = w.holdingRack(CUT_ROBOT)
+        w.setConnection(CUT_ROBOT, ConnectionState.CONNECTION_STATE_CONNECTION_BROKEN)
+        w.mw.pump()
+        w.forceFault(CUT_ROBOT, "PAYLOAD_LOST", cut.units.first().taskId)
+        w.drive(rounds = 250) { w.mw.incidents().any { it.executionId == cut.executionId } }
     }
 
     private fun write(w: World, dir: Path) {
@@ -206,6 +230,8 @@ class ExportFixtureTest {
         val vendorDetails = mutableListOf<List<String>>()
         val classes = mutableListOf<List<String?>>()
         val steps = mutableListOf<List<Int>>()
+        val routes = mutableListOf<List<String>>()
+        val trust = mutableListOf<List<Boolean>>()
         val lines = mutableListOf<String>()
 
         dirs.forEach { dir ->
@@ -226,6 +252,8 @@ class ExportFixtureTest {
                     .filter { it.isNotBlank() }
                 classes += w.mw.incidents().map { it.failureClass }
                 steps += w.mw.incidents().map { it.step.at }
+                routes += w.mw.incidents().map { it.route }
+                trust += w.mw.incidents().map { it.observation.linkBroken }
                 lines += Files.readString(dir.resolve(LedgerExport.INCIDENTS))
                 runIds += Regex(""""runId":"([^"]+)"""")
                     .find(Files.readString(dir.resolve(LedgerExport.MANIFEST)))!!.groupValues[1]
@@ -244,6 +272,8 @@ class ExportFixtureTest {
         assertTrue(vendorDetails[0].isNotEmpty(), "벤더 원문이 실린 결함이 한 벌에 없다")
         assertTrue("UNCLASSIFIED" in classes[0], "안 좁혀진 사건이 한 벌에 없다: ${classes[0]}")
         assertTrue(steps[0].any { it > 1 }, "전부 첫 걸음에서 깨졌다 — 「몇 걸음 중 어디서」를 가려 주는 사건이 없다: ${steps[0]}")
+        assertEquals(setOf("ROBOT", "FLEET"), routes[0].toSet(), "경로가 한 갈래뿐이다 — 책임 소재를 가르는 것이 안 보인다: ${routes[0]}")
+        assertTrue(trust[0].any { it }, "선이 끊긴 채 난 사건이 없다 — 관측 신뢰가 늘 온전한 것으로 보인다")
         // ★**기본값 필드가 실물 줄에 남아 있다.** protobuf JSON 의 표준 설정이었으면 빈 문자열 키가
         //   통째로 빠지고, 그러면 계약 메시지 안에서 «없다» 와 «이 판이 안 낸다» 가 접힌다(§15.145).
         assertTrue(
@@ -264,9 +294,25 @@ class ExportFixtureTest {
         const val OTHER_ROBOT = "hum-04"
         const val SILENT_ROBOT = "hum-05"
         const val UNMAPPED_ROBOT = "hum-06"
+        const val CUT_ROBOT = "hum-07"
 
         val AGENT = Approver("narrator-1", ApproverKind.AGENT)
         private val FAR: Instant = Instant.parse("2099-01-01T00:00:00Z")
+
+        /**
+         * 용기 공급 하나. **출발지를 비워 둔다** — 플릿이 접수 시점에 확인하고 인수하지 않으므로
+         * 경로가 `FLEET` 인 사건이 여기서 열린다.
+         */
+        private fun deliver() = JobOrder(
+            jobOrderId = "WT-781",
+            workMasterId = DeliverContainer.WORK_MASTER,
+            version = 1,
+            requiredEvidence = Evidence.E2,
+            equipmentRequirements = listOf(
+                EquipmentRequirement("OUT-07", EquipmentUse.SOURCE, mapOf(EquipmentUse.PROP_CONTAINER to "HU-1042")),
+                EquipmentRequirement("SEQ-IN-02", EquipmentUse.DESTINATION),
+            ),
+        )
 
         private fun patrol(jobOrderId: String) = JobOrder(
             jobOrderId = jobOrderId,

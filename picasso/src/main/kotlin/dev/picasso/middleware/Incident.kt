@@ -6,6 +6,71 @@ import java.security.MessageDigest
 import java.time.Instant
 
 /**
+ * **무엇을 하려던 일이었나**(§15.178).
+ *
+ * 분류와 그 근거는 «무엇이 어긋났나» 이고 이것은 «무엇을 하려 했나» 다. 뒤엣것이 없으면 설명이
+ * 어긋남의 재진술에 머문다 — 어느 슬롯에 무엇을 놓으려 했는지를 모르면 «잘못 놓았다» 가 무슨 뜻인지
+ * 말할 수 없다.
+ *
+ * **상류가 적은 것과 이 층이 편 것을 함께 든다.** 둘이 갈리는 자리가 곧 이 층의 번역이고, 한쪽만
+ * 실으면 읽는 쪽이 그 번역을 볼 수 없다.
+ */
+data class Intent(
+    /** 상류가 지정한 논리적 능력(ISA-95 WorkMaster). */
+    val workMasterId: String,
+    /** 그 주문의 판. 단위의 개정 번호가 여기서 나온다. */
+    val orderVersion: Int,
+    /** 상류가 주문에 실은 값. */
+    val orderParameters: Map<String, String>,
+    /** 주문이 선언한 자재 — 타입과 수량. */
+    val materials: List<MaterialRequirement>,
+    /** 주문이 지정한 설비와 그 쓰임. */
+    val equipment: List<EquipmentRequirement>,
+    /**
+     * 이 능력이 낼 수 있는 **최고 등급**. 요구 등급이 이것을 넘으면 애초에 접수되지 않으므로,
+     * 도달 등급이 낮은 이유가 «능력의 한계» 인지 «이번에 못 받았다» 인지를 이것이 가른다.
+     */
+    val capabilityMaxEvidence: Evidence,
+    /** 유효 시간창의 폭. `evidenceWindow` 가 **왜 그 범위였는지**가 이 둘이다. ISO-8601. */
+    val evidenceWindowBefore: String,
+    val evidenceWindowAfter: String,
+    /** 이 단위가 하려던 스킬. */
+    val skillType: String,
+    /** 이 단위에 **실제로 실린** 값. 주문의 값과 다를 수 있고, 그 차이가 이 층이 편 결과다. */
+    val unitParameters: Map<String, String>,
+    /** 출발 자리·도착 자리. 없으면 널이다 — 빈 문자열로 접지 않는다. */
+    val source: String?,
+    val destination: String?,
+    /** 설비가 그 자리에서 읽어야 할 것. 대조의 기대값이다. */
+    val expectedIdentity: String?,
+)
+
+/**
+ * **관측을 얼마나 믿을 수 있나**(§15.178).
+ *
+ * 근거의 세기가 «무엇으로 확인했나» 라면 이것은 «그 확인이 온전했나» 다. 선이 끊긴 채 돈 실행과
+ * 내내 붙어 있던 실행은 같은 등급이라도 같은 값이 아니다.
+ */
+data class ObservationTrust(
+    /** 이 실행이 **연결이 끊긴 채** 도는 중인가. 그동안의 결과는 미확정이다. */
+    val linkBroken: Boolean,
+    /**
+     * 옛 판의 종착이 뒤늦게 온 것들. **폐기하지 않는다** — 버리면 «안 왔다» 와 «늦게 왔다» 가
+     * 같은 침묵이 된다.
+     */
+    val lateEvents: List<LateEvent>,
+    /**
+     * 이 기체가 이 단위의 진행률을 **잴 수 있는가.** ★**널이 「아직 갱신을 못 봤다」다.**
+     *
+     * 3값이며 널을 거짓으로 접으면 «못 물어봤다» 가 «못 잰다» 가 된다. 진행률의 `0.0` 을 정체로
+     * 읽으면 진행률을 안 내는 기종이 언제나 멈춰 있는 것으로 보이고, 그 경보는 곧 무시된다.
+     */
+    val progressObservable: Boolean?,
+    /** 이미 정체로 알렸는가. 한 번만 알린다 — 같은 사실을 되풀이하면 운영자가 곧 무시한다. */
+    val progressStalled: Boolean,
+)
+
+/**
  * 결함 하나를 **정준 분류와 벤더 원문을 함께** 적은 것(§15.177).
  *
  * 앞 판은 분류 이름만 실었다. 그러면 읽는 쪽이 «왜 그 분류가 됐는지» 를 말할 재료가 없어 **분류를
@@ -138,6 +203,17 @@ data class IncidentBundle(
     val verification: Verification,
     /** 몇 걸음 중 어디서 깨졌나. */
     val step: StepPosition,
+    /**
+     * 이 단위를 **누가 실행하는가** — `ROBOT` 이면 어댑터 뒤의 기체, `FLEET` 이면 플릿에 맡긴 운반.
+     *
+     * ★**없으면 책임 소재를 못 가른다.** 같은 «실패» 라도 앞은 기체와 어댑터의 일이고 뒤는 플릿의
+     * 일이며, 다음에 누구에게 물을지가 그것으로 갈린다.
+     */
+    val route: String,
+    /** 무엇을 하려던 일이었나. */
+    val intent: Intent,
+    /** 관측을 얼마나 믿을 수 있나. */
+    val observation: ObservationTrust,
     /** 그때 무슨 모델이었나. 모델이 바뀐 뒤에 사건을 읽으면 이것 없이는 오독한다. */
     val profileRevision: Int,
     val contractSemver: String,
@@ -158,14 +234,21 @@ data class IncidentBundle(
     /**
      * 같은 시드와 가상 시계면 같은 값이 나온다(설계안 §4.4).
      *
-     * **새 칸은 전부 든다**(§15.177). 기체·근거 등급·대조 결과·걸음 위치·결함 원문은 봉인 시점에
-     * 확정되고 같은 시드면 같은 값이며, 그중 어느 하나가 달라진 사건은 **다른 사건**이다. 특히 기체가
-     * 그렇다 — 같은 모양의 실패라도 어느 기체에서 났는지가 할 말을 바꾼다.
+     * **새 칸은 전부 든다**(§15.177·178). 기체·근거 등급·대조 결과·걸음 위치·결함 원문·의도·경로·
+     * 관측 신뢰는 봉인 시점에 확정되고 같은 시드면 같은 값이며, 그중 어느 하나가 달라진 사건은
+     * **다른 사건**이다. 특히 기체와 의도가 그렇다 — 같은 모양의 실패라도 어느 기체에서 무엇을 하다
+     * 났는지가 할 말을 바꾼다.
+     *
+     * **맵은 키 순서로 정렬해 적는다**([canonicalMap]). 순회 순서가 해시를 바꾸면 같은 사건이 두 값을 갖는다.
      *
      * **해시에서 빼는 것은 둘뿐이다 — [wallClockAt] 과 [review].** 설계안은 식별자도 빼라고 적었는데,
      * 이 층의 식별자는 전부 세는 수에서 나오므로(`exec-N`·`incident-N`·`resp-N`) 같은 시드면 같은 값이다.
      * 뺄 이유가 없고, 넣으면 사건의 순서까지 고정된다. 이 목록이 곧 "무엇이 결정적인가" 의 답이다.
      */
+    /** **키 순서로 정렬한다.** 맵의 순회 순서가 해시를 바꾸면 같은 사건이 두 값을 갖는다. */
+    private fun canonicalMap(values: Map<String, String>): String =
+        values.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value}" }
+
     private fun canonicalFault(f: FaultDetail): String =
         "${f.failureClass}|${f.errorType}|${f.vendorDetail}|${f.errorHint}|" +
             f.references.joinToString(";") { "${it.key}=${it.value}" } +
@@ -192,6 +275,21 @@ data class IncidentBundle(
             evidenceWindow.forEach { appendLine("${it.sequence}|${it.occurredAt}|${it.kind}|${it.local}|${it.detail}") }
             appendLine("${requiredEvidence.name}|${reachedEvidence.name}|${verification.name}")
             appendLine("${step.at}|${step.plan.joinToString(",")}|${step.completed.joinToString(",")}")
+            appendLine(route)
+            appendLine(
+                "${intent.workMasterId}|${intent.orderVersion}|${canonicalMap(intent.orderParameters)}|" +
+                    intent.materials.joinToString(";") { "${it.materialDefinitionId}=${it.quantity}" } + "|" +
+                    intent.equipment.joinToString(";") { "${it.id}/${it.equipmentUse}/${canonicalMap(it.properties)}" } + "|" +
+                    "${intent.capabilityMaxEvidence.name}|${intent.evidenceWindowBefore}|${intent.evidenceWindowAfter}|" +
+                    "${intent.skillType}|${canonicalMap(intent.unitParameters)}|" +
+                    "${intent.source.orEmpty()}|${intent.destination.orEmpty()}|${intent.expectedIdentity.orEmpty()}",
+            )
+            appendLine(
+                "${observation.linkBroken}|${observation.progressObservable}|${observation.progressStalled}|" +
+                    observation.lateEvents.joinToString(";") {
+                        "${it.unitId}/${it.revision}/${it.currentRevision}/${it.downstreamState}/${it.occurredAt}"
+                    },
+            )
             appendLine(profileRevision.toString())
             appendLine(contractSemver)
             appendLine(approvedBy?.let { "${it.id}|${it.kind.name}" }.orEmpty())

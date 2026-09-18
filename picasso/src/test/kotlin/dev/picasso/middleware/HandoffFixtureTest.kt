@@ -142,6 +142,25 @@ class HandoffFixtureTest {
             },
             "요구 등급과 도달 등급이 갈리는 사건이 없다 — 「얼마나 믿어야 하나」를 잴 것이 없다",
         )
+
+        // ── 둘째 묶음(§15.178). **한 갈래뿐이면 그 칸은 값이 있어도 아무것도 안 가른다.**
+        assertEquals(
+            setOf("ROBOT", "FLEET"),
+            incidents.map { it.getValue("route").stringValue }.toSet(),
+            "경로가 한 갈래뿐이다 — 책임 소재를 가르는 것이 안 보인다",
+        )
+        assertTrue(
+            incidents.any { it.getValue("observation").structValue.fieldsMap.getValue("linkBroken").boolValue },
+            "선이 끊긴 채 난 사건이 없다 — 관측 신뢰가 늘 온전한 것으로 보인다",
+        )
+        assertTrue(
+            incidents.any { it.getValue("observation").structValue.fieldsMap.getValue("progressObservable").hasNullValue() },
+            "진행률 관측 가능성이 널인 사건이 없다 — 3값의 널을 볼 자리가 없다",
+        )
+        assertTrue(
+            incidents.all { it.getValue("intent").structValue.fieldsMap.getValue("skillType").stringValue.isNotBlank() },
+            "무엇을 하려던 일이었는지가 안 적힌 줄이 있다",
+        )
     }
 
     companion object {
@@ -188,6 +207,28 @@ class HandoffFixtureTest {
             reachedEvidence = Evidence.E0,
             verification = Verification.NOT_REQUESTED,
             step = StepPosition(1, listOf("RACK-204.S01"), emptyList()),
+            route = "ROBOT",
+            intent = Intent(
+                workMasterId = "PrepareSequencedRack",
+                orderVersion = 17,
+                orderParameters = mapOf("priority" to "normal"),
+                materials = listOf(MaterialRequirement("ENGINE-COVER-A", 1)),
+                equipment = listOf(EquipmentRequirement("RACK-204.S01", "destination", mapOf("material" to "ENGINE-COVER-A"))),
+                capabilityMaxEvidence = Evidence.E2,
+                evidenceWindowBefore = "PT30S",
+                evidenceWindowAfter = "PT15S",
+                skillType = "pick_place",
+                unitParameters = mapOf("destination" to "RACK-204.S01", "object_id" to "SEQ-IN-02.BIN-A"),
+                source = "SEQ-IN-02.BIN-A",
+                destination = "RACK-204.S01",
+                expectedIdentity = "ENGINE-COVER-A",
+            ),
+            observation = ObservationTrust(
+                linkBroken = false,
+                lateEvents = emptyList(),
+                progressObservable = null,
+                progressStalled = false,
+            ),
             profileRevision = 1,
             contractSemver = ContractIdentity.semver,
             approvedBy = null,
