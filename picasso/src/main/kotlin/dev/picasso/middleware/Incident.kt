@@ -53,6 +53,13 @@ data class IncidentBundle(
     val profileRevision: Int,
     val contractSemver: String,
     /**
+     * 이 사건이 난 실행이 **승인된 조치로 시작됐다면** 그것을 누른 쪽. 아니면 널이다(ADR 43).
+     *
+     * 해시에 든다 — 다른 쪽이 승인한 같은 모양의 사건은 **다른 사건**이다. 누가 눌렀는지가 이 사건에
+     * 대해 할 말을 바꾸기 때문이다.
+     */
+    val approvedBy: Approver? = null,
+    /**
      * 사람이 이 사건을 읽고 남긴 판정(설계안 §7.2). 읽기 전에는 널이다.
      *
      * 해시에서 빠진다 — 같은 사건이 나중의 검토 때문에 다른 사건이 되지는 않는다.
@@ -85,6 +92,7 @@ data class IncidentBundle(
             evidenceWindow.forEach { appendLine("${it.sequence}|${it.occurredAt}|${it.kind}|${it.local}|${it.detail}") }
             appendLine(profileRevision.toString())
             appendLine(contractSemver)
+            appendLine(approvedBy?.let { "${it.id}|${it.kind.name}" }.orEmpty())
         }
         return MessageDigest.getInstance("SHA-256")
             .digest(canonical.toByteArray(Charsets.UTF_8))

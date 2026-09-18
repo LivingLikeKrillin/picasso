@@ -94,6 +94,7 @@ object LedgerExport {
         .str("effectMismatch", b.effectMismatch)
         .num("profileRevision", b.profileRevision)
         .str("contractSemver", b.contractSemver)
+        .raw("approvedBy", b.approvedBy?.let { approver(it) } ?: "null")
         .raw("review", b.review?.let { review(it) } ?: "null")
         // **이미 계산되는 값이다.** 읽는 쪽이 같은 사건을 두 번 받았는지 가르는 유일한 결정적 열쇠다.
         .str("digest", b.digest())
@@ -130,6 +131,11 @@ object LedgerExport {
         .str("kind", e.kind)
         .str("detail", e.detail)
         .bool("local", e.local)
+        .done()
+
+    private fun approver(a: Approver): String = Obj()
+        .str("id", a.id)
+        .str("kind", a.kind.name)
         .done()
 
     private fun review(r: IncidentReview): String = Obj()
