@@ -1,0 +1,15 @@
+{
+  "entitlements": [
+    {
+      "approverId": "narrator-1",
+      "robotIds": ["hum-02", "hum-04"],
+      "expiresAt": "2099-01-01T00:00:00Z",
+      "actions": [
+        {
+          "skillType": "pick_place",
+          "parameters": { "destination": "DROP-01" }
+        }
+      ]
+    }
+  ]
+}

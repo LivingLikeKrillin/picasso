@@ -28,6 +28,7 @@ import dev.picasso.mimic.engine.TaskRuntime
 import dev.picasso.mimic.engine.TaskTransition
 import dev.picasso.mimic.engine.TaskUpdate
 import io.grpc.Status
+import io.grpc.stub.ServerCallStreamObserver
 import io.grpc.stub.StreamObserver
 import java.time.format.DateTimeFormatter
 
@@ -309,11 +310,26 @@ class TaskServiceImpl(
         return hosted to result
     }
 
-    /** 열려 있는 스트림에 **아직 안 보낸 것 전부**를 민다. 종착이면 닫는다. */
+/**
+     * 열려 있는 스트림에 **아직 안 보낸 것 전부**를 민다. 종착이면 닫는다.
+     *
+     * **떠난 소비자를 먼저 지운다.** 취소된 스트림에 밀면 gRPC 가 `CANCELLED` 로 던지고,
+     * 그 예외가 [settleAll] 을 통째로 끊어 **다른 기체의 시간까지 멈춘다** — 한 소비자가
+     * 떠났다는 사실이 세계를 세우는 것이고, 결함이 실패가 아니라 정지로 나타난다.
+     *
+     * 시험에서는 안 보였다. 기다리던 것이 오면 곧 끝나므로 그 다음 전진이 없었다.
+     * 오래 도는 구동기(`ScenarioHost`)에서 드러났다.
+     */
     private fun publish(hosted: RobotRegistry.Hosted, taskId: String) {
         val key = hosted.instance.robotId to taskId
         val open = watchers[key] ?: return
         val task = hosted.instance.tasks.find(taskId) ?: return
+
+        open.removeAll { it.observer.departed }
+        if (open.isEmpty()) {
+            watchers.remove(key)
+            return
+        }
 
         open.forEach { watcher ->
             task.log.from(watcher.nextIndex).forEach {
@@ -326,6 +342,10 @@ class TaskServiceImpl(
             watchers.remove(key)
         }
     }
+
+/** 이 소비자가 스트림을 **취소했는가**. 취소한 쪽에 밀면 gRPC 가 던진다. */
+    private val StreamObserver<WatchTaskResponse>.departed: Boolean
+        get() = this is ServerCallStreamObserver<*> && isCancelled
 
     private fun responseOf(
         hosted: RobotRegistry.Hosted,

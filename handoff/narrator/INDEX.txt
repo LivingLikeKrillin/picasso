@@ -36,3 +36,25 @@ at 은 가상 시계, wallClockAt 은 실 시계다. 두 벌에서 at 은 같고
 
 이 한 벌은 스냅샷이라 낡을 수 있다. 인코더가 칸을 늘리거나 줄이면
 `HandoffFixtureTest` 가 빨개진다 — 그때 build/export 에서 다시 복사해 온다.
+
+
+entitlements.json  이 데모가 읽는 자격 선언 목록
+  누가 무엇을 어느 기체에 자동 승인할 수 있는지가 여기 적혀 있다. 값(destination)도 여기서 온다 —
+  대상(object_id)은 선언에 없고 기체의 관측에서 온다. 지어내는 갈래는 없다(ADR 44).
+
+승인을 실제로 걸어 보려면 (picasso 저장소에서)
+  ./gradlew :picasso:runApprovalHost --args="--port 8770 --seconds 1800"
+  POST http://127.0.0.1:8770/approvals   루프백 전용. 신원을 인증하지 않는다(§15.3)
+
+  보낼 것은 이것뿐이다. 값도 주문도 걸음도 실을 칸이 없다.
+    {"approverId":"narrator-1","approverKind":"AGENT","robotId":"hum-02",
+     "jobOrderId":"PATROL-APPROVES","sawSkillTypes":["pick_place"]}
+
+  서 있는 자리 넷 — 거절마다 다음 행동이 다르므로 값으로 봐야 갈린다.
+    hum-02 / PATROL-APPROVES       → APPROVED. steps 에 실린 값이 돌아온다
+    hum-04 / PATROL-WITHHELD       → REFUSED / WITHHELD
+    hum-05 / PATROL-OUT-OF-SCOPE   → REFUSED / ROBOT_OUT_OF_SCOPE
+    hum-03 / PATROL-NO-REMEDY      → REFUSED / NO_PROPOSAL
+
+  거절은 200 이다. 400 은 못 읽는 요청뿐이고 그때만 {"error": ...} 가 온다.
+  두 대장은 picasso/build/export/live 에 계속 나간다 — 읽기 경로는 안 바뀌었다.
