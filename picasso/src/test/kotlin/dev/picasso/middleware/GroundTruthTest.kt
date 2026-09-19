@@ -75,7 +75,8 @@ class GroundTruthTest {
         rows().forEach { row ->
             val id = row.getValue("incidentId").stringValue
             val line = assertNotNull(incidents[id])
-            val leaked = (words(row, "cause") + words(row, "distractors")).filter { it in line }
+            val leaked = (words(row, "cause") + words(row, "distractors") + words(row, "candidates"))
+                .filter { it in line }
             assertEquals(emptyList(), leaked, "$id 의 번들이 정답의 말을 싣고 있다")
         }
     }
@@ -89,6 +90,53 @@ class GroundTruthTest {
             val code = row.getValue("vendorCode").stringValue
             assertTrue(code in corpus, "벤더 문서가 이 코드를 안 푼다: $code (${STOP_CODES.fileName})")
         }
+    }
+
+    @Test
+    fun `우리 문서를 그대로 인용한 답이 정답표에 걸린다`() {
+        // ★★**이것이 실제로 틀렸던 자리다.** 정답표가 완결 종결형(«안 좁혀진다»)만 들고 있었는데
+        //   문서는 명사형(«안 좁혀짐»)과 합쇼체(«좁혀지지 않습니다»)를 쓴다. 읽는 쪽이 우리 문서의
+        //   표를 그대로 인용했는데 우리가 오답으로 셌다 — 네 판 중 셋이 그렇게 빗나갔다.
+        //
+        //   ★어미가 아니라 **줄기**로 적어야 한다. 그리고 문서의 표현이 바뀌면 이 시험이 먼저 빨개져
+        //   정답표를 같이 고치게 한다 — 둘이 따로 움직이면 같은 일이 또 난다.
+        val corpus = Files.readString(STOP_CODES)
+        val cause = rows().single { !it.getValue("narrowable").boolValue }.let { words(it, "cause") }
+
+        DOC_PHRASINGS.forEach { phrasing ->
+            assertTrue(phrasing in corpus, "문서가 이 표현을 더는 안 쓴다 — 목록이 낡았다: $phrasing")
+            assertTrue(
+                cause.any { it in phrasing },
+                "우리 문서의 «$phrasing» 를 그대로 인용한 답이 정답표에 안 걸린다: $cause",
+            )
+        }
+    }
+
+    @Test
+    fun `실제로 돌려 본 답들이 정답표에 걸린다`() {
+        // 읽는 쪽이 E9001 을 네 판 돌렸고 넷 다 옳은 답이었는데 하나만 걸렸다(2026-09-19 보고).
+        // 그 넷을 그대로 박아 둔다 — 목록을 다시 좁히면 여기서 걸린다.
+        val cause = rows().single { !it.getValue("narrowable").boolValue }.let { words(it, "cause") }
+
+        OBSERVED_ANSWERS.forEach { answer ->
+            assertTrue(cause.any { it in answer }, "옳은 답이 정답표에 안 걸린다: «$answer» / $cause")
+        }
+    }
+
+    @Test
+    fun `안 좁혀지는 사건의 후보는 오답 후보가 아니다`() {
+        // ★정답이 그 둘을 **이름으로 부른다.** 오답 후보로 세면 정답이 벌점을 받는다 — 틀린 것은
+        //  둘을 부르는 것이 아니라 **하나만 단정하는 것**이고, 그 구분이 두 칸으로 나뉜 이유다.
+        val row = rows().single { !it.getValue("narrowable").boolValue }
+        val candidates = words(row, "candidates")
+        val distractors = words(row, "distractors")
+
+        assertTrue(candidates.size >= 2, "안 좁혀지는데 후보가 둘 미만이다: $candidates")
+        assertEquals(emptyList(), candidates.filter { it in distractors }, "후보를 오답 후보로도 세고 있다")
+        assertTrue(
+            row.getValue("why").stringValue.contains("하나만 단정하면 오답"),
+            "어떻게 채점해야 하는지가 사유에 없다",
+        )
     }
 
     @Test
@@ -133,5 +181,20 @@ class GroundTruthTest {
         val HANDOFF: Path = Path.of("..", "handoff", "narrator").normalize()
         val GROUND_TRUTH: Path = HANDOFF.resolve("ground-truth.jsonl")
         val STOP_CODES: Path = Path.of("..", "docs", "vendors", "fixture-stop-codes.md").normalize()
+
+        /** 우리 문서가 «안 좁혀진다» 를 말하는 모양들. 인용하면 걸려야 한다. */
+        val DOC_PHRASINGS = listOf(
+            "안 좁혀짐",
+            "하나로 좁혀지지 않습니다",
+            "코드가 그 둘을 가르지 않음",
+        )
+
+        /** 읽는 쪽이 2026-09-19 에 네 판 돌려 받은 답. 넷 다 옳았고 셋이 우리 표에서 빗나갔다. */
+        val OBSERVED_ANSWERS = listOf(
+            "좁히는 것이 불가능합니다",
+            "안 좁혀진다",
+            "안 좁혀짐",
+            "원인이 하나로 좁혀지지 않습니다",
+        )
     }
 }
