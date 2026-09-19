@@ -51,7 +51,9 @@ tasks.withType<Test>().configureEach {
         rootProject.file("handoff"),
         // 정답표가 가리키는 정지 코드를 코퍼스가 푸는지 `GroundTruthTest` 가 읽는다. 선언 안 하면
         // 문서에서 코드를 지워도 태스크가 UP-TO-DATE 로 건너뛰고 «코퍼스가 푼다» 가 초록으로 남는다.
-        rootProject.file("docs/vendors"),
+        // 정답의 말이 어느 문서로 새는지를 `GroundTruthTest` 가 `docs` 전부에서 훑는다.
+        // 좁게 선언하면 새 문서가 생겨도 태스크가 UP-TO-DATE 로 건너뛰어 누수가 안 보인다.
+        rootProject.file("docs"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
