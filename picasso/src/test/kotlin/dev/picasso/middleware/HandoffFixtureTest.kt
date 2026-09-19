@@ -86,16 +86,70 @@ class HandoffFixtureTest {
     fun `두 벌의 해시가 같고 구동 식별자만 다르다`() {
         // ★이것이 `runId` 가 존재하는 이유다. 받는 쪽이 이 두 벌로 «둘째 구동이 새 사건으로 들어온다» 를
         //   회귀로 박으므로, 두 벌이 이 성질을 잃으면 그 회귀가 아무것도 안 막는다.
-        val digests = RUNS.map { run ->
+        //
+        // **재실행 쌍에만 건다.** `run-3` 은 재실행이 아니라 다른 시나리오이고, 여기에 끼면 이 시험이
+        // «같은 시드의 두 구동» 이 아니라 «모든 벌이 같다» 를 주장하게 된다.
+        val digests = REPLAY.map { run ->
             lines(run, LedgerExport.INCIDENTS).map { parse(it).getValue("digest").stringValue }
         }
-        val runIds = RUNS.map { run ->
+        val runIds = REPLAY.map { run ->
             parse(Files.readString(HANDOFF.resolve(run).resolve(LedgerExport.MANIFEST))).getValue("runId").stringValue
         }
 
         assertTrue(digests[0].isNotEmpty(), "인계한 한 벌에 사건이 없다")
         assertEquals(digests[0], digests[1], "두 벌의 해시가 갈렸다 — 같은 시드의 두 구동이 아니다")
         assertNotEquals(runIds[0], runIds[1], "두 벌의 구동 식별자가 같다")
+    }
+
+    @Test
+    fun `안내문이 대는 구동 식별자가 커밋된 한 벌의 것과 같다`() {
+        // ★**한 번 낡았던 자리다.** 한 벌을 다시 산출하면서 `INDEX.txt` 의 값만 안 고쳐, 받는 쪽이
+        //   읽는 안내문이 없는 구동을 가리키고 있었다. 칸과 판을 대는 검사는 **값을 안 보므로**
+        //   (그게 설계다) 이 어긋남에 아무도 안 빨개진다 — 그래서 여기서 값을 댄다.
+        //
+        //   둘 다 커밋된 파일이라 같이 움직인다. 유지비는 «한 벌을 갱신하면 안내문도 갱신한다» 하나이고,
+        //   그건 어차피 해야 하는 일이다.
+        val index = Files.readString(HANDOFF.resolve("INDEX.txt"))
+        RUNS.forEach { run ->
+            val runId = parse(Files.readString(HANDOFF.resolve(run).resolve(LedgerExport.MANIFEST)))
+                .getValue("runId").stringValue
+            assertTrue(runId in index, "$run 의 구동 식별자가 안내문에 없다: $runId")
+        }
+    }
+
+    @Test
+    fun `재발이 있는 한 벌이 두 축으로 갈리고 같은 초에 겹치지 않는다`() {
+        // ★**재발은 읽는 쪽이 센다** — 이 층은 사실만 낸다(ADR 40). 그런데 재실행 쌍은 한 벌 안에
+        //   같은 기체·같은 분류가 없어 그 셈법이 **실물로는 한 번도 안 밟힌다.** `run-3` 이 그 자리이고,
+        //   이 시험이 없으면 시나리오를 고치다 재발이 사라져도 아무도 모른다.
+        val incidents = lines(RECURRENCE, LedgerExport.INCIDENTS).map { parse(it) }
+        assertTrue(incidents.isNotEmpty(), "재발 한 벌에 사건이 없다")
+
+        val byRobotAndClass = incidents.groupingBy {
+            it.getValue("robotId").stringValue to it.getValue("failureClass").stringValue
+        }.eachCount()
+        val repeated = byRobotAndClass.filterValues { it >= 3 }
+        assertEquals(1, repeated.size, "같은 기체·같은 분류가 셋인 묶음이 하나가 아니다: $byRobotAndClass")
+
+        val (robot, failureClass) = repeated.keys.first()
+        val rows = incidents.filter {
+            it.getValue("robotId").stringValue == robot && it.getValue("failureClass").stringValue == failureClass
+        }
+
+        // ★**같은 초에 둘이 들어오면 읽는 쪽이 그 둘 사이의 재발을 안 센다.** 가상 시계가 초 단위라
+        //   앞뒤를 못 가르고, 그쪽은 덜 세는 쪽으로 틀린다 — 한 벌이 재발을 싣고도 재발로 안 읽힌다.
+        val at = rows.map { it.getValue("at").stringValue }
+        assertEquals(at.size, at.toSet().size, "같은 초에 겹친 사건이 있다: $at")
+
+        // 축이 둘이다 — 기체 축과 자리 축. 자리가 전부 다르면 «같은 자리에서 또» 가 한 번도 안 나온다.
+        val places = rows.groupingBy { it.getValue("unitId").stringValue }.eachCount()
+        assertEquals(1, places.count { it.value == 2 }, "같은 자리에서 두 번 깨진 자리가 하나가 아니다: $places")
+
+        // **재발이 없는 사건이 있어야 그 셈이 무언가를 가린다.** 전부 재발이면 그 칸은 늘 켜져 있다.
+        assertTrue(
+            incidents.size > rows.size,
+            "재발이 없는 사건이 없다 — 재발 여부가 아무것도 안 가른다",
+        )
     }
 
     @Test
@@ -165,7 +219,15 @@ class HandoffFixtureTest {
 
     companion object {
         private val HANDOFF: Path = Path.of("..", "handoff", "narrator").normalize()
-        private val RUNS = listOf("run-1", "run-2")
+
+        /** **같은 시드를 두 번 돌린 쌍.** 해시가 같고 `runId` 만 다른 것이 이 둘의 존재 이유다. */
+        private val REPLAY = listOf("run-1", "run-2")
+
+        /** 재발이 실제로 일어나는 한 벌. 재실행이 아니라 **다른 시나리오**다. */
+        private const val RECURRENCE = "run-3"
+
+        /** 인계 지점의 모든 벌. 칸과 판을 대는 검사는 전부에 건다. */
+        private val RUNS = REPLAY + RECURRENCE
         private val AT: Instant = Instant.parse("2026-09-05T00:03:21Z")
 
         private val STEP = RemedyStep("pick_place", emptyList(), HoldKind.HOLD_KIND_EMPTY, HoldKind.HOLD_KIND_HOLDING)

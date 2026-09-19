@@ -25,7 +25,10 @@ import kotlin.test.assertTrue
  * 같은 시나리오를 **두 번** 돌린다. 두 벌의 해시가 같고 구동 식별자만 다른 것이 `runId` 가 존재하는
  * 이유 그 자체이고, 읽는 쪽은 그 두 벌로 «두 번째 구동이 새 사건으로 들어온다» 를 회귀로 박는다.
  *
- * 산출물은 `picasso/build/export/run-1` · `run-2` 다.
+ * **`run-3` 은 재실행이 아니라 다른 시나리오다.** 같은 기체가 같은 분류로 거듭 깨지는 한 벌이고,
+ * 앞의 두 벌과 달리 한 벌 안에서 재발이 실제로 일어난다([recurrence]).
+ *
+ * 산출물은 `picasso/build/export/run-1` · `run-2` · `run-3` 이다.
  */
 class ExportFixtureTest {
 
@@ -219,6 +222,62 @@ class ExportFixtureTest {
         }
     }
 
+    /**
+     * **재발이 있는 한 벌**(`run-3`). 같은 기체가 같은 분류로 셋, 그중 둘은 같은 자리에서.
+     *
+     * 재발은 **읽는 쪽이 센다** — 이 층은 사실만 낸다(ADR 40). 그런데 두 벌(`run-1`·`run-2`)은 같은
+     * 시드의 재실행이라 한 벌 안에 같은 기체·같은 분류가 없고, 그래서 그 셈법이 **시험으로는 서고
+     * 실물로는 한 번도 안 밟혔다.** 읽는 쪽이 「센다」고 적으려면 밟히는 한 벌이 있어야 한다.
+     *
+     * **재발이 없는 사건도 하나 넣는다.** 전부 재발이면 그 셈이 늘 0 보다 커서, 값이 있어도 아무것도
+     * 가려 주지 않는다 — 경로가 한 갈래뿐이던 자리와 같은 병이다(§15.177·§15.178).
+     *
+     * **앞의 둘은 `SKILL_EXECUTION_FAILED` 로 깨뜨린다.** 벤더 원문 쪽(`X_FIXTURE_GRIPPER_SLIP`)은
+     * `can_accept_new_task: false` · `UNTIL_CLEARED` 라 재작업이 안 나간다. 분류는 둘 다 `GRASP_FAILED`
+     * 이므로 재발의 축은 그대로이고, 벤더 원문은 재작업이 필요 없는 셋째가 든다.
+     */
+    private fun recurrence(w: World) {
+        // ① 같은 자리의 첫 번째.
+        val exec = w.holdingRack(RECUR_ROBOT)
+        val slot = exec.units.first().unitId
+        w.forceFault(RECUR_ROBOT, "SKILL_EXECUTION_FAILED", exec.units.first().taskId)
+        w.drive(rounds = 250) { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+
+        // ② 사람이 재작업을 내고 **같은 자리가 다시 깨진다.** 재작업은 새 태스크이므로 같은 단위가
+        //    두 번 사건을 연다 — 자리 축의 재발이 여기서 생긴다.
+        //
+        //    ★**파지로는 이 자리를 못 기다린다.** 앞 사건의 잔여 파지가 이미 `HOLDING` 이라 그 조건은
+        //      새 태스크가 뜨기 전에 참이고, 그때 결함을 밀면 미믹이 `ACCEPTED` 라며 되돌린다.
+        //      기다릴 것은 **새 태스크가 도는 것**이다(실측).
+        val firstTask = exec.units.first().taskId
+        assertTrue(w.mw.resolve(exec.executionId, slot, OperatorDecision.REWORK), "재작업이 안 받아졌다")
+        w.drive(rounds = 250) {
+            val task = exec.units.first().taskId
+            task.isNotBlank() && task != firstTask &&
+                w.mw.view(RECUR_ROBOT)?.tasks?.get(task) == TaskState.TASK_STATE_RUNNING
+        }
+        w.forceFault(RECUR_ROBOT, "SKILL_EXECUTION_FAILED", exec.units.first().taskId)
+        w.drive(rounds = 250) { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+
+        // **자리를 놓아야 기체가 다음 주문을 받는다.** `OPERATOR_HOLD` 는 종착이 아니라 점유도 파지도
+        // 그대로이고, 기체는 태스크를 하나씩만 든다(§15.98).
+        assertTrue(w.mw.resolve(exec.executionId, slot, OperatorDecision.CONFIRM_DONE), "확인이 안 받아졌다")
+        w.drive(rounds = 250) { exec.physicalState.isSettled }
+
+        // ③ 같은 기체·같은 분류, **다른 자리.** 기체 축은 셋이고 자리 축은 둘이라 두 축이 갈린다.
+        val next = w.holdingRack(RECUR_ROBOT)
+        w.forceFault(RECUR_ROBOT, "X_FIXTURE_GRIPPER_SLIP", next.units.first().taskId)
+        w.drive(rounds = 250) { next.physicalState == PhysicalState.OPERATOR_HOLD }
+
+        // ④ **재발이 없는 사건.** 다른 기체이고 다른 분류다.
+        val patrolled = assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol("PATROL-9"), SILENT_ROBOT)).execution
+        w.drive {
+            w.mw.view(SILENT_ROBOT)?.tasks?.get(patrolled.units.first().taskId) == TaskState.TASK_STATE_RUNNING
+        }
+        w.forceFault(SILENT_ROBOT, "LOCALIZATION_LOST", patrolled.units.first().taskId)
+        w.drive(rounds = 250) { patrolled.physicalState == PhysicalState.OPERATOR_HOLD }
+    }
+
     private fun write(w: World, dir: Path) {
         Files.createDirectories(dir)
         val incidents = w.mw.incidents()
@@ -307,6 +366,40 @@ class ExportFixtureTest {
         assertNotEquals(runIds[0], runIds[1], "두 구동의 식별자가 같다")
     }
 
+    @Test
+    fun `재발이 있는 한 벌을 낸다`() {
+        val dir = Path.of("build", "export", "run-3")
+        World().use { w ->
+            recurrence(w)
+            write(w, dir)
+
+            val incidents = w.mw.incidents()
+            val repeated = incidents.filter { it.robotId == RECUR_ROBOT && it.failureClass == "GRASP_FAILED" }
+            assertEquals(3, repeated.size, "같은 기체·같은 분류가 셋이 아니다: ${incidents.map { it.robotId to it.failureClass }}")
+
+            // ★**같은 초에 둘이 들어오면 읽는 쪽이 그 둘 사이의 재발을 안 센다.** 가상 시계가 초
+            //   단위라 앞뒤를 못 가르고, 그쪽은 덜 세는 쪽으로 틀린다 — 그러면 이 한 벌이 재발을
+            //   싣고도 재발로 안 읽힌다.
+            val seconds = repeated.map { it.at.epochSecond }
+            assertEquals(seconds.size, seconds.toSet().size, "같은 초에 겹친 사건이 있다: $seconds")
+
+            // 축이 둘이다 — 기체 축은 셋, 자리 축은 둘. 자리가 전부 다르면 «같은 자리에서 또» 가 안 나온다.
+            val places = repeated.groupingBy { it.unitId }.eachCount()
+            assertEquals(
+                1,
+                places.count { it.value == 2 },
+                "같은 자리에서 두 번 깨진 자리가 하나가 아니다: $places",
+            )
+
+            // ★**재발이 없는 사건이 있어야 그 셈이 무언가를 가린다.** 전부 재발이면 그 칸은 늘 켜져
+            //   있어 아무것도 안 가르고, 읽는 쪽은 자기 셈이 도는지조차 모른다(§15.177).
+            assertTrue(
+                incidents.any { it.robotId != RECUR_ROBOT && it.failureClass != "GRASP_FAILED" },
+                "재발이 없는 사건이 없다: ${incidents.map { it.robotId to it.failureClass }}",
+            )
+        }
+    }
+
     companion object {
         const val FOUND_ROBOT = "hum-02"
         const val NONE_ROBOT = "hum-03"
@@ -317,6 +410,13 @@ class ExportFixtureTest {
         const val CODE_ROBOT_A = "hum-08"
         const val CODE_ROBOT_B = "hum-09"
         const val CODE_ROBOT_C = "hum-10"
+
+        /**
+         * 재발을 내는 기체(`run-3`). 벤더 원문 모드를 든 픽스처라 셋째 사건이 원문을 싣는다.
+         * `run-1` 의 `GRASP_FAILED` 사건과 같은 기체·같은 픽스처다 — 읽는 쪽이 두 벌을 견줄 때
+         * 달라진 것이 **재발뿐**이어야 한다.
+         */
+        const val RECUR_ROBOT = OTHER_ROBOT
 
         val AGENT = Approver("narrator-1", ApproverKind.AGENT)
         private val FAR: Instant = Instant.parse("2099-01-01T00:00:00Z")
