@@ -49,6 +49,9 @@ tasks.withType<Test>().configureEach {
         // 인계 지점의 한 벌을 `HandoffFixtureTest` 가 읽는다. 선언 안 하면 그 파일이 바뀌어도
         // 태스크가 UP-TO-DATE 로 건너뛰고, 낡은 한 벌이 초록인 채로 나간다(CLAUDE.md 2-4).
         rootProject.file("handoff"),
+        // 정답표가 가리키는 정지 코드를 코퍼스가 푸는지 `GroundTruthTest` 가 읽는다. 선언 안 하면
+        // 문서에서 코드를 지워도 태스크가 UP-TO-DATE 로 건너뛰고 «코퍼스가 푼다» 가 초록으로 남는다.
+        rootProject.file("docs/vendors"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

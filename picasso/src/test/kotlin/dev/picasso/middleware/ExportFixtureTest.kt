@@ -40,8 +40,11 @@ class ExportFixtureTest {
                 NONE_ROBOT to NO_REMEDY,
                 OTHER_ROBOT to VENDOR_FAULT,
                 SILENT_ROBOT to PRECOND,
-                UNMAPPED_ROBOT to PRECOND,
+                UNMAPPED_ROBOT to OPAQUE,
                 CUT_ROBOT to PRECOND,
+                CODE_ROBOT_A to OPAQUE,
+                CODE_ROBOT_B to OPAQUE,
+                CODE_ROBOT_C to OPAQUE,
             ),
         )
         val cell = CellMimic(now = { harness.clock.now() })
@@ -174,16 +177,16 @@ class ExportFixtureTest {
         w.forceFault(SILENT_ROBOT, "LOCALIZATION_LOST", patrolled.units.first().taskId)
         w.drive(rounds = 250) { patrolled.physicalState == PhysicalState.OPERATOR_HOLD }
 
-        // ⑥ **안 좁혀지는 사건** — 분류가 `UNCLASSIFIED` 다. 한 벌에 이것이 없으면 읽는 쪽의 «1순위
-        //    원인» 지표가 언제나 맞는 답만 보게 되고, 그 지표는 아무것도 재지 않는다. 합성이라
-        //    주입한 쪽이 정답을 안다.
+        // ⑥ **원인이 하나로 안 좁혀지는 사건.** 코드 하나에 서로 다른 두 원인이 묶여 있고, 코드가
+        //    그 둘을 안 가른다(`fixture-stop-codes.md` §4). 전부 좁혀지면 «안 좁혀진다» 가 한 번도
+        //    정답이 되지 않아 그 답을 낼 줄 아는지 잴 수가 없다.
         //    **둘째 걸음에서 깨뜨린다** — 첫 걸음이 끝난 뒤라 「몇 걸음 중 어디서」가 1 이 아니고
         //    끝난 단위 목록도 비지 않는다.
         val unmapped = w.holdingRack(UNMAPPED_ROBOT, slots = 2)  // @formatter:off
         w.drive(rounds = 400) {
             unmapped.completedUnits.isNotEmpty() && unmapped.units[1].hold.kind == HoldKind.HOLD_KIND_HOLDING
         }
-        w.forceFault(UNMAPPED_ROBOT, "X_FIXTURE_SIMULATED_HARDWARE_FAULT", unmapped.units[1].taskId)
+        w.forceFault(UNMAPPED_ROBOT, "X_FIXTURE_E9001", unmapped.units[1].taskId)
         w.drive(rounds = 250) { unmapped.physicalState.isSettled || unmapped.physicalState == PhysicalState.OPERATOR_HOLD }
 
         // ⑦ **플릿의 일** — 출발지에 요청한 용기가 없어 인수되지 않는다. 경로가 `FLEET` 인 사건이
@@ -198,6 +201,22 @@ class ExportFixtureTest {
         w.mw.pump()
         w.forceFault(CUT_ROBOT, "PAYLOAD_LOST", cut.units.first().taskId)
         w.drive(rounds = 250) { w.mw.incidents().any { it.executionId == cut.executionId } }
+
+        // ⑨ **원인이 번들에 없는 사건 셋.** 정지 코드만 실리고 그 뜻은 벤더 문서에만 있다.
+        //
+        //    ★**코드 이름이 원인을 말하면 안 된다.** 말하면 답이 입력을 복창하기만 해도 맞고,
+        //      읽는 쪽의 «1순위 원인» 지표가 그 자리에서 무의미해진다(§15.179). 주입한 쪽은
+        //      무엇을 넣었는지 알고, 그 정답은 번들이 아니라 `handoff/narrator/ground-truth.jsonl`
+        //      로 따로 나간다.
+        listOf(
+            CODE_ROBOT_A to "X_FIXTURE_E4412",
+            CODE_ROBOT_B to "X_FIXTURE_E2075",
+            CODE_ROBOT_C to "X_FIXTURE_E6130",
+        ).forEach { (robotId, code) ->
+            val held = w.holdingRack(robotId)
+            w.forceFault(robotId, code, held.units.first().taskId)
+            w.drive(rounds = 250) { w.mw.incidents().any { it.executionId == held.executionId } }
+        }
     }
 
     private fun write(w: World, dir: Path) {
@@ -295,6 +314,9 @@ class ExportFixtureTest {
         const val SILENT_ROBOT = "hum-05"
         const val UNMAPPED_ROBOT = "hum-06"
         const val CUT_ROBOT = "hum-07"
+        const val CODE_ROBOT_A = "hum-08"
+        const val CODE_ROBOT_B = "hum-09"
+        const val CODE_ROBOT_C = "hum-10"
 
         val AGENT = Approver("narrator-1", ApproverKind.AGENT)
         private val FAR: Instant = Instant.parse("2099-01-01T00:00:00Z")
@@ -326,6 +348,13 @@ class ExportFixtureTest {
 
         private val PRECOND: Path = Path.of("..", "profile", "fixtures", "precondition.json").normalize()
         private val NO_REMEDY: Path = Path.of("..", "profile", "fixtures", "no-remedy.json").normalize()
+
+        /**
+         * **불투명한 정지 코드**만 내는 픽스처. 코드 자체는 아무것도 말하지 않고 뜻은
+         * `docs/vendors/fixture-stop-codes.md` 에만 있다 — 읽는 쪽이 번들을 되읽는 대신 코퍼스로
+         * 좁혀야 하는 자리를 이것이 만든다(§15.179).
+         */
+        private val OPAQUE: Path = Path.of("..", "profile", "fixtures", "opaque-fault.json").normalize()
 
         /**
          * 벤더 이름공간의 결함 모드를 하나 더 든 픽스처.
