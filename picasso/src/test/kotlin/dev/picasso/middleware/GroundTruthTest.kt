@@ -113,13 +113,18 @@ class GroundTruthTest {
     }
 
     @Test
-    fun `실제로 돌려 본 답들이 정답표에 걸린다`() {
-        // 읽는 쪽이 E9001 을 네 판 돌렸고 넷 다 옳은 답이었는데 하나만 걸렸다(2026-09-19 보고).
-        // 그 넷을 그대로 박아 둔다 — 목록을 다시 좁히면 여기서 걸린다.
-        val cause = rows().single { !it.getValue("narrowable").boolValue }.let { words(it, "cause") }
-
-        OBSERVED_ANSWERS.forEach { answer ->
-            assertTrue(cause.any { it in answer }, "옳은 답이 정답표에 안 걸린다: «$answer» / $cause")
+    fun `정답표의 말은 전부 우리 문서에서 나온다`() {
+        // ★★**답을 보고 정답을 넓히면 그 표는 곧 그 답에 맞춘 표가 된다.** 한 번 그렇게 했다 —
+        //   네 판을 보고 여덟 낱말을 더했고, 그중 여덟이 우리 문서에 없는 말이었다. 다음 판에서
+        //   또 새면 또 넓히게 되고, 그때 그 표가 재는 것은 모델이 아니라 그동안 본 답들이다.
+        //
+        //   그래서 **유래를 건다.** 정답표의 말은 우리가 코퍼스로 내는 문서에 실제로 있어야 한다.
+        //   못 걸리는 표현이 남는 것은 이 방식의 대가이고, 그 차이는 평가표에 적는 것이 맞다(§15.180).
+        val corpus = Files.readString(STOP_CODES)
+        rows().forEach { row ->
+            val id = row.getValue("incidentId").stringValue
+            val outside = words(row, "cause").filterNot { it in corpus }
+            assertEquals(emptyList(), outside, "$id 의 정답표에 우리 문서에 없는 말이 있다")
         }
     }
 
@@ -168,6 +173,26 @@ class GroundTruthTest {
     }
 
     @Test
+    fun `정답의 말이 새는 문서가 늘지 않는다`() {
+        // ★**번들만 봐서는 못 잡는 누수다.** 읽는 쪽은 코퍼스를 검색하므로, 정답의 이유가 적힌
+        //  문서가 코퍼스에 있으면 벤더 문서를 안 읽고도 답이 나온다 — 근거로 좁힌 것이 아니라
+        //  설계 문서를 되읽은 것이고, 그 둘을 가르려고 만든 사건에서 그 구분이 사라진다.
+        //
+        //  설계 일지는 **지울 수 없는 기록**이라 면제로 적는다. 여기서 막는 것은 **넷째가 생기는 것**이다.
+        val row = rows().single { !it.getValue("narrowable").boolValue }
+        val words = words(row, "cause") + words(row, "candidates")
+
+        val leaking = Files.walk(DOCS).use { paths ->
+            paths.filter { it.toString().endsWith(".md") }
+                .filter { path -> words.any { it in Files.readString(path) } }
+                .map { DOCS.parent.relativize(it).joinToString("/") }
+                .sorted()
+                .toList()
+        }
+        assertEquals(KNOWN_LEAKS, leaking.toSet(), "정답의 말이 새는 문서가 달라졌다")
+    }
+
+    @Test
     fun `사람이 읽을 사유가 비어 있지 않다`() {
         // 정답을 또 잘못 짰는지 사람이 검토할 수 있어야 한다. 낱말 목록만으로는 그 검토가 안 된다.
         rows().forEach { row ->
@@ -189,12 +214,16 @@ class GroundTruthTest {
             "코드가 그 둘을 가르지 않음",
         )
 
-        /** 읽는 쪽이 2026-09-19 에 네 판 돌려 받은 답. 넷 다 옳았고 셋이 우리 표에서 빗나갔다. */
-        val OBSERVED_ANSWERS = listOf(
-            "좁히는 것이 불가능합니다",
-            "안 좁혀진다",
-            "안 좁혀짐",
-            "원인이 하나로 좁혀지지 않습니다",
+/**
+         * **정답의 말이 새는 것이 이미 확인된 문서들**(§15.181). 설계 일지는 골든셋을 왜 그렇게
+         * 만들었는지를 적으며 그 과정에서 답을 다시 말하고, 일지는 지우지 않는 기록이다. 넷째가
+         * 생기면 아래 시험이 잡는다.
+         */
+        val KNOWN_LEAKS = setOf(
+            "docs/vendors/fixture-stop-codes.md",
+            "docs/superpowers/specs/2026-09-05-picasso-design.md",
         )
+
+        val DOCS: Path = Path.of("..", "docs").normalize()
     }
 }
