@@ -10,7 +10,7 @@ class CompletionCriterionTest {
         // **세어서 적은 것을 다시 센다.** 자리가 늘거나 줄면 이 수가 먼저 빨개지고,
         // 그때 스펙 §2 를 다시 읽어야 한다.
         val docs = ClaimSurface.documents()
-        assertEquals(56, docs.size, docs.joinToString("\n") { ClaimSurface.relative(it) })
+        assertEquals(57, docs.size, docs.joinToString("\n") { ClaimSurface.relative(it) })
     }
 
     @Test
