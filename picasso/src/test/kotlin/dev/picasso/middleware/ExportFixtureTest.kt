@@ -220,6 +220,18 @@ class ExportFixtureTest {
             w.forceFault(robotId, code, held.units.first().taskId)
             w.drive(rounds = 250) { w.mw.incidents().any { it.executionId == held.executionId } }
         }
+
+        // ⑩ **점유 축이 계산한 회복** — 출발 자리가 비었고 그 자재를 든 다른 자리가 있다.
+        //
+        //    이 거절은 실행을 만들지 않으므로 사건이 아니라 탐색 대장에 남는다(§15.164 와 같은 자리).
+        //    ★**맨 끝에 둔다.** 거절은 시계를 안 돌리고 실행도 제안도 안 만들므로, 앞선 사건 아홉의
+        //      시각과 해시가 그대로다 — 받는 쪽의 회귀가 이 변경으로 흔들리지 않는다.
+        //
+        //    ★**자재를 따로 쓴다.** 랙 시나리오의 자재를 그대로 쓰면 앞서 프로그램한 목적지들이 전부
+        //      «그 자재를 든 자리» 로 나와 제시 목록이 무엇을 뜻하는지 안 보인다.
+        w.cell.empty(RELOCATE_SOURCE)
+        w.cell.program(RELOCATE_ALTERNATIVE, RELOCATE_MATERIAL)
+        assertIs<Middleware.Submission.Rejected>(w.mw.submit(relocate(), NONE_ROBOT))
     }
 
     /**
@@ -317,11 +329,12 @@ class ExportFixtureTest {
                 scenario(w)
                 write(w, dir)
                 digests += w.mw.incidents().map { it.digest() }
-                outcomes += w.mw.remedySearches().map {
-                    when (it.outcome) {
+                outcomes += w.mw.remedySearches().map { record ->
+                    when (val outcome = record.outcome) {
                         is RemedyOutcome.Found -> "FOUND"
-                        is RemedyOutcome.None -> "NONE:${(it.outcome as RemedyOutcome.None).cause.name}"
+                        is RemedyOutcome.None -> "NONE:${outcome.cause.name}"
                         RemedyOutcome.Withheld -> "WITHHELD"
+                        is RemedyOutcome.SourceMissing -> "SOURCE_MISSING"
                     }
                 }
                 approvers += w.mw.incidents().map { it.approvedBy?.kind?.name }
@@ -342,6 +355,9 @@ class ExportFixtureTest {
         assertTrue("FOUND" in outcomes[0], "탐색 결과에 FOUND 가 없다: ${outcomes[0]}")
         assertTrue("NONE:NO_CAPABILITY" in outcomes[0], "탐색 결과에 NO_CAPABILITY 가 없다: ${outcomes[0]}")
         assertTrue("WITHHELD" in outcomes[0], "탐색 결과에 WITHHELD 가 없다: ${outcomes[0]}")
+        // ★**칸을 만들어도 시나리오가 안 채우면 빈 칸이다.** 점유 축이 계산한 회복이 한 벌에 없으면
+        //   읽는 쪽은 그 갈래를 코드로만 알고 실물로는 한 번도 못 본다(§15.183).
+        assertTrue("SOURCE_MISSING" in outcomes[0], "탐색 결과에 SOURCE_MISSING 이 없다: ${outcomes[0]}")
         assertTrue(null in approvers[0], "승인을 안 거친 사건이 없다: ${approvers[0]}")
         assertTrue("AGENT" in approvers[0], "에이전트가 승인한 사건이 없다: ${approvers[0]}")
 
@@ -433,6 +449,26 @@ class ExportFixtureTest {
             equipmentRequirements = listOf(
                 EquipmentRequirement("OUT-07", EquipmentUse.SOURCE, mapOf(EquipmentUse.PROP_CONTAINER to "HU-1042")),
                 EquipmentRequirement("SEQ-IN-02", EquipmentUse.DESTINATION),
+            ),
+        )
+
+        const val RELOCATE_MATERIAL = "ENGINE-COVER-B"
+        const val RELOCATE_SOURCE = "SEQ-IN-03.BIN-A"
+        const val RELOCATE_ALTERNATIVE = "SEQ-IN-03.BIN-B"
+
+        /**
+         * 출발 자리가 빈 랙 주문 하나. **접수되지 않는다** — 점유 관문이 하달 전에 막고 그 자재를 든
+         * 다른 자리를 계산한다. 목적지는 앞의 랙들과 겹치지 않게 둔다.
+         */
+        private fun relocate() = JobOrder(
+            jobOrderId = "SEQ-RELOCATE",
+            workMasterId = PrepareSequencedRack.WORK_MASTER,
+            version = 1,
+            requiredEvidence = Evidence.E2,
+            materialRequirements = listOf(MaterialRequirement(RELOCATE_MATERIAL, 1)),
+            equipmentRequirements = listOf(
+                EquipmentRequirement("RACK-205.S01", "destination", mapOf("material" to RELOCATE_MATERIAL)),
+                EquipmentRequirement(RELOCATE_SOURCE, "source", mapOf("material" to RELOCATE_MATERIAL)),
             ),
         )
 

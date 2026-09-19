@@ -266,7 +266,7 @@ class Middleware(
 
         val planned = prefix + capability.plan(order)
         when (val admission = admits(order, robotId, planned)) {
-            is Admission.Refused -> return record(robotId, order, admission.rejection)
+            is Admission.Refused -> return record(robotId, order, admission.rejection, admission.sourceMissing)
             Admission.Passed -> Unit
         }
 
@@ -297,7 +297,8 @@ class Middleware(
         inconsistent(order, planned.filter { it.unitId.startsWith("remedy-").not() })
             ?.let { return Admission.Refused(Submission.Rejected(it)) }
         chainRefusal(robotId, planned)?.let { return Admission.Refused(it) }
-        occupancyViolation(planned)?.let { return Admission.Refused(it) }
+        // **이것만 답을 함께 든다.** 점유 관문은 거절하면서 «다른 자리» 를 계산하므로 그 값을 들려 보낸다.
+        occupancyViolation(planned)?.let { return it }
         unownedFloor(planned)?.let { return Admission.Refused(it) }
         workspaceViolation(robotId, planned)?.let { return Admission.Refused(it) }
         return Admission.Passed
@@ -373,9 +374,22 @@ class Middleware(
      * 관문에서 뗀 이유는 이것이 부작용이기 때문이다. 후보를 물어보는 것과 그 기체에 내려다 막힌 것은
      * 다른 일이고, 앞엣것에 기록이 붙으면 «물어봤다» 가 «시도했다» 로 쌓인다.
      */
-    private fun record(robotId: String, order: JobOrder, rejection: Submission.Rejected): Submission.Rejected {
+    private fun record(
+        robotId: String,
+        order: JobOrder,
+        rejection: Submission.Rejected,
+        sourceMissing: RemedyOutcome.SourceMissing? = null,
+    ): Submission.Rejected {
         val jobOrderId = order.jobOrderId
         val remedy = rejection.remedy
+
+        // **점유 관문의 답도 답이다.** 여기서 버리면 밖에서 «다른 자리가 있다» 와 «아무것도 계산 안 했다» 가
+        // 같은 침묵이 된다 — 탐색의 «못 찾았다» 를 버리고 있던 것과 같은 자리다(§15.164).
+        // 관문이 첫 거절에서 되돌아가므로 이것과 아래의 탐색 결과가 함께 서는 일은 없다.
+        if (sourceMissing != null) {
+            note(robotId, jobOrderId, sourceMissing)
+            return rejection
+        }
 
         // **못 찾은 것도 답이다.** 여기서 버리면 밖에서 «이 기체로는 안 된다» 와 «아예 안 찾아봤다» 가
         // 같은 침묵이 된다. 계산은 이미 끝났고 남는 일은 옮겨 싣는 것뿐이다(ADR 40).
@@ -537,16 +551,20 @@ class Middleware(
      * **권위가 둘이라 순서가 있다.** 자리 경쟁은 이 층이 아는 사실(진행 중 실행)이라 단정하고, 결품은
      * 설비 관측이라 **말이 없으면 판정하지 않는다.** 없는 관측을 위반으로 세면 신호가 죽은 셀이 통째로 선다.
      */
-    private fun occupancyViolation(planned: List<ExecutionUnit>): Submission.Rejected? {
+    private fun occupancyViolation(planned: List<ExecutionUnit>): Admission.Refused? {
         val claimed = liveClaims()
 
         for (unit in planned) {
             val where = unit.destination ?: continue
             // 같은 주문이 자기 자리에 걸릴 일은 없다 — 같은 `jobOrderId` 는 위에서 `revise` 로 갈린다.
             val holder = claimed[where] ?: continue
-            return Submission.Rejected(
-                "자리 $where 를 ${holder.jobOrderId}(${holder.executionId}) 가 이미 잡고 있다 — " +
-                    "같은 자리에 둘을 놓지 않는다",
+            // **자리 경쟁은 대장에 안 남는다**(§15.183). 이 층이 계산한 답이 없기 때문이다 — 잡고 있는
+            // 쪽이 놓기를 기다리는 것 말고 제시할 것이 없다. 한계 대장에 열어 두었다.
+            return Admission.Refused(
+                Submission.Rejected(
+                    "자리 $where 를 ${holder.jobOrderId}(${holder.executionId}) 가 이미 잡고 있다 — " +
+                        "같은 자리에 둘을 놓지 않는다",
+                ),
             )
         }
 
@@ -564,9 +582,19 @@ class Middleware(
             val taken = claimed.keys + planned.mapNotNull { it.destination }
             val alternatives = material?.let { CellOccupancy.alternatives(cell.holding(it), taken, exclude = from) }
             val seen = check.observed?.let { "'$it' 이 있다" } ?: "비었다"
-            return Submission.Rejected(
-                "출발 자리 $from 에 ${material ?: "요구한 것"} 이 없다 — $seen (설비 관측, 보내지 않았다)",
-                alternativeLocations = alternatives,
+            return Admission.Refused(
+                Submission.Rejected(
+                    "출발 자리 $from 에 ${material ?: "요구한 것"} 이 없다 — $seen (설비 관측, 보내지 않았다)",
+                    alternativeLocations = alternatives,
+                ),
+                // **계산한 것을 그 자리에서 버리지 않는다**(§15.164 와 같은 자리). 산문의 사유만 내면
+                // 읽는 쪽이 한국어를 문자열로 뜯어야 하고, 그 대조는 문구를 고치는 날 조용히 깨진다.
+                sourceMissing = RemedyOutcome.SourceMissing(
+                    material = material,
+                    source = from,
+                    observed = check.observed,
+                    alternatives = alternatives,
+                ),
             )
         }
         return null
