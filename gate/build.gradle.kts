@@ -93,6 +93,9 @@ tasks.withType<Test>().configureEach {
         // 선언이 함께 필요하다 — 같은 구멍의 아홉째가 안 되게.
         rootProject.file("tools/adapter-template"),
         rootProject.file("docs"),
+        // ★**빌드 안내도 밖을 향한 문서다.** 승인 창구를 부르는 이름이 한 낱말인지 보는 대조가
+        // 이 파일을 읽는다 — 선언 밖이면 `Repo` 의 문지기가 던진다. 같은 구멍의 열째.
+        rootProject.file("CLAUDE.md"),
         // ★**문을 만들자마자 둘이 더 나왔다.** `DocumentClaimsTest` 가 모듈 수를 `settings.gradle.kts` 에서,
         // 진단 수를 `DiagController` 에서 세는데 **둘 다 선언 밖이었다** — 모듈을 더하거나 진단을 더해도
         // 시험이 안 도는 상태였다. 같은 구멍의 다섯째이고, 이번에는 사람이 아니라 `Repo` 가 찾았다.

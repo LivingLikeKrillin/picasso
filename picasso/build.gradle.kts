@@ -25,7 +25,7 @@ dependencies {
 }
 
 /**
- * **실행 계층을 세워 두고 승인 입을 연다**(`docs/orchestration.md` §7.4).
+ * **실행 계층을 세워 두고 승인 창구를 연다**(`docs/orchestration.md` §7.4).
  *
  *     ./gradlew :picasso:runApprovalHost
  *     ./gradlew :picasso:runApprovalHost --args="--port 8770 --seconds 1800"
@@ -35,7 +35,7 @@ dependencies {
  */
 tasks.register<JavaExec>("runApprovalHost") {
     group = "application"
-    description = "미들웨어를 세워 두고 루프백에 승인 입을 연다"
+    description = "미들웨어를 세워 두고 루프백에 승인 창구를 연다"
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("dev.picasso.middleware.host.ScenarioHost")
     // Windows 콘솔 코드페이지에서 한글 안내가 깨진다. 기동 안내가 유일한 산출물이다.
