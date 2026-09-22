@@ -233,6 +233,39 @@ class HandoffFixtureTest {
         )
     }
 
+    @Test
+    fun `사건 뒤에 탐색이 서는 한 벌이 같은 기체의 짝을 든다`() {
+        // ★**나머지 벌들은 순서가 반대다.** 접수 관문의 거절이 제안을 세우고(§15.150) 승인된 조치가
+        //   나중에 깨진다 — 그래서 읽는 쪽이 «이 실패를 어떻게 회복하나» 를 사건 옆에서 못 읽었고
+        //   사건 아홉에 짝이 하나였다(읽는 쪽 실측). `run-4` 가 그 자리이며, 이 시험이 없으면
+        //   시나리오를 고치다 순서가 되돌아가도 아무도 모른다.
+        val incidents = lines(AFTER_INCIDENT, LedgerExport.INCIDENTS).map { parse(it) }
+        val searches = lines(AFTER_INCIDENT, LedgerExport.REMEDY_SEARCHES).map { parse(it) }
+        assertTrue(incidents.isNotEmpty() && searches.isNotEmpty(), "한 벌이 비었다")
+
+        val at = { row: Map<String, Value> -> Instant.parse(row.getValue("at").stringValue) }
+        searches.forEach { search ->
+            val robot = search.getValue("robotId").stringValue
+            val before = incidents.filter { it.getValue("robotId").stringValue == robot && at(it).isBefore(at(search)) }
+            assertTrue(
+                before.isNotEmpty(),
+                "탐색 ${search.getValue("searchId").stringValue} 앞에 같은 기체의 사건이 없다: " +
+                    incidents.map { it.getValue("robotId").stringValue to at(it) },
+            )
+        }
+
+        // ★**짝이 없는 사건이 있어야 그 셈이 무언가를 가린다**(§15.177).
+        val paired = searches.map { it.getValue("robotId").stringValue }.toSet()
+        assertTrue(
+            incidents.any { it.getValue("robotId").stringValue !in paired },
+            "짝 없는 사건이 없다 — 읽는 쪽의 셈이 늘 켜져 있게 된다",
+        )
+
+        // 「답이 섰다」와 「가렸다」가 사건 옆에서도 갈려야 한다.
+        val outcomes = searches.map { it.getValue("outcome").stringValue }.toSet()
+        assertTrue("FOUND" in outcomes && "WITHHELD" in outcomes, "선 답과 가린 답이 같이 있지 않다: $outcomes")
+    }
+
     companion object {
         private val HANDOFF: Path = Path.of("..", "handoff", "narrator").normalize()
 
@@ -242,8 +275,11 @@ class HandoffFixtureTest {
         /** 재발이 실제로 일어나는 한 벌. 재실행이 아니라 **다른 시나리오**다. */
         private const val RECURRENCE = "run-3"
 
+        /** 사건이 **먼저** 나고 탐색이 그 뒤에 서는 한 벌. 읽는 쪽이 회복 설명을 재는 자리다. */
+        private const val AFTER_INCIDENT = "run-4"
+
         /** 인계 지점의 모든 벌. 칸과 판을 대는 검사는 전부에 건다. */
-        private val RUNS = REPLAY + RECURRENCE
+        private val RUNS = REPLAY + RECURRENCE + AFTER_INCIDENT
         private val AT: Instant = Instant.parse("2026-09-05T00:03:21Z")
 
         private val STEP = RemedyStep("pick_place", emptyList(), HoldKind.HOLD_KIND_EMPTY, HoldKind.HOLD_KIND_HOLDING)
