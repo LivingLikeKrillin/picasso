@@ -57,6 +57,14 @@ enum class ApprovalRefusal {
     /** 자동 승인 자격이 선언돼 있지 않다. 올리는 것이 다음 행동이다. */
     NOT_DECLARED,
 
+    /**
+     * 선언이 **철회됐다**(ADR 45). 왜 철회됐는지를 보고 **사후 검토로** 가는 것이 다음 행동이다.
+     *
+     * [NOT_DECLARED] 와 가르는 것이 이 값의 존재 이유다 — 앞은 「무언가 바뀌었다」이고 뒤는 「원래
+     * 없었다」이며, 접으면 강등된 사람을 선언 수정하러 보낸다.
+     */
+    REVOKED,
+
     /** 선언이 만료됐다. 갱신하는 것이 다음 행동이다. */
     EXPIRED,
 
@@ -192,8 +200,13 @@ object RemedyValues {
  */
 object ApprovalWire {
 
-    /** 이 규약의 판. 답마다 싣는다 — 읽는 쪽이 모르는 판을 만나면 멈출 수 있게. */
-    const val SCHEMA_VERSION: String = "1"
+    /**
+     * 이 규약의 판. 답마다 싣는다 — 읽는 쪽이 모르는 판을 만나면 멈출 수 있게.
+     *
+     * `2` 에서 `refusal` 에 [ApprovalRefusal.REVOKED] 가 늘었다(ADR 45). **칸이 느는 것과 다르다** —
+     * 모르는 칸은 무시하면 그만이지만 `refusal` 로 분기하는 읽는 쪽은 모르는 값을 만난다.
+     */
+    const val SCHEMA_VERSION: String = "2"
 
     /**
      * 요청 한 줄을 읽는다. **못 읽으면 던진다** — 못 읽는 요청은 거절이 아니라 잘못된 요청이고, 둘을

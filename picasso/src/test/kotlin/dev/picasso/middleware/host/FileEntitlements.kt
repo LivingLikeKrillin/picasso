@@ -6,6 +6,7 @@ import com.google.protobuf.util.JsonFormat
 import dev.picasso.middleware.DeclaredAction
 import dev.picasso.middleware.Entitlement
 import dev.picasso.middleware.Entitlements
+import dev.picasso.middleware.Revocation
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -78,6 +79,17 @@ class FileEntitlements private constructor(private val rows: Map<String, Entitle
                 it.stringValue
             }.toSet(),
             expiresAt = Instant.parse(string(fields, "expiresAt")),
+            // **없으면 널이고, 있으면 세 칸을 다 요구한다**(ADR 45). 반쯤 적힌 철회를 받아 주면
+            // 「언제·누가·왜」 중 빠진 것이 빈 문자열로 나가고, 읽는 쪽은 그것을 답으로 읽는다.
+            revocation = fields["revocation"]?.let { revoked ->
+                if (!revoked.hasStructValue()) throw IllegalArgumentException("«revocation» 이 객체가 아니다")
+                val inner = revoked.structValue.fieldsMap
+                Revocation(
+                    at = Instant.parse(string(inner, "at")),
+                    by = string(inner, "by"),
+                    reason = string(inner, "reason"),
+                )
+            },
         )
 
         private fun string(fields: Map<String, Value>, name: String): String {

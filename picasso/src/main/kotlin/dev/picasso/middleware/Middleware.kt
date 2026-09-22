@@ -1723,11 +1723,22 @@ class Middleware(
     }
 
     /**
-     * 선언이 좁히는 세 축(ADR 43).
+     * 선언이 좁히는 네 축(ADR 43·45).
      *
-     * 거절 사유를 가르는 이유는 다음 행동이 다 다르기 때문이다 — 갱신하거나, 범위를 넓히거나, 사람이 누르거나.
+     * 거절 사유를 가르는 이유는 다음 행동이 다 다르기 때문이다 — 사후 검토로 가거나, 갱신하거나,
+     * 범위를 넓히거나, 사람이 누르거나.
+     *
+     * ★**철회가 맨 앞이다.** 철회된 선언이 만료까지 지났을 때 `EXPIRED` 를 내면, 받은 쪽은 갱신하면
+     * 되는 줄 알고 기간만 늘려 **철회를 조용히 되돌린다.** 틀리는 방향을 정해 두는 자리이며, 여기서는
+     * «무언가 바뀌었다» 를 먼저 말하는 쪽이 안전하다.
      */
     private fun scopeRefusal(declared: Entitlement, robotId: String, steps: List<RemedyStep>): Judgment.No? {
+        declared.revocation?.let { revoked ->
+            return Judgment.No(
+                ApprovalRefusal.REVOKED,
+                "자동 승인 자격이 철회됐다: ${declared.approverId} (${revoked.at} · ${revoked.by} · ${revoked.reason})",
+            )
+        }
         if (!now().isBefore(declared.expiresAt)) {
             return Judgment.No(
                 ApprovalRefusal.EXPIRED,

@@ -225,6 +225,50 @@ class EntitlementTest {
     }
 
     @Test
+    fun `철회된 선언은 미선언과 다른 답을 받는다`() {
+        // ★★**이것이 ADR 45 의 요점이다.** 둘 다 「지금 자격이 없다」인데 다음 행동이 반대다 —
+        //   철회는 「무언가 바뀌었다」라 사후 검토로 가고, 미선언은 「원래 없었다」라 선언을 올리러 간다.
+        //   접으면 강등된 사람을 선언 수정하러 보낸다.
+        World(Declared(mapOf(AGENT.id to full(revocation = revoked())))).use { w ->
+            w.standingProposal()
+            val answer = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(ApprovalRefusal.REVOKED, answer.refusal)
+            // 사람이 읽을 사유에 누가·언제·왜가 남는다. 읽는 쪽이 갈래를 가르는 것은 종류이지 이 문장이 아니다.
+            assertTrue("cell-lead" in answer.reason, answer.reason)
+        }
+        World(Declared(emptyMap())).use { w ->
+            w.standingProposal()
+            assertEquals(ApprovalRefusal.NOT_DECLARED, refusal(w.mw.attemptApproval(attempt())))
+        }
+    }
+
+    @Test
+    fun `철회가 만료보다 먼저 답한다`() {
+        // ★**틀리는 방향을 정해 둔다.** 철회된 선언이 만료까지 지났을 때 `EXPIRED` 를 내면, 받은 쪽은
+        //   갱신하면 되는 줄 알고 기간만 늘려 **철회를 조용히 되돌린다.**
+        val both = full(expiresAt = Instant.parse("2020-01-01T00:00:00Z"), revocation = revoked())
+        World(Declared(mapOf(AGENT.id to both))).use { w ->
+            w.standingProposal()
+            assertEquals(ApprovalRefusal.REVOKED, refusal(w.mw.attemptApproval(attempt())))
+        }
+    }
+
+    @Test
+    fun `철회는 사람의 승인을 막지 않는다`() {
+        // ★**자격은 좁히기만 하고 없애지 않는다**(§15.169 의 뒷절). 사람은 선언 없이 누르므로 철회가
+        //   라인을 세우지 않는다 — 세우면 아무도 철회를 쓰지 않게 되고 그때 이 장치가 죽는다.
+        World(Declared(mapOf(AGENT.id to full(revocation = revoked())))).use { w ->
+            assertNotNull(w.standingProposal())
+            assertEquals(ApprovalRefusal.REVOKED, refusal(w.mw.attemptApproval(attempt())))
+            // 거절이 제안을 소모하지 않았으므로 사람이 그대로 누른다.
+            assertIs<Middleware.Submission.Accepted>(
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR),
+                "철회가 사람의 승인까지 막았다",
+            )
+        }
+    }
+
+    @Test
     fun `범위 밖 기체는 승인하지 못한다`() {
         World(Declared(mapOf(AGENT.id to full(robotIds = setOf("다른-기체"))))).use { w ->
             w.standingProposal()
@@ -518,7 +562,11 @@ class EntitlementTest {
             ),
             robotIds: Set<String> = setOf(ROBOT),
             expiresAt: Instant = Instant.parse("2099-01-01T00:00:00Z"),
-        ) = Entitlement("narrator-1", actions, robotIds, expiresAt)
+            revocation: Revocation? = null,
+        ) = Entitlement("narrator-1", actions, robotIds, expiresAt, revocation)
+
+        private fun revoked(reason: String = "자동 승인한 조치가 연속 실패") =
+            Revocation(Instant.parse("2026-09-19T04:12:00Z"), "cell-lead", reason)
 
         /** 대상까지 적어 **좁힌** 선언. */
         private fun narrowed(objectId: String) = DeclaredAction(
