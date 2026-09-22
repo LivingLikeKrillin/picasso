@@ -13,9 +13,7 @@ import dev.picasso.middleware.LedgerExport
 import dev.picasso.middleware.MaterialRequirement
 import dev.picasso.middleware.Middleware
 import dev.picasso.middleware.PrepareSequencedRack
-import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.time.Instant
 
@@ -115,6 +113,9 @@ object ScenarioHost {
         ApprovalHost(middleware, lock, port).use { host ->
             announce(host, exportDir, declarations, entitlements)
             var advancing = false
+            // ★**구동 식별자는 이 바퀴에 하나다.** 내보낼 때마다 찍으면 읽는 쪽의 «같은 구동의 같은
+            //   줄은 한 번만» 이 죽는다 — 앞 판이 그랬고 30분에 만 개가 넘었다(LiveExport 의 KDoc).
+            val live = LiveExport(exportDir, LedgerExport.newRunId(Instant.now()))
             val until = Instant.now().plusSeconds(seconds)
             while (Instant.now().isBefore(until)) {
                 synchronized(lock) {
@@ -128,7 +129,7 @@ object ScenarioHost {
                         harness.advance(Duration.ofSeconds(1))
                         middleware.pump()
                     }
-                    export(middleware, exportDir, harness.clock.now())
+                    live.snapshot(middleware.incidents(), middleware.remedySearches(), harness.clock.now())
                 }
                 Thread.sleep(150)
             }
@@ -194,30 +195,12 @@ object ScenarioHost {
         )
     }
 
-    private fun export(middleware: Middleware, dir: Path, virtualNow: Instant) {
-        Files.createDirectories(dir)
-        val incidents = middleware.incidents()
-        val searches = middleware.remedySearches()
-        atomically(dir, LedgerExport.INCIDENTS, LedgerExport.incidents(incidents))
-        atomically(dir, LedgerExport.REMEDY_SEARCHES, LedgerExport.remedySearches(searches))
-        val wall = Instant.now()
-        atomically(
-            dir,
-            LedgerExport.MANIFEST,
-            LedgerExport.manifest(LedgerExport.newRunId(wall), wall, virtualNow, incidents.size, searches.size),
-        )
-    }
-
-    private fun atomically(dir: Path, name: String, body: String) {
-        val tmp = dir.resolve("$name.tmp")
-        Files.writeString(tmp, body)
-        Files.move(tmp, dir.resolve(name), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-    }
-
     private fun announce(host: ApprovalHost, exportDir: Path, declarations: Path, entitlements: FileEntitlements) {
         println("[host] 승인 창구: http://127.0.0.1:${host.port}${ApprovalHost.PATH}  (POST · 루프백 전용)")
         println("[host] 선언 목록: ${declarations.toAbsolutePath().normalize()}  승인자=${entitlements.approvers()}")
         println("[host] 두 대장: ${exportDir.toAbsolutePath().normalize()}")
+        println("[host]   ★되돌려 댈 것은 인계본이 아니라 이 한 벌이다 — 창구와 같은 제안을 든다.")
+        println("[host]   구동 식별자는 이 바퀴에 하나이고, 두 대장이 늘 때만 다시 쓴다.")
         println("[host] 서 있는 자리 넷:")
         println("[host]   $APPROVES / PATROL-APPROVES        → 승인된다")
         println("[host]   $WITHHELD / PATROL-WITHHELD        → WITHHELD")
