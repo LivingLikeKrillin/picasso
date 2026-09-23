@@ -105,6 +105,22 @@ class ApprovalWireTest {
     }
 
     @Test
+    fun `철회와 미선언이 서로 다른 값으로 나간다`() {
+        // ★★**이것이 ADR 45 가 만든 갈래다.** 둘 다 「지금 자격이 없다」인데 다음 행동이 반대다 —
+        //   철회는 사후 검토로, 미선언은 선언을 올리러. 같은 값으로 나가면 읽는 쪽이 못 가른다.
+        fun refusalOf(refusal: ApprovalRefusal) =
+            parse(ApprovalWire.encode(ApprovalOutcome.Refused(refusal, "사유"))).getValue("refusal").stringValue
+
+        assertEquals("REVOKED", refusalOf(ApprovalRefusal.REVOKED))
+        assertEquals("NOT_DECLARED", refusalOf(ApprovalRefusal.NOT_DECLARED))
+        assertEquals("EXPIRED", refusalOf(ApprovalRefusal.EXPIRED))
+
+        // 열거의 이름이 그대로 나간다. 여기서 값을 가공하면 읽는 쪽이 붙든 이름이 코드와 갈린다.
+        val everyName = ApprovalRefusal.entries.map { it.name }.toSet()
+        assertEquals(everyName, ApprovalRefusal.entries.map { refusalOf(it) }.toSet())
+    }
+
+    @Test
     fun `사람이 적은 글이 답을 깨지 않는다`() {
         // 진단 사유가 그대로 답에 실린다. 따옴표 하나만 새어도 그 답이 통째로 못 읽히고, 읽는 쪽에는
         // «부르면 깨진다» 로만 보인다.

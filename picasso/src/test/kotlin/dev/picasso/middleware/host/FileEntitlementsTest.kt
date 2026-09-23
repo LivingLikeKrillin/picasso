@@ -10,6 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * 자격 선언 목록을 파일에서 읽는다 — ADR 43 이 「배치의 결정」이라 한 자리의 첫 구현체.
@@ -35,7 +36,55 @@ class FileEntitlementsTest {
         assertEquals(setOf("hum-02", "hum-04"), one.robotIds)
         assertEquals(listOf(DeclaredAction("pick_place", mapOf("destination" to "DROP-01"))), one.actions)
         assertEquals(Instant.parse("2099-01-01T00:00:00Z"), one.expiresAt)
+        assertNull(one.revocation, "안 철회한 선언에 철회 기록이 나왔다")
         assertNull(declared.declaredFor("아무나"), "선언 안 한 승인자에게 자격이 나왔다")
+    }
+
+    @Test
+    fun `인계본이 선언 쪽 네 갈래를 실물로 세운다`() {
+        // ★**칸을 만들어도 데모가 안 채우면 빈 칸이다**(§15.177). 받는 쪽이 이 파일 하나로
+        //   미선언·만료·철회를 실제로 불러 볼 수 있어야 그 갈래가 값으로 보인다.
+        val declared = FileEntitlements.read(SHIPPED)
+
+        assertNull(declared.declaredFor("narrator-2"), "미선언 자리가 사라졌다 — NOT_DECLARED 를 못 본다")
+
+        val expired = assertNotNull(declared.declaredFor("narrator-3"), "만료 자리가 없다")
+        assertTrue(expired.expiresAt.isBefore(Instant.now()), "만료 자리의 기간이 안 지났다: ${expired.expiresAt}")
+        assertNull(expired.revocation, "만료 자리가 철회까지 들었다 — 두 갈래가 섞인다")
+
+        val revoked = assertNotNull(declared.declaredFor("narrator-4"), "철회 자리가 없다")
+        val mark = assertNotNull(revoked.revocation, "철회 자리에 철회 기록이 없다")
+        assertTrue(mark.by.isNotBlank() && mark.reason.isNotBlank(), "누가·왜가 비었다: $mark")
+        // ★**철회는 지우는 것이 아니라 표시하는 것이다**(ADR 45). 지웠으면 여기서 널이 나오고,
+        //   그러면 받는 쪽은 그것을 「원래 없었다」로 읽는다.
+        assertTrue(revoked.expiresAt.isAfter(Instant.now()), "철회 자리가 만료까지 지났다 — 갈래가 섞인다")
+    }
+
+    @Test
+    fun `반쯤 적힌 철회는 빈 값이 아니라 예외다`() {
+        // 「언제·누가·왜」 중 빠진 것을 빈 문자열로 받으면 읽는 쪽이 그것을 답으로 읽는다.
+        //
+        // ★**칸마다 따로 뺀다.** 앞 판은 `reason` 하나만 빼 보고 초록이었는데, 그것은 나머지 둘이
+        //   느슨해져도 안 빨개진다는 뜻이다 — 주입으로 드러났다(§15.184). 한 칸을 대표로 삼으면
+        //   그 시험이 재는 것은 그 칸뿐이다.
+        val full = mapOf(
+            "at" to """"2026-09-19T04:12:00Z"""",
+            "by" to """"cell-lead"""",
+            "reason" to """"연속 실패로 회수"""",
+        )
+        full.keys.forEach { dropped ->
+            val revocation = full.filterKeys { it != dropped }.entries
+                .joinToString(",", "{", "}") { """"${it.key}":${it.value}""" }
+            val half = """{"entitlements":[{"approverId":"a","robotIds":["r"],""" +
+                """"expiresAt":"2099-01-01T00:00:00Z","actions":[],"revocation":$revocation}]}"""
+            assertFailsWith<IllegalArgumentException>("«$dropped» 이 빠졌는데 파일이 섰다") {
+                FileEntitlements.read(file(half))
+            }
+        }
+
+        val notObject = """{"entitlements":[{"approverId":"a","robotIds":["r"],""" +
+            """"expiresAt":"2099-01-01T00:00:00Z","actions":[],"revocation":"철회함"}]}"""
+        assertFailsWith<IllegalArgumentException> { FileEntitlements.read(file(notObject)) }
     }
 
     @Test

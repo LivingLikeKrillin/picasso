@@ -45,6 +45,21 @@ import java.time.Instant
  * | `hum-05` | 제안 있음, 선언 범위 밖 | `ROBOT_OUT_OF_SCOPE` |
  * | `hum-03` | 든 채로는 딛을 스킬이 없음 | `NO_PROPOSAL` — 탐색이 `NONE` 을 냈다 |
  *
+ * ## 선언 쪽 갈래는 **승인자를 바꿔** 본다
+ *
+ * ★**칸을 만들어도 데모가 안 채우면 빈 칸이다**(§15.177). 선언의 상태로 갈리는 거절 넷은 값이 이미
+ * 있었는데 이 구동기가 한 승인자만 세워 두어 **밖에서는 한 번도 안 보였다.** 같은 자리(`hum-05`)에
+ * 승인자만 바꿔 부르면 넷이 갈린다 — 그 자리는 어느 승인자로도 거절이라 제안이 안 소모된다.
+ *
+ * | 승인자 | 선언의 상태 | 시도하면 | 다음 행동 |
+ * |---|---|---|---|
+ * | `narrator-1` | 선언됨, `hum-05` 는 범위 밖 | `ROBOT_OUT_OF_SCOPE` | 범위를 넓힌다 |
+ * | `narrator-2` | **선언이 없음** | `NOT_DECLARED` | 선언을 올린다 |
+ * | `narrator-3` | 선언됨, **기간이 지남** | `EXPIRED` | 갱신한다 |
+ * | `narrator-4` | 선언됨, **철회됨** | `REVOKED` | 왜 철회됐는지 보고 **사후 검토로** 간다 |
+ *
+ * 뒤의 둘이 가르는 것이 «전에 허락됐다가 지금 아니다» 와 «원래 없었다» 다(ADR 45).
+ *
  * ## 시계를 승인 전까지 세워 둔다
  *
  * 성공하는 승인은 **지금 든 것의 이름**을 관측에서 가져오므로(ADR 44), 부르는 쪽이 부르기 전에 기체가
@@ -208,6 +223,11 @@ object ScenarioHost {
         println("[host]   $WITHHELD / PATROL-WITHHELD        → WITHHELD")
         println("[host]   $OUT_OF_SCOPE / PATROL-OUT-OF-SCOPE → ROBOT_OUT_OF_SCOPE")
         println("[host]   $NO_REMEDY_ROBOT / PATROL-NO-REMEDY → NO_PROPOSAL")
+        println("[host] 선언 쪽 갈래는 $OUT_OF_SCOPE / PATROL-OUT-OF-SCOPE 에 승인자만 바꿔 부른다:")
+        println("[host]   narrator-1 → ROBOT_OUT_OF_SCOPE  (선언됨, 그 기체가 범위 밖 — 범위를 넓힌다)")
+        println("[host]   narrator-2 → NOT_DECLARED        (선언이 없다 — 올린다)")
+        println("[host]   narrator-3 → EXPIRED             (기간이 지났다 — 갱신한다)")
+        println("[host]   narrator-4 → REVOKED             (철회됐다 — 사후 검토로 간다)")
         println(
             """[host] 예: curl -s -X POST http://127.0.0.1:${host.port}${ApprovalHost.PATH} -d """ +
                 """'{"approverId":"narrator-1","approverKind":"AGENT","robotId":"$APPROVES",""" +

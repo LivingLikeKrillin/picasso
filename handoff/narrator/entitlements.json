@@ -10,6 +10,33 @@
           "parameters": { "destination": "DROP-01" }
         }
       ]
+    },
+    {
+      "approverId": "narrator-3",
+      "robotIds": ["hum-02", "hum-04", "hum-05"],
+      "expiresAt": "2026-09-01T00:00:00Z",
+      "actions": [
+        {
+          "skillType": "pick_place",
+          "parameters": { "destination": "DROP-01" }
+        }
+      ]
+    },
+    {
+      "approverId": "narrator-4",
+      "robotIds": ["hum-02", "hum-04", "hum-05"],
+      "expiresAt": "2099-01-01T00:00:00Z",
+      "revocation": {
+        "at": "2026-09-19T04:12:00Z",
+        "by": "cell-lead",
+        "reason": "자동 승인한 조치가 연속 실패하여 그리퍼 점검 전까지 회수"
+      },
+      "actions": [
+        {
+          "skillType": "pick_place",
+          "parameters": { "destination": "DROP-01" }
+        }
+      ]
     }
   ]
 }

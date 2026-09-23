@@ -134,6 +134,23 @@ class DocumentClaimsTest {
     }
 
     @Test
+    fun `ADR 파일마다 설계 §14 의 행이 있다`() {
+        // ★★**이 표가 세 번째로 낡았다.** §15.165 가 «39 에서 멈춰 있었다» 를 잡아 43 까지 채웠는데
+        //   44 가 들어오면서 또 멈췄다. 색인이 «번호는 §14 의 행 번호» 라 적고 있는데도 그렇다 —
+        //   **대는 시험이 없는 표는 낡는다.** 사람이 훑는 일을 여기서 그만둔다.
+        val files = Repo.declaredFiles()
+            .map { ClaimSurface.relative(it) }
+            .mapNotNull { Regex("""^docs/adr/(\d{4})-""").find(it)?.groupValues?.get(1)?.toInt() }
+            .sorted()
+        assertTrue(files.isNotEmpty(), "ADR 파일을 하나도 못 읽었다 — 선언된 입력을 먼저 본다")
+
+        val rows = Regex("""(?m)^\| \[?(\d+)\]?[(|]""").findAll(design)
+            .map { it.groupValues[1].toInt() }
+            .toSet()
+        assertEquals(emptyList(), files.filterNot { it in rows }, "ADR 파일이 있는데 설계 §14 에 행이 없다")
+    }
+
+    @Test
     fun `자원 소유 대장이 대는 관문이 코드에 실재한다`() {
         // `orchestration.md` 는 *"이 자원으로 가는 명령은 누구의 관문을 지나나"* 에 답하는 표다. 거기 적힌
         // 기호가 사라지거나 이름이 바뀌면 **그 답이 틀린 답이 된다** — 이름을 바꾼 사람은 그 문서를 안 본다.
