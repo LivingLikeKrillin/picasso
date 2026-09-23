@@ -185,9 +185,9 @@ picasso/
 - `mimic`: 투영 및 협상 판정 로직은 `capability`로, 메시지 발행 및 레지스트리 적재는 `uplink`로 위임 분리되었다(2026-09-10).
 - `client` 및 `adapter-<vendor>-<model>`: 하위 격리 원칙을 준수한다.
 
-**`adapter-*`는 기종마다 모듈 하나다(ADR 33).** 게이트 7번이 보는 여덟 (`client` · `mimic` · `harness` · `adapter-core` · `picasso` · `capability` · `adapter-host` · `uplink`) **밖**에 두는 것이 요점이며, 기종 지식이 갈 곳이 정확히 거기라서 나머지가 기종을 모를 수 있다. 로봇 어댑터 셋(`adapter-agility-digit`·`adapter-boston-dynamics-spot`·`adapter-unitree-g1`)의 의존성이 `adapter-core`·`contracts`뿐인 이유도 동일하다: 어댑터가 `registry`를 알면 순환 회피 규칙이 위반되고, `profile-model`을 알면 구현과 선언의 원천이 결합되기 때문이다. 반면 `adapter-boston-dynamics-orbit`는 플릿 단위 연동 및 배치 런처 특성상 `adapter-core`, `adapter-host`, `contracts`, `profile-model`, `uplink`를 참조한다(ADR 37, 39).
+**`adapter-*`는 기종마다 모듈 하나다(ADR 33).** 게이트 7번이 보는 열 (`client` · `mimic` · `harness` · `adapter-core` · `picasso` · `capability` · `adapter-host` · `uplink` · `registry` · `profile-model`) **밖**에 두는 것이 요점이며, 기종 지식이 갈 곳이 정확히 거기라서 나머지가 기종을 모를 수 있다. 로봇 어댑터 셋(`adapter-agility-digit`·`adapter-boston-dynamics-spot`·`adapter-unitree-g1`)의 의존성이 `adapter-core`·`contracts`뿐인 이유도 동일하다: 어댑터가 `registry`를 알면 순환 회피 규칙이 위반되고, `profile-model`을 알면 구현과 선언의 원천이 결합되기 때문이다. 반면 `adapter-boston-dynamics-orbit`는 플릿 단위 연동 및 배치 런처 특성상 `adapter-core`, `adapter-host`, `contracts`, `profile-model`, `uplink`를 참조한다(ADR 37, 39).
 
-**`adapter-core`의 태동**: ADR 33에서 예고한 바와 같이, 다수 어댑터 간의 공통 어휘 추출 요구에 따라 신설되었다. 추출된 공통 모듈은 기종 무의존성을 유지해야 하므로 게이트 7번 검사 목록에 편입되었다. 검사 7번 대상 모듈은 현재 총 8개이다 — `client` · `mimic` · `harness` · `adapter-core` · `picasso` · `capability` · `adapter-host` · `uplink`. 기종별 어댑터 모듈 자체는 기종 지식을 캡슐화하는 목적을 가지므로 이 목록에서 제외된다. 정본 목록은 코드(`Check07ModelBranching.MODULES`)에 선언되어 있으며 `DocumentClaimsTest`에 의해 지속 검증된다.
+**`adapter-core`의 태동**: ADR 33에서 예고한 바와 같이, 다수 어댑터 간의 공통 어휘 추출 요구에 따라 신설되었다. 추출된 공통 모듈은 기종 무의존성을 유지해야 하므로 게이트 7번 검사 목록에 편입되었다. 검사 7번 대상 모듈은 현재 총 10개이다 — `client` · `mimic` · `harness` · `adapter-core` · `picasso` · `capability` · `adapter-host` · `uplink` · `registry` · `profile-model`. 기종별 어댑터 모듈 자체는 기종 지식을 캡슐화하는 목적을 가지므로 이 목록에서 제외된다. 정본 목록은 코드(`Check07ModelBranching.MODULES`)에 선언되어 있으며 `DocumentClaimsTest`에 의해 지속 검증된다.
 
 **`profile-model` 신설 (ADR 29)**: 프로파일 문서 파싱 로직이 `gate`와 `mimic` 양쪽에 필요함에 따라, `mimic`이 `gate`의 buf 실행기 및 9개 검사 규칙에 불필요하게 결합되는 것을 차단하기 위해 공통 모듈로 분리하였다.
 
@@ -981,7 +981,7 @@ mimic/
 
 **검사 4 양방향 교차 검증**: 프로파일이 참조하는 스킬이 Protobuf에 실재하는지 검증할 뿐만 아니라, 반대로 계약 카탈로그에 선언된 `since_minor ≤ 선언 minor`인 필수 파라미터(`is_optional=false`)가 프로파일에 누락 없이 존재하는지를 엄격히 검증한다.
 
-**검사 7 기종 분기 차단**: 공통 계층 모듈(`client` · `mimic` · `harness` · `adapter-core` · `picasso` · `capability` · `adapter-host` · `uplink`)의 소스 코드 내에 특정 벤더명이나 모델 식별자 문자열이 하드코딩되는 것을 원천 차단한다. 정본 목록은 코드베이스의 `Check07ModelBranching.MODULES`에 정의되어 있으며 기계적으로 검증된다.
+**검사 7 기종 분기 차단**: 공통 계층 모듈(`client` · `mimic` · `harness` · `adapter-core` · `picasso` · `capability` · `adapter-host` · `uplink` · `registry` · `profile-model`)의 소스 코드 내에 특정 벤더명이나 모델 식별자 문자열이 하드코딩되는 것을 원천 차단한다. 정본 목록은 코드베이스의 `Check07ModelBranching.MODULES`에 정의되어 있으며 기계적으로 검증된다.
 
 **검사 9 결속 경계**: 자리 이름이 어느 기종의 무엇에 묶이는지는 어댑터 경계의 지식이다(ADR 34 · 35). 검사 7이 기종 *좌표*를 막는다면 이 검사는 기종 *결속*을 막는다. **탐색어는 결속 선언 파일이 대는 최상위 타입명에서 유도**하므로 타입이 늘면 금지도 함께 는다 — 훑는 모듈 목록은 코드가 정본이다(`Check09BindingScope.MODULES`).
 
@@ -1102,7 +1102,7 @@ mimic/
 
 기록은 `docs/adr/`에 있고 번호가 이 표의 행 번호다. **이미 내려서 코드에 박힌 것만 쓴다** — 3a·3b가 만들 것(11~21)은 그때 쓴다. 결정하지 않은 것을 미리 적어 두면 그것이 결정처럼 보인다.
 
-> 마지막 대조: 2026-09-23 · sha256:43c35a2853ec · 열림: C-3, §15.7, §15.126, ADR 32 · 시나리오 5, §15.4, §15.5, §15.6 · §15.11 · §15.28, §15.8, §15.9, §15.10, §15.1, §15.2, §15.33, §15.87
+> 마지막 대조: 2026-09-23 · sha256:3b49a65408a6 · 열림: C-3, §15.7, §15.126, ADR 32 · 시나리오 5, §15.4, §15.5, §15.6 · §15.11 · §15.28, §15.8, §15.9, §15.10, §15.1, §15.2, §15.33, §15.87
 
 ## 15. 알려진 한계
 
@@ -3090,6 +3090,16 @@ mimic/
     **정본을 안 붙인 배치는 안 막는다.** `ActiveMap.NotConfigured` 가 「검사할 정본이 없다」이고 `Unavailable` 이 「못 물어봤다」이며, 뒤엣것만 멈춘다. 둘을 접으면 정본 없는 현장이 통째로 서고 그러면 이 검사가 곧 꺼진다 — `SiteNames` 가 `Unsupported` 와 `Unavailable` 을 가른 것과 같은 규율이다.
 
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
+
+191. **검사 7 의 사각지대를 닫았다 — 엿새 동안 막고 있던 것은 거짓 전제였다.**
+
+    검사 7(기종 좌표가 공용 계층에 새는 것을 막는다)이 모듈 여덟만 보고 `registry` 와 `profile-model` 을 안 봤다. AGENT-03 이 9/17 에 지적했고 그 뒤로 「정할 것」으로만 남아 있었다. 막고 있던 이유는 **「registry 본 소스에 Spot·Digit·Unitree·Orbit 이 여섯 파일에 있어 넣으면 빨개진다」**였다.
+
+    ★**그 전제가 틀렸다.** 검사 7 의 바늘은 프로파일의 `vendor`·`model` 에서 파생되고, **하이픈이나 숫자가 없는 것은 바늘이 되지 못한다**(그 자체로 실패시킨다) — `spot`·`digit` 같은 일반어는 애초에 찾는 대상이 아니다. 실제 바늘(`unitree-g1`·`boston-dynamics`·`agility-digit` 등 열)로 다시 세니 **두 모듈 다 0 이었다.** 여섯 파일은 `digits`·`spotted` 같은 산문에 넓은 grep 이 걸린 것이다.
+
+    **엿새를 막은 것은 고칠 일의 크기가 아니라 잘못 센 수였다.** 넣는 데 든 것은 목록 한 줄과 설계 문서 세 자리이고 고칠 소스는 없었다. 그리고 나도 처음 셀 때 같은 넓은 grep 으로 10 을 얻었다 — 같은 덫을 같은 날 두 번 밟았다.
+
+    ★**주입으로 실물을 확인했다.** 단위 시험(`Check07ModelBranchingTest`)은 임시 골격을 쓰므로 진짜 저장소를 안 본다. 저장소를 훑는 것은 게이트 CLI 이고, `registry/src/main` 에 `unitree-g1` 을 넣고 CLI 를 돌려 파일과 행까지 짚는 것을 봤다. 넣기 전에는 그 줄이 보이지 않던 자리다. 처음 민 주입은 **시험 이름을 틀려 아무것도 안 돌았다** — 규칙 ①이 ②보다 먼저인 이유다.
 
 190. **인계 지점의 산문을 추적에서 뺐다 — 그리고 「없음」이 조용히 초록이 되지 않게 했다.**
 
