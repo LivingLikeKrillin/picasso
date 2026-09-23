@@ -1447,6 +1447,17 @@ class Middleware(
         }
         execution.notedHold = null
         execution.physicalState = PhysicalState.RUNNING
+
+        // ★**사람의 걸음을 사건에 남긴다.** 안 남기면 사건과 그 뒤의 탐색 사이가 비어 보이고, 읽는
+        //   쪽은 그 사이를 «자동으로 회복했다» 로 메운다(§15.188). 아직 판단이 안 실린 **가장 최근의**
+        //   사건에 붙인다 — 같은 단위가 두 번 깨지면 걸음도 둘이고 각각 제 사건에 속한다.
+        val opened = incidentLog.indexOfLast {
+            it.executionId == executionId && it.unitId == unitId && it.resolution == null
+        }
+        if (opened >= 0) {
+            incidentLog[opened] = incidentLog[opened]
+                .copy(resolution = IncidentResolution(decision, now(), wallClock()))
+        }
         return true
     }
 

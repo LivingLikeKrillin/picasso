@@ -40,7 +40,7 @@ object LedgerExport {
      * `4` 에서 탐색 줄의 `outcome` 에 **갈래가 하나 늘었다**(`SOURCE_MISSING`, §15.183). 사건 줄은 안 바뀌었다.
      * **칸이 는 것과 다르다** — `outcome` 으로 분기하는 읽는 쪽은 모르는 값을 만나므로 판을 봐야 한다.
      */
-    const val SCHEMA_VERSION: String = "4"
+    const val SCHEMA_VERSION: String = "5"
 
     const val INCIDENTS: String = "incidents.jsonl"
     const val REMEDY_SEARCHES: String = "remedy-searches.jsonl"
@@ -116,6 +116,7 @@ object LedgerExport {
         .str("contractSemver", b.contractSemver)
         .raw("approvedBy", b.approvedBy?.let { approver(it) } ?: "null")
         .raw("review", b.review?.let { review(it) } ?: "null")
+        .raw("resolution", b.resolution?.let { resolution(it) } ?: "null")
         // **이미 계산되는 값이다.** 읽는 쪽이 같은 사건을 두 번 받았는지 가르는 유일한 결정적 열쇠다.
         .str("digest", b.digest())
         .done()
@@ -237,6 +238,16 @@ object LedgerExport {
     private fun approver(a: Approver): String = Obj()
         .str("id", a.id)
         .str("kind", a.kind.name)
+        .done()
+
+    /**
+     * 사람이 낸 판단. **시각을 둘 다 싣는다** — 가상 시계로 사건과 탐색 사이의 자리를 재고, 실 시계로
+     * 현장과 댄다. 하나만 실으면 읽는 쪽이 둘 중 하나를 못 한다.
+     */
+    private fun resolution(r: IncidentResolution): String = Obj()
+        .str("decision", r.decision.name)
+        .str("at", r.at.toString())
+        .str("wallClockAt", r.wallClockAt.toString())
         .done()
 
     private fun review(r: IncidentReview): String = Obj()
