@@ -11,3 +11,9 @@ build/
 CLAUDE.local.md
 __pycache__/
 *.pyc
+
+# 인계 지점의 **산문은 추적하지 않는다** — 공개 대상이 아니다.
+# 안내문과 왕복 편지에는 협업 과정과 내부 판단이 적혀 있다. 기계가 읽는 한 벌(run-*/*.jsonl,
+# entitlements.json, ground-truth.jsonl)은 시험이 대조하므로 그대로 추적한다.
+handoff/narrator/INDEX.txt
+handoff/narrator/TO-NARRATOR-*.txt
