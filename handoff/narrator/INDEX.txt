@@ -1,26 +1,30 @@
-picasso 가 실물로 낸 한 벌 둘 (2026-09-18, ADR 44 반영본)
+picasso 가 실물로 낸 한 벌 셋 (2026-09-20, ADR 44 반영본)
 
 **이 자리가 인계 지점이다.** 받는 쪽이 여기서 복사해 간다 — 내는 쪽은 자기 저장소만 건드리고,
 무엇을 들일지는 받는 쪽이 정한다. 반대로 하면 두 층이 다른 저장소에 있다는 증명이 깨진다.
-산출: ./gradlew :picasso:test --tests '*ExportFixtureTest*'  →  picasso/build/export/run-{1,2}
+산출: ./gradlew :picasso:test --tests '*ExportFixtureTest*'  →  picasso/build/export/run-{1,2,3}
 
 봉투가 없다. 최상위가 바로 기록이다 — nexus 처럼 data 를 벗길 것이 없다.
 manifest.json 이 마지막에 나타나는 것이 「한 벌이 다 나왔다」는 신호다.
 
-두 벌은 같은 시나리오를 두 번 돌린 것이다.
-  digest  전부 동일  (동일)
-  runId   run-1  run-2026-09-18T16:52:55.083559200Z-1
-          run-2  run-2026-09-18T16:53:02.263970800Z-2
+run-1 과 run-2 는 같은 시나리오를 두 번 돌린 것이다. run-3 은 **재실행이 아니라 다른 시나리오**다.
+  digest  run-1 = run-2 전부 동일.  run-3 은 다른 시나리오라 견줄 대상이 아니다
+  runId   run-1  run-2026-09-19T01:30:16.857958800Z-1
+          run-2  run-2026-09-19T01:30:24.156475300Z-2
+          run-3  run-2026-09-19T22:35:11.120831100Z-3
   → 멱등 열쇠를 digest 로만 걸면 run-2 가 통째로 접힌다. (runId, digest) 로 건다.
+  ※ runId 는 구동마다 달라진다. 위 값은 커밋된 한 벌의 manifest.json 과 같아야 하고,
+    picasso 쪽 시험이 그 둘을 댄다. 한 번 낡았던 자리라 붙인 것이다 — 칸과 판을 대는 검사는
+    값을 안 보므로(그게 설계다) 이 어긋남에는 아무도 안 빨개졌다.
 
-remedy-searches.jsonl  3줄
+remedy-searches.jsonl  3줄   (run-1 · run-2. run-3 은 0줄이다 — 아래)
   search-1   FOUND      steps=1
   search-2   NONE       cause=NO_CAPABILITY
   search-3   WITHHELD   
   WITHHELD 줄에는 steps 키도 cause 키도 없다. 값이 비는 것이 아니라 키가 없는 것이 답이다.
   NONE(DEPTH_LIMIT) 은 이 한 벌에 없다 — picasso 미들웨어 경로로는 도달 불가(§15.170).
 
-incidents.jsonl  9줄   ※ schemaVersion 3
+incidents.jsonl  9줄   ※ schemaVersion 3   (run-1 · run-2)
 
   id          기체      경로    분류                       걸음   특징
   incident-1  hum-02  ROBOT  PAYLOAD_LOST               1/3   approvedBy=AGENT
@@ -32,6 +36,33 @@ incidents.jsonl  9줄   ※ schemaVersion 3
   incident-7  hum-08  ROBOT  UNCLASSIFIED               1/1   ★골든 · X_FIXTURE_E4412
   incident-8  hum-09  ROBOT  UNCLASSIFIED               1/1   ★골든 · X_FIXTURE_E2075
   incident-9  hum-10  ROBOT  UNCLASSIFIED               1/1   ★골든 · X_FIXTURE_E6130
+
+
+run-3  —  재발이 있는 한 벌   incidents.jsonl 4줄 · remedy-searches.jsonl 0줄 · schemaVersion 3
+
+  요청한 모양 그대로다. 같은 기체가 같은 분류로 셋, 그중 둘이 같은 자리에서.
+
+  id          기체      분류               자리             at                    특징
+  incident-1  hum-04  GRASP_FAILED       RACK-204.S01   2026-09-06T00:00:01Z
+  incident-2  hum-04  GRASP_FAILED       RACK-204.S01   2026-09-06T00:00:02Z  재작업 뒤 같은 자리가 다시
+  incident-3  hum-04  GRASP_FAILED       RACK-204.S02   2026-09-06T00:00:03Z  X_FIXTURE_GRIPPER_SLIP
+  incident-4  hum-05  LOCALIZATION_LOST  PUMP-01.travel 2026-09-06T00:00:04Z  ★재발 없음
+
+  ★ 재발이 **없는** 사건을 하나 넣었다. 전부 재발이면 그 셈이 늘 켜져 있어 아무것도 안 가른다 —
+    경로가 한 갈래뿐이던 자리와 같은 병이다(§15.177).
+
+  ★ at 이 넷 다 다른 초다. 요청대로다 — 가상 시계가 초 단위라 한 초에 둘이 들어오면 그 둘 사이의
+    재발이 안 세어진다. picasso 쪽 시험 둘이 이 성질을 든다(산출 쪽과 커밋된 한 벌 쪽).
+
+  ※ **간격이 1초다.** 재발의 셈이 순서를 보는 것이라 간격은 안 쓰이지만, 시간창으로 재는 쪽으로
+    바꾸면 이 한 벌로는 아무것도 안 걸린다. 그때는 다시 요청하라 — 구동기가 정하는 값이다.
+
+  ※ remedy-searches.jsonl 이 **0줄**이다. 이 시나리오에는 든 채로 다른 일을 미는 자리가 없어
+    탐색이 한 번도 안 돈다. 빈 파일이지 빠진 파일이 아니다.
+
+  ※ 정답표는 이 벌에 없다. 지표 1 이 아니라 재발 사실이 질의에 실리는지를 보는 벌이다.
+
+  ※ 재발은 **읽는 쪽이 센다.** 이 층은 새 칸을 안 만들었다 — 번들의 칸 집합과 판 표기가 run-1 과 같다.
 
 
 ground-truth.jsonl  4줄   ★★ 이것은 질의를 만드는 경로에 넣지 말 것. 채점에서만 읽는다.
