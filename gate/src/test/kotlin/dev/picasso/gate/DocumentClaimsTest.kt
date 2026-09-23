@@ -55,6 +55,20 @@ class DocumentClaimsTest {
         }
     }
 
+    /**
+     * **`picasso` 의 시험 소스 전문.** 승인 창구는 배포 가능한 프로세스가 아니라 시험 곁에 있고(§15.176),
+     * 출하 소스만 훑으면 **멀쩡한 이름이 «코드에 없다» 로 나온다** — 그때 고쳐지는 것은 검사가 아니라
+     * 문서다(`mainSource` 가 같은 자리에서 한 번 물렸다).
+     */
+    private val hostSource by lazy {
+        Files.walk(Repo.path("picasso/src/test")).use { paths ->
+            paths.filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
+                .map { Files.readString(it) }
+                .toList()
+                .joinToString("\n")
+        }
+    }
+
     private val readme by lazy { read("README.md") }
     private val design by lazy { read("docs/superpowers/specs/2026-09-05-picasso-design.md") }
 
@@ -489,6 +503,68 @@ class DocumentClaimsTest {
         )
     }
 
+    @Test
+    fun `승인 창구를 부르는 이름이 하나이고 용어집에 있다`() {
+        // ★**막는 물건을 두는 것과 그 물건을 지나가게 하는 것은 다른 일이다.** `glossary.md` 는 스스로를
+        //   용어의 SSOT 라 적어 두었는데, 승인 표면의 어휘는 **그 문서를 한 번도 안 거치고** 코드 주석에서
+        //   태어나 두 저장소로 퍼졌다. 밖에서 사람이 «이게 뭐냐» 고 물을 때까지 아무도 몰랐다(§15.185).
+        //
+        //   그래서 이 시험은 낱말이 빠져나간 **바로 그 길** 에 선다 — 기동 배너와 Gradle 태스크 설명과
+        //   빌드 안내다. 용어집에 표제어를 하나 더 넣는 것만으로는 다음 낱말이 같은 길로 또 나간다.
+        val glossary = read("docs/glossary.md")
+        val term = Regex("""^### (\S+ \S+) \(ApprovalHost\)""", RegexOption.MULTILINE)
+            .find(glossary)?.groupValues?.get(1)
+            ?: error("용어집에 ApprovalHost 의 우리말 표제어가 없다 — 이름이 다시 용어집 밖으로 나갔다")
+
+        val naming = mapOf(
+            "CLAUDE.md" to read("CLAUDE.md"),
+            "picasso/build.gradle.kts" to read("picasso/build.gradle.kts"),
+            "docs/limits.md" to read("docs/limits.md"),
+            "ScenarioHost.kt" to read("picasso/src/test/kotlin/dev/picasso/middleware/host/ScenarioHost.kt"),
+        )
+        assertEquals(
+            emptySet<String>(),
+            naming.filterValues { term !in it }.keys,
+            "이 물건을 부르는 자리가 «$term» 을 안 쓴다 — 어휘가 둘이 되면 밖이 둘 다 받아 적는다",
+        )
+
+        // ★**옛 이름은 지우지 않고 용어집에만 둔다** — 철회를 표시로 남기는 ADR 45 와 같은 모양이다.
+        //   이미 밖으로 나간 문서가 그 낱말을 쓰므로, 지우면 「다른 것을 가리킨다」와 「같은 것의 옛
+        //   이름이다」가 접힌다. **다만 부르는 자리에는 남으면 안 된다** — 거기 남으면 이름이 둘이다.
+        assertEquals(
+            emptySet<String>(),
+            naming.filterValues { STALE_HOST_TERM in it }.keys,
+            "옛 이름 «$STALE_HOST_TERM» 이 부르는 자리에 남아 있다",
+        )
+        assertTrue(STALE_HOST_TERM in glossary, "용어집이 옛 이름을 안 든다 — 이미 나간 문서를 못 되짚는다")
+    }
+
+    @Test
+    fun `용어집이 승인 표면에 대는 이름과 수가 코드와 같다`() {
+        // 용어집은 이 저장소에서 **SSOT 라고 스스로 적어 둔 유일한 문서이면서 대조가 하나도 없던 문서다.**
+        // 다른 문서는 전부 여기서 다시 세는데 이것만 안 셌다.
+        val glossary = read("docs/glossary.md")
+        val section = glossary.substringAfter("## 6. 승인과 자격", "")
+        assertTrue(section.isNotBlank(), "승인 어휘 절이 없다")
+
+        val enumBody = Regex("""enum class ApprovalRefusal[^{]*\{(.*?)\n\}""", RegexOption.DOT_MATCHES_ALL)
+            .find(mainSource)?.groupValues?.get(1)
+            ?: error("ApprovalRefusal 을 출하 소스에서 못 찾았다")
+        val values = Regex("""^ {4}([A-Z][A-Z_]+)\s*[,;]""", RegexOption.MULTILINE)
+            .findAll(enumBody).map { it.groupValues[1] }.toList()
+        // 하한을 둔다 — 정규식이 낡아 0개를 읽으면 «수가 같다» 가 조용히 참이 된다.
+        assertTrue(values.size >= 5, "열거값을 못 읽었다 — 정규식이 낡았나: $values")
+        assertEquals(values.size, claimed("""가르는 (\S+?)값 열거""", glossary), "거절 사유의 수가 코드와 다르다")
+
+        val named = Regex("""`([A-Z][A-Za-z0-9_]+)`""").findAll(section).map { it.groupValues[1] }.toSet()
+        assertTrue(named.size >= 5, "절에서 기호를 못 읽었다: $named")
+        assertEquals(
+            emptySet<String>(),
+            named.filterNot { it in values || it in mainSource || it in hostSource }.toSet(),
+            "용어집이 이름 지은 기호가 코드에 없다",
+        )
+    }
+
     private companion object {
         /** 이 저장소의 산문은 작은 수를 낱말로 쓴다. 셈은 여기서 한 번만 한다. */
         val NUMERALS = mapOf(
@@ -497,6 +573,9 @@ class DocumentClaimsTest {
             "열넷" to 14, "열다섯" to 15, "열여섯" to 16, "열일곱" to 17, "열여덟" to 18,
             "열아홉" to 19, "스물" to 20,
         )
+
+        /** 2026-09-22 까지 승인 창구를 부르던 이름. 용어집이 들고 있고 부르는 자리에는 없어야 한다. */
+        const val STALE_HOST_TERM = "승인 입"
 
         /** 모듈이 아니지만 나무에 있는 것들 — 도구와 문서. */
         val IGNORED_DIRS = setOf("tools", "docs", "profile", "ci")

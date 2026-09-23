@@ -20,11 +20,11 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * **실행 계층을 세워 두고 승인 입을 연다** — v1 의 담는 쪽(`docs/orchestration.md` §7.4).
+ * **실행 계층을 세워 두고 승인 창구를 연다** — v1 의 담는 쪽(`docs/orchestration.md` §7.4).
  *
  * ```
  * ./gradlew :picasso:runApprovalHost
- * ./gradlew :picasso:runApprovalHost --args="--port 877 --seconds 1800"
+ * ./gradlew :picasso:runApprovalHost --args="--port 8770 --seconds 1800"
  * ```
  *
  * ## 왜 시험 소스에 있나
@@ -215,7 +215,7 @@ object ScenarioHost {
     }
 
     private fun announce(host: ApprovalHost, exportDir: Path, declarations: Path, entitlements: FileEntitlements) {
-        println("[host] 승인 입: http://127.0.0.1:${host.port}${ApprovalHost.PATH}  (POST · 루프백 전용)")
+        println("[host] 승인 창구: http://127.0.0.1:${host.port}${ApprovalHost.PATH}  (POST · 루프백 전용)")
         println("[host] 선언 목록: ${declarations.toAbsolutePath().normalize()}  승인자=${entitlements.approvers()}")
         println("[host] 두 대장: ${exportDir.toAbsolutePath().normalize()}")
         println("[host] 서 있는 자리 넷:")

@@ -189,6 +189,8 @@ entitlements.json  이 데모가 읽는 자격 선언 목록   ※ 승인자 셋
      반대인 두 상태가 접힌다. 표시는 at · by · reason 셋을 다 든다 — 반쯤 적으면 파일이 안 선다.
 
 승인을 실제로 걸어 보려면 (picasso 저장소에서)
+  이 물건의 이름은 **승인 창구**(`ApprovalHost`)다 — docs/glossary.md §6 에 있다.
+  2026-09-22 까지 「승인 입」이라 적었던 것과 같은 것이고, 옛 이름은 용어집이 들고 있다.
   ./gradlew :picasso:runApprovalHost --args="--port 8770 --seconds 1800"
   POST http://127.0.0.1:8770/approvals   루프백 전용. 신원을 인증하지 않는다(§15.3)
 
