@@ -8,7 +8,6 @@ import dev.picasso.mimic.control.v1.ForceFaultRequest
 import dev.picasso.mimic.control.v1.SetConnectionRequest
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.time.Instant
 import kotlin.test.Test
@@ -352,24 +351,17 @@ class ExportFixtureTest {
         w.brokenHolding(NONE_ROBOT)
     }
 
+    /**
+     * 담는 절차는 창구가 쓰는 것과 **같은 한 벌**이다(§15.193). 앞 판은 여기에 같은 절차를 따로
+     * 적었고, 그래서 창구 쪽만 고침을 얻었을 때 갈림이 안 보였다.
+     *
+     * ★**한 벌마다 쓰개를 새로 만든다.** 자리와 구동 식별자가 생성 인자라 재실행 쌍이 같은 식별자를
+     * 얻을 길이 없고, 건너뛰기도 새 쓰개에는 걸리지 않는다. 그래도 «안 썼다» 를 조용히 넘기지 않는다.
+     */
     private fun write(w: World, dir: Path) {
-        Files.createDirectories(dir)
-        val incidents = w.mw.incidents()
-        val searches = w.mw.remedySearches()
-        atomically(dir, LedgerExport.INCIDENTS, LedgerExport.incidents(incidents))
-        atomically(dir, LedgerExport.REMEDY_SEARCHES, LedgerExport.remedySearches(searches))
-        val wall = Instant.now()
-        atomically(
-            dir,
-            LedgerExport.MANIFEST,
-            LedgerExport.manifest(LedgerExport.newRunId(wall), wall, w.harness.clock.now(), incidents.size, searches.size),
-        )
-    }
-
-    private fun atomically(dir: Path, name: String, body: String) {
-        val tmp = dir.resolve("$name.tmp")
-        Files.writeString(tmp, body)
-        Files.move(tmp, dir.resolve(name), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        check(BundleWriter(dir).snapshot(w.mw.incidents(), w.mw.remedySearches(), w.harness.clock.now())) {
+            "$dir 에 한 벌을 안 썼다"
+        }
     }
 
     @Test

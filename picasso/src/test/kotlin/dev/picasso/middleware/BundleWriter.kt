@@ -1,31 +1,31 @@
-package dev.picasso.middleware.host
+package dev.picasso.middleware
 
-import dev.picasso.middleware.IncidentBundle
-import dev.picasso.middleware.LedgerExport
-import dev.picasso.middleware.RemedySearchRecord
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.time.Instant
 
 /**
- * 창구가 도는 동안의 **살아 있는 한 벌** — 이 창구에 되돌려 댈 수 있는 유일한 한 벌이다.
+ * 두 대장과 안내를 **한 벌로 디스크에 놓는다.** 모양을 짓는 것은 [LedgerExport] 이고 담는 일이 여기다.
  *
- * ## 왜 인계본이 아닌가
+ * ## 절차가 한 벌인 것이 요점이다
  *
- * ★인계본(`handoff/narrator/run-*`)은 **다른 시나리오의 산물**이다. `run-1` 의 `search-1` 은
- * `hum-02` / `PATROL-1` 인데 창구에 서 있는 자리는 `hum-02` / `PATROL-APPROVES` 라, 인계본을
- * 그대로 창구에 대면 첫 줄부터 `NO_PROPOSAL` 이 온다. **거짓이 아니다** — 창구에 그 제안이 없는
- * 것이 사실이다. 그러나 「알려진 조치로 자동 회복」을 실물로 보이지는 못한다.
+ * ★★**앞 판은 이 절차가 셋이었다** — `ExportFixtureTest` 와 `LedgerExportTest` 와 창구가 같은 일을
+ * 따로 적고 있었다. 셋이 각자 제 시험으로 초록이었으므로 **갈려도 아무도 안 빨개진다.** 실제로 창구
+ * 쪽만 구동 식별자 고정과 건너뛰기를 얻어 이미 한 벌이 갈려 있었다(§15.186). §15.115 가 「두 벌로
+ * 두면 어느 날 한쪽만 는다」고 적은 바로 그 모양이다.
  *
- * 한 벌과 창구가 같은 제안을 들려면 **같은 미들웨어가 둘 다 냈어야 한다.** 그 자리가 여기다.
+ * 그래서 절차를 여기 하나로 둔다. 다시 갈리는 것은 [BundleWriterTest] 가 소스를 훑어 막는다.
  *
- * ## 구동 식별자는 한 바퀴에 하나다
+ * ## 구동 식별자는 한 벌에 하나다
  *
- * ★★앞 판은 내보낼 때마다 새로 찍었다. 30분 돌린 한 판에서 식별자가 `-10930` 까지 갔다(실측).
+ * ★★앞 판의 창구는 내보낼 때마다 새로 찍었다. 30분 돌린 한 판에서 식별자가 `-10930` 까지 갔다(실측).
  * 읽는 쪽은 「같은 구동의 같은 줄에는 한 번만 부른다」로 승인을 거르는데, 식별자가 매번 바뀌면
- * **그 거름망이 통째로 죽는다** — 같은 한 벌을 다시 훑을 때마다 승인을 또 시도한다. 승인은
- * 제안을 소모하므로 두 번째는 거절로 오고, 그러면 대장에 **일어나지 않은 거절**이 쌓인다.
+ * **그 거름망이 통째로 죽는다** — 같은 한 벌을 다시 훑을 때마다 승인을 또 시도한다. 승인은 제안을
+ * 소모하므로 두 번째는 거절로 오고, 그러면 대장에 **일어나지 않은 거절**이 쌓인다.
+ *
+ * 그래서 식별자는 **만들 때 한 번** 정해진다. 자리(`dir`)도 만들 때 정해지므로 **한 쓰개가 두 벌을
+ * 쓸 길이 없다** — 한 벌마다 하나를 만드는 것이 유일한 쓰는 법이다.
  *
  * ## 안 늘면 안 쓴다
  *
@@ -33,7 +33,10 @@ import java.time.Instant
  * 한 벌로 집을 때 파일마다 다른 순간을 볼 수 있다. 쓰는 순서는 대장 먼저, 안내가 마지막이다 —
  * 안내가 나타나는 것이 «다 나왔다» 는 신호이고, 그때 그 수만큼의 줄이 이미 자리에 있다.
  */
-class LiveExport(private val dir: Path, private val runId: String) {
+class BundleWriter(
+    private val dir: Path,
+    private val runId: String = LedgerExport.newRunId(Instant.now()),
+) {
 
     /** 마지막으로 쓴 (사건 수, 탐색 수). 안 썼으면 널이다 — **0,0 과 «아직 안 썼다» 는 다르다.** */
     private var written: Pair<Int, Int>? = null

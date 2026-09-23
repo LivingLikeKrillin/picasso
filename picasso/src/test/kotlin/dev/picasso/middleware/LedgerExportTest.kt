@@ -14,7 +14,6 @@ import dev.picasso.harness.Harness
 import dev.picasso.mimic.control.v1.ForceFaultRequest
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.time.Instant
 import kotlin.test.Test
@@ -417,29 +416,14 @@ class LedgerExportTest {
         ).taskState
 
         /**
-         * 두 대장을 파일로 낸다 — **임시 이름으로 쓰고 이름만 바꾼다.** 반쯤 쓰인 파일을 읽는 쪽이
-         * 집어 가면 그것은 한 벌이 아니라 파편이고, 파편과 빈 한 벌은 같은 모양이다.
-         * 명세는 맨 마지막이다. 그것이 나타나는 것이 «다 나왔다» 는 신호다.
+         * 두 대장을 파일로 낸다. 절차는 [BundleWriter] 한 벌뿐이다 — 임시 이름으로 쓰고 이름만 바꾸며
+         * 명세가 맨 마지막이다. **앞 판은 그 절차를 여기에 따로 적었다**(§15.193).
          */
         fun export(dir: Path = Path.of("build", "export")): Path {
-            Files.createDirectories(dir)
-            val incidents = mw.incidents()
-            val searches = mw.remedySearches()
-            atomically(dir, LedgerExport.INCIDENTS, LedgerExport.incidents(incidents))
-            atomically(dir, LedgerExport.REMEDY_SEARCHES, LedgerExport.remedySearches(searches))
-            val wall = Instant.now()
-            atomically(
-                dir,
-                LedgerExport.MANIFEST,
-                LedgerExport.manifest(LedgerExport.newRunId(wall), wall, harness.clock.now(), incidents.size, searches.size),
-            )
+            check(BundleWriter(dir).snapshot(mw.incidents(), mw.remedySearches(), harness.clock.now())) {
+                "$dir 에 한 벌을 안 썼다"
+            }
             return dir
-        }
-
-        private fun atomically(dir: Path, name: String, body: String) {
-            val tmp = dir.resolve("$name.tmp")
-            Files.writeString(tmp, body)
-            Files.move(tmp, dir.resolve(name), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         }
 
         override fun close() = harness.close()
