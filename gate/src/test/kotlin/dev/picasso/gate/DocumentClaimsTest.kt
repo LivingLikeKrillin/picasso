@@ -210,7 +210,10 @@ class DocumentClaimsTest {
         // 실제는 40). 산문의 숫자는 아무도 다시 안 세므로 여기서 센다.
         // ★**행을 센다. id 를 세지 않는다** — 한 칸에 id 를 `·` 로 이어 적은 행이 있어서 둘이 다르다.
         val rows = LimitsLedger.rows(Repo.read("docs/limits.md"))
-        val open = rows.count { it.first != LimitsLedger.SCOPED_OUT }
+        // ★**열린 갈래를 이름으로 든다.** «의도적 제외가 아닌 전부» 로 세면 나중에 절이 하나 늘 때
+        // 그 표가 조용히 미결로 셈된다.
+        val openBranches = setOf(LimitsLedger.INTERNAL, LimitsLedger.CONSUMER, LimitsLedger.EXTERNAL)
+        val open = rows.count { it.first in openBranches }
         assertEquals(open, claimed("""미결 한계 항목 (\S+)개"""), "미결 항목이 늘었는데 README 가 그대로다")
 
         // ★**같은 수를 두 자리에 적었고 한쪽만 셌더니 다른 쪽이 낡았다**(실측 2026-09-18: 한쪽은 46,
