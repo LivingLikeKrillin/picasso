@@ -88,6 +88,44 @@ class ExportFixtureTest {
             error("조건에 못 미쳤다")
         }
 
+        /** 실행 중 실패 하나 — 사건이 열리고 기체는 **든 채로** 선다. */
+        fun brokenHolding(robotId: String): Middleware.Execution {
+            val exec = holdingRack(robotId)
+            forceFault(robotId, "SKILL_EXECUTION_FAILED", exec.units.first().taskId)
+            drive(rounds = 250) { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+            return exec
+        }
+
+        /**
+         * 사건 **뒤에** 탐색을 세운다 — 사람이 재작업을 내고, 도는 단위가 생긴 뒤에 빈손을 요구하는
+         * 주문을 넣는다. 사슬 검사가 막고 그 거절이 제안을 세운다.
+         *
+         * ★★**재작업이 왜 필요한가.** `OPERATOR_HOLD` 에서는 **도는 단위가 없어 이 층이 파지를 못
+         * 본다**(§15.150). 그 상태로 주문을 넣으면 조건을 못 재서 그냥 **접수된다** — 실측으로 걸렸다.
+         * 재작업이 새 태스크를 세우면 잔여 파지가 다시 관측에 들어오고, 그때 비로소 거절이 선다.
+         * 그러니 이 한 벌이 싣는 것은 「사건 뒤의 탐색」이되 **사람이 한 걸음 개입한 뒤**의 것이다.
+         *
+         * ★시계를 먼저 민다. 사건과 탐색이 같은 초에 앉으면 읽는 쪽이 앞뒤를 못 가르고, 그러면 이
+         * 한 벌이 «사건 뒤의 탐색» 을 싣고도 그렇게 안 읽힌다(§15.182 와 같은 자리).
+         */
+        fun searchAfter(exec: Middleware.Execution, robotId: String, jobOrderId: String) {
+            val mark = harness.clock.now()
+            drive(rounds = 10) { harness.clock.now().isAfter(mark.plusSeconds(2)) }
+
+            val firstTask = exec.units.first().taskId
+            val slot = exec.units.first().unitId
+            check(mw.resolve(exec.executionId, slot, OperatorDecision.REWORK)) { "$robotId 재작업이 안 받아졌다" }
+            drive(rounds = 250) {
+                val task = exec.units.first().taskId
+                task.isNotBlank() && task != firstTask &&
+                    mw.view(robotId)?.tasks?.get(task) == TaskState.TASK_STATE_RUNNING
+            }
+            check(exec.units.first().hold.kind == HoldKind.HOLD_KIND_HOLDING) {
+                "$robotId 가 재작업 뒤에 안 들고 있다: ${exec.units.first().hold.kind}"
+            }
+            assertIs<Middleware.Submission.Rejected>(mw.submit(patrol(jobOrderId), robotId))
+        }
+
         fun setConnection(robotId: String, state: ConnectionState) = harness.oracle.setConnection(
             SetConnectionRequest.newBuilder().setRobotId(robotId).setState(state.name).build(),
         )
@@ -290,6 +328,30 @@ class ExportFixtureTest {
         w.drive(rounds = 250) { patrolled.physicalState == PhysicalState.OPERATOR_HOLD }
     }
 
+    /**
+     * **사건이 먼저 나고 탐색이 그 뒤에 선다.** 지금 한 벌들은 순서가 반대다 — 접수 관문의 거절이
+     * 제안을 세우고(§15.150), 승인된 조치가 **나중에** 깨져 사건이 난다. 그래서 읽는 쪽은 «이 실패를
+     * 어떻게 회복하나» 를 사건 옆에서 못 읽는다. 사건 아홉에 짝이 하나였다(읽는 쪽 실측).
+     *
+     * ★**뒤집는 데 §15.150 을 안 연다.** 탐색은 여전히 접수 관문에서만 돈다 — 바뀌는 것은 **순서**
+     * 뿐이다. 실행 중 실패가 잔여 파지를 남기고, 그 기체에 **빈손을 요구하는 주문** 이 들어가면
+     * 사슬 검사가 막고 그 거절이 제안을 세운다. 발신자 거절 경로에 제안을 붙이는 것이 아니다.
+     */
+    private fun afterIncident(w: World) {
+        // ① 짝이 있고 답이 서는 자리.
+        val broken = w.brokenHolding(FOUND_ROBOT)
+        w.searchAfter(broken, FOUND_ROBOT, "PATROL-AFTER-1")
+
+        // ② 짝이 있는데 답이 가려진 자리 — `withholdEvery` 가 둘째 제안을 가린다. 읽는 쪽이
+        //    «가렸다» 와 «대안이 없다» 를 사건 옆에서도 갈라야 한다.
+        val withheld = w.brokenHolding(OTHER_ROBOT)
+        w.searchAfter(withheld, OTHER_ROBOT, "PATROL-AFTER-2")
+
+        // ③ ★**짝이 없는 사건이 있어야 그 셈이 무언가를 가린다.** 전부 짝이면 읽는 쪽은 자기 셈이
+        //    도는지조차 모른다(§15.177). 이 기체에는 뒤이은 주문을 안 넣는다.
+        w.brokenHolding(NONE_ROBOT)
+    }
+
     private fun write(w: World, dir: Path) {
         Files.createDirectories(dir)
         val incidents = w.mw.incidents()
@@ -412,6 +474,45 @@ class ExportFixtureTest {
             assertTrue(
                 incidents.any { it.robotId != RECUR_ROBOT && it.failureClass != "GRASP_FAILED" },
                 "재발이 없는 사건이 없다: ${incidents.map { it.robotId to it.failureClass }}",
+            )
+        }
+    }
+
+    @Test
+    fun `사건 뒤에 탐색이 서는 한 벌을 낸다`() {
+        val dir = Path.of("build", "export", "run-4")
+        World().use { w ->
+            afterIncident(w)
+            write(w, dir)
+
+            val incidents = w.mw.incidents()
+            val searches = w.mw.remedySearches()
+            assertTrue(incidents.size >= 3, "사건이 셋보다 적다: ${incidents.size}")
+            assertEquals(2, searches.size, "탐색이 둘이 아니다: ${searches.map { it.robotId to it.outcome }}")
+
+            // ★**이 한 벌의 유일한 이유다.** 같은 기체에서 사건이 먼저 나고 탐색이 그 뒤에 선다 —
+            //   지금까지의 한 벌들은 전부 반대 순서였고, 그래서 읽는 쪽이 회복을 사건 옆에서 못 읽었다.
+            searches.forEach { search ->
+                val before = incidents.filter { it.robotId == search.robotId && it.at.isBefore(search.at) }
+                assertTrue(
+                    before.isNotEmpty(),
+                    "탐색 ${search.searchId}(${search.robotId} · ${search.at}) 앞에 그 기체의 사건이 없다: " +
+                        incidents.filter { it.robotId == search.robotId }.map { it.at },
+                )
+            }
+
+            // ★**짝이 없는 사건이 있어야 그 셈이 무언가를 가린다**(§15.177). 전부 짝이면 읽는 쪽은
+            //   자기 셈이 도는지조차 모른다.
+            val paired = searches.map { it.robotId }.toSet()
+            assertTrue(
+                incidents.any { it.robotId !in paired },
+                "짝 없는 사건이 없다: ${incidents.map { it.robotId }}",
+            )
+
+            // 「가렸다」와 「대안이 없다」가 사건 옆에서도 갈려야 한다 — 하나는 답이 서고 하나는 가려진다.
+            assertTrue(
+                searches.any { it.outcome is RemedyOutcome.Found } && searches.any { it.outcome is RemedyOutcome.Withheld },
+                "선 답과 가린 답이 같이 있지 않다: ${searches.map { it.outcome }}",
             )
         }
     }
