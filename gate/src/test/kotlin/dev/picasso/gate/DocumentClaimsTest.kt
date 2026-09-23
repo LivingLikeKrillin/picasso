@@ -210,15 +210,46 @@ class DocumentClaimsTest {
         // 실제는 40). 산문의 숫자는 아무도 다시 안 세므로 여기서 센다.
         // ★**행을 센다. id 를 세지 않는다** — 한 칸에 id 를 `·` 로 이어 적은 행이 있어서 둘이 다르다.
         val rows = LimitsLedger.rows(Repo.read("docs/limits.md"))
-        val open = rows.count { it.first == 2 || it.first == 3 }
+        val open = rows.count { it.first != LimitsLedger.SCOPED_OUT }
         assertEquals(open, claimed("""미결 한계 항목 (\S+)개"""), "미결 항목이 늘었는데 README 가 그대로다")
 
         // ★**같은 수를 두 자리에 적었고 한쪽만 셌더니 다른 쪽이 낡았다**(실측 2026-09-18: 한쪽은 46,
         // 다른 쪽은 37). 센 자리만 안 낡는다 — 그러니 갈래별 수까지 여기서 센다.
         assertEquals(open, claimed("""등록된 미결 항목은 \*\*(\S+?)개\*\*"""), "미결 합을 README 가 두 값으로 적는다")
-        assertEquals(rows.count { it.first == 2 }, claimed("""내부 (\S+?)개"""), "내부 미결 수가 대장과 다르다")
-        assertEquals(rows.count { it.first == 3 }, claimed("""외부 (\S+?)개"""), "외부 미결 수가 대장과 다르다")
-        assertEquals(rows.count { it.first == 1 }, claimed("""의도적 제외 (\S+?)개"""), "의도적 제외 수가 대장과 다르다")
+        assertEquals(rows.count { it.first == LimitsLedger.INTERNAL }, claimed("""내부 (\S+?)개"""), "내부 미결 수가 대장과 다르다")
+        assertEquals(rows.count { it.first == LimitsLedger.CONSUMER }, claimed("""소비자 대기 (\S+?)개"""), "소비자 대기 수가 대장과 다르다")
+        assertEquals(rows.count { it.first == LimitsLedger.EXTERNAL }, claimed("""외부 (\S+?)개"""), "외부 미결 수가 대장과 다르다")
+        assertEquals(rows.count { it.first == LimitsLedger.SCOPED_OUT }, claimed("""의도적 제외 (\S+?)개"""), "의도적 제외 수가 대장과 다르다")
+    }
+
+    @Test
+    fun `한계 대장의 갈래가 해소의 주어와 맞는다`() {
+        // ★★**이 대조가 없어서 드리프트했다.** 갈래는 「해소의 주어가 누구인가」로 갈리는데, 주어는
+        //   해소 조건의 산문에만 있고 갈래는 절 머리에만 있다. 둘이 따로 적히니 **밖이 주어인 행이
+        //   내부 미결에 앉아도 아무도 안 빨개졌다** — 실측으로 열셋이 그렇게 앉아 있었다(§15.194).
+        //
+        //   ★**낱말로 댄다**(ADR 23 과 같은 규율). 밖의 주어를 이름으로 부르는 행은 이것으로 잡힌다.
+        //   낱말 없이 밖에 기대는 행은 못 잡으며 그 한계를 대장에 적었다 — 반을 막는 대조가 아무것도
+        //   안 막는 것보다 낫고, 그 반이 지금까지 시끄러웠던 쪽이다.
+        val ledger = LimitsLedger.cells(Repo.read("docs/limits.md"))
+
+        // ★**하나도 못 읽으면 통과가 아니다.** 표의 모양이 바뀌면 아래가 전부 «위반 없음» 으로
+        //   맞아떨어져 「깨끗하다」와 「못 읽었다」가 같은 모양이 된다.
+        assertTrue(ledger.size > 50, "대장을 못 읽었다: ${ledger.size}")
+
+        val outside = listOf("받는 쪽", "읽는 쪽", "소비자", "상류", "실물", "벤더", "현장")
+        val world = listOf("실물", "벤더", "현장")
+        val misfiled = ledger.mapNotNull { (branch, id, condition) ->
+            val named = when (branch) {
+                // 이 저장소가 혼자 닫는다는 갈래인데 해소 조건이 밖의 주어를 부른다.
+                LimitsLedger.INTERNAL -> outside.filter { it in condition }
+                // 소비자가 요구하면 열린다는 갈래인데 실물이나 벤더를 기다린다 — 그쪽은 외부다.
+                LimitsLedger.CONSUMER -> world.filter { it in condition }
+                else -> emptyList()
+            }
+            if (named.isEmpty()) null else "$id(갈래 $branch) → ${named.joinToString("·")}"
+        }
+        assertEquals(emptyList(), misfiled, "해소 조건이 밖의 주어를 대는데 갈래는 그렇지 않다")
     }
 
     @Test

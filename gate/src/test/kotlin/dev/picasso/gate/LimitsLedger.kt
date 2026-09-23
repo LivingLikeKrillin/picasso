@@ -3,18 +3,25 @@ package dev.picasso.gate
 /** `docs/limits.md` 의 표를 읽는다. **열림 판정의 근거가 실재하는지** 보려는 것뿐이다. */
 object LimitsLedger {
 
+    /** 갈래의 번호. **해소의 주어가 누구인가로 갈린다** — 문서의 절 번호와 한 벌이다. */
+    const val SCOPED_OUT = 1
+    const val INTERNAL = 2
+    const val CONSUMER = 3
+    const val EXTERNAL = 4
+
     private val BRANCH = Regex("""^## (\d)\.""")
 
     /**
-     * 표의 **첫 칸 전부**를 갈래와 함께. 원문 순서를 지키므로 **중복도 보인다.**
+     * 표의 줄마다 (갈래, 첫 칸, 마지막 칸). **마지막 칸이 해소 필요 조건이다.**
+     * 원문 순서를 지키므로 **중복도 보인다.**
      *
-     * ★**칸을 뽑는 규칙은 여기 한 벌뿐이다.** `parse` 와 유일성 시험이 나눠 쓴다 — 두 벌로 두면
+     * ★**칸을 뽑는 규칙은 여기 한 벌뿐이다.** `rows` 와 `parse` 와 유일성 시험이 나눠 쓴다 — 두 벌로 두면
      * 어느 날 한쪽만 는다(§15.115). 펜스 규칙도 `ClaimSurface` 의 것을 그대로 쓴다.
      */
-    fun rows(content: String): List<Pair<Int, String>> {
+    fun cells(content: String): List<Triple<Int, String, String>> {
         val lines = content.replace("\r\n", "\n").lines()
         val outside = ClaimSurface.outsideFence(lines)
-        val out = mutableListOf<Pair<Int, String>>()
+        val out = mutableListOf<Triple<Int, String, String>>()
         var branch = 0
         lines.forEachIndexed { i, line ->
             if (!outside[i]) return@forEachIndexed
@@ -24,12 +31,17 @@ object LimitsLedger {
                 return@forEachIndexed
             }
             if (branch == 0 || !line.trimStart().startsWith("|")) return@forEachIndexed
-            val cell = line.split("|").getOrNull(1)?.replace("*", "")?.trim() ?: return@forEachIndexed
+            val parts = line.split("|")
+            val cell = parts.getOrNull(1)?.replace("*", "")?.trim() ?: return@forEachIndexed
             if (cell.isEmpty() || cell.trim(':', '-').isEmpty() || cell == "출처" || cell == "갈래") return@forEachIndexed
-            out += branch to cell
+            // `| a | b | c |` 는 조각이 다섯이라 마지막 칸이 끝에서 둘째다.
+            out += Triple(branch, cell, parts.getOrNull(parts.size - 2)?.trim().orEmpty())
         }
         return out
     }
+
+    /** 첫 칸만 갈래와 함께. */
+    fun rows(content: String): List<Pair<Int, String>> = cells(content).map { it.first to it.second }
 
     fun parse(content: String): Map<Int, Set<String>> {
         val out = mutableMapOf<Int, MutableSet<String>>()
