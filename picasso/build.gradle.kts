@@ -54,6 +54,9 @@ tasks.withType<Test>().configureEach {
         // 정답의 말이 어느 문서로 새는지를 `GroundTruthTest` 가 `docs` 전부에서 훑는다.
         // 좁게 선언하면 새 문서가 생겨도 태스크가 UP-TO-DATE 로 건너뛰어 누수가 안 보인다.
         rootProject.file("docs"),
+        // 인계 안내문을 추적하지 않으므로 `HandoffFixtureTest` 가 «없음» 을 무시 목록으로 확인한다.
+        // 선언 안 하면 목록에서 그 줄을 빼도 태스크가 UP-TO-DATE 로 건너뛴다.
+        rootProject.file(".gitignore"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

@@ -110,7 +110,18 @@ class HandoffFixtureTest {
         //
         //   둘 다 커밋된 파일이라 같이 움직인다. 유지비는 «한 벌을 갱신하면 안내문도 갱신한다» 하나이고,
         //   그건 어차피 해야 하는 일이다.
-        val index = Files.readString(HANDOFF.resolve("INDEX.txt"))
+        // ★**안내문은 이제 추적하지 않는다**(공개 대상이 아님, §15.190). 그래서 CI 체크아웃에는
+        //   없고 고치는 기계에만 있다. 낡는 일은 고치는 자리에서 나므로 그 자리에서는 잡힌다.
+        //
+        //   ⛔**«없다» 를 그냥 통과시키면 안 된다.** 실수로 지운 것과 모양이 같아져 이 시험이 조용히
+        //   참이 된다. 없으면 **무시 목록이 그것을 이름으로 드는지** 보고, 그때만 건너뛴다.
+        val indexFile = HANDOFF.resolve("INDEX.txt")
+        if (!Files.isRegularFile(indexFile)) {
+            val ignored = Files.readString(Path.of("..", ".gitignore").normalize())
+            assertTrue("handoff/narrator/INDEX.txt" in ignored, "안내문이 없는데 무시 목록에도 없다")
+            return
+        }
+        val index = Files.readString(indexFile)
         RUNS.forEach { run ->
             val runId = parse(Files.readString(HANDOFF.resolve(run).resolve(LedgerExport.MANIFEST)))
                 .getValue("runId").stringValue
