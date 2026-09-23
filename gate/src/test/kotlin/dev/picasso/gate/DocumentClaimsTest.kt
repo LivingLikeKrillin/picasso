@@ -47,7 +47,8 @@ class DocumentClaimsTest {
         Files.walk(repo).use { paths ->
             paths.filter {
                 val at = it.toString().replace('\\', '/')
-                Files.isRegularFile(it) && at.endsWith(".kt") && "/src/main/" in at && "/build/" !in at
+                Files.isRegularFile(it) && at.endsWith(".kt") && "/src/main/" in at &&
+                    "/build/" !in at && WORKTREES !in at
             }
                 .map { Files.readString(it) }
                 .toList()
@@ -565,6 +566,45 @@ class DocumentClaimsTest {
         )
     }
 
+    @Test
+    fun `자동화 시험의 수를 대외 문서가 맞게 적는다`() {
+        // ★**세는 시험이 없는 수는 낡는다.** `verification.md` 가 1,480여 에서 멈춘 채 삼백 넘게
+        //   벌어져 있었다(§15.189). 이 파일의 머리가 «이 저장소가 반복해 물린 자리» 라 적은 그것이고,
+        //   대외 문서가 틀린 수를 들고 나가던 자리다.
+        //
+        //   ★**소스의 `@Test` 를 센다 — 실행 결과가 아니다.** 결과(XML)로 세면 Docker 가 없는 기계에서
+        //   두 모듈이 통째로 빠져 수가 줄고, 그러면 같은 문서가 기계마다 다른 값을 요구한다.
+        //
+        //   ★★**선언된 모듈만 훑는다.** 저장소를 통째로 걸으면 `.claude/worktrees/` 의 사본이 같이
+        //   세어져 수가 거의 배로 뛴다(실측: 시험 소스 157 파일). 그 사본은 CI 에는 없으므로
+        //   **기계마다 다른 답이 나오는 대조**가 된다 — 같은 구멍에 `mainSource` 도 물려 있었다.
+        // ⛔`modules()` 는 `rootProject.name` 의 값까지 집어 `picasso` 를 **두 번** 돌려준다.
+        //   집합으로 대는 쪽은 안 물리지만 더하는 쪽은 그 모듈이 통째로 두 번 세어진다(실측 2,081).
+        val counted = modules().distinct().sumOf { module ->
+            val dir = Repo.path("$module/src/test")
+            if (!Files.isDirectory(dir)) 0
+            else Files.walk(dir).use { paths ->
+                paths.filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }
+                    .map { TEST_ANNOTATION.findAll(Files.readString(it)).count() }
+                    .toList()
+                    .sum()
+            }
+        }
+        // 하한을 둔다 — 정규식이 낡아 0 을 세면 «문서와 같다» 가 조용히 참이 될 수 있다.
+        assertTrue(counted > 1_000, "시험을 못 셌다 - 정규식이나 경로가 낡았나: $counted")
+
+        val claims = Regex("""([0-9][0-9,]{2,})\s*여?\s*개\s*(자동화\s*)?(테스트|시험)""")
+        listOf("CLAUDE.md", "docs/verification.md").forEach { doc ->
+            val text = read(doc)
+            val hit = claims.find(text) ?: error("$doc 이 자동화 시험의 수를 안 적는다")
+            assertEquals(
+                counted,
+                hit.groupValues[1].replace(",", "").toInt(),
+                "$doc 의 시험 수가 실측과 다르다",
+            )
+        }
+    }
+
     private companion object {
         /** 이 저장소의 산문은 작은 수를 낱말로 쓴다. 셈은 여기서 한 번만 한다. */
         val NUMERALS = mapOf(
@@ -573,6 +613,12 @@ class DocumentClaimsTest {
             "열넷" to 14, "열다섯" to 15, "열여섯" to 16, "열일곱" to 17, "열여덟" to 18,
             "열아홉" to 19, "스물" to 20,
         )
+
+        /** 줄 머리의 `@Test`. 주석이나 문자열 안의 것은 안 센다. */
+        val TEST_ANNOTATION = Regex("""^\s*@Test\b""", RegexOption.MULTILINE)
+
+        /** 다른 가지의 사본. 저장소를 걸을 때 같이 읽히면 수가 배로 뛴다. */
+        const val WORKTREES = "/.claude/"
 
         /** 2026-09-22 까지 승인 창구를 부르던 이름. 용어집이 들고 있고 부르는 자리에는 없어야 한다. */
         const val STALE_HOST_TERM = "승인 입"
