@@ -61,6 +61,7 @@ class HandoffFixtureTest {
             "FOUND" to keys(LedgerExport.remedySearches(listOf(record(RemedyOutcome.Found(listOf(STEP))))).trim()),
             "NONE" to keys(LedgerExport.remedySearches(listOf(record(NONE))).trim()),
             "WITHHELD" to keys(LedgerExport.remedySearches(listOf(record(RemedyOutcome.Withheld))).trim()),
+            "SOURCE_MISSING" to keys(LedgerExport.remedySearches(listOf(record(SOURCE_MISSING))).trim()),
         )
         RUNS.forEach { run ->
             lines(run, LedgerExport.REMEDY_SEARCHES).forEach { line ->
@@ -153,10 +154,25 @@ class HandoffFixtureTest {
     }
 
     @Test
-    fun `인계한 한 벌이 탐색 세 갈래와 승인자 두 갈래를 든다`() {
+    fun `인계한 한 벌이 대장의 네 갈래와 승인자 두 갈래를 든다`() {
         // 받는 쪽의 방벽이 이것들에 선다. 하나라도 빠지면 그쪽 시험이 전제부터 빈다.
         val outcomes = lines("run-1", LedgerExport.REMEDY_SEARCHES).map { parse(it).getValue("outcome").stringValue }
-        assertEquals(setOf("FOUND", "NONE", "WITHHELD"), outcomes.toSet(), "탐색 갈래가 빠졌다: $outcomes")
+        assertEquals(
+            setOf("FOUND", "NONE", "WITHHELD", "SOURCE_MISSING"),
+            outcomes.toSet(),
+            "대장의 갈래가 빠졌다: $outcomes",
+        )
+
+        // ★**승인할 수 있는 답은 `FOUND` 뿐이다.** `SOURCE_MISSING` 에 걸음이 실리면 읽는 쪽이 그것을
+        //   승인 대상으로 읽고, 승인 API 에는 그 주문을 받을 자리가 없다.
+        val relocations = lines("run-1", LedgerExport.REMEDY_SEARCHES).map { parse(it) }
+            .filter { it.getValue("outcome").stringValue == "SOURCE_MISSING" }
+        assertTrue(relocations.isNotEmpty(), "점유 축이 계산한 회복이 한 벌에 없다")
+        relocations.forEach {
+            assertTrue("steps" !in it.keys, "SOURCE_MISSING 줄에 걸음이 실렸다 — 승인 대상으로 읽힌다")
+            assertTrue(it.getValue("source").stringValue.isNotBlank(), "어느 자리가 비었는지가 없다")
+            assertTrue(it.getValue("material").stringValue.isNotBlank(), "무엇이 있어야 했는지가 없다")
+        }
 
         val approvers = lines("run-1", LedgerExport.INCIDENTS).map { parse(it).getValue("approvedBy") }
         assertTrue(approvers.any { it.hasNullValue() }, "승인을 안 거친 사건이 없다")
@@ -242,6 +258,14 @@ class HandoffFixtureTest {
                     "든 채다",
                 ),
             ),
+        )
+
+        /** 널과 빈 목록이 다르다는 것까지 칸으로 드러나야 하므로 **둘 다 값을 가진 판**으로 재 본다. */
+        private val SOURCE_MISSING = RemedyOutcome.SourceMissing(
+            material = "ENGINE-COVER-B",
+            source = "SEQ-IN-03.BIN-A",
+            observed = null,
+            alternatives = listOf("SEQ-IN-03.BIN-B"),
         )
 
         private fun record(outcome: RemedyOutcome) =

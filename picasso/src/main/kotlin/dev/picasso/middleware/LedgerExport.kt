@@ -36,8 +36,11 @@ object LedgerExport {
      *
      * `3` 에서 의도(`intent`)·경로(`route`)·관측 신뢰(`observation`)가 붙었다(§15.178). 이쪽은 칸이
      * 는 것뿐이라 모르는 칸을 무시하는 읽는 쪽은 그대로 돈다.
+     *
+     * `4` 에서 탐색 줄의 `outcome` 에 **갈래가 하나 늘었다**(`SOURCE_MISSING`, §15.183). 사건 줄은 안 바뀌었다.
+     * **칸이 는 것과 다르다** — `outcome` 으로 분기하는 읽는 쪽은 모르는 값을 만나므로 판을 봐야 한다.
      */
-    const val SCHEMA_VERSION: String = "3"
+    const val SCHEMA_VERSION: String = "4"
 
     const val INCIDENTS: String = "incidents.jsonl"
     const val REMEDY_SEARCHES: String = "remedy-searches.jsonl"
@@ -122,6 +125,10 @@ object LedgerExport {
      *
      * **`WITHHELD` 줄에는 `steps` 키가 없다.** 이것이 적재면의 방벽이고 코드의 방벽과 같은 성질이다
      * (§15.164). 여기서 편의로 제안 표의 걸음을 꺼내 실으면 **조회 한 번으로 가림이 풀린다.**
+     *
+     * **`SOURCE_MISSING` 줄에도 `steps` 키가 없다.** 이쪽은 가려서가 아니라 **승인할 것이 없어서**다 —
+     * 자리를 고르는 것은 주문을 고치는 쪽의 일이다. 키를 맞추려고 빈 배열을 적으면 «승인하면 되는
+     * 조치인데 걸음이 비었다» 로 읽힌다.
      */
     private fun line(r: RemedySearchRecord): String {
         val o = Obj()
@@ -139,6 +146,14 @@ object LedgerExport {
                 .str("cause", outcome.cause.name)
                 .raw("unmet", outcome.unmet.joinToJson { violation(it) })
             RemedyOutcome.Withheld -> o.str("outcome", "WITHHELD")
+            is RemedyOutcome.SourceMissing -> o
+                .str("outcome", "SOURCE_MISSING")
+                .str("material", outcome.material)
+                .str("source", outcome.source)
+                // **널과 빈 문자열이 다르다.** 널은 빈 자리이고, 값이 있으면 거기 있던 다른 신원이다.
+                .str("observed", outcome.observed)
+                // **널과 빈 목록이 다르다.** 널은 셀이 그 질문에 답하지 않은 것이다.
+                .raw("alternatives", outcome.alternatives?.let { arrayOfStrings(it) } ?: "null")
         }.done()
     }
 

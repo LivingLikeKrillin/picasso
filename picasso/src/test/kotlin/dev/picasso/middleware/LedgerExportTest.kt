@@ -74,6 +74,53 @@ class LedgerExportTest {
     }
 
     @Test
+    fun `출발 결품은 무엇이 어디에 없었고 어디에 있는지를 적는다`() {
+        val outcome = RemedyOutcome.SourceMissing(
+            material = "ENGINE-COVER-B",
+            source = "SEQ-IN-03.BIN-A",
+            observed = null,
+            alternatives = listOf("SEQ-IN-03.BIN-B"),
+        )
+        val line = parse(LedgerExport.remedySearches(listOf(record(outcome))).trim())
+
+        assertEquals("SOURCE_MISSING", line.getValue("outcome").stringValue)
+        assertEquals("ENGINE-COVER-B", line.getValue("material").stringValue)
+        assertEquals("SEQ-IN-03.BIN-A", line.getValue("source").stringValue)
+        assertEquals(
+            listOf("SEQ-IN-03.BIN-B"),
+            line.getValue("alternatives").listValue.valuesList.map { it.stringValue },
+        )
+
+        // ★**승인할 것이 없다.** 걸음을 실으면 읽는 쪽이 이것을 조치 열로 읽고, 승인 API 에는
+        //   그 주문을 받을 자리가 없다. 가림의 방벽과 같은 모양이되 이유가 다르다.
+        assertFalse("steps" in line, "승인할 수 없는 답에 걸음이 실렸다: $line")
+    }
+
+    @Test
+    fun `출발 결품에서 못 물어본 것과 든 자리가 없는 것이 갈린다`() {
+        // ★**널과 빈 목록을 접으면 못 물어본 것이 재고 부족으로 읽힌다.** 키 집합 대조로는 이 둘이
+        //   같은 모양이라(§15.177) 값으로 본다.
+        fun alternativesOf(known: List<String>?) = parse(
+            LedgerExport.remedySearches(
+                listOf(record(RemedyOutcome.SourceMissing("ENGINE-COVER-B", "SEQ-IN-03.BIN-A", null, known))),
+            ).trim(),
+        ).getValue("alternatives")
+
+        assertTrue(alternativesOf(null).hasNullValue(), "셀이 답을 안 한 것이 빈 목록으로 접혔다")
+        assertEquals(0, alternativesOf(emptyList()).listValue.valuesCount, "든 자리가 없다는 답이 널로 접혔다")
+
+        // 빈 자리와 «다른 것이 있다» 도 같은 규율로 갈린다.
+        fun observedOf(seen: String?) = parse(
+            LedgerExport.remedySearches(
+                listOf(record(RemedyOutcome.SourceMissing("ENGINE-COVER-B", "SEQ-IN-03.BIN-A", seen, emptyList()))),
+            ).trim(),
+        ).getValue("observed")
+
+        assertTrue(observedOf(null).hasNullValue(), "빈 자리가 빈 문자열로 접혔다")
+        assertEquals("ENGINE-COVER-A", observedOf("ENGINE-COVER-A").stringValue)
+    }
+
+    @Test
     fun `대안 있음은 걸음과 그 걸음의 전제를 적는다`() {
         val step = RemedyStep(
             skillType = "pick_place",

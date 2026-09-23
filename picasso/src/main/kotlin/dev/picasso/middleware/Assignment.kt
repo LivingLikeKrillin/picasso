@@ -21,8 +21,15 @@ sealed interface Admission {
     /**
      * 못 받는다. [rejection] 은 이 거부를 그대로 상류에 낼 때 쓰는 답이며, **제안의 부작용은 아직 없다** —
      * 기록은 채택을 시도한 쪽이 한다.
+     *
+     * @param sourceMissing 점유 관문이 **이미 계산한** 답. 널이면 이 거절은 그 갈래가 아니다.
+     *   계산은 관문 안에서 하고 기록은 밖에서 한다 — 값을 여기 들려 보내도 [Middleware.admits] 는
+     *   여전히 순수하고, 후보 셋에 물어봐도 대장에 셋이 쌓이지 않는다(§15.161).
      */
-    data class Refused(val rejection: Middleware.Submission.Rejected) : Admission
+    data class Refused(
+        val rejection: Middleware.Submission.Rejected,
+        val sourceMissing: RemedyOutcome.SourceMissing? = null,
+    ) : Admission
 }
 
 /**

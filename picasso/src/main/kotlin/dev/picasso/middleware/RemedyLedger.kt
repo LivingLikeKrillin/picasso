@@ -6,7 +6,18 @@ import dev.picasso.capability.RemedyStep
 import java.time.Instant
 
 /**
- * 한 번의 대안 탐색이 무엇을 답했는가.
+ * 관문이 막은 한 번에 대해 이 층이 **무엇을 답했는가.**
+ *
+ * 앞의 셋은 능력 사슬의 탐색이 낸 답이고([Found]·[None]·[Withheld]), [SourceMissing] 은 셀 자리의
+ * 점유가 낸 답이다. 둘을 한 대장에 두는 이유는 **접수 관문이 첫 거절에서 되돌아가기 때문**이다 —
+ * 한 번의 접수는 많아야 한 번 거절되고, 그 거절에 대한 답은 하나뿐이다. 갈래마다 대장을 따로 두면
+ * 읽는 쪽이 «이 주문이 왜 안 들어갔나» 를 알려고 여러 파일을 합쳐 봐야 한다.
+ *
+ * ## 승인할 수 있는 답은 [Found] 뿐이다
+ *
+ * [SourceMissing] 은 조치 열이 아니라 «주문을 고치면 통과한다» 는 답이다. **어느 자리를 쓸지는 주문을
+ * 고치는 쪽의 결정이고 이 층은 고르지 않는다**(§15.159). 그래서 걸음을 싣지 않고 제안 표에도 서지 않는다 —
+ * 실을 것이 없어서가 아니라 **승인이라는 행위가 성립하지 않아서**다.
  *
  * ## 세 「없음」을 접지 않는다
  *
@@ -30,6 +41,23 @@ sealed interface RemedyOutcome {
 
     /** 찾았으나 가렸다. **걸음을 싣지 않는다.** */
     data object Withheld : RemedyOutcome
+
+    /**
+     * 출발 자리에 그 자재가 없다. 깨진 전제는 능력이 아니라 **셀의 자리**이므로 탐색이 아니라 점유 관문이
+     * 답한다 — 계약의 `PreconditionSubject` 는 «조건이 보는 로봇 상태» 이고 자리를 보는 것은 셀 설비다(§15.159).
+     *
+     * @param material 그 자리에 있어야 했던 것. 단위가 자재를 지정하지 않으면 널이고, 그때 [alternatives] 도 널이다
+     * @param source 비어 있던 출발 자리
+     * @param observed 거기서 **실제로 본 것**. 널이면 빈 자리이고, 아니면 거기 있는 다른 신원이다
+     * @param alternatives 그 자재를 든 다른 자리. **널과 빈 목록이 다르다** — 널은 셀이 그 질문에 답하지
+     *   않은 것이고, 빈 목록은 «든 자리가 하나도 없다» 는 답이다. 접으면 못 물어본 것이 재고 부족으로 읽힌다
+     */
+    data class SourceMissing(
+        val material: String?,
+        val source: String,
+        val observed: String?,
+        val alternatives: List<String>?,
+    ) : RemedyOutcome
 }
 
 /**
