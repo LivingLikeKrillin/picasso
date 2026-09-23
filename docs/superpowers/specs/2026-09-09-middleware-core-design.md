@@ -99,4 +99,4 @@ execution.upstream_ack   ∈ { NOT_SENT, SENT_UNACKED, ACKED }
 - **시나리오 ③ (점검 순회)**: `InspectAssetTest` — 코어 엔진 수정 없는 신규 능력군 확장 실증
 - 물리적 실물 연동 검증 현황은 [`docs/verification.md`](../../verification.md)의 종합 평가 매트릭스를 정본으로 유지합니다.
 
-> 마지막 대조: 2026-09-15 · sha256:53d4f2fe3f6e · 열림: 시나리오 §8, §15.125, §15.126, ADR 32 · 시나리오 5, C-3, §15.127
+> 마지막 대조: 2026-09-15 · sha256:53d4f2fe3f6e · 열림: 시나리오 §8, §15.126, ADR 32 · 시나리오 5, C-3, §15.127
