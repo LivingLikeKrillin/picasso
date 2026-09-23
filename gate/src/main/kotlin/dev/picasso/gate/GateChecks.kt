@@ -9,12 +9,13 @@ import dev.picasso.gate.checks.Check06Vocabulary
 import dev.picasso.gate.checks.Check07ModelBranching
 import dev.picasso.gate.checks.Check08ProfileOnly
 import dev.picasso.gate.checks.Check09BindingScope
+import dev.picasso.gate.checks.Check11OutboundScope
 
 /**
  * 검사 목록의 단일 출처.
  *
  * CLI 안에 두면 `registry`가 같은 목록을 못 쓴다 — §11.1의 "구현은 하나이고
- * 호출 지점이 둘"이 깨진다. 10번은 검사가 아니라 음성 하네스라 목록에 없다.
+ * 호출 지점이 둘"이 깨진다. 10번은 검사가 아니라 음성 하네스라 목록에 없다. 그래서 새 검사는 11번이다.
  */
 object GateChecks {
 
@@ -28,6 +29,8 @@ object GateChecks {
         Check07ModelBranching(),
         Check08ProfileOnly(),
         Check09BindingScope(),
+        // 11 이다 — 10 은 음성 하네스가 쓴다(아래 주석).
+        Check11OutboundScope(),
     )
 
     /**
