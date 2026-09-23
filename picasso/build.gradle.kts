@@ -57,6 +57,10 @@ tasks.withType<Test>().configureEach {
         // 인계 안내문을 추적하지 않으므로 `HandoffFixtureTest` 가 «없음» 을 무시 목록으로 확인한다.
         // 선언 안 하면 목록에서 그 줄을 빼도 태스크가 UP-TO-DATE 로 건너뛴다.
         rootProject.file(".gitignore"),
+        // 한 벌을 담는 절차가 한 자리뿐인지 `BundleWriterTest` 가 이 모듈의 소스를 훑는다. 선언 안
+        // 하면 절차를 한 벌 더 적어도 태스크가 UP-TO-DATE 로 건너뛸 수 있다 — 주석만 바뀐 파일은
+        // 컴파일 산출이 같아 클래스패스가 안 움직인다(CLAUDE.md 2-4).
+        project.file("src"),
     ).withPropertyName("profileInputs")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
