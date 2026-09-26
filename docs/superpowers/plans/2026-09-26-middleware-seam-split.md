@@ -86,6 +86,8 @@ bash "$S/bundle_equiv.sh"
 
 `HandoffFixtureTest` 는 칸(키 집합)만 보고 값은 안 본다. 값까지 대는 것은 이 절차뿐이다.
 
+★**공통 절차 A 의 판정(`xml_verdict.py`)은 B 보다 먼저 센다.** B 의 `--tests` 걸러 돌리기는 `picasso` 의 XML 을 그 한 클래스로 새로 쓰므로, 뒤에 세면 `picasso` 의 시험이 빠진 수가 나온다(2026-09-26 실측: 1,295 → 1,032).
+
 ### C. 옮긴 줄 대조
 
 ```bash
@@ -890,7 +892,7 @@ import java.time.format.DateTimeParseException
  * 사건 번들의 장부(설계안 §4) — 흩어진 사실을 한 사건으로 묶고, 사람의 검토와 판단을 그 위에 싣는다.
  *
  * **이 층의 거동을 바꾸지 않는다.** 봉인은 [Middleware] 가 라운드 끝에 부르고([sealIncidents]), 여기서는
- * 실행을 읽기만 한다. 단 하나 쓰는 것은 봉인한 단위의 표시(`pendingIncidents`)를 비우는 일이다.
+ * 실행을 읽기만 한다. 실행에 쓰는 것은 단 하나, 봉인한 단위의 표시(`pendingIncidents`)를 비우는 일이다.
  */
 internal class IncidentLog(
     private val robots: RobotPort,
@@ -923,7 +925,7 @@ internal class IncidentLog(
         incidentLog.noteResolution(executionId, unitId, decision)
 ```
 
-- [ ] **6단계:** `Middleware` 의 필드와 파사드. 옮긴 목록이 있던 자리(`private var responseSeq = 0` 아래)에:
+- [ ] **6단계:** `Middleware` 의 필드와 파사드. `desk` 필드 바로 아래에 둔다 — 떼어 낸 셋(관문·장부 둘)이 한 자리에 선언된다. 옮긴 목록이 있던 자리(`private var responseSeq = 0` 아래)는 빈 줄 하나만 남긴다:
 
 ```kotlin
     /** 사건 번들의 장부(설계안 §4). 봉인은 [pump] 가 라운드 끝에 부른다. */
@@ -987,12 +989,12 @@ removed … added … unmatched 4
 **Files:**
 - Modify: `picasso/README.md` (§1 핵심 컴포넌트 구성)
 
-- [ ] **1단계:** `Middleware.kt` 행의 설명은 지금 `결정론적 전이` 로 마침표 없이 끝난다. 그 뒤에 `. 공개 API 와 접합부를 잇는 조율은 여기 남고, 판정과 장부는 아래 셋에 위임합니다` 를 붙인다(`Canonical.kt` 는 공개 API 가 없으므로 «셋»이다). 그 행 바로 아래에 넷을 더한다.
+- [ ] **1단계:** `Middleware.kt` 행의 설명은 지금 `결정론적 전이` 로 마침표 없이 끝난다. 그 뒤에 `. 공개 API 와 접합부를 잇는 조율은 여기 남고, 배정 관문의 판정과 제안·사건 두 장부는 아래 셋에 위임합니다` 를 붙인다(`Canonical.kt` 는 공개 API 가 없으므로 «셋»이다. «판정과 장부» 로만 적으면 넓다 — 재할당의 판정은 조율과 함께 남는다). 그 행 바로 아래에 넷을 더한다.
 
 ```markdown
 | `AdmissionGate.kt` | 배정 관문(설계안 §7): `admits` 와 그 아래 술어 다섯. 피어 시스템 접합부(배정·공간)의 판정 |
-| `RemedyDesk.kt` | 제안·가림·진단·승인 장부와 승인 판정(설계안 §6.4, ADR 43·44·45). 승인 뒤의 접수는 `Middleware` 가 조율 |
-| `IncidentLog.kt` | 사건 번들의 봉인·조회·사후 검토 지표, 운영자 판단 부착(설계안 §4) |
+| `RemedyDesk.kt` | 탐색 기록·제안·가림·진단·승인 장부와 승인 판정(설계안 §6.4, ADR 43·44·45). 승인 뒤의 접수는 `Middleware` 가 조율 |
+| `IncidentLog.kt` | 사건 번들의 봉인·조회, 사후 검토의 기록과 지표, 운영자 판단 부착(설계안 §4) |
 | `Canonical.kt` | 결과 통보·사건 번들·이벤트 자취가 나눠 쓰는 정준 투영 셋 |
 ```
 
@@ -1003,13 +1005,13 @@ removed … added … unmatched 4
 - [ ] **1단계:** 공통 절차 F 로 일지 200. 초안(`N` 은 작업 9 의 `wc -l`):
 
 ```text
-200. **사건 번들의 장부를 `IncidentLog` 로 뗐다 — 이로써 떼어 낼 판정과 장부는 다 뗐고, 남은 것은 핵심 상태기계와 그것을 접합부에 잇는 조율이다.**
+200. **사건 번들의 장부를 `IncidentLog` 로 뗐다 — 이로써 이 계획이 떼기로 한 판정과 장부는 다 뗐고, 남은 것은 핵심 상태기계와 공개 창구, 그리고 그것을 접합부에 잇는 조율이다.**
 
-    봉인(`sealIncidents`)·조회·검토 지표와, `resolve` 가 사건에 운영자의 판단을 붙이던 줄(`noteResolution`)을 옮겼다. 봉인은 여전히 `pump` 가 라운드 끝에 부른다. 순서는 핵심에 남는다. 주인에게서 떨어져 있던 KDoc 하나를 `reviewMetrics` 위로 돌려놓았다.
+    봉인(`sealIncidents`)·조회·검토 지표와, `resolve` 가 사건에 운영자의 판단을 붙이던 줄(`noteResolution`)을 옮겼다. 봉인은 여전히 `pump` 가 라운드 끝에 부른다. 순서는 핵심에 남는다. 주인에게서 떨어져 있던 KDoc 하나를 `reviewMetrics` 위로 돌려놓았다. 떼어 낸 셋(`gate`·`desk`·`incidentLog`)은 `Middleware` 에서 한 자리에 선언된다.
 
     `SeamPlacementTest` 에 사건 장부를 더한 뒤, `Middleware.kt` 에 `incidentSeq` 를 다시 선언하는 주입으로 그 시험이 이름을 대며 빨개지는 것을 봤다.
 
-    결과: `Middleware.kt` 2,149줄에서 N줄. ★**남은 것이 다 조용한 코드는 아니다.** 구동·근거 결합·취소·통보는 9/17 이후 6% 만 바뀌었지만, 남긴 조율(`adopt`·`assign`·`liveExecutionCount`·`isHolding`·`reassign`·`approveRemedy`·`attemptApproval`·`commit`, 170여 줄)은 거의 전부 그 뒤에 쓰였다. 여섯은 `submit` 을 부르거나 실행의 상태를 바꾸고, 둘(`liveExecutionCount`·`isHolding`)은 `assign` 이 쓰는 비용 항이다(`reassign` 도 앞엣것을 쓴다). 앞의 여섯을 떼면 떼어 낸 클래스가 핵심을 되부른다. 그래서 순서를 파사드에 두었다. 피어 시스템 설계가 구현되면 다음 성장은 관문(`AdmissionGate`)과 이 조율 양쪽에 온다. 구동 루프는 쪼개지 않았다. 순서가 불변식이고 거의 안 바뀐다.
+    결과: `Middleware.kt` 2,149줄에서 1,512줄. ★**남은 것이 다 조용한 코드는 아니다.** §15.197 에서 잰 대로 구동·근거 결합·취소·통보는 9/17 이후 6% 만 바뀌었지만, 남긴 조율(`adopt`·`assign`·`liveExecutionCount`·`isHolding`·`reassign`·`approveRemedy`·`attemptApproval`·`commit`, KDoc 째 170여 줄)은 거의 전부 그 뒤에 쓰였다. 여섯은 `submit` 을 부르거나 실행의 상태를 바꾸고, 둘(`liveExecutionCount`·`isHolding`)은 `assign` 이 쓰는 비용 항이다(`reassign` 도 앞엣것을 쓴다). 앞의 여섯을 떼면 떼어 낸 클래스가 핵심을 되부른다. 그래서 순서를 파사드에 두었다. 재할당의 판정도 그 조율 안에 남았다. 피어 시스템 설계가 구현되면 다음 성장은 관문(`AdmissionGate`)과 이 조율 양쪽에 온다. 구동 루프는 쪼개지 않았다. 순서가 불변식이고 거의 안 바뀐다.
 ```
 
 - [ ] **2단계:** `docs/limits.md` 번호 200, `python tools/stamp.py docs/limits.md`.
@@ -1023,15 +1025,17 @@ git add picasso/src/test/kotlin/dev/picasso/middleware/SeamPlacementTest.kt \
   picasso/src/main/kotlin/dev/picasso/middleware/IncidentLog.kt \
   picasso/src/main/kotlin/dev/picasso/middleware/Middleware.kt \
   picasso/README.md \
-  docs/superpowers/specs/2026-09-05-picasso-design.md docs/limits.md
+  docs/superpowers/specs/2026-09-05-picasso-design.md docs/limits.md \
+  docs/superpowers/plans/2026-09-26-middleware-seam-split.md
 git commit -F - <<'EOF'
 refactor(middleware): 사건 번들 장부의 IncidentLog 분리
 
 - IncidentLog 신설: 봉인, 조회, 검토 지표. resolve 가 사건에 판단을 붙이던 줄은 noteResolution 으로 이동
-- Middleware: 라운드 끝 봉인 호출 유지, 공개 창구 다섯은 파사드. wallClock 은 생성자 인자로만 유지
+- Middleware: 라운드 끝 봉인 호출 유지, 공개 창구 다섯은 파사드. wallClock 은 생성자 인자로만 유지, 떼어 낸 셋의 필드를 한 자리에 선언
 - SeamPlacementTest: 사건 장부의 상태와 봉인 대조 추가
 - picasso README: 핵심 컴포넌트 표에 떼어 낸 넷 추가
 - 설계 일지 15.200 수록
+- 계획서: 장부 머리 주석과 README 문장의 문구 정정, 일지 초안 동기화
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
@@ -1043,13 +1047,14 @@ EOF
 git push -u origin refactor/middleware-incident-log
 gh pr create --title "refactor(middleware): 사건 번들 장부의 IncidentLog 분리" --body-file - <<'EOF'
 ## 개요
-사건 번들의 봉인·조회·검토 지표를 `IncidentLog` 로 분리했습니다. 이로써 접합부의 판정과 장부는 모두 분리되었고, `Middleware.kt` 에는 핵심 상태기계와 공개 창구, 접합부를 핵심에 잇는 조율이 남습니다. 거동 변경은 없습니다.
+사건 번들의 봉인·조회·검토 지표를 `IncidentLog` 로 분리했습니다. 이로써 이 계획이 분리하기로 한 판정과 장부는 모두 분리되었고, `Middleware.kt` 에는 핵심 상태기계와 공개 창구, 접합부를 핵심에 잇는 조율(재할당의 판정 포함)이 남습니다. 거동 변경은 없습니다.
 
 ## 주요 변경 사항
 - IncidentLog: 봉인, 조회, 검토 지표, 운영자 판단 부착(`noteResolution`)
 - Middleware: 라운드 끝 봉인 호출 유지, 공개 창구 다섯은 파사드, `wallClock` 은 생성자 인자로만 유지
 - SeamPlacementTest: 사건 장부의 상태와 봉인 대조 추가
 - picasso README 컴포넌트 표, 설계 일지 15.200
+- 계획서: 장부 머리 주석과 README 문장의 문구 정정, 일지 초안 동기화
 
 ## 검증 결과
 - 로컬 표준 빌드 통과, XML 기준 실패 0
@@ -1057,7 +1062,8 @@ gh pr create --title "refactor(middleware): 사건 번들 장부의 IncidentLog 
 - 새 자리에서 못 찾은 옮긴 줄 넷, 전부 계획서의 예상 목록과 일치
 - 재발 주입: `Middleware.kt` 에 장부 상태를 다시 선언하면 SeamPlacementTest 실패
 - 게이트 검사 7 통과
-- `Middleware.kt` 2,149줄에서 N줄
+- `Middleware.kt` 2,149줄에서 1,512줄
+- 이동 확인용: `git diff --color-moved=zebra --color-moved-ws=allow-indentation-change`
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF

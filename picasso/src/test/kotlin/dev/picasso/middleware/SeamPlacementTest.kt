@@ -40,6 +40,9 @@ class SeamPlacementTest {
             "var proposalsMade" to "RemedyDesk.kt",
             "val remedyLog" to "RemedyDesk.kt",
             "fun scopeRefusal(" to "RemedyDesk.kt",
+            // 사건 번들 장부 — 운영자 접합부
+            "var incidentSeq" to "IncidentLog.kt",
+            "fun sealIncidents(" to "IncidentLog.kt",
         )
         val sources = Files.walk(Path.of("src", "main")).use { paths ->
             paths.asSequence()

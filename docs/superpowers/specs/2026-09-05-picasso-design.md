@@ -3094,6 +3094,14 @@ mimic/
 
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
 
+200. **사건 번들의 장부를 `IncidentLog` 로 뗐다 — 이로써 이 계획이 떼기로 한 판정과 장부는 다 뗐고, 남은 것은 핵심 상태기계와 공개 창구, 그리고 그것을 접합부에 잇는 조율이다.**
+
+    봉인(`sealIncidents`)·조회·검토 지표와, `resolve` 가 사건에 운영자의 판단을 붙이던 줄(`noteResolution`)을 옮겼다. 봉인은 여전히 `pump` 가 라운드 끝에 부른다. 순서는 핵심에 남는다. 주인에게서 떨어져 있던 KDoc 하나를 `reviewMetrics` 위로 돌려놓았다. 떼어 낸 셋(`gate`·`desk`·`incidentLog`)은 `Middleware` 에서 한 자리에 선언된다.
+
+    `SeamPlacementTest` 에 사건 장부를 더한 뒤, `Middleware.kt` 에 `incidentSeq` 를 다시 선언하는 주입으로 그 시험이 이름을 대며 빨개지는 것을 봤다.
+
+    결과: `Middleware.kt` 2,149줄에서 1,512줄. ★**남은 것이 다 조용한 코드는 아니다.** §15.197 에서 잰 대로 구동·근거 결합·취소·통보는 9/17 이후 6% 만 바뀌었지만, 남긴 조율(`adopt`·`assign`·`liveExecutionCount`·`isHolding`·`reassign`·`approveRemedy`·`attemptApproval`·`commit`, KDoc 째 170여 줄)은 거의 전부 그 뒤에 쓰였다. 여섯은 `submit` 을 부르거나 실행의 상태를 바꾸고, 둘(`liveExecutionCount`·`isHolding`)은 `assign` 이 쓰는 비용 항이다(`reassign` 도 앞엣것을 쓴다). 앞의 여섯을 떼면 떼어 낸 클래스가 핵심을 되부른다. 그래서 순서를 파사드에 두었다. 재할당의 판정도 그 조율 안에 남았다. 피어 시스템 설계가 구현되면 다음 성장은 관문(`AdmissionGate`)과 이 조율 양쪽에 온다. 구동 루프는 쪼개지 않았다. 순서가 불변식이고 거의 안 바뀐다.
+
 199. **제안과 승인의 장부를 `RemedyDesk` 로 뗐다 — 장부만 옮기고 조율은 남겼다.**
 
     상태 일곱(`proposals`·`withheld`·`diagnoses`·`proposalsMade`·`approvals`·`remedyLog`·`remedySeq`)과, 접수의 거절 경로에서 제안을 적던 `record` 를 함께 옮겼다. 그 일곱을 제안 절 밖에서 쓰는 자리가 `record` 하나뿐이었다.
