@@ -2,7 +2,6 @@ package dev.picasso.middleware
 
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
-import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.capability.HoldEffects
@@ -1303,6 +1302,67 @@ class Middleware(
         execution.physicalState = PhysicalState.RUNNING
     }
 
+    /** 이 단위가 이번 라운드에 닫혔다. 봉하는 것은 [sealIncidents] 다. */
+    private fun Execution.markIncident(unit: ExecutionUnit) {
+        pendingIncidents += unit.unitId
+    }
+
+    /**
+     * 설계안 §5 — 선언된 효과와 마지막 관측을 대조해, 운영자에게 «모른다» 로 나갈 자리 중 **근거로 판정할 수
+     * 있는 것을 판정으로 바꾼다.** 미결이 «손에 없다»·«아직 들고 있다» 가 되면 다음 행동이 갈린다(§5.3).
+     *
+     * **플릿의 운반은 보지 않는다** — 카탈로그에 없는 단위의 효과를 지어내지 않는다. 그리고 관측이 없거나
+     * 볼 수 없으면 [HoldEffects.mismatch] 가 판정하지 않는다(§5.2).
+     */
+    private fun judgeEffectMismatch(execution: Execution, unit: ExecutionUnit, completed: Boolean) {
+        if (unit.route != Route.ROBOT) return
+        val expected = HoldEffects.expectedAtEnd(unit.skillType, unit.everHeld, completed) ?: return
+        // **어긋나지 않아도 기대를 남긴다.** 판단 경로는 판정이 났을 때만 필요한 것이 아니다 —
+        // «무엇을 기대했고 무엇을 봤는가» 가 있어야 읽는 사람이 왜 아무 판정도 안 났는지까지 따라간다.
+        unit.holdExpected = expected
+        val mismatch: HoldMismatch = HoldEffects.compare(expected, unit.hold.kind) ?: return
+        if (unit.holdMismatch == mismatch) return
+        unit.holdMismatch = mismatch
+        unit.annotate("effect/observation mismatch: ${mismatch.name} (expected=${expected.name} hold=${unit.hold.kind.name})")
+        // **성공으로 끝났는데 어긋난 경우에도 사건을 연다.** 하류는 끝났다는데 손에 남아 있다 —
+        // 운영자가 봐야 하는 사실이고, 사건이 없으면 그 사실이 어디에도 안 실린다.
+        execution.markIncident(unit)
+    }
+
+    /** 관측을 한 곳으로 — 쥔 것을 본 적이 있는지는 중단 시점의 기대를 정한다(설계안 §5). */
+    private fun ExecutionUnit.observeHold(observed: HoldState) {
+        hold = observed
+        if (observed.kind == HoldKind.HOLD_KIND_HOLDING) everHeld = true
+    }
+
+    /** 설비에 묻고 **그 사실을 자취에 남긴다** — 조회하고 버리면 번들의 근거 창에서 설비 쪽이 빈다. */
+    private fun Execution.observeCell(unit: ExecutionUnit): SlotSignal? {
+        val where = unit.destination ?: return null
+        val signal = cell.observe(where)
+        val what = if (signal == null) {
+            "no signal"
+        } else {
+            "occupied=${signal.occupied} identity=${signal.identity ?: "(none)"} at=${signal.observedAt?.toString() ?: "(read now)"}"
+        }
+        trail("CELL_SIGNAL", "$where: $what")
+        return signal
+    }
+
+    private fun settleExecution(execution: Execution) {
+        val states = execution.units.map { it.state }
+        val before = execution.physicalState
+        execution.physicalState = when {
+            states.any { it == UnitState.OPERATOR_HOLD } -> PhysicalState.OPERATOR_HOLD
+            states.all { it == UnitState.DONE } -> PhysicalState.PHYSICALLY_DONE
+            states.all { it == UnitState.FAILED } -> PhysicalState.FAILED
+            states.any { it == UnitState.FAILED } -> PhysicalState.PARTIAL
+            states.any { it == UnitState.UNVERIFIED } -> PhysicalState.UNVERIFIED
+            states.any { it == UnitState.ABORTED } -> PhysicalState.ABORTED
+            else -> PhysicalState.PHYSICALLY_DONE
+        }
+        if (before != execution.physicalState || execution.upstreamAck == UpstreamAck.NOT_SENT) notify(execution)
+    }
+
     // ── 근거 결합 (보고서 12장)
 
     /**
@@ -1840,11 +1900,6 @@ class Middleware(
         )
     }
 
-    /** 이 단위가 이번 라운드에 닫혔다. 봉하는 것은 [sealIncidents] 다. */
-    private fun Execution.markIncident(unit: ExecutionUnit) {
-        pendingIncidents += unit.unitId
-    }
-
     /**
      * 라운드 끝에 번들을 봉한다. **전이 순간이 아니다** — 단위가 닫히는 그 자리에서는 실행 수준의
      * 사실(무엇이 다음 단위를 막는가)이 아직 안 정해져 있고, 그것 없이 묶으면 번들이 "단위의 문제인지
@@ -1916,34 +1971,6 @@ class Middleware(
     }
 
     /**
-     * 설계안 §5 — 선언된 효과와 마지막 관측을 대조해, 운영자에게 «모른다» 로 나갈 자리 중 **근거로 판정할 수
-     * 있는 것을 판정으로 바꾼다.** 미결이 «손에 없다»·«아직 들고 있다» 가 되면 다음 행동이 갈린다(§5.3).
-     *
-     * **플릿의 운반은 보지 않는다** — 카탈로그에 없는 단위의 효과를 지어내지 않는다. 그리고 관측이 없거나
-     * 볼 수 없으면 [HoldEffects.mismatch] 가 판정하지 않는다(§5.2).
-     */
-    private fun judgeEffectMismatch(execution: Execution, unit: ExecutionUnit, completed: Boolean) {
-        if (unit.route != Route.ROBOT) return
-        val expected = HoldEffects.expectedAtEnd(unit.skillType, unit.everHeld, completed) ?: return
-        // **어긋나지 않아도 기대를 남긴다.** 판단 경로는 판정이 났을 때만 필요한 것이 아니다 —
-        // «무엇을 기대했고 무엇을 봤는가» 가 있어야 읽는 사람이 왜 아무 판정도 안 났는지까지 따라간다.
-        unit.holdExpected = expected
-        val mismatch: HoldMismatch = HoldEffects.compare(expected, unit.hold.kind) ?: return
-        if (unit.holdMismatch == mismatch) return
-        unit.holdMismatch = mismatch
-        unit.annotate("effect/observation mismatch: ${mismatch.name} (expected=${expected.name} hold=${unit.hold.kind.name})")
-        // **성공으로 끝났는데 어긋난 경우에도 사건을 연다.** 하류는 끝났다는데 손에 남아 있다 —
-        // 운영자가 봐야 하는 사실이고, 사건이 없으면 그 사실이 어디에도 안 실린다.
-        execution.markIncident(unit)
-    }
-
-    /** 관측을 한 곳으로 — 쥔 것을 본 적이 있는지는 중단 시점의 기대를 정한다(설계안 §5). */
-    private fun ExecutionUnit.observeHold(observed: HoldState) {
-        hold = observed
-        if (observed.kind == HoldKind.HOLD_KIND_HOLDING) everHeld = true
-    }
-
-    /**
      * 창 안인가. **시각을 못 읽는 관측은 버리지 않는다** — 읽을 수 없다는 것이 창 밖이라는 뜻은 아니고,
      * 조용히 빼면 창이 완전한 것처럼 보인다.
      */
@@ -1954,40 +1981,6 @@ class Middleware(
             return true
         }
         return !at.isBefore(from) && !at.isAfter(to)
-    }
-
-    /** 든 단위가 있으면 그것, 없으면 마지막으로 관측한 파지(빈손) — "빈손" 을 "말하지 않았다" 로 접지 않는다(§15.145). */
-    private fun residualHoldOf(units: List<ExecutionUnit>): HoldState =
-        units.lastOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold
-            ?: units.lastOrNull { it.hold.kind != HoldKind.HOLD_KIND_UNSPECIFIED }?.hold
-            ?: HoldState.getDefaultInstance()
-
-    /** 설비에 묻고 **그 사실을 자취에 남긴다** — 조회하고 버리면 번들의 근거 창에서 설비 쪽이 빈다. */
-    private fun Execution.observeCell(unit: ExecutionUnit): SlotSignal? {
-        val where = unit.destination ?: return null
-        val signal = cell.observe(where)
-        val what = if (signal == null) {
-            "no signal"
-        } else {
-            "occupied=${signal.occupied} identity=${signal.identity ?: "(none)"} at=${signal.observedAt?.toString() ?: "(read now)"}"
-        }
-        trail("CELL_SIGNAL", "$where: $what")
-        return signal
-    }
-
-    private fun settleExecution(execution: Execution) {
-        val states = execution.units.map { it.state }
-        val before = execution.physicalState
-        execution.physicalState = when {
-            states.any { it == UnitState.OPERATOR_HOLD } -> PhysicalState.OPERATOR_HOLD
-            states.all { it == UnitState.DONE } -> PhysicalState.PHYSICALLY_DONE
-            states.all { it == UnitState.FAILED } -> PhysicalState.FAILED
-            states.any { it == UnitState.FAILED } -> PhysicalState.PARTIAL
-            states.any { it == UnitState.UNVERIFIED } -> PhysicalState.UNVERIFIED
-            states.any { it == UnitState.ABORTED } -> PhysicalState.ABORTED
-            else -> PhysicalState.PHYSICALLY_DONE
-        }
-        if (before != execution.physicalState || execution.upstreamAck == UpstreamAck.NOT_SENT) notify(execution)
     }
 
     // ── 취소 (보고서 14)
@@ -2083,31 +2076,6 @@ class Middleware(
     /** 계약의 정준 분류 이름(접두사 없이). 결함이 없거나 분류가 비어 있으면 [UNCLASSIFIED]. */
     private fun canonicalClass(update: WatchTaskResponse): String =
         if (update.hasFault()) canonicalClassOf(update.fault) else UNCLASSIFIED
-
-    /**
-     * 결함 하나를 번들이 드는 모양으로 — **정준 분류와 벤더 원문을 함께**(§15.177).
-     *
-     * **새로 판단하지 않는다.** 분류는 [canonicalClassOf] 가 이미 매긴 것이고 나머지는 계약이 실어 준
-     * 값을 옮기는 것뿐이다. 상류 통보는 여전히 분류만 낸다 — 그쪽은 계약 소비자가 분기할 값이고
-     * 이쪽은 사람이 원인을 말할 재료라, 성질이 다르므로 싣는 것도 다르다.
-     */
-    private fun faultDetailOf(fault: Fault): FaultDetail = FaultDetail(
-        failureClass = canonicalClassOf(fault),
-        errorType = fault.errorType,
-        vendorDetail = fault.vendorDetail,
-        errorHint = fault.errorHint,
-        references = fault.referencesList.map { FaultReference(it.key.name, it.value) },
-        canContinueCurrentTask = fault.canContinueCurrentTask,
-        canAcceptNewTask = fault.canAcceptNewTask,
-        activeUntilKind = fault.activeUntil.kind.name,
-        activeUntilTime = fault.activeUntil.until,
-    )
-
-    private fun canonicalClassOf(fault: Fault): String =
-        fault.failureClass
-            .takeIf { it != FailureClass.FAILURE_CLASS_UNSPECIFIED && it != FailureClass.UNRECOGNIZED }
-            ?.name?.removePrefix("FAILURE_CLASS_")
-            ?: UNCLASSIFIED
 
     /** 하류가 말한 그대로 — 상태 이름, 모드 이름, 벤더 원문. 로그의 것이지 분기의 것이 아니다. */
     private fun downstreamDetail(update: WatchTaskResponse): String = buildString {

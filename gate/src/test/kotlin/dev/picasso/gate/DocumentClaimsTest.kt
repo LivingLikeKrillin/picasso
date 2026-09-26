@@ -37,24 +37,29 @@ class DocumentClaimsTest {
     private val notSymbols = setOf("null", "true", "false")
 
     /**
-     * **모든 모듈의** 출하 소스 전문. 기호 하나마다 파일을 다시 읽지 않는다.
-     *
-     * ★한 모듈만 훑던 판이 있었다. 대장의 관문은 미들웨어에만 있는 것이 아니라 어댑터 경계에도 있고
-     * (`SiteBindingCheck`), 훑는 범위가 좁으면 **멀쩡한 기호가 «코드에 없다» 로 나온다** — 그때 고쳐지는
-     * 것은 검사가 아니라 문서이고, 그러면 대장이 검사를 피해 쓰이기 시작한다.
+     * **모든 모듈의** 출하 소스를 파일마다. 점 기호의 **소속**을 댈 때 쓴다 — 주인과 멤버가 같은 파일에
+     * 선언돼 있는가. 훑는 범위의 규칙은 여기 한 벌이고 [mainSource] 는 이것을 잇는다.
      */
-    private val mainSource by lazy {
+    private val mainFiles: Map<Path, String> by lazy {
         Files.walk(repo).use { paths ->
             paths.filter {
                 val at = it.toString().replace('\\', '/')
                 Files.isRegularFile(it) && at.endsWith(".kt") && "/src/main/" in at &&
                     "/build/" !in at && WORKTREES !in at
             }
-                .map { Files.readString(it) }
                 .toList()
-                .joinToString("\n")
+                .associateWith { Files.readString(it) }
         }
     }
+
+    /**
+     * **모든 모듈의** 출하 소스 전문. 기호 하나마다 파일을 다시 읽지 않는다.
+     *
+     * ★한 모듈만 훑던 판이 있었다. 대장의 관문은 미들웨어에만 있는 것이 아니라 어댑터 경계에도 있고
+     * (`SiteBindingCheck`), 훑는 범위가 좁으면 **멀쩡한 기호가 «코드에 없다» 로 나온다** — 그때 고쳐지는
+     * 것은 검사가 아니라 문서이고, 그러면 대장이 검사를 피해 쓰이기 시작한다.
+     */
+    private val mainSource by lazy { mainFiles.values.joinToString("\n") }
 
     /**
      * **`picasso` 의 시험 소스 전문.** 승인 창구는 배포 가능한 프로세스가 아니라 시험 곁에 있고(§15.176),
@@ -184,15 +189,22 @@ class DocumentClaimsTest {
         assertTrue(rows.size >= 9, "대장이 " + rows.size + " 줄이다 — 자원을 지우면 그 자원의 무승인 경로가 안 보인다")
 
         // 관문 칸의 백틱 기호. `null` 처럼 기호가 아닌 것은 뺀다 — 거절의 값이지 관문의 이름이 아니다.
-        val source = mainSource
+        // ★**점이 있으면 소속까지 본다.** 조각마다 «어딘가에 있다» 만 보면 멤버가 다른 클래스로 옮겨 가도
+        //   초록이다 — 표가 틀린 주인을 댄 채로. 같은 파일에 주인과 멤버가 함께 선언돼야 통과한다.
+        //   못 보는 자리: 한 파일에 클래스가 둘이면 멤버가 그중 어느 쪽 것인지까지는 안 본다.
+        fun declares(text: String, name: String) =
+            Regex("(fun|interface|class|object|val) " + name + "[^A-Za-z0-9_]").containsMatchIn(text)
         val broken = rows.flatMap { hit ->
             gateSymbol.findAll(hit.groupValues[3]).map { it.groupValues[1] }.filterNot { it in notSymbols }
         }.filterNot { symbol ->
-            symbol.split(".").all { part ->
-                Regex("(fun|interface|class|object|val) " + part + "[^A-Za-z0-9_]").containsMatchIn(source)
+            val parts = symbol.split(".")
+            if (parts.size == 1) {
+                declares(mainSource, parts[0])
+            } else {
+                mainFiles.values.any { declares(it, parts[0]) && declares(it, parts[1]) }
             }
         }
-        assertEquals(emptyList(), broken, "자원 소유 대장이 대는 관문이 출하 소스에 없다")
+        assertEquals(emptyList(), broken, "자원 소유 대장이 대는 관문이 출하 소스에 없거나 다른 주인에 있다")
 
         // ★**관문이 없는 행은 한계 대장의 id 를 대야 한다.** 이것이 이 표의 요점이다 — 빈 칸이 무승인
         // 경로인데, 빈 칸을 근거 없이 적으면 그 사실이 어디에도 추적되지 않고 «알고 안 한 것» 과
