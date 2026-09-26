@@ -395,8 +395,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * **떼어 낸 선언이 제 파일에만 있다.** `Middleware.kt` 는 거의 안 바뀌는 핵심 상태기계와 공개 창구이고,
- * 자주 바뀌는 판정과 장부는 각자의 파일에 산다(`docs/superpowers/plans/2026-09-26-middleware-seam-split.md`).
+ * **떼어 낸 선언이 제 파일에만 있다.** 자주 바뀌는 접합부의 판정과 장부는 `Middleware.kt` 에서 떼어 각자의
+ * 파일로 옮긴다(`docs/superpowers/plans/2026-09-26-middleware-seam-split.md`). `Middleware.kt` 에는 핵심
+ * 상태기계와 공개 창구, 그리고 접합부를 핵심에 잇는 조율이 남는다 — 그 조율도 빨리 바뀌는 코드다.
  * 여러 절이 나눠 쓰는 정준 투영은 `Canonical.kt` 에 한 벌만 둔다(§15.115) — 같은 이름의 멤버를 클래스 안에
  * 다시 두면 그 클래스의 호출은 조용히 그 멤버를 부른다.
  *
@@ -454,8 +455,8 @@ import dev.picasso.middleware.Middleware.Submission
  * 배정 관문(설계안 §7) — 피어 시스템 접합부(배정·공간)의 판정이 모이는 자리.
  *
  * **상태를 소유하지 않는다.** [executions] 는 [Middleware] 가 든 표를 같은 인스턴스로 받아 읽기만 한다 —
- * 사본을 받으면 판정이 한 틱 늦은 세계를 본다. 기체의 선언은 [robots], 자리의 관측은 [cell], 바닥과
- * 구역의 소유는 [floors]·[workspace] 가 답한다.
+ * 사본을 받으면 관문은 생성 때 뜬 빈 표만 보고, 자리 경쟁·작업 구역·사슬 검사는 아무것도 막지 않는다.
+ * 기체의 선언은 [robots], 자리의 관측은 [cell], 바닥과 구역의 소유는 [floors]·[workspace] 가 답한다.
  */
 internal class AdmissionGate(
     private val robots: RobotPort,
@@ -553,13 +554,13 @@ removed … added … unmatched 8
 - [ ] **1단계:** 공통 절차 F 로 일지 198 을 넣는다. 초안:
 
 ```text
-198. **배정 관문을 `AdmissionGate` 로 뗐다 — 피어 시스템 설계가 넓힐 자리가 이제 핵심 파일 밖에 있다.**
+198. **배정 관문을 `AdmissionGate` 로 뗐다 — 피어 시스템 설계가 넓힐 관문의 판정이 이제 핵심 파일 밖에 있다.**
 
-    `admits` 와 그 아래 술어 다섯(`inconsistent`·`chainRefusal`·`occupancyViolation`·`unownedFloor`·`workspaceViolation`), 보조 넷(`liveZones`·`zoneOf`·`liveClaims`·`liveHold`)을 옮겼다. 관문은 상태를 소유하지 않는다. 실행 표를 `Middleware` 가 든 **같은 인스턴스**로 받아 읽기만 한다. 사본을 받으면 판정이 한 틱 늦은 세계를 본다.
+    `admits` 와 그 아래 술어 다섯(`inconsistent`·`chainRefusal`·`occupancyViolation`·`unownedFloor`·`workspaceViolation`), 보조 넷(`liveZones`·`zoneOf`·`liveClaims`·`liveHold`)을 옮겼다. 관문은 상태를 소유하지 않는다. 실행 표를 `Middleware` 가 든 **같은 인스턴스**로 받아 읽기만 한다. 사본을 받으면 관문은 생성 때 뜬 빈 표만 보고, 자리 경쟁·작업 구역·사슬 검사는 아무것도 막지 않는다. 재할당(`reassign`)의 판정과 채택(`adopt`·`assign`)의 순서는 조율이라 `Middleware` 에 남았다. 피어 시스템 설계가 들어오면 그쪽도 는다.
 
-    `Middleware.admits` 는 파사드로 남았다. `orchestration.md` §2 와 ADR 42 가 그 이름으로 대고, §15.197 에서 조인 게이트가 §2 표의 그 이름을 주인과 같은 파일에서 찾는다. 이름과 본문은 그대로다. 새 자리에서 못 찾은 줄은 가시성이 바뀐 서명 둘, 관문으로 돌린 호출 셋, 생성자에서 `private val` 을 뗀 둘, 죽는 KDoc 링크 하나뿐이고, 인계본 네 벌은 실시계와 구동 식별자를 가리면 바이트까지 같다.
+    `Middleware.admits` 는 파사드로 남았다. `orchestration.md` §2 와 ADR 42 가 그 이름으로 대고, §15.197 에서 조인 게이트가 §2 표의 그 이름을 주인과 같은 파일에서 찾는다. 이름과 본문은 그대로다. 새 자리에서 못 찾은 줄은 가시성이 바뀐 서명 둘, 관문으로 돌린 호출 셋, 생성자에서 `private val` 을 뗀 둘, 죽는 KDoc 링크 하나뿐이고, 인계본 네 벌은 실시계와 구동 식별자를 가리면 바이트까지 같다. 옮긴 `admits` 의 KDoc 에 있는 `[record]` 는 `record` 가 제안 장부(`RemedyDesk`)로 옮겨 갈 때까지 풀리지 않는다.
 
-    ★**떼어 낸 것이 다시 모이는 것을 막는 시험을 먼저 세웠다.** 다시 한 파일로 합쳐도 다른 시험은 전부 초록이라 갈라 둔 것이 조용히 사라진다(§15.193 이 내보내기 세 벌에서 본 모양). `SeamPlacementTest` 가 출하 소스를 훑어 관문 다섯의 선언이 `AdmissionGate.kt` 에만, 정준 투영 셋이 `Canonical.kt` 에만 있는지를 댄다. 옮기기 전에 이 시험이 빨개지는 것을 보고 옮겼고, 같은 이름의 투영을 `Middleware` 에 다시 두는 주입과 `admits` 파사드를 지우는 주입으로 두 검사가 무는 것을 봤다.
+    ★**떼어 낸 것이 다시 모이는 것을 막는 시험을 먼저 세웠다.** 다시 한 파일로 합쳐도 다른 시험은 전부 초록이라 갈라 둔 것이 조용히 사라진다(§15.193 이 내보내기 세 벌에서 본 모양). `SeamPlacementTest` 가 출하 소스를 훑어 관문 다섯의 선언이 `AdmissionGate.kt` 에만, 정준 투영 셋이 `Canonical.kt` 에만 있는지를 댄다. 옮기기 전에 이 시험이 빨개지는 것을 보고 옮겼고, 같은 이름의 투영을 `Middleware` 에 다시 두는 주입과 `admits` 파사드를 지우는 주입으로 두 검사가 무는 것을 봤다. 못 보는 자리: 이 대조는 `picasso` 의 출하 소스만 훑고 `fun 이름(` 을 철자 그대로 찾는다. 제네릭·확장 함수·함수형 `val` 로 다시 적은 같은 이름은 못 보고, 보조 넷은 바늘에 없다.
 ```
 
 - [ ] **2단계:** `docs/limits.md` 번호 198, `python tools/stamp.py docs/limits.md`.
@@ -573,7 +574,8 @@ git add picasso/src/test/kotlin/dev/picasso/middleware/SeamPlacementTest.kt \
   picasso/src/main/kotlin/dev/picasso/middleware/AdmissionGate.kt \
   picasso/src/main/kotlin/dev/picasso/middleware/Middleware.kt \
   CLAUDE.md docs/verification.md \
-  docs/superpowers/specs/2026-09-05-picasso-design.md docs/limits.md
+  docs/superpowers/specs/2026-09-05-picasso-design.md docs/limits.md \
+  docs/superpowers/plans/2026-09-26-middleware-seam-split.md
 git commit -F - <<'EOF'
 refactor(middleware): 배정 관문의 AdmissionGate 분리
 
@@ -581,6 +583,7 @@ refactor(middleware): 배정 관문의 AdmissionGate 분리
 - Middleware: admits 는 파사드로 유지. isHolding, revise, judge 가 관문의 liveHold, chainRefusal 을 호출. floors, workspace 는 생성자 인자로만 유지
 - SeamPlacementTest 신설: 관문 다섯은 AdmissionGate.kt 에만, 정준 투영 셋은 Canonical.kt 에만 선언됐는지 출하 소스로 대조
 - 시험 총수 1,822 로 갱신, 설계 일지 15.198 수록
+- 계획서: 시험과 관문 머리 주석의 문구 정정, 일지 초안 동기화
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
@@ -599,6 +602,7 @@ gh pr create --title "refactor(middleware): 배정 관문의 AdmissionGate 분�
 - Middleware: `admits` 파사드 유지, 호출 셋을 관문으로 위임, `floors`·`workspace` 는 생성자 인자로만 유지
 - SeamPlacementTest: 관문 다섯은 `AdmissionGate.kt` 에만, 정준 투영 셋은 `Canonical.kt` 에만 선언됐는지 대조
 - 시험 총수 1,822, 설계 일지 15.198
+- 계획서: 시험과 관문 머리 주석의 문구 정정, 일지 초안 동기화
 
 ## 검증 결과
 - 로컬 표준 빌드 통과, XML 기준 실패 0
@@ -607,6 +611,7 @@ gh pr create --title "refactor(middleware): 배정 관문의 AdmissionGate 분�
 - SeamPlacementTest 는 옮기기 전 실패, 옮긴 뒤 통과
 - 주입: `admits` 파사드를 지우면 게이트의 자원 소유 대장 대조가 실패, 정준 투영과 같은 이름의 멤버를 `Middleware` 에 두면 SeamPlacementTest 실패
 - 게이트 검사 7 통과
+- 이동 확인용: `git diff --color-moved=zebra --color-moved-ws=allow-indentation-change`
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
