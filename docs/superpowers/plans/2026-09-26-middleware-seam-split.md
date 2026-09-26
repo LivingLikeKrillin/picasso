@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `Middleware.kt`(2,149줄)에서 나중에 붙은 두 접합부의 판정과 장부를 세 클래스로 떼어, 거의 안 바뀌는 핵심 상태기계와 공개 창구, 그리고 접합부를 핵심에 잇는 조율만 남긴다. 거동은 바뀌지 않는다.
+**Goal:** `Middleware.kt`(2,149줄)에서 나중에 붙은 두 접합부의 판정(배정 관문)과 장부(제안·승인, 사건 번들)를 세 클래스로 떼어, `Middleware.kt` 에는 거의 안 바뀌는 핵심 상태기계와 공개 창구, 그리고 접합부를 핵심에 잇는 조율(재할당의 판정 포함)을 남긴다. 거동은 바뀌지 않는다.
 
-**Architecture:** `Middleware` 는 공개 API·생성자 서명·`Execution`·`Submission` 을 그대로 둔 파사드로 남는다. 피어 시스템 접합부(배정·공간)의 판정은 `AdmissionGate` 가, 운영자·설명층 접합부의 장부는 `RemedyDesk`(제안·승인)와 `IncidentLog`(사건 번들)가 가진다. 떼어 낸 클래스는 `Middleware` 가 든 실행 표를 같은 인스턴스로 읽기만 하고, 조율(승인 뒤의 접수, 라운드 끝의 봉인)은 `Middleware` 에 남는다. 함수는 이름과 본문을 그대로 옮긴다.
+**Architecture:** `Middleware` 는 공개 API·생성자 서명·`Execution`·`Submission` 을 그대로 둔 파사드로 남는다. 피어 시스템 접합부(배정·공간)의 접수 판정은 `AdmissionGate` 가, 운영자·설명층 접합부의 장부는 `RemedyDesk`(제안·승인)와 `IncidentLog`(사건 번들)가 가진다. 관문은 `Middleware` 가 든 실행 표를 같은 인스턴스로 읽기만 하고, 두 장부는 제 장부에만 쓴다(사건 장부가 실행에 쓰는 것은 봉인한 단위의 표시를 비우는 것 하나다). 조율(승인 뒤의 접수, 라운드 끝의 봉인, 재할당)은 `Middleware` 에 남는다. 함수는 이름과 본문을 그대로 옮긴다.
 
 **Tech Stack:** Kotlin 2.4.20 · JDK 21 · Gradle · JUnit 5(`kotlin.test`) · 기존 게이트(`:gate:test`, gate CLI)
 
@@ -52,7 +52,7 @@
 | `picasso/src/main/kotlin/dev/picasso/middleware/AdmissionGate.kt` (새) | 배정 관문: `admits` 와 술어 다섯, 보조 넷 | 5 |
 | `picasso/src/main/kotlin/dev/picasso/middleware/RemedyDesk.kt` (새) | 제안·가림·진단·승인 장부와 승인 판정 | 7 |
 | `picasso/src/main/kotlin/dev/picasso/middleware/IncidentLog.kt` (새) | 사건 번들 봉인·조회·검토 지표·운영자 판단 부착 | 9 |
-| `picasso/src/main/kotlin/dev/picasso/middleware/Middleware.kt` | 핵심 상태기계, 공개 창구, 접합부를 잇는 조율(판정과 장부는 위 셋에 위임) | 2·3·5·7·9 |
+| `picasso/src/main/kotlin/dev/picasso/middleware/Middleware.kt` | 핵심 상태기계, 공개 창구, 접합부를 잇는 조율(관문의 판정과 두 장부는 위 셋에 위임하고 재할당의 판정은 남는다) | 2·3·5·7·9 |
 | `picasso/src/test/kotlin/dev/picasso/middleware/SeamPlacementTest.kt` (새) | 떼어 낸 선언이 제 파일에만 있는가 | 5·7·9 |
 | `picasso/README.md` | 핵심 컴포넌트 표 | 10 |
 | `CLAUDE.md` · `docs/verification.md` | 자동화 시험 수 | 5 |
@@ -373,7 +373,7 @@ EOF
 
 ## Chunk 2: 배정 관문 (PR 2)
 
-시작: PR 1 이 머지된 뒤 `git switch main && git pull && git switch -c refactor/middleware-admission-gate`
+시작: PR 1 이 머지됐으면 `git switch main && git pull && git switch -c refactor/middleware-admission-gate`, 아직이면 PR 1 브랜치 위에 쌓는다(`git switch -c refactor/middleware-admission-gate`). 2026-09-26 실행은 네 PR 을 쌓았다. 아래 PR 명령의 `--base` 는 쌓았을 때의 것이다. 앞 PR 이 이미 머지됐으면 `main` 을 겨눈다.
 
 ### 작업 5: `AdmissionGate` 를 뗀다
 
@@ -595,9 +595,9 @@ EOF
 
 ```bash
 git push -u origin refactor/middleware-admission-gate
-gh pr create --title "refactor(middleware): 배정 관문의 AdmissionGate 분리" --body-file - <<'EOF'
+gh pr create --base refactor/middleware-seam-prep --title "refactor(middleware): 배정 관문의 AdmissionGate 분리" --body-file - <<'EOF'
 ## 개요
-`Middleware.kt` 의 접수 절에서 배정 관문을 `AdmissionGate` 로 분리했습니다. 피어 시스템 설계가 넓힐 판정이 이제 핵심 파일 밖에 있습니다. 거동 변경은 없습니다.
+`Middleware.kt` 의 접수 절에서 배정 관문을 `AdmissionGate` 로 분리했습니다. 피어 시스템 설계가 넓힐 관문의 판정이 이제 핵심 파일 밖에 있습니다. 재할당의 판정은 조율과 함께 `Middleware` 에 남습니다. 거동 변경은 없습니다.
 
 ## 주요 변경 사항
 - AdmissionGate: `admits` 와 술어 다섯, 보조 넷. 실행 표는 `Middleware` 가 든 인스턴스를 그대로 읽기만 함
@@ -623,7 +623,7 @@ EOF
 
 ## Chunk 3: 제안과 승인 장부 (PR 3)
 
-시작: PR 2 가 머지된 뒤 `git switch main && git pull && git switch -c refactor/middleware-remedy-desk`
+시작: PR 2 가 머지됐으면 `git switch main && git pull && git switch -c refactor/middleware-remedy-desk`, 아직이면 PR 2 브랜치 위에 쌓는다.
 
 ### 작업 7: `RemedyDesk` 를 뗀다
 
@@ -830,7 +830,7 @@ EOF
 
 ```bash
 git push -u origin refactor/middleware-remedy-desk
-gh pr create --title "refactor(middleware): 제안과 승인 장부의 RemedyDesk 분리" --body-file - <<'EOF'
+gh pr create --base refactor/middleware-admission-gate --title "refactor(middleware): 제안과 승인 장부의 RemedyDesk 분리" --body-file - <<'EOF'
 ## 개요
 제안·가림·진단·승인 장부를 `RemedyDesk` 로 분리했습니다. 승인 뒤의 접수는 `Middleware` 에 남아 장부에 판정을 묻고, 접수가 된 뒤에만 승인을 장부에 기록합니다(`settle`). 관문 거절은 지금처럼 `record` 로 넘어갑니다. 거동 변경은 없습니다.
 
@@ -840,6 +840,7 @@ gh pr create --title "refactor(middleware): 제안과 승인 장부의 RemedyDes
 - `withholdEvery`·`entitlements` 는 생성자 인자로만 유지
 - SeamPlacementTest: 장부의 상태와 `scopeRefusal`, 관문의 `liveHold` 대조 추가
 - 설계 일지 15.199
+- AdmissionGate: `admits` KDoc 의 `[record]` 를 `[RemedyDesk.record]` 로
 - 계획서: 관문 조회 바늘 추가와 장부 머리 주석의 문구 정정, 일지 초안 동기화
 
 ## 검증 결과
@@ -847,7 +848,9 @@ gh pr create --title "refactor(middleware): 제안과 승인 장부의 RemedyDes
 - 인계본 네 벌이 실시계와 구동 식별자를 가리면 바이트 동일(12개 파일)
 - 새 자리에서 못 찾은 옮긴 줄 열둘, 전부 계획서의 예상 목록과 일치
 - SeamPlacementTest 는 옮기기 전 실패, 옮긴 뒤 통과
+- 주입: 같은 이름의 `fun liveHold` 를 장부에 끼우면 SeamPlacementTest 실패. 자동 승인 갈래의 EntitlementTest 열 건도 실패하고, 사람 승인 갈래(RemedyApprovalTest)는 못 잡음
 - 게이트 검사 7 통과
+- 이동 확인용: `git diff --color-moved=zebra --color-moved-ws=allow-indentation-change`
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
@@ -857,7 +860,7 @@ EOF
 
 ## Chunk 4: 사건 번들 장부와 마무리 (PR 4)
 
-시작: PR 3 이 머지된 뒤 `git switch main && git pull && git switch -c refactor/middleware-incident-log`
+시작: PR 3 이 머지됐으면 `git switch main && git pull && git switch -c refactor/middleware-incident-log`, 아직이면 PR 3 브랜치 위에 쌓는다.
 
 ### 작업 9: `IncidentLog` 를 뗀다
 
@@ -1045,7 +1048,7 @@ EOF
 
 ```bash
 git push -u origin refactor/middleware-incident-log
-gh pr create --title "refactor(middleware): 사건 번들 장부의 IncidentLog 분리" --body-file - <<'EOF'
+gh pr create --base refactor/middleware-remedy-desk --title "refactor(middleware): 사건 번들 장부의 IncidentLog 분리" --body-file - <<'EOF'
 ## 개요
 사건 번들의 봉인·조회·검토 지표를 `IncidentLog` 로 분리했습니다. 이로써 이 계획이 분리하기로 한 판정과 장부는 모두 분리되었고, `Middleware.kt` 에는 핵심 상태기계와 공개 창구, 접합부를 핵심에 잇는 조율(재할당의 판정 포함)이 남습니다. 거동 변경은 없습니다.
 
@@ -1054,12 +1057,13 @@ gh pr create --title "refactor(middleware): 사건 번들 장부의 IncidentLog 
 - Middleware: 라운드 끝 봉인 호출 유지, 공개 창구 다섯은 파사드, `wallClock` 은 생성자 인자로만 유지
 - SeamPlacementTest: 사건 장부의 상태와 봉인 대조 추가
 - picasso README 컴포넌트 표, 설계 일지 15.200
+- 문구 정정: 관문이 드는 판정을 접수 판정으로 한정(AdmissionGate·SeamPlacementTest 머리 주석, README 행)
 - 계획서: 장부 머리 주석과 README 문장의 문구 정정, 일지 초안 동기화
 
 ## 검증 결과
 - 로컬 표준 빌드 통과, XML 기준 실패 0
 - 인계본 네 벌이 실시계와 구동 식별자를 가리면 바이트 동일(12개 파일)
-- 새 자리에서 못 찾은 옮긴 줄 넷, 전부 계획서의 예상 목록과 일치
+- 새 자리에서 못 찾은 옮긴 줄 넷(분리 커밋 기준), 전부 계획서의 예상 목록과 일치. 문구 정정 커밋이 더하는 것은 AdmissionGate 머리 주석 한 줄
 - 재발 주입: `Middleware.kt` 에 장부 상태를 다시 선언하면 SeamPlacementTest 실패
 - 게이트 검사 7 통과
 - `Middleware.kt` 2,149줄에서 1,512줄
@@ -1073,6 +1077,32 @@ EOF
   - `git push origin --delete refactor/middleware-seam-prep refactor/middleware-admission-gate refactor/middleware-remedy-desk refactor/middleware-incident-log`
   - `git branch -d` 로 같은 넷을 로컬에서도 지운다.
   - `git fetch --prune` 후 `git branch -r` → `origin/main` 하나.
+
+### 작업 12: 최종 검토 뒤 문구 정정 (작업 11 의 4단계 뒤, 5단계 push 전에 PR 4 브랜치에 커밋 하나)
+
+네 PR 을 다 쌓은 뒤 전체를 한 번에 본 검토가, 관문이 드는 «판정» 의 범위가 몇 군데서 넓게 적혔다고 짚었다. 관문이 드는 것은 접수 판정이고, 재할당의 판정은 `Middleware.reassign` 의 조율에 남는다(§15.198·200 이 이미 그렇게 적는다). 작업 5·10 의 템플릿은 실행한 그대로 두고 다음을 고친다.
+
+- `AdmissionGate.kt` 머리 주석 첫 줄: «…의 접수 판정이 모이는 자리. 재할당의 판정은 [Middleware.reassign] 의 조율에 남는다.»(두 줄)
+- `SeamPlacementTest.kt` KDoc 첫 문단: 배정 관문의 판정과 제안·사건 두 장부로 한정하고, 남는 조율에 재할당의 판정을 넣는다(네 줄)
+- `picasso/README.md` 의 `AdmissionGate.kt` 행: «…의 접수 판정», 그리고 `python tools/stamp.py picasso/README.md`
+- 계획서: 목표·구조·파일 지도의 범위, 쌓아 올린 PR 의 `--base` 와 시작 절차, PR 2 본문의 «관문의 판정», PR 3·4 본문 보강
+
+검증: `./gradlew :picasso:compileKotlin`, `SeamPlacementTest`·`GroundTruthTest`, `:gate:test` 의 `DocumentClaimsTest`·`CompletionCriterionTest`, 공통 절차 D.
+
+```bash
+git add picasso/src/main/kotlin/dev/picasso/middleware/AdmissionGate.kt \
+  picasso/src/test/kotlin/dev/picasso/middleware/SeamPlacementTest.kt \
+  picasso/README.md docs/superpowers/plans/2026-09-26-middleware-seam-split.md
+git commit -F - <<'EOF'
+docs(middleware): 떼어 낸 관문의 판정 범위를 접수 판정으로 한정
+
+- AdmissionGate, SeamPlacementTest 머리 주석: 관문이 드는 것은 접수 판정이고 재할당의 판정은 Middleware 의 조율에 남음을 명시
+- picasso README: AdmissionGate 행을 접수 판정으로 한정, 도장 재산출
+- 계획서: 목표, 구조, 파일 지도의 범위 정정. 쌓아 올린 PR 의 --base 와 시작 절차, PR 2 본문 정정과 PR 3·4 본문 보강, 작업 12 수록
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+```
 
 ---
 

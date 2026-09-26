@@ -9,7 +9,8 @@ import dev.picasso.middleware.Middleware.Execution
 import dev.picasso.middleware.Middleware.Submission
 
 /**
- * 배정 관문(설계안 §7) — 피어 시스템 접합부(배정·공간)의 판정이 모이는 자리.
+ * 배정 관문(설계안 §7) — 피어 시스템 접합부(배정·공간)의 접수 판정이 모이는 자리. 재할당의 판정은
+ * [Middleware.reassign] 의 조율에 남는다.
  *
  * **상태를 소유하지 않는다.** [executions] 는 [Middleware] 가 든 표를 같은 인스턴스로 받아 읽기만 한다 —
  * 사본을 받으면 관문은 생성 때 뜬 빈 표만 보고, 자리 경쟁·작업 구역·사슬 검사는 아무것도 막지 않는다.
