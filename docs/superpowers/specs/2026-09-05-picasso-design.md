@@ -3094,6 +3094,16 @@ mimic/
 
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
 
+199. **제안과 승인의 장부를 `RemedyDesk` 로 뗐다 — 장부만 옮기고 조율은 남겼다.**
+
+    상태 일곱(`proposals`·`withheld`·`diagnoses`·`proposalsMade`·`approvals`·`remedyLog`·`remedySeq`)과, 접수의 거절 경로에서 제안을 적던 `record` 를 함께 옮겼다. 그 일곱을 제안 절 밖에서 쓰는 자리가 `record` 하나뿐이었다.
+
+    ★**승인 뒤의 접수는 `Middleware` 에 남겼다.** `approveRemedy`·`attemptApproval` 은 장부에 판정(`judge`)을 묻고, 서면 접수를 내고, 접수가 된 뒤에만 `settle` 로 장부에 적는다. 장부가 접수를 부르게 하면 떼어 낸 클래스가 핵심을 되부르는 순환이 생긴다. 콜백을 넘기는 대신 순서를 바깥에 둔 이유다. 관문이 거절하면 `settle` 을 안 부르므로 서 있던 제안을 지우지 않는 성질(ADR 44)도 그 순서에서 나온다. `settle` 이 기대는 것은 **주문의** 접수다 — 개정 경로는 조치 열 없이도 받아 주므로(§15.175, v1 도달 불가) 머리 주석을 «조치 열이 접수된 뒤» 에서 «주문이 접수된 뒤» 로 고쳤다.
+
+    ★**장부는 관문의 `liveHold` 를 함수형 `val` 로 받는다 — 같은 이름의 `fun` 이 장부에 끼면 호출이 조용히 그쪽으로 간다.** 함수가 `invoke` 를 가진 속성보다 먼저 풀리기 때문이다. 늘 널을 돌려주는 `fun liveHold` 를 장부에 끼워 넣는 주입에서 `EntitlementTest` 는 자동 승인 갈래의 열 건이 빨개졌지만 `RemedyApprovalTest` 는 여섯 건 전부 초록이었다 — 사람의 승인은 값을 들고 오므로 관측을 다시 보지 않는다. 어느 갈래를 시험하든 잡도록 `SeamPlacementTest` 에 `fun liveHold(` 의 자리(`AdmissionGate.kt`)를 더했고, 같은 주입에서 그것이 빨개지는 것을 봤다.
+
+    본문은 그대로다. 새 자리에서 못 찾은 줄은 계획서가 적어 둔 열둘이고, 인계본 네 벌은 실시계와 구동 식별자를 가리면 바이트까지 같다.
+
 198. **배정 관문을 `AdmissionGate` 로 뗐다 — 피어 시스템 설계가 넓힐 관문의 판정이 이제 핵심 파일 밖에 있다.**
 
     `admits` 와 그 아래 술어 다섯(`inconsistent`·`chainRefusal`·`occupancyViolation`·`unownedFloor`·`workspaceViolation`), 보조 넷(`liveZones`·`zoneOf`·`liveClaims`·`liveHold`)을 옮겼다. 관문은 상태를 소유하지 않는다. 실행 표를 `Middleware` 가 든 **같은 인스턴스**로 받아 읽기만 한다. 사본을 받으면 관문은 생성 때 뜬 빈 표만 보고, 자리 경쟁·작업 구역·사슬 검사는 아무것도 막지 않는다. 재할당(`reassign`)의 판정과 채택(`adopt`·`assign`)의 순서는 조율이라 `Middleware` 에 남았다. 피어 시스템 설계가 들어오면 그쪽도 는다.
