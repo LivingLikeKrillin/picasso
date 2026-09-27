@@ -1254,7 +1254,12 @@ class Middleware(
 
     // ── 제안과 승인(설계안 §6.4)
 
-    /** 탐색이 답한 것들, 답한 순서대로 — [RemedyDesk.remedySearches]. */
+    /**
+     * 탐색이 답한 것들, 답한 순서대로 — [RemedyDesk.remedySearches].
+     *
+     * 순서는 이 층이 보증한다 — 읽는 쪽이 `searchId` 를 뜯어 번호를 꺼내면 그 순간 형식에 묶이고,
+     * 그 형식을 대는 시험은 어디에도 없다.
+     */
     fun remedySearches(): List<RemedySearchRecord> = desk.remedySearches()
 
     /** 이 (기체, 주문)에 서 있는 제안. 없거나 가려져 있으면 널 — [RemedyDesk.proposal]. */
@@ -1263,7 +1268,11 @@ class Middleware(
     /** 가려 둔 제안이 있는가 — [RemedyDesk.withheldProposal]. */
     fun withheldProposal(robotId: String, jobOrderId: String): Boolean = desk.withheldProposal(robotId, jobOrderId)
 
-    /** 사람이 먼저 진단한다 — [RemedyDesk.diagnose]. */
+    /**
+     * 사람이 먼저 진단한다 — [RemedyDesk.diagnose].
+     *
+     * @return 가려 둔 제안이 실제로 있었는가. 없으면 적히지 않는다 — 없는 사건에 진단을 남기지 않는다.
+     */
     fun diagnose(robotId: String, jobOrderId: String, cause: String): Boolean = desk.diagnose(robotId, jobOrderId, cause)
 
     /** 사람이 먼저 적은 진단 — [RemedyDesk.diagnosis]. */
@@ -1360,22 +1369,33 @@ class Middleware(
         return submission
     }
 
-    // ── 사건 번들(설계안 §4) — 흩어진 사실을 한 사건으로 묶는다. 읽기만 한다.
+    // ── 사건 번들(설계안 §4) — 장부는 IncidentLog 에 있고, 여기는 조회와 검토의 창구다.
 
     /** 열린 순서대로 — [IncidentLog.incidents]. */
     fun incidents(): List<IncidentBundle> = incidentLog.incidents()
 
     fun incident(incidentId: String): IncidentBundle? = incidentLog.incident(incidentId)
 
-    /** 사람이 사건을 읽고 판정을 남긴다 — [IncidentLog.reviewIncident]. */
+    /**
+     * 사람이 사건을 읽고 판정을 남긴다 — [IncidentLog.reviewIncident].
+     * **자동으로 채우지 않는다.** 동의도 사람이 눌러야 동의다.
+     */
     fun reviewIncident(incidentId: String, verdict: ReviewVerdict, cause: String): Boolean =
         incidentLog.reviewIncident(incidentId, verdict, cause)
 
-    /** 승인자 종류별 검토 지표 — [IncidentLog.reviewMetricsByApprover]. */
+    /**
+     * 승인자 종류별 검토 지표 — [IncidentLog.reviewMetricsByApprover].
+     *
+     * @param since 실 시계 기준 이 시각부터의 사건만. 널이면 전부.
+     */
     fun reviewMetricsByApprover(since: Instant? = null): Map<ApproverKind, ReviewMetrics> =
         incidentLog.reviewMetricsByApprover(since)
 
-    /** 검토가 실제로 일어나는가 — [IncidentLog.reviewMetrics]. */
+    /**
+     * 검토가 실제로 일어나는가 — [IncidentLog.reviewMetrics].
+     *
+     * @param since 실 시계 기준 이 시각부터의 사건만. 교대 단위로 보라고 있는 자리다. 널이면 전부.
+     */
     fun reviewMetrics(since: Instant? = null): ReviewMetrics = incidentLog.reviewMetrics(since)
 
     // ── 취소 (보고서 14)

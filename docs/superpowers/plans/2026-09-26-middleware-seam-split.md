@@ -1058,15 +1058,19 @@ gh pr create --base refactor/middleware-remedy-desk --title "refactor(middleware
 - SeamPlacementTest: 사건 장부의 상태와 봉인 대조 추가
 - picasso README 컴포넌트 표, 설계 일지 15.200
 - 문구 정정: 관문이 드는 판정을 접수 판정으로 한정(AdmissionGate·SeamPlacementTest 머리 주석, README 행)
-- 계획서: 장부 머리 주석과 README 문장의 문구 정정, 일지 초안 동기화
+- 공개 창구 정리: 파사드 KDoc 에 계약 줄 복원(탐색 순서 보증, `diagnose` 의 반환, 검토의 수동성, `since` 의 실 시계 기준), 사건 절 머리 주석 정정
+- 장부 정리: 사건 목록 이름을 `bundles` 로 변경해 장부 객체 필드와의 이름 겹침 해소, 내부 장부의 기본값 중복 제거
+- 주석 정정: 관문 주석의 `revise` 위치를 `Middleware.submit` 으로 명시, `src` 시험 입력의 소비자에 SeamPlacementTest 추가
+- 계획서: 장부 머리 주석과 README 문장의 문구 정정, 일지 초안 동기화, 작업 13 수록. 설계 일지 15.200 에 정리 커밋의 결과 추가
 
 ## 검증 결과
-- 로컬 표준 빌드 통과, XML 기준 실패 0
+- 전체 로컬 빌드(제외 없음) 통과, XML 기준 시험 1,822 개 중 실패 0
+- CI 엄격 모드 음성 하네스(buf 포함) 6 개 통과
 - 인계본 네 벌이 실시계와 구동 식별자를 가리면 바이트 동일(12개 파일)
-- 새 자리에서 못 찾은 옮긴 줄 넷(분리 커밋 기준), 전부 계획서의 예상 목록과 일치. 문구 정정 커밋이 더하는 것은 AdmissionGate 머리 주석 한 줄
+- 새 자리에서 못 찾은 옮긴 줄 넷(분리 커밋 기준), 전부 계획서의 예상 목록과 일치. 문구 정정 커밋이 더하는 것은 AdmissionGate 머리 주석 한 줄. 정리 커밋이 옮긴 본문에서 고친 것은 사건 목록 이름, 내부 기본값, 관문 주석 한 줄
 - 재발 주입: `Middleware.kt` 에 장부 상태를 다시 선언하면 SeamPlacementTest 실패
 - 게이트 검사 7 통과
-- `Middleware.kt` 2,149줄에서 1,512줄
+- `Middleware.kt` 2,149줄에서 1,532줄. 분리 커밋 기준 1,512줄이고 공개 창구 KDoc 복원이 20줄을 더함
 - 이동 확인용: `git diff --color-moved=zebra --color-moved-ws=allow-indentation-change`
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -1099,6 +1103,43 @@ docs(middleware): 떼어 낸 관문의 판정 범위를 접수 판정으로 한�
 - AdmissionGate, SeamPlacementTest 머리 주석: 관문이 드는 것은 접수 판정이고 재할당의 판정은 Middleware 의 조율에 남음을 명시
 - picasso README: AdmissionGate 행을 접수 판정으로 한정, 도장 재산출
 - 계획서: 목표, 구조, 파일 지도의 범위 정정. 쌓아 올린 PR 의 --base 와 시작 절차, PR 2 본문 정정과 PR 3·4 본문 보강, 작업 12 수록
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+EOF
+```
+
+### 작업 13: push 전 공개 창구 정리 (작업 12 뒤, 작업 11 의 5단계 push 전에 PR 4 브랜치에 커밋 하나)
+
+최종 검토의 Minor 절 가운데 이 스택이 만든 것을 push 전에 닫는다. main 에도 있던 것(죽은 KDoc 링크, `reassign` 의 자기 점유 등)은 스택 밖의 일이라 여기서 안 고친다.
+
+- `Middleware.kt` 공개 창구 KDoc: 내부 장부로만 옮겨 갔던 계약 줄을 되살린다. `remedySearches` 의 순서 보증, `diagnose` 의 `@return`, `reviewIncident` 의 «자동으로 채우지 않는다», `reviewMetrics`·`reviewMetricsByApprover` 의 `@param since`
+- `// ── 사건 번들` 절 머리: 묶는 일과 봉인이 `IncidentLog` 로 갔고 `reviewIncident` 가 쓰므로, «흩어진 사실을 한 사건으로 묶는다. 읽기만 한다.» 를 «장부는 IncidentLog 에 있고, 여기는 조회와 검토의 창구다.» 로
+- 이름 겹침: `Middleware.incidentLog`(장부 객체)와 `IncidentLog.incidentLog`(목록)가 같은 이름이다. 필드 이름은 §15.200 이 부르므로 두고, 목록을 `bundles` 로 바꾼다
+- 기본값 중복: `repeatedRemedies(atLeast = 2)`·`reviewMetrics(since = null)`·`reviewMetricsByApprover(since = null)` 의 기본값을 공개 창구에만 둔다. 내부 장부는 창구가 늘 값을 넘긴다
+- `AdmissionGate.occupancyViolation` 의 주석 «위에서 `revise` 로 갈린다»: 옮긴 뒤로 «위» 가 다른 파일이므로 `Middleware.submit` 을 이름으로 댄다
+- `picasso/build.gradle.kts` 의 `src` 시험 입력 주석: 소비자로 `SeamPlacementTest` 를 더한다. `BundleWriterTest` 만 대면 그 시험과 함께 입력이 지워질 수 있다
+- 설계 일지 §15.200 끝에 한 문단: 계약 줄을 되살려 `Middleware.kt` 가 1,532줄이 된 것과 목록 이름을 바꾼 것
+- 계획서: 작업 13 수록, PR 4 본문 보강(정리 커밋, 전체 빌드와 엄격 모드 음성 하네스, 줄 수)
+
+검증: 제외 없는 `./gradlew cleanTest build`(Docker, 시험 1,822, XML 판정). 그 판정을 센 **뒤에** 공통 절차 B. CI 엄격 모드 음성 하네스. CI 와 같은 입력의 게이트(PR 4, base 는 PR 3 끝).
+
+```bash
+git add picasso/src/main/kotlin/dev/picasso/middleware/Middleware.kt \
+  picasso/src/main/kotlin/dev/picasso/middleware/IncidentLog.kt \
+  picasso/src/main/kotlin/dev/picasso/middleware/RemedyDesk.kt \
+  picasso/src/main/kotlin/dev/picasso/middleware/AdmissionGate.kt \
+  picasso/build.gradle.kts docs/superpowers/specs/2026-09-05-picasso-design.md \
+  docs/superpowers/plans/2026-09-26-middleware-seam-split.md
+git commit -F - <<'EOF'
+refactor(middleware): 떼어 낸 장부의 공개 창구 KDoc 과 이름 정리
+
+- Middleware: 공개 창구 KDoc 에 계약 줄 복원(탐색 순서 보증, diagnose 의 반환, 검토의 수동성, since 의 실 시계 기준), 사건 절 머리 주석 정정
+- IncidentLog: 사건 목록 이름을 bundles 로 변경해 장부 객체 필드와의 이름 겹침 해소, 내부 기본값 제거
+- RemedyDesk: repeatedRemedies 의 내부 기본값 제거
+- AdmissionGate: occupancyViolation 주석의 revise 위치를 Middleware.submit 으로 명시
+- picasso 빌드 스크립트: src 시험 입력 주석에 SeamPlacementTest 추가
+- 설계 일지 15.200: 정리 커밋의 결과 추가(1,532줄, 목록 이름)
+- 계획서: 작업 13 수록, PR 4 본문 보강
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF

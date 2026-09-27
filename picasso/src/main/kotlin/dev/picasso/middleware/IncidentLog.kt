@@ -18,13 +18,13 @@ internal class IncidentLog(
 ) {
 
     /** 열린 사건들(설계안 §4). **조회만 한다** — 이 목록이 이 층의 거동을 바꾸지 않는다. */
-    private val incidentLog = mutableListOf<IncidentBundle>()
+    private val bundles = mutableListOf<IncidentBundle>()
     private var incidentSeq = 0
 
     /** 열린 순서대로. */
-    fun incidents(): List<IncidentBundle> = incidentLog.toList()
+    fun incidents(): List<IncidentBundle> = bundles.toList()
 
-    fun incident(incidentId: String): IncidentBundle? = incidentLog.firstOrNull { it.incidentId == incidentId }
+    fun incident(incidentId: String): IncidentBundle? = bundles.firstOrNull { it.incidentId == incidentId }
 
     /**
      * 사람이 사건을 읽고 판정을 남긴다(설계안 §7.2). 원인 지목은 가설이고 정답은 정비 실적과 재발
@@ -32,9 +32,9 @@ internal class IncidentLog(
      * **자동으로 채우지 않는다.** 동의도 사람이 눌러야 동의다.
      */
     fun reviewIncident(incidentId: String, verdict: ReviewVerdict, cause: String): Boolean {
-        val at = incidentLog.indexOfFirst { it.incidentId == incidentId }
+        val at = bundles.indexOfFirst { it.incidentId == incidentId }
         if (at < 0) return false
-        incidentLog[at] = incidentLog[at].copy(review = IncidentReview(verdict, cause, wallClock()))
+        bundles[at] = bundles[at].copy(review = IncidentReview(verdict, cause, wallClock()))
         return true
     }
 
@@ -48,7 +48,7 @@ internal class IncidentLog(
      * **승인을 거치지 않은 사건은 어느 통에도 안 들어간다.** 대부분의 사건이 그렇고, 그것을 사람 쪽에
      * 몰아 넣으면 사람 승인의 이의율이 승인과 무관한 사건으로 희석된다.
      */
-    fun reviewMetricsByApprover(since: Instant? = null): Map<ApproverKind, ReviewMetrics> = incidentLog
+    fun reviewMetricsByApprover(since: Instant?): Map<ApproverKind, ReviewMetrics> = bundles
         .filter { since == null || !it.wallClockAt.isBefore(since) }
         .mapNotNull { bundle -> bundle.approvedBy?.let { it.kind to bundle } }
         .groupBy({ it.first }, { it.second })
@@ -65,8 +65,8 @@ internal class IncidentLog(
      *
      * @param since 실 시계 기준 이 시각부터의 사건만. 교대 단위로 보라고 있는 자리다. 널이면 전부.
      */
-    fun reviewMetrics(since: Instant? = null): ReviewMetrics {
-        val scope = incidentLog.filter { since == null || !it.wallClockAt.isBefore(since) }
+    fun reviewMetrics(since: Instant?): ReviewMetrics {
+        val scope = bundles.filter { since == null || !it.wallClockAt.isBefore(since) }
         return ReviewMetrics(
             total = scope.size,
             reviewed = scope.count { it.review != null },
@@ -87,7 +87,7 @@ internal class IncidentLog(
         val inWindow = execution.eventTrail.filter { within(it, at.minus(window.before), at.plus(window.after)) }
         execution.pendingIncidents.forEach { unitId ->
             val unit = execution.units.firstOrNull { it.unitId == unitId } ?: return@forEach
-            incidentLog += IncidentBundle(
+            bundles += IncidentBundle(
                 incidentId = "incident-${++incidentSeq}",
                 jobOrderId = execution.order.jobOrderId,
                 executionId = execution.executionId,
@@ -161,11 +161,11 @@ internal class IncidentLog(
      * 운영자의 판단을 **아직 판단이 안 실린 가장 최근의** 사건에 붙인다. 부르는 쪽은 [Middleware.resolve] 다.
      */
     fun noteResolution(executionId: String, unitId: String, decision: OperatorDecision) {
-        val opened = incidentLog.indexOfLast {
+        val opened = bundles.indexOfLast {
             it.executionId == executionId && it.unitId == unitId && it.resolution == null
         }
         if (opened >= 0) {
-            incidentLog[opened] = incidentLog[opened]
+            bundles[opened] = bundles[opened]
                 .copy(resolution = IncidentResolution(decision, now(), wallClock()))
         }
     }
