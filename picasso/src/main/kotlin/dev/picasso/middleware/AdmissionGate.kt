@@ -9,7 +9,8 @@ import dev.picasso.middleware.Middleware.Execution
 import dev.picasso.middleware.Middleware.Submission
 
 /**
- * 배정 관문(설계안 §7) — 피어 시스템 접합부(배정·공간)의 판정이 모이는 자리.
+ * 배정 관문(설계안 §7) — 피어 시스템 접합부(배정·공간)의 접수 판정이 모이는 자리. 재할당의 판정은
+ * [Middleware.reassign] 의 조율에 남는다.
  *
  * **상태를 소유하지 않는다.** [executions] 는 [Middleware] 가 든 표를 같은 인스턴스로 받아 읽기만 한다 —
  * 사본을 받으면 관문은 생성 때 뜬 빈 표만 보고, 자리 경쟁·작업 구역·사슬 검사는 아무것도 막지 않는다.
@@ -156,7 +157,7 @@ internal class AdmissionGate(
 
         for (unit in planned) {
             val where = unit.destination ?: continue
-            // 같은 주문이 자기 자리에 걸릴 일은 없다 — 같은 `jobOrderId` 는 위에서 `revise` 로 갈린다.
+            // 같은 주문이 자기 자리에 걸릴 일은 없다 — 같은 `jobOrderId` 는 `Middleware.submit` 에서 `revise` 로 갈린다.
             val holder = claimed[where] ?: continue
             // **자리 경쟁은 대장에 안 남는다**(§15.183). 이 층이 계산한 답이 없기 때문이다 — 잡고 있는
             // 쪽이 놓기를 기다리는 것 말고 제시할 것이 없다. 한계 대장에 열어 두었다.

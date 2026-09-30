@@ -12,7 +12,11 @@
 |---|---|
 | `Model.kt` | **정준 도메인 모델**: 2축 상태기계(`PhysicalState` 및 `TaskState`), 4단계 근거 등급(`E0`~`E3`), `ExecutionUnit`, ISA-95 대응 `JobOrder`/`JobResponse`, `CancelReport` |
 | `LogicalCapability.kt` | 상위 논리적 능력 인터페이스 및 3대 구현체 (`PrepareSequencedRack`, `DeliverContainer`, `InspectAsset`), 능력 단위 타임아웃 구성 (유효 시간창 δ, `IN_DOUBT` 유예 기간, 진행 정체 유예) |
-| `Middleware.kt` | 코어 상태 엔진: 접수 → 분해 및 조합 → 실행 디스패치 → 근거 결합 판정 → 상류 통보. 단일 틱 구동 함수 `pump()` 기반의 결정론적 전이 |
+| `Middleware.kt` | 코어 상태 엔진: 접수 → 분해 및 조합 → 실행 디스패치 → 근거 결합 판정 → 상류 통보. 단일 틱 구동 함수 `pump()` 기반의 결정론적 전이. 공개 API 와 접합부를 잇는 조율은 여기 남고, 배정 관문의 판정과 제안·사건 두 장부는 아래 셋에 위임합니다 |
+| `AdmissionGate.kt` | 배정 관문(설계안 §7): `admits` 와 그 아래 술어 다섯. 피어 시스템 접합부(배정·공간)의 접수 판정 |
+| `RemedyDesk.kt` | 탐색 기록·제안·가림·진단·승인 장부와 승인 판정(설계안 §6.4, ADR 43·44·45). 승인 뒤의 접수는 `Middleware` 가 조율 |
+| `IncidentLog.kt` | 사건 번들의 봉인·조회, 사후 검토의 기록과 지표, 운영자 판단 부착(설계안 §4) |
+| `Canonical.kt` | 결과 통보·사건 번들·이벤트 자취가 나눠 쓰는 정준 투영 셋 |
 | `Ports.kt` | 하위 시스템 연동 추상화 포트: `RobotPort` (인터페이스 계약 소비자), `CellSignals` (현장 설비 센서 신호, E2), `AmrFleetPort` (이송 플릿 연동, E1) |
 
 ---
@@ -52,4 +56,4 @@
 
 본 모듈의 단위/통합 테스트는 외부 상류 시스템과 현장 설비를 모사한 테스트 대역(`CellMimic`, `AmrFleetMimic`)을 기반으로 동작합니다. 따라서 테스트 스위트의 성공은 설계 가정 하에서의 시스템 일관성을 증명하며, 물리 실물 환경과의 실제 연동 검증 등급은 [`docs/verification.md`](../docs/verification.md)의 10·11번 항목에 명시되어 있습니다.
 
-> 마지막 대조: 2026-09-15 · sha256:c5a5bfef03eb · 열림: §15.126
+> 마지막 대조: 2026-09-26 · sha256:57cda57442fb · 열림: §15.126

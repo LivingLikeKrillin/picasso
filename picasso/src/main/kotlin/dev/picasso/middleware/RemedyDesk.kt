@@ -161,7 +161,7 @@ internal class RemedyDesk(
      * 임시 대안이 매끄럽게 작동할수록 근본 원인을 고칠 압력이 사라진다. 그리퍼를 교체해야 하는데 우회
      * 경로가 매번 잘 돌아가면 아무도 교체하지 않는다. 그래서 시스템이 그것을 스스로 고발한다.
      */
-    fun repeatedRemedies(atLeast: Int = 2): List<RepeatedRemedy> = approvals
+    fun repeatedRemedies(atLeast: Int): List<RepeatedRemedy> = approvals
         .filterValues { it >= atLeast }
         .map { (key, count) ->
             val (robotId, steps) = key.split("|", limit = 2)
