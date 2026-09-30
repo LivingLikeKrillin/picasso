@@ -34,6 +34,12 @@ class SeamPlacementTest {
             "fun occupancyViolation(" to "AdmissionGate.kt",
             "fun unownedFloor(" to "AdmissionGate.kt",
             "fun workspaceViolation(" to "AdmissionGate.kt",
+            // 장부가 함수로 받아 쓰는 관문의 조회 — 같은 이름의 fun 이 끼면 그쪽이 이긴다
+            "fun liveHold(" to "AdmissionGate.kt",
+            // 제안과 승인 장부 — 운영자 접합부
+            "var proposalsMade" to "RemedyDesk.kt",
+            "val remedyLog" to "RemedyDesk.kt",
+            "fun scopeRefusal(" to "RemedyDesk.kt",
         )
         val sources = Files.walk(Path.of("src", "main")).use { paths ->
             paths.asSequence()

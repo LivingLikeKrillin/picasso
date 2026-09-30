@@ -632,9 +632,11 @@ EOF
 
 장부만 옮기고 조율은 남긴다. `approveRemedy`·`attemptApproval`·`commit` 은 `Middleware` 에 남아, 장부에 판정을 묻고(`desk.judge`) 접수를 내고(`submit`) 접수가 된 뒤에만 승인을 장부에 적는다(`desk.settle`). 장부가 접수를 부르게 하면 떼어 낸 클래스가 핵심을 되부르는 순환이 생긴다. 주의: 승인 뒤의 접수가 관문에 걸려도 `submit` 은 지금처럼 그 거절을 `desk.record` 에 넘긴다(계산된 답이 있으면 장부에 적힌다). «접수가 된 뒤에만» 인 것은 `settle` 하나다.
 
-- [ ] **1단계: 실패하는 시험.** `SeamPlacementTest` 의 `homes` 에 셋을 더한다.
+- [ ] **1단계: 실패하는 시험.** `SeamPlacementTest` 의 `homes` 에서 배정 관문 묶음 끝에 하나, 그 아래에 셋을 더한다. 관문의 `liveHold` 는 장부가 함수형 `val` 로 받아 쓰므로, 같은 이름의 `fun` 이 장부에 끼면 호출이 조용히 그쪽으로 간다 (함수가 `invoke` 를 가진 속성보다 먼저 풀린다).
 
 ```kotlin
+            // 장부가 함수로 받아 쓰는 관문의 조회 — 같은 이름의 fun 이 끼면 그쪽이 이긴다
+            "fun liveHold(" to "AdmissionGate.kt",
             // 제안과 승인 장부 — 운영자 접합부
             "var proposalsMade" to "RemedyDesk.kt",
             "val remedyLog" to "RemedyDesk.kt",
@@ -672,7 +674,7 @@ internal class RemedyDesk(
 ) {
 
     /**
-     * 승인된 조치 열이 **접수된 뒤에만** 부른다 — 서 있던 제안을 내리고 같은 조치의 승인 횟수를 센다.
+     * 승인된 주문이 **접수된 뒤에만** 부른다 — 서 있던 제안을 내리고 같은 조치의 승인 횟수를 센다.
      */
     fun settle(go: Judgment.Go) {
         // ← 7단계: Middleware.commit 의 여섯 줄을 여기로 잘라 붙이고 이 안내 줄을 지운다
@@ -700,7 +702,7 @@ internal class RemedyDesk(
   - `gate` 필드 바로 아래:
 
 ```kotlin
-    /** 제안과 승인의 장부(설계안 §6.4). 승인 뒤의 접수는 여기 남고, 승인의 기록([RemedyDesk.settle])은 접수가 된 뒤에만 한다. */
+    /** 제안과 승인의 장부(설계안 §6.4). 승인 뒤의 접수는 [commit] 에 남고, 승인의 기록([RemedyDesk.settle])은 접수가 된 뒤에만 한다. */
     private val desk = RemedyDesk(robots, entitlements, withholdEvery, now, wallClock, gate::liveHold)
 ```
 
@@ -788,9 +790,11 @@ removed … added … unmatched 12
 
     상태 일곱(`proposals`·`withheld`·`diagnoses`·`proposalsMade`·`approvals`·`remedyLog`·`remedySeq`)과, 접수의 거절 경로에서 제안을 적던 `record` 를 함께 옮겼다. 그 일곱을 제안 절 밖에서 쓰는 자리가 `record` 하나뿐이었다.
 
-    ★**승인 뒤의 접수는 `Middleware` 에 남겼다.** `approveRemedy`·`attemptApproval` 은 장부에 판정(`judge`)을 묻고, 서면 접수를 내고, 접수가 된 뒤에만 `settle` 로 장부에 적는다. 장부가 접수를 부르게 하면 떼어 낸 클래스가 핵심을 되부르는 순환이 생긴다. 콜백을 넘기는 대신 순서를 바깥에 둔 이유다. 관문이 거절하면 `settle` 을 안 부르므로 서 있던 제안을 지우지 않는 성질(ADR 44)도 그 순서에서 나온다.
+    ★**승인 뒤의 접수는 `Middleware` 에 남겼다.** `approveRemedy`·`attemptApproval` 은 장부에 판정(`judge`)을 묻고, 서면 접수를 내고, 접수가 된 뒤에만 `settle` 로 장부에 적는다. 장부가 접수를 부르게 하면 떼어 낸 클래스가 핵심을 되부르는 순환이 생긴다. 콜백을 넘기는 대신 순서를 바깥에 둔 이유다. 관문이 거절하면 `settle` 을 안 부르므로 서 있던 제안을 지우지 않는 성질(ADR 44)도 그 순서에서 나온다. `settle` 이 기대는 것은 **주문의** 접수다 — 개정 경로는 조치 열 없이도 받아 주므로(§15.175, v1 도달 불가) 머리 주석을 «조치 열이 접수된 뒤» 에서 «주문이 접수된 뒤» 로 고쳤다.
 
-    본문은 그대로다. 새 자리에서 못 찾은 줄은 계획서가 적어 둔 열둘이고, 인계본 네 벌은 같다.
+    ★**장부는 관문의 `liveHold` 를 함수형 `val` 로 받는다 — 같은 이름의 `fun` 이 장부에 끼면 호출이 조용히 그쪽으로 간다.** 함수가 `invoke` 를 가진 속성보다 먼저 풀리기 때문이다. 늘 널을 돌려주는 `fun liveHold` 를 장부에 끼워 넣는 주입에서 `EntitlementTest` 는 자동 승인 갈래의 열 건이 빨개졌지만 `RemedyApprovalTest` 는 여섯 건 전부 초록이었다 — 사람의 승인은 값을 들고 오므로 관측을 다시 보지 않는다. 어느 갈래를 시험하든 잡도록 `SeamPlacementTest` 에 `fun liveHold(` 의 자리(`AdmissionGate.kt`)를 더했고, 같은 주입에서 그것이 빨개지는 것을 봤다.
+
+    본문은 그대로다. 새 자리에서 못 찾은 줄은 계획서가 적어 둔 열둘이고, 인계본 네 벌은 실시계와 구동 식별자를 가리면 바이트까지 같다.
 ```
 
 - [ ] **2단계:** `docs/limits.md` 번호 199, `python tools/stamp.py docs/limits.md`.
@@ -804,15 +808,17 @@ git add picasso/src/test/kotlin/dev/picasso/middleware/SeamPlacementTest.kt \
   picasso/src/main/kotlin/dev/picasso/middleware/RemedyDesk.kt \
   picasso/src/main/kotlin/dev/picasso/middleware/AdmissionGate.kt \
   picasso/src/main/kotlin/dev/picasso/middleware/Middleware.kt \
-  docs/superpowers/specs/2026-09-05-picasso-design.md docs/limits.md
+  docs/superpowers/specs/2026-09-05-picasso-design.md docs/limits.md \
+  docs/superpowers/plans/2026-09-26-middleware-seam-split.md
 git commit -F - <<'EOF'
 refactor(middleware): 제안과 승인 장부의 RemedyDesk 분리
 
 - RemedyDesk 신설: 상태 일곱과 record, note, 조회, judge, scopeRefusal. 접수가 된 뒤의 기록은 settle 로 분리
 - Middleware: approveRemedy, attemptApproval, commit 의 조율은 유지. 판정은 장부에 위임, 공개 창구 여섯은 파사드
 - withholdEvery, entitlements 는 생성자 인자로만 유지
-- SeamPlacementTest: 장부의 상태와 scopeRefusal 대조 추가
+- SeamPlacementTest: 장부의 상태와 scopeRefusal, 관문의 liveHold 대조 추가
 - 설계 일지 15.199 수록
+- 계획서: 관문 조회 바늘 추가와 장부 머리 주석의 문구 정정, 일지 초안 동기화
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 EOF
@@ -830,8 +836,9 @@ gh pr create --title "refactor(middleware): 제안과 승인 장부의 RemedyDes
 - RemedyDesk: 상태 일곱, `record`, `note`, 조회, `judge`, `scopeRefusal`, 접수 뒤 기록용 `settle`
 - Middleware: `approveRemedy`·`attemptApproval`·`commit` 조율 유지, 공개 창구 여섯은 파사드
 - `withholdEvery`·`entitlements` 는 생성자 인자로만 유지
-- SeamPlacementTest: 장부의 상태와 `scopeRefusal` 대조 추가
+- SeamPlacementTest: 장부의 상태와 `scopeRefusal`, 관문의 `liveHold` 대조 추가
 - 설계 일지 15.199
+- 계획서: 관문 조회 바늘 추가와 장부 머리 주석의 문구 정정, 일지 초안 동기화
 
 ## 검증 결과
 - 로컬 표준 빌드 통과, XML 기준 실패 0
