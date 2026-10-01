@@ -1310,7 +1310,7 @@ class Middleware(
         }
         return when (val judgment = desk.judge(robotId, jobOrderId, approver, given = parameters, saw = null)) {
             is Judgment.No -> Submission.Rejected(judgment.reason)
-            is Judgment.Go -> commit(judgment, approver)
+            is Judgment.Go -> commit(judgment)
         }
     }
 
@@ -1334,8 +1334,9 @@ class Middleware(
             saw = attempt.sawSkillTypes,
         )
         return when (judgment) {
-            is Judgment.No -> ApprovalOutcome.Refused(judgment.refusal, judgment.reason)
-            is Judgment.Go -> when (val submission = commit(judgment, attempt.approver)) {
+            // 소모 기록은 판정이 든 그대로 옮긴다 — 부르는 쪽이 «내 요청» 을 가르는 재료다(ADR 46).
+            is Judgment.No -> ApprovalOutcome.Refused(judgment.refusal, judgment.reason, judgment.consumed)
+            is Judgment.Go -> when (val submission = commit(judgment)) {
                 // **실린 값을 돌려준다** — 부르는 쪽이 고르지 않았으므로, 자기 이름으로 무엇이 나갔는지
                 // 아는 길이 이것뿐이다.
                 is Submission.Accepted -> ApprovalOutcome.Approved(
@@ -1362,10 +1363,10 @@ class Middleware(
      * **관문이 거절하면 제안을 안 지운다.** 자리 경쟁으로 못 들어간 것은 자격의 문제가 아니고, 그 순간
      * 제안을 소모하면 사람이 나중에 누를 것까지 함께 사라진다 — 조건이 풀리면 같은 제안이 그대로 선다.
      */
-    private fun commit(go: Judgment.Go, approver: Approver): Submission {
-        val submission = submit(go.order, go.robotId, go.prefix, approvedBy = approver)
+    private fun commit(go: Judgment.Go): Submission {
+        val submission = submit(go.order, go.robotId, go.prefix, approvedBy = go.approver)
         if (submission !is Submission.Accepted) return submission
-        desk.settle(go)
+        desk.settle(go, submission.execution.executionId)
         return submission
     }
 

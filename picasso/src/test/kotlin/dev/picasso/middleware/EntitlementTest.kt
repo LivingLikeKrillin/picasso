@@ -391,6 +391,8 @@ class EntitlementTest {
             assertEquals(ApprovalRefusal.REFUSED_BY_GATE, answer.refusal)
             assertTrue("소유자가 없다" in answer.reason, answer.reason)
             assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "관문 거절이 제안을 소모했다")
+            // 재시도도 서 있는 제안으로 판정된다 — 관문 거절은 소모가 아니다(ADR 46).
+            assertEquals(ApprovalRefusal.REFUSED_BY_GATE, refusal(w.mw.attemptApproval(attempt())))
         }
     }
 
@@ -414,6 +416,92 @@ class EntitlementTest {
             assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol(), OTHER))
 
             assertEquals(ApprovalRefusal.REMEDY_NOT_APPLIED, refusal(w.mw.attemptApproval(attempt())))
+        }
+    }
+
+    // ── 소모된 제안(ADR 46) — «이미 소모됐다» 와 «선 적이 없다» 를 가른다
+
+    @Test
+    fun `승인한 제안에 다시 시도하면 누가 언제 무엇을 보냈는지 돌려받는다`() {
+        // ★★응답을 받기 전에 죽었다가 다시 보낸 바깥 루프의 자리다. «제안이 없다» 로 받으면 제 요청이
+        //   들어갔는지 모르고, 기록의 승인자를 자기 id 와 대 봐야 «근거를 기다린다» 로 간다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+
+            val again = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(ApprovalRefusal.CONSUMED, again.refusal)
+            val consumed = assertNotNull(again.consumed)
+            assertEquals(AGENT, consumed.approver)
+            assertEquals(approved.executionId, consumed.executionId)
+            assertEquals(approved.steps, consumed.steps, "소모 기록의 걸음이 승인 답과 다르다")
+            assertEquals(w.harness.clock.now(), consumed.at)
+        }
+    }
+
+    @Test
+    fun `사람이 승인한 제안에 다시 시도하면 사람의 승인을 돌려받는다`() {
+        // 두 문이 같은 `settle` 을 지난다. 사람의 문으로 소모한 것을 밖의 문이 «제안 없음» 으로 받으면
+        // 다른 승인자가 눌렀다는 사실이 사라진다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val accepted = assertIs<Middleware.Submission.Accepted>(
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR),
+            )
+
+            val again = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(ApprovalRefusal.CONSUMED, again.refusal)
+            val consumed = assertNotNull(again.consumed)
+            assertEquals(OPERATOR, consumed.approver)
+            assertEquals(accepted.execution.executionId, consumed.executionId)
+            assertEquals(PLACE, consumed.steps.single().parameters, "사람이 실은 값이 기록에 없다")
+        }
+    }
+
+    @Test
+    fun `소모된 제안을 사람의 문으로 다시 누르면 소모를 사유로 받는다`() {
+        // 사람의 문은 산문으로 답한다. 그 산문이 누가 어느 실행으로 소모했는지를 들어야 운영자가 되짚지 않는다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+
+            val again = assertIs<Middleware.Submission.Rejected>(
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR),
+            )
+            assertTrue(AGENT.id in again.reason, again.reason)
+            assertTrue(approved.executionId in again.reason, again.reason)
+        }
+    }
+
+    @Test
+    fun `다른 열쇠의 소모는 이 열쇠를 소모로 만들지 않는다`() {
+        // ★열쇠는 (기체, 주문) 둘이다. 한쪽만으로 묶으면 같은 기체의 다른 주문이나 다른 기체의 같은 주문이
+        //   남의 소모를 받는다. 다른 기체 쪽은 판정이 능력 조회 앞에서 끝나므로 하네스에 그 기체가 없어도 된다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+
+            val saw = listOf(PrepareSequencedRack.SKILL)
+            listOf(ApprovalAttempt(AGENT, ROBOT, "PATROL-2", saw), ApprovalAttempt(AGENT, OTHER, "PATROL-1", saw)).forEach { other ->
+                val answer = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(other))
+                assertEquals(ApprovalRefusal.NO_PROPOSAL, answer.refusal, "${other.robotId} / ${other.jobOrderId}")
+                assertNull(answer.consumed)
+            }
+        }
+    }
+
+    @Test
+    fun `멱등으로 접힌 승인은 소모가 아니고 제안이 남는다`() {
+        // ★조치 열이 안 나간 승인은 소모가 아니다. 소모로 적으면 재시도가 «이미 나갔다» 를 받고 근거를
+        //   기다리러 가는데, 기다릴 근거가 없다.
+        World(Declared(mapOf(AGENT.id to full())), pair = true).use { w ->
+            w.standingProposal()
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol(), OTHER))
+
+            repeat(2) { n ->
+                assertEquals(ApprovalRefusal.REMEDY_NOT_APPLIED, refusal(w.mw.attemptApproval(attempt())), "${n + 1}번째 시도")
+            }
+            assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "멱등 접힘이 제안을 소모했다")
         }
     }
 

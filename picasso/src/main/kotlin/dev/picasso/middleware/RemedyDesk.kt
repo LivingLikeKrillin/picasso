@@ -47,6 +47,12 @@ internal class RemedyDesk(
     /** 같은 조치가 승인된 횟수 — (기체, 걸음 열)마다. */
     private val approvals = mutableMapOf<String, Int>()
 
+    /**
+     * 소모된 제안의 기록 — (기체, 주문) 하나에 마지막 하나(ADR 46). [settle] 만 쓰고 [judge] 는 **서 있는 제안이
+     * 없을 때만** 읽는다. 먼저 읽으면 소모 뒤 같은 열쇠에 선 새 제안이 영영 승인되지 않는다.
+     */
+    private val consumed = mutableMapOf<String, ConsumedApproval>()
+
     /** 탐색이 답한 것들(설계안 §6.3). **조회만 한다** — 이 대장이 이 층의 거동을 바꾸지 않는다. */
     private val remedyLog = mutableListOf<RemedySearchRecord>()
     private var remedySeq = 0
@@ -177,9 +183,26 @@ internal class RemedyDesk(
             val order: JobOrder,
             val steps: List<RemedyStep>,
             val prefix: List<ExecutionUnit>,
+            /** 누른 쪽. 접수가 되면 실행과 소모 기록이 이것을 든다. */
+            val approver: Approver,
         ) : Judgment
 
-        data class No(val refusal: ApprovalRefusal, val reason: String) : Judgment
+        /**
+         * 거절. [consumed] 는 [ApprovalRefusal.CONSUMED] 일 때만 있고, 그때는 반드시 있다 —
+         * [ApprovalOutcome.Refused] 와 같은 짝 검사다. 사람의 문은 이것을 바로 산문으로 옮기므로 그 길에서는
+         * 여기가 유일한 방벽이다.
+         */
+        data class No(
+            val refusal: ApprovalRefusal,
+            val reason: String,
+            val consumed: ConsumedApproval? = null,
+        ) : Judgment {
+            init {
+                require((refusal == ApprovalRefusal.CONSUMED) == (consumed != null)) {
+                    "소모 기록은 CONSUMED 판정에만, 그리고 반드시 실린다: $refusal · ${consumed != null}"
+                }
+            }
+        }
     }
 
     /**
@@ -201,8 +224,16 @@ internal class RemedyDesk(
         if (key in withheld) {
             return Judgment.No(ApprovalRefusal.WITHHELD, "가려 둔 제안이다 — 사람이 먼저 진단해야 한다: $key")
         }
+        // **서 있는 제안이 없으면 왜 없는지를 가른다**(ADR 46). 소모된 것과 선 적이 없는 것은 다음 행동이 다르다.
         val standing = proposals[key]
-            ?: return Judgment.No(ApprovalRefusal.NO_PROPOSAL, "승인할 제안이 없다: $key")
+            ?: return consumed[key]?.let { c ->
+                Judgment.No(
+                    ApprovalRefusal.CONSUMED,
+                    "이미 소모된 제안이다: ${c.approver.id}(${c.approver.kind}) · ${c.executionId} · ${c.at}: $key",
+                    c,
+                )
+            }
+            ?: Judgment.No(ApprovalRefusal.NO_PROPOSAL, "승인할 제안이 없다 — 이 프로세스가 뜬 뒤로 선 적이 없다: $key")
         val steps = standing.remedy.steps
 
         // 읽은 뒤 제안이 바뀌었으면 부르는 쪽은 **자기가 못 본 것**을 승인하는 중이다.
@@ -262,7 +293,7 @@ internal class RemedyDesk(
                 destination = null,
             )
         }
-        return Judgment.Go(key, robotId, standing.order, steps, prefix)
+        return Judgment.Go(key, robotId, standing.order, steps, prefix, approver)
     }
 
     /**
@@ -299,10 +330,22 @@ internal class RemedyDesk(
     }
 
     /**
-     * 승인된 주문이 **접수된 뒤에만** 부른다 — 서 있던 제안을 내리고 같은 조치의 승인 횟수를 센다.
+     * 승인된 주문이 **접수된 뒤에만** 부른다 — 서 있던 제안을 내리고, 소모를 기록하고, 같은 조치의 승인 횟수를 센다.
+     *
+     * 관문 거절과 멱등 접힘은 여기 닿지 않는다. 그래서 그 제안은 지워지지 않고 기록도 안 남으며, 재시도는
+     * 서 있는 제안으로 판정된다(ADR 46).
+     *
+     * @param executionId 그 접수로 선 실행. 소모 기록이 든다.
      */
-    fun settle(go: Judgment.Go) {
+    fun settle(go: Judgment.Go, executionId: String) {
         proposals.remove(go.key)
+        consumed[go.key] = ConsumedApproval(
+            approver = go.approver,
+            at = now(),
+            wallClockAt = wallClock(),
+            executionId = executionId,
+            steps = go.prefix.map { ApprovedStep(it.skillType, it.parameters) },
+        )
         // **승인자 종류로 가르지 않는다**(ADR 43 §4). 이 수가 재는 것은 «같은 조치가 몇 번 반복됐나» 이고
         // 근본 원인은 누가 눌렀는지 모른다. 가르면 사람 다섯 번과 에이전트 다섯 번이 열이 아니라
         // 다섯과 다섯이 되어 한도에 안 걸린다 — 지표가 자기 집계 방식에 진다.
