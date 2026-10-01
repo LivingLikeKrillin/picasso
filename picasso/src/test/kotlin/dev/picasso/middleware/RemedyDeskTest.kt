@@ -15,12 +15,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * 제안과 승인의 장부가 **소모를 기록하고 판정에 쓰는 순서**(ADR 46).
  *
  * 공개 경로로는 소모 뒤 같은 (기체, 주문)에 새 제안이 서지 않는다 — 소모된 주문의 재접수는 개정으로 가고,
- * 개정의 거절은 제안을 세우지 않는다(ADR 46). 그래서 그 순서는 장부를 직접 불러 댄다.
+ * 개정의 거절은 제안을 세우지 않는다(ADR 46). 그래서 그 순서는 장부를 직접 불러 댄다. 개정 거절이 장부에 남기는
+ * 것도 여기서 댄다 — 공개 경로의 같은 길은 `EntitlementTest` 가 기체를 세워 든다.
  * 기체는 능력 조회만 답하고 아무것도 받지 않는다.
  */
 class RemedyDeskTest {
@@ -48,10 +51,18 @@ class RemedyDeskTest {
         judge(ROBOT, JOB, approver, given = listOf(mapOf("destination" to "DROP-01")), saw = null)
 
     /** 관문이 든 채라고 거절하고 조치 열을 낸 자리 — 제안 하나가 선다. */
-    private fun RemedyDesk.propose(version: Int = 1) = record(
+    private fun RemedyDesk.propose(version: Int = 1, jobOrderId: String = JOB) = record(
         ROBOT,
-        JobOrder(jobOrderId = JOB, workMasterId = InspectAsset.WORK_MASTER, version = version),
+        JobOrder(jobOrderId = jobOrderId, workMasterId = InspectAsset.WORK_MASTER, version = version),
         Middleware.Submission.Rejected("든 채다", remedy = Remedy.Found(listOf(STEP))),
+    )
+
+    /** 같은 거절이 개정에서 났다 — 그 주문은 이미 실행으로 서 있다. */
+    private fun RemedyDesk.revisionRefused(jobOrderId: String = JOB) = record(
+        ROBOT,
+        JobOrder(jobOrderId = jobOrderId, workMasterId = InspectAsset.WORK_MASTER, version = 2),
+        Middleware.Submission.Rejected("든 채다", remedy = Remedy.Found(listOf(STEP))),
+        revision = true,
     )
 
     @Test
@@ -92,6 +103,33 @@ class RemedyDeskTest {
         assertEquals(T0, consumed.at)
         assertEquals(WALL, consumed.wallClockAt)
         assertEquals(listOf(ApprovedStep(SKILL, mapOf("destination" to "DROP-01"))), consumed.steps)
+    }
+
+    @Test
+    fun `개정 거절은 탐색 줄만 남기고 제안을 세우지 않는다`() {
+        // ★개정은 조치 열을 싣지 못하므로(§15.175) 세운 제안은 승인할 수 없다. 그래서 대장에 `FOUND` 가 남아도
+        //   그 열쇠의 승인은 기록으로 판정된다 — 소모된 적이 없으면 `NO_PROPOSAL` 이다.
+        val d = desk()
+        assertNull(d.revisionRefused().remedy, "개정 거절이 승인할 수 없는 조치 열을 내밀었다")
+        assertEquals(listOf<RemedyOutcome>(RemedyOutcome.Found(listOf(STEP))), d.remedySearches().map { it.outcome })
+        assertNull(d.proposal(ROBOT, JOB), "개정 거절이 제안을 세웠다")
+        assertEquals(ApprovalRefusal.NO_PROPOSAL, assertIs<RemedyDesk.Judgment.No>(d.press(FIRST)).refusal)
+    }
+
+    @Test
+    fun `개정 거절은 가림 차례를 세지 않는다`() {
+        // ★가림은 승인할 수 있는 제안에 건다. 개정 거절이 한 칸을 세면 그 뒤 제안이 가려질 차례가 개정이 몇 번
+        //   났는지에 따라 밀린다. 둘에 한 번 가린다 — 개정을 사이에 둬도 둘째 제안이 가려진다.
+        val d = desk(withholdEvery = 2)
+        d.propose()
+        d.revisionRefused(jobOrderId = "PATROL-2")
+        d.propose(jobOrderId = "PATROL-3")
+
+        assertEquals(
+            listOf(RemedyOutcome.Found(listOf(STEP)), RemedyOutcome.Found(listOf(STEP)), RemedyOutcome.Withheld),
+            d.remedySearches().map { it.outcome },
+        )
+        assertTrue(d.withheldProposal(ROBOT, "PATROL-3"), "개정 거절이 가림 차례를 셌다")
     }
 
     @Test

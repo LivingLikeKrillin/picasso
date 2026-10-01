@@ -514,9 +514,14 @@ class EntitlementTest {
             w.standingProposal()
             val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
 
+            // 마지막 줄만 보면 앞서 제안을 세운 줄이 대신 답한다 — 이 개정이 더한 줄만 본다.
+            val searched = w.mw.remedySearches().size
             val revised = assertIs<Middleware.Submission.Rejected>(w.mw.submit(patrol().copy(version = 2), ROBOT))
             assertNull(revised.remedy, "개정 거절이 승인할 수 없는 조치 열을 내밀었다")
             assertNull(w.mw.proposal(ROBOT, "PATROL-1"), "개정 거절이 소모된 열쇠에 제안을 세웠다")
+            val noted = w.mw.remedySearches().drop(searched)
+            assertEquals(1, noted.size, "개정 거절이 탐색의 답을 버렸다: $noted")
+            assertIs<RemedyOutcome.Found>(noted.single().outcome)
 
             val again = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
             assertEquals(ApprovalRefusal.CONSUMED, again.refusal, again.reason)
@@ -526,7 +531,7 @@ class EntitlementTest {
 
     @Test
     fun `주문이 이미 실행으로 서 있으면 승인은 조치 열을 싣지 않고 소모로도 남지 않는다`() {
-        // ★★판이 다르면 접수는 개정으로 가는데 개정은 조치 열을 안 받는다(§15.175). 그대로 두면 승인이
+        // ★★승인의 판이 더 높으면 접수는 개정으로 가는데 개정은 조치 열을 안 받는다(§15.175). 그대로 두면 승인이
         //   성공을 내고 조치는 안 나가며, 다른 기체에 선 실행이 승인의 판으로 바뀌고, 그 거짓이 소모 기록에
         //   남는다. 앞 판이 «v1 에서 도달 불가» 라 적은 길이다 — 버전이 거꾸로 도착하면 닿는다.
         World(Declared(mapOf(AGENT.id to full())), pair = true).use { w ->
@@ -537,10 +542,13 @@ class EntitlementTest {
             repeat(2) { n ->
                 assertEquals(ApprovalRefusal.REMEDY_NOT_APPLIED, refusal(w.mw.attemptApproval(attempt())), "${n + 1}번째 시도")
             }
-            assertIs<Middleware.Submission.Idempotent>(
+            // 사람의 문도 거절이고 사유가 같다 — 멱등으로 돌려주면 받는 쪽이 «이미 받았다» 로 읽는다.
+            val human = assertIs<Middleware.Submission.Rejected>(
                 w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR),
-                "사람의 문이 조치 열 없는 접수를 승인으로 냈다",
+                "사람의 문이 조치 열 없는 접수를 거절로 내지 않았다",
             )
+            val outer = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(outer.reason, human.reason, "두 문이 접힘을 다른 말로 냈다")
             assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "나가지 않은 승인이 제안을 소모했다")
             assertEquals(OTHER, other.robotId, "다른 기체에 선 실행이 승인의 기체로 옮겨졌다")
             assertEquals(1, other.version, "다른 기체에 선 실행이 승인의 판으로 바뀌었다")
