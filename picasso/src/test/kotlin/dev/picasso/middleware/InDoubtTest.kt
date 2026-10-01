@@ -218,7 +218,7 @@ class InDoubtTest {
             assertTrue(exec.unit().note!!.contains("provisional done"), exec.unit().note)
             assertTrue(exec.unit().note!!.contains("no client-reference lookup"), exec.unit().note)
 
-            assertTrue(w.mw.resolve(exec.executionId, CONTAINER, OperatorDecision.CONFIRM_DONE))
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, CONTAINER, OperatorDecision.CONFIRM_DONE, OPERATOR))
             w.drive { exec.settled() }
             assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
             assertEquals(Evidence.E2, exec.unit().reached)
@@ -239,7 +239,7 @@ class InDoubtTest {
 
             // 사람이 미실행을 확인했다고 치고 재요청 — 새 참조다. 이것만이 명령 재시도다(13.3).
             w.cell.program(DEST, CONTAINER) // 이번에는 설비가 본다
-            assertTrue(w.mw.resolve(exec.executionId, CONTAINER, OperatorDecision.REWORK))
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, CONTAINER, OperatorDecision.REWORK, OPERATOR))
             w.drive { exec.settled() }
             assertEquals(2, w.fleet.dispatches)
             assertTrue(exec.unit().taskId.endsWith("@r1"), exec.unit().taskId)
@@ -247,6 +247,9 @@ class InDoubtTest {
     }
 
     private companion object {
+        /** 판단하는 사람 — 운영자 판단은 사람만 낸다(ADR 47). */
+        val OPERATOR = Approver("op-1", ApproverKind.PERSON)
+
         const val ROBOT = "hum-02"
         const val SLOT = "RACK-206.S01"
         const val BIN = "SEQ-IN-02.BIN-A"

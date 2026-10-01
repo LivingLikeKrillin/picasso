@@ -243,6 +243,9 @@ object LedgerExport {
     /**
      * 사람이 낸 판단. **시각을 둘 다 싣는다** — 가상 시계로 사건과 탐색 사이의 자리를 재고, 실 시계로
      * 현장과 댄다. 하나만 실으면 읽는 쪽이 둘 중 하나를 못 한다.
+     *
+     * **누가 판단했는지(`decidedBy`)는 안 싣는다**(ADR 47). 읽는 쪽이 아직 없고(ADR 9), 실으면 판이 오르고 인계본이
+     * 다시 산출된다 — 읽는 쪽이 생기는 날 사건의 `approvedBy` 와 같은 모양으로 싣는다.
      */
     private fun resolution(r: IncidentResolution): String = Obj()
         .str("decision", r.decision.name)

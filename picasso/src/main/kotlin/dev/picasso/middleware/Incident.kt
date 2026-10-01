@@ -334,6 +334,12 @@ data class IncidentResolution(
     val at: Instant,
     /** 실 시계. 현장 대조의 기준이다. */
     val wallClockAt: Instant,
+    /**
+     * 누가 판단했는가(ADR 47). 사람만 판단하므로 종류는 언제나 `PERSON` 이다.
+     *
+     * **내보내지 않는다** — 읽는 쪽이 아직 없다(ADR 9, 한계 대장 §15.202). 프로세스 안의 사건 조회로만 보인다.
+     */
+    val decidedBy: Approver,
 )
 
 data class IncidentReview(

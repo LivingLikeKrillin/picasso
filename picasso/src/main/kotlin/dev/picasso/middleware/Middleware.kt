@@ -1222,10 +1222,18 @@ class Middleware(
     /**
      * 운영자의 판단(12.3 둘째 행). [OperatorDecision.CONFIRM_DONE] 은 설비 근거로 완료(E2),
      * [OperatorDecision.REWORK] 는 그 단위를 **새 정체성**으로 다시 계획한다 — 자동으로 돌지 않았던 것을 사람이 돌린다.
+     *
+     * **사람만 판단한다**(ADR 47). 확인은 설비 근거 없이도 단위를 완료로 올리고 재작업은 실물을 다시 돌린다 — 둘 다
+     * 자동으로 하지 않기로 한 것을 사람이 하는 자리라, 에이전트가 누르면 그 결정이 자동화로 되돌아간다.
+     * **누가 판단했는지 없이는 판단이 안 된다** — 기본값을 두면 그 기본값이 무기명 판단 경로가 된다(ADR 43 과 같은 이유).
      */
-    fun resolve(executionId: String, unitId: String, decision: OperatorDecision): Boolean {
-        val execution = executions[executionId] ?: return false
-        val unit = execution.units.firstOrNull { it.unitId == unitId && it.state == UnitState.OPERATOR_HOLD } ?: return false
+    fun resolve(executionId: String, unitId: String, decision: OperatorDecision, approver: Approver): ResolveOutcome {
+        if (approver.kind == ApproverKind.AGENT) {
+            return ResolveOutcome.Refused("에이전트는 운영자 판단을 내지 못한다 — 확인과 재작업은 사람의 것이다: ${approver.id}")
+        }
+        val execution = executions[executionId] ?: return ResolveOutcome.NotHeld
+        val unit = execution.units.firstOrNull { it.unitId == unitId && it.state == UnitState.OPERATOR_HOLD }
+            ?: return ResolveOutcome.NotHeld
         when (decision) {
             OperatorDecision.CONFIRM_DONE -> {
                 // 설비 근거가 있었으면 E2 다. 없이 사람이 확인한 것은 근거 등급을 올리지 않는다 — 그 사실이 note 에 남는다.
@@ -1248,8 +1256,8 @@ class Middleware(
         // ★**사람의 걸음을 사건에 남긴다.** 안 남기면 사건과 그 뒤의 탐색 사이가 비어 보이고, 읽는
         //   쪽은 그 사이를 «자동으로 회복했다» 로 메운다(§15.188). 아직 판단이 안 실린 **가장 최근의**
         //   사건에 붙인다 — 같은 단위가 두 번 깨지면 걸음도 둘이고 각각 제 사건에 속한다.
-        incidentLog.noteResolution(executionId, unitId, decision)
-        return true
+        incidentLog.noteResolution(executionId, unitId, decision, approver)
+        return ResolveOutcome.Resolved
     }
 
     // ── 제안과 승인(설계안 §6.4)

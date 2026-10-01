@@ -113,7 +113,7 @@ class ExportFixtureTest {
 
             val firstTask = exec.units.first().taskId
             val slot = exec.units.first().unitId
-            check(mw.resolve(exec.executionId, slot, OperatorDecision.REWORK)) { "$robotId 재작업이 안 받아졌다" }
+            check(mw.resolve(exec.executionId, slot, OperatorDecision.REWORK, OPERATOR) == ResolveOutcome.Resolved) { "$robotId 재작업이 안 받아졌다" }
             drive(rounds = 250) {
                 val task = exec.units.first().taskId
                 task.isNotBlank() && task != firstTask &&
@@ -299,7 +299,7 @@ class ExportFixtureTest {
         //      새 태스크가 뜨기 전에 참이고, 그때 결함을 밀면 미믹이 `ACCEPTED` 라며 되돌린다.
         //      기다릴 것은 **새 태스크가 도는 것**이다(실측).
         val firstTask = exec.units.first().taskId
-        assertTrue(w.mw.resolve(exec.executionId, slot, OperatorDecision.REWORK), "재작업이 안 받아졌다")
+        assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, slot, OperatorDecision.REWORK, OPERATOR), "재작업이 안 받아졌다")
         w.drive(rounds = 250) {
             val task = exec.units.first().taskId
             task.isNotBlank() && task != firstTask &&
@@ -310,7 +310,7 @@ class ExportFixtureTest {
 
         // **자리를 놓아야 기체가 다음 주문을 받는다.** `OPERATOR_HOLD` 는 종착이 아니라 점유도 파지도
         // 그대로이고, 기체는 태스크를 하나씩만 든다(§15.98).
-        assertTrue(w.mw.resolve(exec.executionId, slot, OperatorDecision.CONFIRM_DONE), "확인이 안 받아졌다")
+        assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, slot, OperatorDecision.CONFIRM_DONE, OPERATOR), "확인이 안 받아졌다")
         w.drive(rounds = 250) { exec.physicalState.isSettled }
 
         // ③ 같은 기체·같은 분류, **다른 자리.** 기체 축은 셋이고 자리 축은 둘이라 두 축이 갈린다.
@@ -510,6 +510,9 @@ class ExportFixtureTest {
     }
 
     companion object {
+        /** 판단하는 사람 — 운영자 판단은 사람만 낸다(ADR 47). */
+        val OPERATOR = Approver("op-1", ApproverKind.PERSON)
+
         const val FOUND_ROBOT = "hum-02"
         const val NONE_ROBOT = "hum-03"
         const val OTHER_ROBOT = "hum-04"
