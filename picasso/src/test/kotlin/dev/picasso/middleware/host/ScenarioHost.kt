@@ -38,7 +38,7 @@ import java.time.Instant
  *
  * | 기체 | 무엇이 서 있나 | 시도하면 |
  * |---|---|---|
- * | `hum-02` | 제안 있음, 선언이 덮음 | **승인된다.** 값은 선언과 관측에서 온다 |
+ * | `hum-02` | 제안 있음, 선언이 덮음 | **승인된다.** 값은 선언과 관측에서 온다. 다시 부르면 `CONSUMED` — 소모 기록이 돌아온다(ADR 46) |
  * | `hum-04` | 제안이 **가려져 있음** | `WITHHELD` — 자격이 있어도 안 눌린다 |
  * | `hum-05` | 제안 있음, 선언 범위 밖 | `ROBOT_OUT_OF_SCOPE` |
  * | `hum-03` | 든 채로는 딛을 스킬이 없음 | `NO_PROPOSAL` — 탐색이 `NONE` 을 냈다 |
@@ -202,7 +202,7 @@ object ScenarioHost {
         println("[host]   ★되돌려 댈 것은 인계본이 아니라 이 한 벌이다 — 창구와 같은 제안을 든다.")
         println("[host]   구동 식별자는 이 바퀴에 하나이고, 두 대장이 늘 때만 다시 쓴다.")
         println("[host] 서 있는 자리 넷:")
-        println("[host]   $APPROVES / PATROL-APPROVES        → 승인된다")
+        println("[host]   $APPROVES / PATROL-APPROVES        → 승인된다 (다시 부르면 CONSUMED)")
         println("[host]   $WITHHELD / PATROL-WITHHELD        → WITHHELD")
         println("[host]   $OUT_OF_SCOPE / PATROL-OUT-OF-SCOPE → ROBOT_OUT_OF_SCOPE")
         println("[host]   $NO_REMEDY_ROBOT / PATROL-NO-REMEDY → NO_PROPOSAL")

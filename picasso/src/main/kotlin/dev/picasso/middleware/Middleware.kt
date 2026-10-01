@@ -403,7 +403,7 @@ class Middleware(
             current == null || current.state == UnitState.PENDING ||
                 (current.state == UnitState.FAILED && current.taskId.isEmpty())
         }
-        gate.chainRefusal(execution.robotId, toPlan)?.let { return desk.record(execution.robotId, order, it) }
+        gate.chainRefusal(execution.robotId, toPlan)?.let { return desk.record(execution.robotId, order, it, revision = true) }
 
         // **확정된 단위 이후에만 붙는다.** 종착한 단위는 그대로(래치 — 계약이 이미 그렇게 한다),
         // 아직 안 시작한 단위는 새 계획으로 교체, 도는 단위는 계약의 갱신 규칙(§4.4)을 탄다.
@@ -1310,7 +1310,12 @@ class Middleware(
         }
         return when (val judgment = desk.judge(robotId, jobOrderId, approver, given = parameters, saw = null)) {
             is Judgment.No -> Submission.Rejected(judgment.reason)
-            is Judgment.Go -> commit(judgment, approver)
+            is Judgment.Go -> when (val submission = commit(judgment)) {
+                // **접힌 접수는 승인이 아니다** — 밖의 문과 같은 사유로 거절한다(ADR 46). 멱등으로 돌려주면 받는 쪽이
+                // «이미 받았다» 로 읽고, 조치 열이 안 나간 것이 성공의 모양으로 보인다.
+                is Submission.Idempotent -> Submission.Rejected(notApplied(submission.execution))
+                else -> submission
+            }
         }
     }
 
@@ -1334,8 +1339,9 @@ class Middleware(
             saw = attempt.sawSkillTypes,
         )
         return when (judgment) {
-            is Judgment.No -> ApprovalOutcome.Refused(judgment.refusal, judgment.reason)
-            is Judgment.Go -> when (val submission = commit(judgment, attempt.approver)) {
+            // 소모 기록은 판정이 든 그대로 옮긴다 — 부르는 쪽이 «내 요청» 을 가르는 재료다(ADR 46).
+            is Judgment.No -> ApprovalOutcome.Refused(judgment.refusal, judgment.reason, judgment.consumed)
+            is Judgment.Go -> when (val submission = commit(judgment)) {
                 // **실린 값을 돌려준다** — 부르는 쪽이 고르지 않았으므로, 자기 이름으로 무엇이 나갔는지
                 // 아는 길이 이것뿐이다.
                 is Submission.Accepted -> ApprovalOutcome.Approved(
@@ -1343,11 +1349,11 @@ class Middleware(
                     judgment.prefix.map { ApprovedStep(it.skillType, it.parameters) },
                 )
                 is Submission.Rejected -> ApprovalOutcome.Refused(ApprovalRefusal.REFUSED_BY_GATE, submission.reason)
-                // **멱등은 승인이 아니다.** 같은 판이 이미 서 있으면 접수가 접히고 조치 열은 안 나간다
-                // (§15.175). 성공으로 내면 «승인했는데 아무 일도 안 일어났다» 가 초록으로 보인다.
+                // **접힌 접수는 승인이 아니다.** 그 주문이 이미 실행으로 서 있으면 조치 열은 안 나간다
+                // (§15.175, ADR 46). 성공으로 내면 «승인했는데 아무 일도 안 일어났다» 가 초록으로 보인다.
                 is Submission.Idempotent -> ApprovalOutcome.Refused(
                     ApprovalRefusal.REMEDY_NOT_APPLIED,
-                    "그 주문이 이미 같은 판으로 서 있다 — 조치 열이 안 나갔다: ${submission.execution.executionId}",
+                    notApplied(submission.execution),
                 )
                 // **[adopt] 만 내는 값이다.** 여기로 오면 접수 경로가 바뀐 것이고, 조용히 삼키면
                 // 승인이 안 된 채로 답만 돌아간다.
@@ -1362,12 +1368,23 @@ class Middleware(
      * **관문이 거절하면 제안을 안 지운다.** 자리 경쟁으로 못 들어간 것은 자격의 문제가 아니고, 그 순간
      * 제안을 소모하면 사람이 나중에 누를 것까지 함께 사라진다 — 조건이 풀리면 같은 제안이 그대로 선다.
      */
-    private fun commit(go: Judgment.Go, approver: Approver): Submission {
-        val submission = submit(go.order, go.robotId, go.prefix, approvedBy = approver)
+    private fun commit(go: Judgment.Go): Submission {
+        // **그 주문이 이미 실행으로 서 있으면 조치 열을 실을 길이 없다**(ADR 46). 판이 같으면 접수가 멱등으로 접히고,
+        // 낮으면 지난 판으로 거절되며, 더 높으면 개정으로 가는데 개정은 조치 열을 안 받는다(§15.175). 더 높은 판이
+        // 개정을 지나가면 승인이 성공을 내고 조치는 안 나가며 그 거짓이 소모 기록에 남는다 — 버전이 거꾸로 도착하면
+        // 닿는 길이다. 판과 무관하게 여기서 접는다.
+        executions.values.firstOrNull { it.order.jobOrderId == go.order.jobOrderId }
+            ?.let { return Submission.Idempotent(it) }
+        val submission = submit(go.order, go.robotId, go.prefix, approvedBy = go.approver)
         if (submission !is Submission.Accepted) return submission
-        desk.settle(go)
+        desk.settle(go, submission.execution.executionId)
         return submission
     }
+
+    /** 접힌 승인의 사유 — 두 문이 같은 말을 한다(ADR 46). */
+    private fun notApplied(execution: Execution): String =
+        "그 주문이 이미 실행으로 서 있다 — 조치 열이 안 나갔다: " +
+            "${execution.executionId} · ${execution.robotId} · 판 ${execution.version}"
 
     // ── 사건 번들(설계안 §4) — 장부는 IncidentLog 에 있고, 여기는 조회와 검토의 창구다.
 

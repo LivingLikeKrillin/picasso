@@ -10,6 +10,7 @@ import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.SkillDeclaration
 import dev.picasso.contracts.wire.ContractIdentity
+import java.time.Instant
 
 /**
  * 밖에서 들어오는 **승인 시도**(ADR 44, `docs/orchestration.md` §7).
@@ -48,8 +49,20 @@ enum class ApprovalRefusal {
     /** 가려 둔 제안이다. 사람이 먼저 진단해야 한다 — 자격으로 뚫리지 않는다. */
     WITHHELD,
 
-    /** 그 (기체, 주문) 에 승인할 제안이 없다. */
+    /**
+     * 이 프로세스가 뜬 뒤로 그 (기체, 주문) 에 제안이 선 적이 없다. 그 사이 새 제안이 서지 않는 한 다시 시도해도
+     * 같으므로, 탐색 대장에서 그 열쇠의 답을 읽는 것이 다음 행동이다.
+     */
     NO_PROPOSAL,
+
+    /**
+     * 그 (기체, 주문) 의 제안은 **이미 소모됐다**(ADR 46). 답이 소모 기록([ConsumedApproval])을 싣는다.
+     *
+     * 기록의 승인자가 부르는 쪽 자기 id 면 앞선 요청이 들어간 것이고, 다음 행동은 그 실행의 근거를
+     * 기다리는 것이다. 아니면 누가 무엇을 보냈는지 보는 것이 다음 행동이다. 이 층은 어느 요청이
+     * 부르는 쪽의 것인지 모르므로(승인자 id 는 주장이고 재시도마다 같다) 그 비교는 부르는 쪽이 한다.
+     */
+    CONSUMED,
 
     /** 부르는 쪽이 본 조치 열과 지금 제안이 다르다. 다시 읽고 다시 시도하는 것이 다음 행동이다. */
     PROPOSAL_CHANGED,
@@ -96,8 +109,9 @@ enum class ApprovalRefusal {
     REFUSED_BY_GATE,
 
     /**
-     * 자격은 섰으나 **조치가 안 나갔다** — 그 주문이 이미 같은 판으로 서 있어 접수가 멱등으로 접혔다
-     * (§15.175). 승인으로 세지 않는다. 접으면 «승인했는데 아무 일도 안 일어났다» 가 성공으로 보인다.
+     * 자격은 섰으나 **조치가 안 나갔다** — 그 주문이 이미 실행으로 서 있어 조치 열을 실을 길이 없다. 판이 같으면
+     * 접수가 멱등으로 접히고, 다르면 개정이 조치 열을 안 받는다(§15.175, ADR 46). 승인으로 세지 않고 소모로도
+     * 남기지 않는다. 접으면 «승인했는데 아무 일도 안 일어났다» 가 성공으로 보인다.
      */
     REMEDY_NOT_APPLIED,
 }
@@ -111,11 +125,46 @@ sealed interface ApprovalOutcome {
      */
     data class Approved(val executionId: String, val steps: List<ApprovedStep>) : ApprovalOutcome
 
-    data class Refused(val refusal: ApprovalRefusal, val reason: String) : ApprovalOutcome
+    /**
+     * 거절됐다. [consumed] 는 [ApprovalRefusal.CONSUMED] 일 때만 있고, 그때는 반드시 있다.
+     *
+     * **짝을 만들 때 검사한다.** 기록 없는 `CONSUMED` 를 허락하면 인코더가 «소모됐지만 누가인지 모른다» 를
+     * 정상 답처럼 낸다(ADR 46).
+     */
+    data class Refused(
+        val refusal: ApprovalRefusal,
+        val reason: String,
+        val consumed: ConsumedApproval? = null,
+    ) : ApprovalOutcome {
+        init {
+            require((refusal == ApprovalRefusal.CONSUMED) == (consumed != null)) {
+                "소모 기록은 CONSUMED 거절에만, 그리고 반드시 실린다: $refusal · ${consumed != null}"
+            }
+        }
+    }
 }
 
 /** 승인으로 실제로 나간 걸음 하나. */
 data class ApprovedStep(val skillType: String, val parameters: Map<String, String>)
+
+/**
+ * 제안 하나가 **소모된 기록**(ADR 46) — 승인이 접수로 이어져 그 제안이 지워질 때 (기체, 주문)마다 하나 남는다.
+ *
+ * 같은 열쇠가 다시 소모되면 덮어쓴다. 부르는 쪽이 묻는 것은 «지금 왜 없는가» 이고, 한 열쇠에 서 있는
+ * 제안은 많아야 하나다. 프로세스 수명과 같이 살고 줄지 않는다(§15.166).
+ *
+ * @param steps 그 승인의 답이 돌려준 `steps` 와 같은 것 — 걸음마다 조치 유형과 실린 값.
+ */
+data class ConsumedApproval(
+    val approver: Approver,
+    /** 소모한 순간의 가상 시각. */
+    val at: Instant,
+    /** 소모한 순간의 실 시각 — 현장 대조용이다. */
+    val wallClockAt: Instant,
+    /** 그 승인으로 선 실행. */
+    val executionId: String,
+    val steps: List<ApprovedStep>,
+)
 
 /**
  * 에이전트 승인이 실을 값을 **채운다 — 지어내지 않는다**(ADR 44).
@@ -205,8 +254,11 @@ object ApprovalWire {
      *
      * `2` 에서 `refusal` 에 [ApprovalRefusal.REVOKED] 가 늘었다(ADR 45). **칸이 느는 것과 다르다** —
      * 모르는 칸은 무시하면 그만이지만 `refusal` 로 분기하는 읽는 쪽은 모르는 값을 만난다.
+     *
+     * `3` 에서 `refusal` 에 [ApprovalRefusal.CONSUMED] 가 늘고, 거절 답에 `consumed` 칸이 생겼다(ADR 46).
+     * `CONSUMED` 면 소모 기록이고, 다른 거절은 키를 빼지 않고 `null` 이다. 승인 답은 이 칸을 안 싣는다.
      */
-    const val SCHEMA_VERSION: String = "2"
+    const val SCHEMA_VERSION: String = "3"
 
     /**
      * 요청 한 줄을 읽는다. **못 읽으면 던진다** — 못 읽는 요청은 거절이 아니라 잘못된 요청이고, 둘을
@@ -244,8 +296,20 @@ object ApprovalWire {
                 .str("outcome", "REFUSED")
                 .str("refusal", outcome.refusal.name)
                 .str("reason", outcome.reason)
+                // **키를 빼지 않는다.** 빼면 «소모가 아니다» 와 «이 판이 그 칸을 모른다» 가 같은 모양이 된다.
+                .raw("consumed", outcome.consumed?.let { consumed(it) } ?: "null")
         }.done()
     }
+
+    /** 칸 이름은 이미 있는 것이다 — 승인자는 요청에서, 실행과 걸음은 승인 답에서, 시각 둘은 §6 의 적재에서. */
+    private fun consumed(c: ConsumedApproval): String = Obj()
+        .str("approverId", c.approver.id)
+        .str("approverKind", c.approver.kind.name)
+        .str("at", c.at.toString())
+        .str("wallClockAt", c.wallClockAt.toString())
+        .str("executionId", c.executionId)
+        .raw("steps", c.steps.joinToString(",", "[", "]") { step(it) })
+        .done()
 
     private fun step(s: ApprovedStep): String = Obj()
         .str("skillType", s.skillType)

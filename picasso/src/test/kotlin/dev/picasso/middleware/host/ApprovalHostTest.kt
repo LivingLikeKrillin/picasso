@@ -138,6 +138,29 @@ class ApprovalHostTest {
     }
 
     @Test
+    fun `같은 제안에 두 번 승인하면 둘째는 소모로 거절된다`() {
+        // ★부르는 쪽이 응답을 받기 전에 죽었다가 다시 보내는 자리다. 둘째가 «제안 없음» 이면 제 요청이
+        //   들어갔는지 모른다 — 소켓 너머로 소모 기록이 실제로 돌아와야 그것을 가른다(ADR 46).
+        World().use { w ->
+            w.arm(ROBOT, "PATROL-1")
+            ApprovalHost(w.middleware, w.lock).use { host ->
+                val first = fields(post(host.port, attempt(ROBOT, "PATROL-1")).body())
+                assertEquals("APPROVED", first.getValue("outcome").stringValue)
+
+                val again = post(host.port, attempt(ROBOT, "PATROL-1"))
+                assertEquals(200, again.statusCode(), "소모가 오류로 나갔다")
+                val body = fields(again.body())
+                assertEquals("3", body.getValue("schemaVersion").stringValue)
+                assertEquals("REFUSED", body.getValue("outcome").stringValue)
+                assertEquals("CONSUMED", body.getValue("refusal").stringValue, again.body())
+                val consumed = body.getValue("consumed").structValue.fieldsMap
+                assertEquals(first.getValue("executionId").stringValue, consumed.getValue("executionId").stringValue)
+                assertEquals("narrator-1", consumed.getValue("approverId").stringValue)
+            }
+        }
+    }
+
+    @Test
     fun `못 읽는 요청만 오류이고 거절은 정상 응답이다`() {
         // ★둘을 같은 모양으로 내면 읽는 쪽이 자기 오타와 «자격 없음» 을 구별하지 못한다.
         World().use { w ->

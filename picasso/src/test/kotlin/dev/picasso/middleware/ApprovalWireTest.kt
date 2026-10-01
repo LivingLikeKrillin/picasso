@@ -3,9 +3,11 @@ package dev.picasso.middleware
 import com.google.protobuf.Struct
 import com.google.protobuf.util.JsonFormat
 import dev.picasso.contracts.wire.ContractIdentity
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -109,7 +111,7 @@ class ApprovalWireTest {
         // ★★**이것이 ADR 45 가 만든 갈래다.** 둘 다 「지금 자격이 없다」인데 다음 행동이 반대다 —
         //   철회는 사후 검토로, 미선언은 선언을 올리러. 같은 값으로 나가면 읽는 쪽이 못 가른다.
         fun refusalOf(refusal: ApprovalRefusal) =
-            parse(ApprovalWire.encode(ApprovalOutcome.Refused(refusal, "사유"))).getValue("refusal").stringValue
+            parse(ApprovalWire.encode(refused(refusal))).getValue("refusal").stringValue
 
         assertEquals("REVOKED", refusalOf(ApprovalRefusal.REVOKED))
         assertEquals("NOT_DECLARED", refusalOf(ApprovalRefusal.NOT_DECLARED))
@@ -133,8 +135,70 @@ class ApprovalWireTest {
     fun `모든 거절 종류가 답에 실릴 수 있다`() {
         // 종류가 늘었는데 답이 그것을 못 실으면 읽는 쪽이 모르는 값을 만나는 대신 **아무 값도** 못 받는다.
         ApprovalRefusal.entries.forEach { refusal ->
-            val fields = parse(ApprovalWire.encode(ApprovalOutcome.Refused(refusal, "사유")))
+            val fields = parse(ApprovalWire.encode(refused(refusal)))
             assertEquals(refusal.name, fields.getValue("refusal").stringValue)
         }
     }
+
+    // ── 소모(ADR 46)
+
+    @Test
+    fun `소모 거절만 소모 기록을 든다`() {
+        // ★`CONSUMED` 인데 기록이 없으면 인코더가 «소모됐지만 누가인지 모른다» 를 정상 답처럼 낸다.
+        assertFailsWith<IllegalArgumentException> { ApprovalOutcome.Refused(ApprovalRefusal.CONSUMED, "사유") }
+        assertFailsWith<IllegalArgumentException> {
+            ApprovalOutcome.Refused(ApprovalRefusal.NO_PROPOSAL, "사유", CONSUMED_SAMPLE)
+        }
+        ApprovalOutcome.Refused(ApprovalRefusal.CONSUMED, "사유", CONSUMED_SAMPLE)
+    }
+
+    @Test
+    fun `소모 거절이 누가 언제 무엇을 보냈는지 싣는다`() {
+        val fields = parse(ApprovalWire.encode(refused(ApprovalRefusal.CONSUMED)))
+        // ★판은 글자로 댄다 — 상수끼리 대면 판을 안 올려도 초록이다.
+        assertEquals("3", fields.getValue("schemaVersion").stringValue)
+        assertEquals("CONSUMED", fields.getValue("refusal").stringValue)
+
+        val consumed = fields.getValue("consumed").structValue.fieldsMap
+        assertEquals("narrator-1", consumed.getValue("approverId").stringValue)
+        assertEquals("AGENT", consumed.getValue("approverKind").stringValue)
+        assertEquals("2026-09-06T00:00:01Z", consumed.getValue("at").stringValue)
+        assertEquals("2026-10-01T07:12:44.120Z", consumed.getValue("wallClockAt").stringValue)
+        assertEquals("exec-2", consumed.getValue("executionId").stringValue)
+        val step = consumed.getValue("steps").listValue.getValues(0).structValue.fieldsMap
+        assertEquals("pick_place", step.getValue("skillType").stringValue)
+        val parameters = step.getValue("parameters").structValue.fieldsMap
+        assertEquals("ENGINE-COVER-A", parameters.getValue("object_id").stringValue)
+        assertEquals("DROP-01", parameters.getValue("destination").stringValue)
+    }
+
+    @Test
+    fun `소모가 아닌 거절은 consumed 를 null 로 싣는다`() {
+        // ★키를 빼면 «소모가 아니다» 와 «이 판이 그 칸을 모른다» 가 같은 모양이 된다.
+        ApprovalRefusal.entries.filterNot { it == ApprovalRefusal.CONSUMED }.forEach { refusal ->
+            val fields = parse(ApprovalWire.encode(ApprovalOutcome.Refused(refusal, "사유")))
+            assertTrue("consumed" in fields, "$refusal 의 답에 consumed 키가 없다")
+            assertTrue(fields.getValue("consumed").hasNullValue(), "$refusal 의 consumed 가 null 이 아니다")
+        }
+        // 승인 답은 이 칸을 안 싣는다 — 소모는 거절의 사정이다.
+        val approved = parse(ApprovalWire.encode(ApprovalOutcome.Approved("exec-3", emptyList())))
+        assertFalse("consumed" in approved, "승인 답에 consumed 가 실렸다")
+    }
 }
+
+/** 소모 기록 표본 — 칸마다 다른 값이라 어느 칸이 어디로 갔는지 가린다. */
+private val CONSUMED_SAMPLE = ConsumedApproval(
+    approver = Approver("narrator-1", ApproverKind.AGENT),
+    at = Instant.parse("2026-09-06T00:00:01Z"),
+    wallClockAt = Instant.parse("2026-10-01T07:12:44.120Z"),
+    executionId = "exec-2",
+    steps = listOf(ApprovedStep("pick_place", mapOf("destination" to "DROP-01", "object_id" to "ENGINE-COVER-A"))),
+)
+
+/** 모든 거절 종류로 답을 짓는다. `CONSUMED` 는 기록 없이 안 서므로 표본을 단다. */
+private fun refused(refusal: ApprovalRefusal) =
+    if (refusal == ApprovalRefusal.CONSUMED) {
+        ApprovalOutcome.Refused(refusal, "사유", CONSUMED_SAMPLE)
+    } else {
+        ApprovalOutcome.Refused(refusal, "사유")
+    }
