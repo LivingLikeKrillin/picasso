@@ -68,6 +68,8 @@ internal class RemedyDesk(
         order: JobOrder,
         rejection: Submission.Rejected,
         sourceMissing: RemedyOutcome.SourceMissing? = null,
+        /** 개정(`revise`)의 거절인가. 그러면 조치 열을 찾아도 제안을 세우지 않는다(ADR 46). */
+        revision: Boolean = false,
     ): Submission.Rejected {
         val jobOrderId = order.jobOrderId
         val remedy = rejection.remedy
@@ -87,6 +89,16 @@ internal class RemedyDesk(
             return rejection
         }
         if (remedy !is Remedy.Found || remedy.steps.isEmpty()) return rejection
+
+        // **개정의 거절은 제안을 세우지 않는다**(ADR 46). 개정은 조치 열을 싣지 못하므로(§15.175) 세워도 승인할 수
+        // 없고, 세우면 그 열쇠에 남은 소모 기록을 가린다. 탐색의 답은 그대로 적는다 — 찾은 것도 답이다.
+        if (revision) {
+            note(robotId, jobOrderId, RemedyOutcome.Found(remedy.steps))
+            return rejection.copy(
+                reason = "${rejection.reason} — 개정은 조치 열을 싣지 못해 제안을 세우지 않았다",
+                remedy = null,
+            )
+        }
 
         val key = proposalKey(robotId, jobOrderId)
         proposals[key] = Proposal(order, remedy)

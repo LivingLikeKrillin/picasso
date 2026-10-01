@@ -505,6 +505,48 @@ class EntitlementTest {
         }
     }
 
+    @Test
+    fun `개정 거절은 소모를 가리지 않는다`() {
+        // ★★소모된 주문의 개정판은 개정으로 가고, 기체가 아직 든 채면 사슬 거절이 난다. 그 거절이 제안을
+        //   세우면 재시도는 그 제안으로 판정되어 «이미 소모됐다» 를 영영 못 본다 — 그리고 개정은 조치 열을
+        //   싣지 못하므로 그 제안은 승인할 수도 없다(§15.175). 탐색 줄만 남기고 제안은 안 세운다(ADR 46).
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+
+            val revised = assertIs<Middleware.Submission.Rejected>(w.mw.submit(patrol().copy(version = 2), ROBOT))
+            assertNull(revised.remedy, "개정 거절이 승인할 수 없는 조치 열을 내밀었다")
+            assertNull(w.mw.proposal(ROBOT, "PATROL-1"), "개정 거절이 소모된 열쇠에 제안을 세웠다")
+
+            val again = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(ApprovalRefusal.CONSUMED, again.refusal, again.reason)
+            assertEquals(approved.executionId, assertNotNull(again.consumed).executionId)
+        }
+    }
+
+    @Test
+    fun `주문이 이미 실행으로 서 있으면 승인은 조치 열을 싣지 않고 소모로도 남지 않는다`() {
+        // ★★판이 다르면 접수는 개정으로 가는데 개정은 조치 열을 안 받는다(§15.175). 그대로 두면 승인이
+        //   성공을 내고 조치는 안 나가며, 다른 기체에 선 실행이 승인의 판으로 바뀌고, 그 거짓이 소모 기록에
+        //   남는다. 앞 판이 «v1 에서 도달 불가» 라 적은 길이다 — 버전이 거꾸로 도착하면 닿는다.
+        World(Declared(mapOf(AGENT.id to full())), pair = true).use { w ->
+            w.holdingRack()
+            assertIs<Middleware.Submission.Rejected>(w.mw.submit(patrol().copy(version = 2), ROBOT)) // 제안이 선다
+            val other = assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol(), OTHER)).execution // 앞 판이 다른 기체에
+
+            repeat(2) { n ->
+                assertEquals(ApprovalRefusal.REMEDY_NOT_APPLIED, refusal(w.mw.attemptApproval(attempt())), "${n + 1}번째 시도")
+            }
+            assertIs<Middleware.Submission.Idempotent>(
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR),
+                "사람의 문이 조치 열 없는 접수를 승인으로 냈다",
+            )
+            assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "나가지 않은 승인이 제안을 소모했다")
+            assertEquals(OTHER, other.robotId, "다른 기체에 선 실행이 승인의 기체로 옮겨졌다")
+            assertEquals(1, other.version, "다른 기체에 선 실행이 승인의 판으로 바뀌었다")
+        }
+    }
+
     // ── 승인자가 기록으로 남는다
 
     @Test

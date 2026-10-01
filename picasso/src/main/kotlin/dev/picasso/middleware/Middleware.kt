@@ -403,7 +403,7 @@ class Middleware(
             current == null || current.state == UnitState.PENDING ||
                 (current.state == UnitState.FAILED && current.taskId.isEmpty())
         }
-        gate.chainRefusal(execution.robotId, toPlan)?.let { return desk.record(execution.robotId, order, it) }
+        gate.chainRefusal(execution.robotId, toPlan)?.let { return desk.record(execution.robotId, order, it, revision = true) }
 
         // **확정된 단위 이후에만 붙는다.** 종착한 단위는 그대로(래치 — 계약이 이미 그렇게 한다),
         // 아직 안 시작한 단위는 새 계획으로 교체, 도는 단위는 계약의 갱신 규칙(§4.4)을 탄다.
@@ -1344,11 +1344,12 @@ class Middleware(
                     judgment.prefix.map { ApprovedStep(it.skillType, it.parameters) },
                 )
                 is Submission.Rejected -> ApprovalOutcome.Refused(ApprovalRefusal.REFUSED_BY_GATE, submission.reason)
-                // **멱등은 승인이 아니다.** 같은 판이 이미 서 있으면 접수가 접히고 조치 열은 안 나간다
-                // (§15.175). 성공으로 내면 «승인했는데 아무 일도 안 일어났다» 가 초록으로 보인다.
+                // **접힌 접수는 승인이 아니다.** 그 주문이 이미 실행으로 서 있으면 조치 열은 안 나간다
+                // (§15.175, ADR 46). 성공으로 내면 «승인했는데 아무 일도 안 일어났다» 가 초록으로 보인다.
                 is Submission.Idempotent -> ApprovalOutcome.Refused(
                     ApprovalRefusal.REMEDY_NOT_APPLIED,
-                    "그 주문이 이미 같은 판으로 서 있다 — 조치 열이 안 나갔다: ${submission.execution.executionId}",
+                    "그 주문이 이미 실행으로 서 있다 — 조치 열이 안 나갔다: " +
+                        "${submission.execution.executionId} · ${submission.execution.robotId} · 판 ${submission.execution.version}",
                 )
                 // **[adopt] 만 내는 값이다.** 여기로 오면 접수 경로가 바뀐 것이고, 조용히 삼키면
                 // 승인이 안 된 채로 답만 돌아간다.
@@ -1364,6 +1365,11 @@ class Middleware(
      * 제안을 소모하면 사람이 나중에 누를 것까지 함께 사라진다 — 조건이 풀리면 같은 제안이 그대로 선다.
      */
     private fun commit(go: Judgment.Go): Submission {
+        // **그 주문이 이미 실행으로 서 있으면 조치 열을 실을 길이 없다**(ADR 46). 판이 같으면 접수가 멱등으로 접히고,
+        // 다르면 개정으로 가는데 개정은 조치 열을 안 받는다(§15.175). 그대로 부르면 승인이 성공을 내고 조치는 안
+        // 나가며 그 거짓이 소모 기록에 남는다 — 버전이 거꾸로 도착하면 닿는 길이다. 판과 무관하게 여기서 접는다.
+        executions.values.firstOrNull { it.order.jobOrderId == go.order.jobOrderId }
+            ?.let { return Submission.Idempotent(it) }
         val submission = submit(go.order, go.robotId, go.prefix, approvedBy = go.approver)
         if (submission !is Submission.Accepted) return submission
         desk.settle(go, submission.execution.executionId)
