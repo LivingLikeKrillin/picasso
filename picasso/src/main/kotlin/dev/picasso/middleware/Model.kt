@@ -91,6 +91,23 @@ enum class ExecutionLookup { CLIENT_REFERENCE, NONE }
 enum class OperatorDecision { CONFIRM_DONE, REWORK }
 
 /**
+ * 운영자 판단([Middleware.resolve])의 답 — **왜 안 됐는지를 접지 않는다**(ADR 47).
+ *
+ * 참·거짓 하나로 내면 «보류 중인 단위가 없다» 와 «에이전트라서 막았다» 가 같은 값이 되고, 부르는 쪽은
+ * 다시 눌러야 하는지 사람을 불러야 하는지 모른다.
+ */
+sealed interface ResolveOutcome {
+    /** 판단이 섰다 — 단위가 움직였고 사건에 누가 판단했는지가 남았다. */
+    data object Resolved : ResolveOutcome
+
+    /** 그 실행이 없거나, 그 단위가 운영자 보류에 서 있지 않다. 아무것도 안 바뀌었다. */
+    data object NotHeld : ResolveOutcome
+
+    /** 판단할 자격이 없다 — 지금은 에이전트뿐이다. 아무것도 안 바뀌었다. */
+    data class Refused(val reason: String) : ResolveOutcome
+}
+
+/**
  * 지연 이벤트(보고서 15.1) — 단위의 지금 버전보다 **낮은 버전**을 단 하류 종착. 폐기하지 않고 여기 보존한다(감사·사후 분석).
  * v17 을 돌리다 v18 로 바꿨는데 뒤늦게 온 v17 의 완료로 v18 을 닫지 않는다 — 그 완료가 무엇을 뜻하는지는 설비가 v18 의
  * 기대에 대고 다시 본다.

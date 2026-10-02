@@ -174,7 +174,7 @@ class EvidenceWindowTest {
             assertTrue(hold.operatorRequired)
             assertEquals(1, w.tasks().size, "운영자가 판단하기 전에 자동으로 다시 돌렸다")
 
-            assertTrue(w.mw.resolve(exec.executionId, SLOT, OperatorDecision.CONFIRM_DONE))
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, SLOT, OperatorDecision.CONFIRM_DONE, OPERATOR))
             w.drive { exec.settled() }
             assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
             assertEquals(Evidence.E2, exec.unit().reached)
@@ -192,13 +192,77 @@ class EvidenceWindowTest {
             w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
             val firstTask = exec.unit().taskId
 
-            assertTrue(w.mw.resolve(exec.executionId, SLOT, OperatorDecision.REWORK))
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, SLOT, OperatorDecision.REWORK, OPERATOR))
             w.drive { exec.settled() }
 
             assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
             assertEquals(2, w.tasks().size, "재작업은 새 태스크다")
             assertTrue(exec.unit().taskId != firstTask && exec.unit().taskId.endsWith("@r1"), exec.unit().taskId)
             assertEquals(1, exec.unit().attempt)
+        }
+    }
+
+    // ── 운영자 판단은 사람만 낸다(ADR 47)
+
+    /** 로봇은 실패라는데 설비에는 있는 단위 하나 — 운영자 보류에 서고 사건이 열린다. */
+    private fun World.held(): Middleware.Execution {
+        val exec = assertIs<Middleware.Submission.Accepted>(mw.submit(order(), ROBOT)).execution
+        drive { tasks().any { it.taskState == "RUNNING" } }
+        cell.program(SLOT, PART)
+        forceFault("SKILL_EXECUTION_FAILED", exec.unit().taskId)
+        drive { exec.physicalState == PhysicalState.OPERATOR_HOLD && mw.incidents().isNotEmpty() }
+        return exec
+    }
+
+    @Test
+    fun `에이전트는 운영자 판단을 내지 못한다`() {
+        // ★★확인은 설비 근거 없이도 단위를 완료로 올리고 재작업은 실물을 다시 돌린다. 자동으로 하지 않기로 한 것을
+        //   사람이 하는 자리라, 에이전트가 누르면 그 결정이 자동화로 되돌아간다. 거절은 아무것도 안 바꾼다.
+        World().use { w ->
+            val exec = w.held()
+            OperatorDecision.entries.forEach { decision ->
+                val refused = assertIs<ResolveOutcome.Refused>(w.mw.resolve(exec.executionId, SLOT, decision, AGENT), "$decision")
+                assertTrue(AGENT.id in refused.reason, refused.reason)
+            }
+            assertEquals(UnitState.OPERATOR_HOLD, exec.unit().state, "거절이 단위를 움직였다")
+            assertEquals(1, w.tasks().size, "거절이 재작업을 냈다")
+            assertEquals(null, w.mw.incidents().single().resolution, "거절이 사건에 판단을 남겼다")
+        }
+    }
+
+    @Test
+    fun `운영자 판단은 사건에 누가 판단했는지 남긴다`() {
+        World().use { w ->
+            val exec = w.held()
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, SLOT, OperatorDecision.CONFIRM_DONE, OPERATOR))
+            val resolution = assertNotNull(w.mw.incidents().single().resolution)
+            assertEquals(OperatorDecision.CONFIRM_DONE, resolution.decision)
+            assertEquals(OPERATOR, resolution.decidedBy)
+        }
+    }
+
+    @Test
+    fun `보류에 선 단위가 없으면 판단은 아무것도 안 바꾸고 그렇다고 답한다`() {
+        // ★참·거짓 하나로 내면 이것과 에이전트 거절이 같은 값이 된다 — 부르는 쪽이 사람을 불러야 하는지 모른다.
+        World().use { w ->
+            val exec = w.held()
+            assertEquals(ResolveOutcome.NotHeld, w.mw.resolve("exec-없음", SLOT, OperatorDecision.CONFIRM_DONE, OPERATOR))
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, SLOT, OperatorDecision.CONFIRM_DONE, OPERATOR))
+            assertEquals(ResolveOutcome.NotHeld, w.mw.resolve(exec.executionId, SLOT, OperatorDecision.REWORK, OPERATOR), "이미 풀린 단위를 다시 판단했다")
+            assertEquals(OperatorDecision.CONFIRM_DONE, assertNotNull(w.mw.incidents().single().resolution).decision)
+        }
+    }
+
+    @Test
+    fun `판단자는 내보내는 사건 줄에 실리지 않는다`() {
+        // 읽는 쪽이 아직 없다(ADR 9). 실리면 판이 오르고 인계본이 다시 산출된다 — 판 5 그대로여야 한다.
+        World().use { w ->
+            val exec = w.held()
+            w.mw.resolve(exec.executionId, SLOT, OperatorDecision.REWORK, OPERATOR)
+            val line = LedgerExport.incidents(w.mw.incidents())
+            assertTrue("\"resolution\":{\"decision\":\"REWORK\"" in line, line)
+            assertTrue("decidedBy" !in line && OPERATOR.id !in line, line)
+            assertEquals("5", LedgerExport.SCHEMA_VERSION)
         }
     }
 
@@ -216,6 +280,12 @@ class EvidenceWindowTest {
     }
 
     private companion object {
+        /** 판단하는 사람 — 운영자 판단은 사람만 낸다(ADR 47). */
+        val OPERATOR = Approver("op-1", ApproverKind.PERSON)
+
+        /** 에이전트 — 승인 시도는 할 수 있어도 운영자 판단은 못 낸다. */
+        val AGENT = Approver("narrator-1", ApproverKind.AGENT)
+
         const val ROBOT = "hum-02"
         const val SLOT = "RACK-205.S01"
         const val BIN = "SEQ-IN-02.BIN-A"

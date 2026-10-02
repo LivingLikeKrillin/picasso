@@ -160,13 +160,13 @@ internal class IncidentLog(
     /**
      * 운영자의 판단을 **아직 판단이 안 실린 가장 최근의** 사건에 붙인다. 부르는 쪽은 [Middleware.resolve] 다.
      */
-    fun noteResolution(executionId: String, unitId: String, decision: OperatorDecision) {
+    fun noteResolution(executionId: String, unitId: String, decision: OperatorDecision, decidedBy: Approver) {
         val opened = bundles.indexOfLast {
             it.executionId == executionId && it.unitId == unitId && it.resolution == null
         }
         if (opened >= 0) {
             bundles[opened] = bundles[opened]
-                .copy(resolution = IncidentResolution(decision, now(), wallClock()))
+                .copy(resolution = IncidentResolution(decision, now(), wallClock(), decidedBy))
         }
     }
 }
