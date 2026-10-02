@@ -557,6 +557,46 @@ class EntitlementTest {
 
     // ── 승인자가 기록으로 남는다
 
+    // ── 결과 통보와 잇는 칸(ADR 48)
+
+    @Test
+    fun `승인 답의 걸음 단위가 실행 계획의 맨 앞에 같은 순서로 선다`() {
+        // ★읽는 쪽은 이 단위로 결과 통보의 `completedUnits` 를 찾는다. 이름만 맞고 자리가 다르면 다른 단위를 보고 판정한다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+            val exec = assertNotNull(w.mw.execution(approved.executionId))
+            assertTrue(approved.steps.isNotEmpty())
+            assertEquals(exec.units.take(approved.steps.size).map { it.unitId }, approved.steps.map { it.unitId })
+            approved.steps.forEachIndexed { at, step ->
+                assertEquals("remedy-${at + 1}-${step.skillType}", step.unitId)
+            }
+        }
+    }
+
+    @Test
+    fun `결과 통보가 승인으로 선 실행과 그 걸음 단위를 가리킨다`() {
+        // ★통보가 주문만 가리키면 읽는 쪽은 주문 → 실행 대응표를 따로 들어야 하고, 같은 주문이 다시 서면 그 표가 틀린다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+            w.drive(rounds = 400) { w.mw.responses().any { it.executionId == approved.executionId } }
+
+            val response = w.mw.responses().first { it.executionId == approved.executionId }
+            assertEquals("PATROL-1", response.jobOrderId)
+            val named = response.completedUnits + response.unverifiedUnits + response.inDoubtUnits + response.incompleteUnits.keys
+            approved.steps.forEach { step -> assertTrue(step.unitId in named, "통보가 ${step.unitId} 를 모른다: $named") }
+        }
+    }
+
+    @Test
+    fun `인스턴스마다 다른 식별자를 든다`() {
+        // ★같은 시드로 다시 띄운 인스턴스가 같은 값을 내면 앞 구동의 통보가 이번 시도의 것으로 읽힌다.
+        val first = World().use { it.mw.instanceId }
+        val second = World().use { it.mw.instanceId }
+        assertTrue(first != second, "두 인스턴스가 같은 식별자를 냈다: $first")
+    }
+
     @Test
     fun `승인으로 시작한 실행의 사건이 누가 눌렀는지 싣는다`() {
         World(Declared(mapOf(AGENT.id to full()))).use { w ->

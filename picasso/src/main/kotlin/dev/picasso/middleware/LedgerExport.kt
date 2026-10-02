@@ -274,7 +274,7 @@ object LedgerExport {
         .done()
 
     /** 계약 메시지는 protobuf JSON 규약으로. **기본값도 적는다** — 위의 이유다. */
-    private fun proto(message: MessageOrBuilder): String = PRINTER.print(message)
+    internal fun proto(message: MessageOrBuilder): String = PRINTER.print(message)
 
     private val PRINTER: JsonFormat.Printer = JsonFormat.printer()
         .alwaysPrintFieldsWithNoPresence()
@@ -283,11 +283,11 @@ object LedgerExport {
     private fun <T> List<T>.joinToJson(of: (T) -> String): String =
         joinToString(",", "[", "]") { of(it) }
 
-    private fun arrayOfStrings(values: List<String>): String =
+    internal fun arrayOfStrings(values: List<String>): String =
         values.joinToString(",", "[", "]") { Json.quote(it) }
 
     /** **키 순서로 적는다** — 순회 순서가 줄을 바꾸면 같은 사건이 두 모양으로 나간다. */
-    private fun mapOfStrings(values: Map<String, String>): String = values.entries
+    internal fun mapOfStrings(values: Map<String, String>): String = values.entries
         .sortedBy { it.key }
         .joinToString(",", "{", "}") { "${Json.quote(it.key)}:${Json.quote(it.value)}" }
 

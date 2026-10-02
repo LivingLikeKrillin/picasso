@@ -88,6 +88,14 @@ class Middleware(
      * 전부 거절된다 — 사람 승인은 선언을 안 보므로 라인은 서지 않는다.
      */
     entitlements: Entitlements = Entitlements.None,
+    /**
+     * 이 미들웨어 인스턴스가 뜬 한 번을 가리키는 값(ADR 48). 결과 통보의 바깥 형식과 승인 답에 같은 값이 실린다.
+     *
+     * **실행 식별자(`exec-N`)와 결과 통보 식별자(`resp-N`)는 프로세스 안의 셈이라 다시 뜨면 되풀이된다.** 밖의
+     * 소비자가 «이 통보가 이번 시도의 것인가» 를 가르려면 이 값과 짝지어야 한다. 그래서 **결정적이지 않아야 한다** —
+     * 같은 시드로 다시 띄운 인스턴스가 같은 값을 내면 앞 구동의 통보가 이번 시도의 것으로 읽힌다.
+     */
+    val instanceId: String = "mw-${java.util.UUID.randomUUID()}",
 ) {
     private val capabilities = capabilities.associateBy { it.workMasterId }
     private val executions = linkedMapOf<String, Execution>()
@@ -1354,7 +1362,7 @@ class Middleware(
                 // 아는 길이 이것뿐이다.
                 is Submission.Accepted -> ApprovalOutcome.Approved(
                     submission.execution.executionId,
-                    judgment.prefix.map { ApprovedStep(it.skillType, it.parameters) },
+                    judgment.prefix.map { ApprovedStep(it.skillType, it.parameters, it.unitId) },
                 )
                 is Submission.Rejected -> ApprovalOutcome.Refused(ApprovalRefusal.REFUSED_BY_GATE, submission.reason)
                 // **접힌 접수는 승인이 아니다.** 그 주문이 이미 실행으로 서 있으면 조치 열은 안 나간다
@@ -1474,6 +1482,7 @@ class Middleware(
         val response = JobResponse(
             jobResponseId = "resp-${++responseSeq}",
             jobOrderId = execution.order.jobOrderId,
+            executionId = execution.executionId,
             version = execution.order.version,
             physicalState = execution.physicalState,
             requiredEvidence = execution.order.requiredEvidence,
