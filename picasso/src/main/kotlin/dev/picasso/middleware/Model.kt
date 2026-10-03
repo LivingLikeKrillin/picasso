@@ -310,6 +310,11 @@ data class CancelReport(
 data class JobResponse(
     val jobResponseId: String,
     val jobOrderId: String,
+    /**
+     * 이 통보가 가리키는 실행(ADR 48). **미들웨어 자체 확장**이다 — 표준 응답은 주문만 가리키는데, 승인으로 선
+     * 실행을 받은 쪽은 주문이 아니라 실행으로 잇는다. 같은 인스턴스 안에서만 유일하다([Middleware.instanceId]).
+     */
+    val executionId: String,
     val version: Int,
     val physicalState: PhysicalState,
     val requiredEvidence: Evidence,

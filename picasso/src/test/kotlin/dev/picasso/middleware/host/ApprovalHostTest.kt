@@ -150,7 +150,10 @@ class ApprovalHostTest {
                 val again = post(host.port, attempt(ROBOT, "PATROL-1"))
                 assertEquals(200, again.statusCode(), "소모가 오류로 나갔다")
                 val body = fields(again.body())
-                assertEquals("3", body.getValue("schemaVersion").stringValue)
+                assertEquals("4", body.getValue("schemaVersion").stringValue)
+                // 두 답이 같은 인스턴스를 댄다 — 소켓 너머에서도 «다시 뜨지 않았다» 를 이 값으로 가른다(ADR 48).
+                assertEquals(w.middleware.instanceId, first.getValue("instanceId").stringValue)
+                assertEquals(w.middleware.instanceId, body.getValue("instanceId").stringValue)
                 assertEquals("REFUSED", body.getValue("outcome").stringValue)
                 assertEquals("CONSUMED", body.getValue("refusal").stringValue, again.body())
                 val consumed = body.getValue("consumed").structValue.fieldsMap

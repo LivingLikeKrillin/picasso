@@ -144,8 +144,13 @@ sealed interface ApprovalOutcome {
     }
 }
 
-/** 승인으로 실제로 나간 걸음 하나. */
-data class ApprovedStep(val skillType: String, val parameters: Map<String, String>)
+/**
+ * 승인으로 실제로 나간 걸음 하나.
+ *
+ * @param unitId 이 걸음이 선 실행 단위(ADR 48). 결과 통보의 `completedUnits` 등이 이 값으로 그 걸음을 가리킨다.
+ *   조치 열은 실행 계획의 맨 앞에 걸음 순서대로 서고, 이름은 `remedy-{n}-{skillType}`(n 은 1부터)이다.
+ */
+data class ApprovedStep(val skillType: String, val parameters: Map<String, String>, val unitId: String)
 
 /**
  * 제안 하나가 **소모된 기록**(ADR 46) — 승인이 접수로 이어져 그 제안이 지워질 때 (기체, 주문)마다 하나 남는다.
@@ -257,8 +262,11 @@ object ApprovalWire {
      *
      * `3` 에서 `refusal` 에 [ApprovalRefusal.CONSUMED] 가 늘고, 거절 답에 `consumed` 칸이 생겼다(ADR 46).
      * `CONSUMED` 면 소모 기록이고, 다른 거절은 키를 빼지 않고 `null` 이다. 승인 답은 이 칸을 안 싣는다.
+     *
+     * `4` 에서 모든 답에 `instanceId` 가, 걸음마다 `unitId` 가 붙었다(ADR 48). 칸이 는 것뿐이지만 **결과 통보와
+     * 잇는 칸이라** 판을 올린다 — 읽는 쪽이 이 판을 보고서야 «통보의 어느 단위가 이 조치인가» 를 이 칸으로 묻는다.
      */
-    const val SCHEMA_VERSION: String = "3"
+    const val SCHEMA_VERSION: String = "4"
 
     /**
      * 요청 한 줄을 읽는다. **못 읽으면 던진다** — 못 읽는 요청은 거절이 아니라 잘못된 요청이고, 둘을
@@ -283,10 +291,15 @@ object ApprovalWire {
         )
     }
 
-    fun encode(outcome: ApprovalOutcome): String {
+    /**
+     * @param instanceId 답을 낸 미들웨어 인스턴스([Middleware.instanceId]). 실행 식별자는 그 인스턴스 안의 셈이라 이 값과
+     *   짝지어야 다시 뜬 뒤에도 한 시도를 가리킨다.
+     */
+    fun encode(outcome: ApprovalOutcome, instanceId: String): String {
         val o = Obj()
             .str("schemaVersion", SCHEMA_VERSION)
             .str("contractSemver", ContractIdentity.semver)
+            .str("instanceId", instanceId)
         return when (outcome) {
             is ApprovalOutcome.Approved -> o
                 .str("outcome", "APPROVED")
@@ -312,6 +325,7 @@ object ApprovalWire {
         .done()
 
     private fun step(s: ApprovedStep): String = Obj()
+        .str("unitId", s.unitId)
         .str("skillType", s.skillType)
         .raw("parameters", s.parameters.entries.joinToString(",", "{", "}") { Json.quote(it.key) + ":" + Json.quote(it.value) })
         .done()

@@ -130,6 +130,30 @@ class BundleWriterTest {
         }
     }
 
+    @Test
+    fun `결과 통보는 늘 때만 다시 쓰고 대장의 안내는 그것을 세지 않는다`() {
+        // ★대장 한 벌의 안내가 이 파일을 세면 판이 다른 두 형식이 한 안내에 묶여, 결과 통보가 바뀔 때 대장의 판도 오른다.
+        val dir = createTempDirectory("bundle")
+        val writer = BundleWriter(dir)
+        val response = JobResponse(
+            jobResponseId = "resp-1", jobOrderId = "PATROL-APPROVES", executionId = "exec-1", version = 1,
+            physicalState = PhysicalState.RUNNING, requiredEvidence = Evidence.E0, reachedEvidence = Evidence.E0,
+            completedUnits = emptyList(), unverifiedUnits = emptyList(), incompleteUnits = emptyMap(),
+            operatorRequired = false, residualHold = dev.picasso.contracts.v1.HoldState.getDefaultInstance(),
+        )
+
+        assertTrue(writer.carry(listOf(response), "mw-1"), "첫 통보를 안 썼다")
+        assertFalse(writer.carry(listOf(response), "mw-1"), "통보가 안 늘었는데 다시 썼다")
+        assertTrue(writer.carry(listOf(response, response.copy(jobResponseId = "resp-2")), "mw-1"), "통보가 늘었는데 안 썼다")
+
+        val lines = Files.readString(dir.resolve(ResultExport.JOB_RESPONSES)).lines().filter { it.isNotEmpty() }
+        assertEquals(2, lines.size)
+        assertTrue(lines.all { "\"instanceId\":\"mw-1\"" in it }, lines.joinToString(" | "))
+
+        writer.snapshot(emptyList(), listOf(record(1)), NOW)
+        assertFalse("jobResponses" in manifest(dir), "대장의 안내가 결과 통보를 센다")
+    }
+
     private companion object {
         val NOW: Instant = Instant.parse("2026-09-06T02:47:57Z")
     }

@@ -75,10 +75,10 @@ class ApprovalWireTest {
 
     @Test
     fun `승인의 답이 실제로 나간 값을 싣는다`() {
-        val json = ApprovalWire.encode(
+        val json = encode(
             ApprovalOutcome.Approved(
                 "exec-3",
-                listOf(ApprovedStep("pick_place", mapOf("object_id" to "COVER-7", "destination" to "RACK-204.S01"))),
+                listOf(ApprovedStep("pick_place", mapOf("object_id" to "COVER-7", "destination" to "RACK-204.S01"), "remedy-1-pick_place")),
             ),
         )
         val fields = parse(json)
@@ -99,7 +99,7 @@ class ApprovalWireTest {
         // ★★사유 산문만 내면 읽는 쪽이 한국어를 문자열로 맞춰야 하고, 그 시험은 «거절됐다» 만 보므로
         //   아무 거절에나 초록이 된다 — 자격이 없어서인지 제안이 없어서인지 갈리지 않는다.
         val fields = parse(
-            ApprovalWire.encode(ApprovalOutcome.Refused(ApprovalRefusal.NOT_DECLARED, "자동 승인 자격이 선언돼 있지 않다: narrator-1")),
+            encode(ApprovalOutcome.Refused(ApprovalRefusal.NOT_DECLARED, "자동 승인 자격이 선언돼 있지 않다: narrator-1")),
         )
         assertEquals("REFUSED", fields.getValue("outcome").stringValue)
         assertEquals("NOT_DECLARED", fields.getValue("refusal").stringValue)
@@ -111,7 +111,7 @@ class ApprovalWireTest {
         // ★★**이것이 ADR 45 가 만든 갈래다.** 둘 다 「지금 자격이 없다」인데 다음 행동이 반대다 —
         //   철회는 사후 검토로, 미선언은 선언을 올리러. 같은 값으로 나가면 읽는 쪽이 못 가른다.
         fun refusalOf(refusal: ApprovalRefusal) =
-            parse(ApprovalWire.encode(refused(refusal))).getValue("refusal").stringValue
+            parse(encode(refused(refusal))).getValue("refusal").stringValue
 
         assertEquals("REVOKED", refusalOf(ApprovalRefusal.REVOKED))
         assertEquals("NOT_DECLARED", refusalOf(ApprovalRefusal.NOT_DECLARED))
@@ -127,7 +127,7 @@ class ApprovalWireTest {
         // 진단 사유가 그대로 답에 실린다. 따옴표 하나만 새어도 그 답이 통째로 못 읽히고, 읽는 쪽에는
         // «부르면 깨진다» 로만 보인다.
         val nasty = "따옴표 \" 와 역슬래시 \\ 와 줄바꿈 \n 이 든 사유"
-        val fields = parse(ApprovalWire.encode(ApprovalOutcome.Refused(ApprovalRefusal.WITHHELD, nasty)))
+        val fields = parse(encode(ApprovalOutcome.Refused(ApprovalRefusal.WITHHELD, nasty)))
         assertEquals(nasty, fields.getValue("reason").stringValue)
     }
 
@@ -135,7 +135,7 @@ class ApprovalWireTest {
     fun `모든 거절 종류가 답에 실릴 수 있다`() {
         // 종류가 늘었는데 답이 그것을 못 실으면 읽는 쪽이 모르는 값을 만나는 대신 **아무 값도** 못 받는다.
         ApprovalRefusal.entries.forEach { refusal ->
-            val fields = parse(ApprovalWire.encode(refused(refusal)))
+            val fields = parse(encode(refused(refusal)))
             assertEquals(refusal.name, fields.getValue("refusal").stringValue)
         }
     }
@@ -154,9 +154,9 @@ class ApprovalWireTest {
 
     @Test
     fun `소모 거절이 누가 언제 무엇을 보냈는지 싣는다`() {
-        val fields = parse(ApprovalWire.encode(refused(ApprovalRefusal.CONSUMED)))
+        val fields = parse(encode(refused(ApprovalRefusal.CONSUMED)))
         // ★판은 글자로 댄다 — 상수끼리 대면 판을 안 올려도 초록이다.
-        assertEquals("3", fields.getValue("schemaVersion").stringValue)
+        assertEquals("4", fields.getValue("schemaVersion").stringValue)
         assertEquals("CONSUMED", fields.getValue("refusal").stringValue)
 
         val consumed = fields.getValue("consumed").structValue.fieldsMap
@@ -176,15 +176,48 @@ class ApprovalWireTest {
     fun `소모가 아닌 거절은 consumed 를 null 로 싣는다`() {
         // ★키를 빼면 «소모가 아니다» 와 «이 판이 그 칸을 모른다» 가 같은 모양이 된다.
         ApprovalRefusal.entries.filterNot { it == ApprovalRefusal.CONSUMED }.forEach { refusal ->
-            val fields = parse(ApprovalWire.encode(ApprovalOutcome.Refused(refusal, "사유")))
+            val fields = parse(encode(ApprovalOutcome.Refused(refusal, "사유")))
             assertTrue("consumed" in fields, "$refusal 의 답에 consumed 키가 없다")
             assertTrue(fields.getValue("consumed").hasNullValue(), "$refusal 의 consumed 가 null 이 아니다")
         }
         // 승인 답은 이 칸을 안 싣는다 — 소모는 거절의 사정이다.
-        val approved = parse(ApprovalWire.encode(ApprovalOutcome.Approved("exec-3", emptyList())))
+        val approved = parse(encode(ApprovalOutcome.Approved("exec-3", emptyList())))
         assertFalse("consumed" in approved, "승인 답에 consumed 가 실렸다")
     }
+
+    // ── 결과 통보와 잇는 칸(ADR 48)
+
+    @Test
+    fun `답마다 그 답을 낸 인스턴스를 싣는다`() {
+        // ★실행 식별자는 인스턴스 안의 셈이라 다시 뜨면 되풀이된다. 승인 답에만 빠지면 읽는 쪽은 결과 통보의
+        //   `exec-2` 가 이번 승인의 것인지 앞 구동의 것인지 못 가른다. 거절에도 싣는다 — 다시 떴다는 신호다.
+        val approved = parse(encode(ApprovalOutcome.Approved("exec-3", emptyList())))
+        assertEquals("4", approved.getValue("schemaVersion").stringValue)
+        assertEquals(INSTANCE, approved.getValue("instanceId").stringValue)
+        ApprovalRefusal.entries.forEach { refusal ->
+            assertEquals(INSTANCE, parse(encode(refused(refusal))).getValue("instanceId").stringValue, "$refusal")
+        }
+    }
+
+    @Test
+    fun `걸음마다 그 걸음이 선 단위를 싣는다`() {
+        // ★결과 통보는 단위로 말한다(`completedUnits`). 걸음이 단위를 안 실으면 읽는 쪽은 이름 규칙을 추측해 잇는다.
+        val approved = parse(
+            encode(ApprovalOutcome.Approved("exec-3", listOf(ApprovedStep("pick_place", emptyMap(), "remedy-1-pick_place")))),
+        )
+        val step = approved.getValue("steps").listValue.getValues(0).structValue.fieldsMap
+        assertEquals("remedy-1-pick_place", step.getValue("unitId").stringValue)
+
+        val consumed = parse(encode(refused(ApprovalRefusal.CONSUMED))).getValue("consumed").structValue.fieldsMap
+        val consumedStep = consumed.getValue("steps").listValue.getValues(0).structValue.fieldsMap
+        assertEquals("remedy-1-pick_place", consumedStep.getValue("unitId").stringValue)
+    }
 }
+
+/** 답을 낸 인스턴스 — 표본 값이다. */
+private const val INSTANCE = "mw-test-instance"
+
+private fun encode(outcome: ApprovalOutcome) = ApprovalWire.encode(outcome, INSTANCE)
 
 /** 소모 기록 표본 — 칸마다 다른 값이라 어느 칸이 어디로 갔는지 가린다. */
 private val CONSUMED_SAMPLE = ConsumedApproval(
@@ -192,7 +225,7 @@ private val CONSUMED_SAMPLE = ConsumedApproval(
     at = Instant.parse("2026-09-06T00:00:01Z"),
     wallClockAt = Instant.parse("2026-10-01T07:12:44.120Z"),
     executionId = "exec-2",
-    steps = listOf(ApprovedStep("pick_place", mapOf("destination" to "DROP-01", "object_id" to "ENGINE-COVER-A"))),
+    steps = listOf(ApprovedStep("pick_place", mapOf("destination" to "DROP-01", "object_id" to "ENGINE-COVER-A"), "remedy-1-pick_place")),
 )
 
 /** 모든 거절 종류로 답을 짓는다. `CONSUMED` 는 기록 없이 안 서므로 표본을 단다. */

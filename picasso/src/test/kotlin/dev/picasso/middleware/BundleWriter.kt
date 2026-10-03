@@ -62,6 +62,26 @@ class BundleWriter(
         return true
     }
 
+    /** 마지막으로 쓴 결과 통보 수. 안 썼으면 널이다. */
+    private var carried: Int? = null
+
+    /**
+     * 결과 통보를 **같은 자리에 따로** 놓는다(ADR 48). 대장 한 벌의 안내는 이 파일을 세지 않는다 — 판도 주인도
+     * 다르다. 줄마다 제 판과 인스턴스를 들므로 안내 없이 읽힌다.
+     *
+     * **담는 쪽의 참조일 뿐 실물 담는 쪽이 아니다.** 상류 확인(`ack`)을 하지 않으므로 같은 통보가 매번 다시 실리고,
+     * 읽는 쪽은 그것을 «같은 줄이 다시 왔다» 로 받아야 한다 — 실물 담는 쪽도 최소 한 번 전달이다.
+     *
+     * @return 썼으면 true, 통보가 안 늘어 건너뛰었으면 false.
+     */
+    fun carry(responses: List<JobResponse>, instanceId: String): Boolean {
+        if (responses.size == carried) return false
+        Files.createDirectories(dir)
+        atomically(ResultExport.JOB_RESPONSES, ResultExport.jobResponses(responses, instanceId))
+        carried = responses.size
+        return true
+    }
+
     /**
      * 임시 이름으로 쓰고 이름만 바꾼다. **반쯤 쓰인 파일을 집어 가면 그것은 한 벌이 아니라
      * 파편이고, 파편과 빈 한 벌은 같은 모양이다.**

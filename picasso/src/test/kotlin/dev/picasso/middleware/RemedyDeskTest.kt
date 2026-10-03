@@ -102,7 +102,7 @@ class RemedyDeskTest {
         assertEquals("exec-2", consumed.executionId)
         assertEquals(T0, consumed.at)
         assertEquals(WALL, consumed.wallClockAt)
-        assertEquals(listOf(ApprovedStep(SKILL, mapOf("destination" to "DROP-01"))), consumed.steps)
+        assertEquals(listOf(ApprovedStep(SKILL, mapOf("destination" to "DROP-01"), "remedy-1-$SKILL")), consumed.steps)
     }
 
     @Test

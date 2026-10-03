@@ -63,7 +63,7 @@ class ApprovalHost(
                 return reply(exchange, 400, error(e.message ?: "승인 요청을 읽지 못했다"))
             }
             val outcome = synchronized(lock) { middleware.attemptApproval(attempt) }
-            reply(exchange, 200, ApprovalWire.encode(outcome))
+            reply(exchange, 200, ApprovalWire.encode(outcome, middleware.instanceId))
         } finally {
             exchange.close()
         }

@@ -356,7 +356,7 @@ internal class RemedyDesk(
             at = now(),
             wallClockAt = wallClock(),
             executionId = executionId,
-            steps = go.prefix.map { ApprovedStep(it.skillType, it.parameters) },
+            steps = go.prefix.map { ApprovedStep(it.skillType, it.parameters, it.unitId) },
         )
         // **승인자 종류로 가르지 않는다**(ADR 43 §4). 이 수가 재는 것은 «같은 조치가 몇 번 반복됐나» 이고
         // 근본 원인은 누가 눌렀는지 모른다. 가르면 사람 다섯 번과 에이전트 다섯 번이 열이 아니라

@@ -13,6 +13,7 @@ import dev.picasso.middleware.JobOrder
 import dev.picasso.middleware.MaterialRequirement
 import dev.picasso.middleware.Middleware
 import dev.picasso.middleware.PrepareSequencedRack
+import dev.picasso.middleware.ResultExport
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
@@ -111,7 +112,7 @@ object ScenarioHost {
         arming.arm(NO_REMEDY_ROBOT, "PATROL-NO-REMEDY")
 
         ApprovalHost(middleware, lock, port).use { host ->
-            announce(host, exportDir, declarations, entitlements)
+            announce(host, exportDir, declarations, entitlements, middleware.instanceId)
             var advancing = false
             // ★**구동 식별자는 이 바퀴에 하나다.** 내보낼 때마다 찍으면 읽는 쪽의 «같은 구동의 같은
             //   줄은 한 번만» 이 죽는다 — 앞 판이 그랬고 30분에 만 개가 넘었다(BundleWriter 의 KDoc).
@@ -130,6 +131,8 @@ object ScenarioHost {
                         middleware.pump()
                     }
                     live.snapshot(middleware.incidents(), middleware.remedySearches(), harness.clock.now())
+                    // 결과 통보는 담는 쪽이 나르는 것이다 — 여기 쓰는 것은 그 모양의 참조다(ADR 48).
+                    live.carry(middleware.responses(), middleware.instanceId)
                 }
                 Thread.sleep(150)
             }
@@ -195,12 +198,14 @@ object ScenarioHost {
         )
     }
 
-    private fun announce(host: ApprovalHost, exportDir: Path, declarations: Path, entitlements: FileEntitlements) {
+    private fun announce(host: ApprovalHost, exportDir: Path, declarations: Path, entitlements: FileEntitlements, instanceId: String) {
         println("[host] 승인 창구: http://127.0.0.1:${host.port}${ApprovalHost.PATH}  (POST · 루프백 전용)")
         println("[host] 선언 목록: ${declarations.toAbsolutePath().normalize()}  승인자=${entitlements.approvers()}")
         println("[host] 두 대장: ${exportDir.toAbsolutePath().normalize()}")
         println("[host]   ★되돌려 댈 것은 인계본이 아니라 이 한 벌이다 — 창구와 같은 제안을 든다.")
         println("[host]   구동 식별자는 이 바퀴에 하나이고, 두 대장이 늘 때만 다시 쓴다.")
+        println("[host] 결과 통보: ${exportDir.resolve(ResultExport.JOB_RESPONSES).toAbsolutePath().normalize()}  (판 ${ResultExport.SCHEMA_VERSION})")
+        println("[host]   인스턴스=$instanceId. 승인 답과 결과 통보가 같은 값을 든다 — 실행 식별자는 이 값과 짝짓는다.")
         println("[host] 서 있는 자리 넷:")
         println("[host]   $APPROVES / PATROL-APPROVES        → 승인된다 (다시 부르면 CONSUMED)")
         println("[host]   $WITHHELD / PATROL-WITHHELD        → WITHHELD")
