@@ -39,17 +39,21 @@ class DocumentClaimsTest {
     /**
      * **모든 모듈의** 출하 소스를 파일마다. 점 기호의 **소속**을 댈 때 쓴다 — 주인과 멤버가 같은 파일에
      * 선언돼 있는가. 훑는 범위의 규칙은 여기 한 벌이고 [mainSource] 는 이것을 잇는다.
+     *
+     * ★**범위는 `settings.gradle.kts` 가 선언한 모듈의 `src/main` 이다.** 시험의 수를 세는 자리와 같은
+     * 범위이고, `Repo.path` 를 지나므로 선언된 입력 밖은 못 읽는다. 저장소를 통째로 걷고 경로 문자열로
+     * 거르던 판은 워크트리(`.claude/worktrees/`) 안에서 돌면 모든 경로에 `/.claude/` 가 들어 **범위가
+     * 비었고** 대장의 기호가 전부 «코드에 없다» 로 나왔다(§15.204). 음성 하네스의 overlay 도 같이 읽혀서
+     * 진짜 선언이 지워져도 overlay 의 사본이 그 기호를 살려 둘 수 있었다.
      */
     private val mainFiles: Map<Path, String> by lazy {
-        Files.walk(repo).use { paths ->
-            paths.filter {
-                val at = it.toString().replace('\\', '/')
-                Files.isRegularFile(it) && at.endsWith(".kt") && "/src/main/" in at &&
-                    "/build/" !in at && WORKTREES !in at
+        modules().distinct().flatMap { module ->
+            val dir = Repo.path("$module/src/main")
+            if (!Files.isDirectory(dir)) emptyList()
+            else Files.walk(dir).use { paths ->
+                paths.filter { Files.isRegularFile(it) && it.toString().endsWith(".kt") }.toList()
             }
-                .toList()
-                .associateWith { Files.readString(it) }
-        }
+        }.associateWith { Files.readString(it) }
     }
 
     /**
@@ -662,9 +666,6 @@ class DocumentClaimsTest {
 
         /** 줄 머리의 `@Test`. 주석이나 문자열 안의 것은 안 센다. */
         val TEST_ANNOTATION = Regex("""^\s*@Test\b""", RegexOption.MULTILINE)
-
-        /** 다른 가지의 사본. 저장소를 걸을 때 같이 읽히면 수가 배로 뛴다. */
-        const val WORKTREES = "/.claude/"
 
         /** 2026-09-22 까지 승인 창구를 부르던 이름. 용어집이 들고 있고 부르는 자리에는 없어야 한다. */
         const val STALE_HOST_TERM = "승인 입"
