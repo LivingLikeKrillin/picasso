@@ -40,11 +40,11 @@
 그러나 실제 게시된 5.0.0 OpenAPI 스펙에는 'Work Order' 관련 문자열 및 엔드포인트가 전무(0건)합니다. 벤더가 공식 설명한 인터페이스가 게시 스펙에서 누락되어 있습니다.
 
 ### ③ 배포 인스턴스 종속성
-Orbit API는 현장에 구축된 개별 서버 인스턴스의 `/api/v0`를 통해 제공되므로, 실제 배포된 인스턴스의 기능 표면이 문서 게시본보다 확장되어 있을 가능성이 존재합니다.
+Orbit API는 현장에 구축된 개별 서버 인스턴스의 `/api/v0`를 통해 제공되므로, 실제 배포된 인스턴스의 기능 API 표면이 문서 게시본보다 확장되어 있을 가능성이 존재합니다.
 
 ---
 
-## 2. API 기능 표면 및 상태 변경 엔드포인트
+## 2. API 기능 API 표면 및 상태 변경 엔드포인트
 
 전체 35개 엔드포인트 중 상태 변경(Write)이 가능한 인터페이스:
 
@@ -122,7 +122,7 @@ RunEvent.eventType { enum: ["daq", "screenshot"] }
 - **분석 등급**: `INFERRED` (공식 공개 자료로부터의 논리적 추론)
 1. **공개 SDK의 기종 한계**: 현재 공식 개발자 포털(`dev.bostondynamics.com`)에서 공개 제공하는 SDK는 Spot 1종에 한정됩니다.
 2. **마케팅 및 제품 발표**: 공식 블로그는 Orbit을 통해 Atlas를 WMS/MES에 통합하는 워크플로 연동을 발표한 바 있습니다.
-3. **Orbit 신원 스키마의 기종 중립성**: Orbit OpenAPI 스펙 전체에서 `Atlas`, `Stretch`, `quadruped`, `model` 명칭은 전무(0건)하며, `Robot` 스키마는 기종 구분 없이 `{ robotIndex, hostname, nickname, username }`만으로 정의되어 있습니다.
+3. **Orbit 식별 정보 스키마의 기종 중립성**: Orbit OpenAPI 스펙 전체에서 `Atlas`, `Stretch`, `quadruped`, `model` 명칭은 전무(0건)하며, `Robot` 스키마는 기종 구분 없이 `{ robotIndex, hostname, nickname, username }`만으로 정의되어 있습니다.
 
 **결론**: Atlas 및 Stretch 기종은 별도의 공개 저수준 SDK 없이 Orbit 플릿 플랫폼을 통해 상위 시스템에 연동되는 구조로 설계되어 있을 가능성이 높습니다.
 
@@ -133,7 +133,7 @@ RunEvent.eventType { enum: ["daq", "screenshot"] }
 
 ---
 
-## 6. 미결 과제 (Known Open Issues)
+## 6. 오픈 항목 과제 (Known Open Issues)
 
 1. **거리 재측정**: `vendor_layer`를 `MissionService`에서 `SiteWalk` 기준으로 재평가
 2. **결함 결과 어휘 정준화**: `Fault.error_type`의 정수 코드 표준화
@@ -141,4 +141,4 @@ RunEvent.eventType { enum: ["daq", "screenshot"] }
 4. **인스턴스 API 전수 검증**: 실제 구동 중인 Orbit 인스턴스와의 라이브 연동 확인
 5. **Atlas/Stretch 연동 채널 확인**: 비공개 전용 SDK 존재 여부 검증 (확인 전까지 가설 유지)
 
-> 마지막 대조: 2026-10-05 · sha256:2d31a5c8ce01 · 열림: C-3
+> 마지막 대조: 2026-10-06 · sha256:a1572ceb0be9 · 열림: C-3

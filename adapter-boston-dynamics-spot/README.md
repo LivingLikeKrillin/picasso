@@ -1,6 +1,6 @@
 # adapter-boston-dynamics-spot — Boston Dynamics Spot 어댑터
 
-Boston Dynamics Spot 기체 전용 하드웨어 어댑터 모듈입니다 (ADR 33). 노스바운드 인터페이스는 표준 `RobotAdapter`를 구현하고, 사우스바운드 포트는 Spot SDK의 gRPC 통신 표면을 추상화합니다.
+Boston Dynamics Spot 기체 전용 하드웨어 어댑터 모듈입니다 (ADR 33). 노스바운드 인터페이스는 표준 `RobotAdapter`를 구현하고, 사우스바운드 포트는 Spot SDK의 gRPC 통신 API 표면을 추상화합니다.
 
 ---
 
@@ -37,6 +37,6 @@ Boston Dynamics Spot 기체 전용 하드웨어 어댑터 모듈입니다 (ADR 3
 
 ## 4. 모듈 경계 및 벤더 심볼 검증
 
-저장소 내에 벤더 바이너리 SDK를 포함하지 않는 원칙에 따라, 사우스바운드 포트(`SpotLink`)는 인터페이스로만 선언되어 있습니다. 벤더 API 심볼 인용의 정합성은 `SpotVendorSurfaceTest`를 통해 `vendor-manifest.txt`와 전수 대조 검증되며, 물리 기체 연동 검증은 미결(C-3)로 관리됩니다.
+저장소 내에 벤더 바이너리 SDK를 포함하지 않는 원칙에 따라, 사우스바운드 포트(`SpotLink`)는 인터페이스로만 선언되어 있습니다. 벤더 API 심볼 인용의 정합성은 `SpotVendorSurfaceTest`를 통해 `vendor-manifest.txt`와 전수 대조 검증되며, 물리 기체 연동 검증은 오픈 항목(C-3)로 관리됩니다.
 
-> 마지막 대조: 2026-10-05 · sha256:5ab0b8f44207 · 열림: C-3
+> 마지막 대조: 2026-10-06 · sha256:cee410476e8e · 열림: C-3

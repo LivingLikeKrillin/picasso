@@ -63,11 +63,11 @@ TaskHandle
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/skill-mapping.dark.svg">
-  <img alt="계약 스킬 매핑 다이어그램. 상단에는 기종 프로파일 JSON, 요구-케이퍼빌리티 협상기(Negotiator), 어댑터 accept가 위치합니다. 하단 좌측의 계약 스킬 셋과 우측 Spot의 5개 벤더 표면이 연결됩니다. 표면 누락 시 해당 표면을 참조하는 스킬만 거절되고 나머지 스킬은 정상 구동됩니다." src="diagrams/skill-mapping.svg">
+  <img alt="계약 스킬 매핑 다이어그램. 상단에는 기종 프로파일 JSON, 요구-케이퍼빌리티 협상기(Negotiator), 어댑터 accept가 위치합니다. 하단 좌측의 계약 스킬 셋과 우측 Spot의 5개 벤더 인터페이스가 연결됩니다. API 표면 누락 시 해당 API 표면을 참조하는 스킬만 거절되고 나머지 스킬은 정상 구동됩니다." src="diagrams/skill-mapping.svg">
 </picture>
 
-- **표면(Surface) 기반 바인딩**: 계약 스킬은 단일 API 호출이 아닌 벤더가 제공하는 개별 기능 표면(Surface) 단위로 바인딩됩니다. 예컨대 `navigate_to` 스킬은 토폴로지 그래프 표면(좌표 변환 조회용)과 미션 실행 표면을 조합하여 수행됩니다.
-- **부분 실패 격리**: 특정 기능 표면이 지원되지 않을 경우, 해당 표면을 요구하는 스킬만 `VENDOR_SURFACE_ABSENT` 에러로 거절되며, 다른 표면을 사용하는 스킬은 정상 동작합니다.
+- **API 표면(Surface) 기반 바인딩**: 계약 스킬은 단일 API 호출이 아닌 벤더가 제공하는 개별 기능 API 표면(Surface) 단위로 바인딩됩니다. 예컨대 `navigate_to` 스킬은 토폴로지 그래프 API 표면(좌표 변환 조회용)과 미션 실행 API 표면을 조합하여 수행됩니다.
+- **부분 실패 격리**: 특정 기능 API 표면이 지원되지 않을 경우, 해당 API 표면을 요구하는 스킬만 `VENDOR_SURFACE_ABSENT` 에러로 거절되며, 다른 API 표면을 사용하는 스킬은 정상 동작합니다.
 - **계층 불일치 해소**: 기종 간의 케이퍼빌리티 차이는 스킬 파라미터의 차이가 아니라 벤더가 제공하는 소프트웨어 추상화 계층의 불일치에서 비롯됩니다. `Negotiator`는 작업 요구사항과 로봇 프로파일을 대조하여 호환되지 않는 항목을 일괄 검출합니다.
 
 ### 2.3 업스트림 흐름: 질의(Pull) 및 이벤트 발행(Push) 이원화
@@ -96,7 +96,7 @@ TaskHandle
 |---|---|---|
 | **관리 대상** | 논리적 케이퍼빌리티(작업) 전체의 진행 상태 | 단일 로봇 기체에 할당된 원자적 태스크 1건 |
 | **값** | `REQUESTED`·`ACCEPTED`·`RUNNING`·`PARTIAL`·`IN_DOUBT`·`OPERATOR_HOLD`·`PHYSICALLY_DONE`·`UNVERIFIED`·`FAILED`·`CANCELING`·`ABORTED` | `ACCEPTED`·`RUNNING`·`PAUSED`·`SUCCEEDED`·`FAILED`·`RETRIABLE`·`NEEDS_INTERVENTION`·`CANCELLING`·`CANCELLED`·`CANCELLED_RECOVERY_FAILED` |
-| **추가 상태 축** | `upstream_ack` (상위 통보 도달 여부 — 물리 상태와 독립) | 없음 |
+| **추가 상태 차원** | `upstream_ack` (상위 통보 도달 여부 — 물리 상태와 독립) | 없음 |
 | **결정 주체** | 계약 상태 + **현장 PLC 설비 신호** 종합 판단 | 개별 로봇 기체의 보고 상태 |
 
 - **`UNVERIFIED` 상태의 의의**: *"로봇은 물리적 작업을 완료했다고 보고했으나 현장 설비 센서 신호가 확인되지 않은 불일치 상태"*는 기체 단독 상태를 다루는 계약 계층에서는 정의할 수 없으며, 다중 소스 신호를 통합하는 미들웨어 코어 계층에서만 판정할 수 있습니다.
@@ -179,10 +179,10 @@ uplink                         → contracts
 ## 6. 권장 문서 탐색 경로
 
 1. [`verification.md`](verification.md) — 각 구간별 검증 수준 및 신뢰 등급 확인 (가장 먼저 확인 권장)
-2. [`contract.md`](contract.md) — 인터페이스 계약의 보장 사항 및 세부 RPC 규격
-3. [`seams.md`](seams.md) — 실물 기체 및 신규 시스템 확장을 위한 9대 접합부 명세
+2. [`contract.md`](contract.md) — 인터페이스 계약의 보증 사항 및 세부 RPC 규격
+3. [`seams.md`](seams.md) — 실제 하드웨어 기체 및 신규 시스템 확장을 위한 9대 접합부 명세
 4. [`isa95.md`](isa95.md) — ISA-95 공장 표준 모델과 미들웨어 정준 모델 간의 매핑
 5. [`commissioning.md`](commissioning.md) — 현장 시운전 절차 및 운영 설정 REST API 명세
 6. [공식 설계 문서](superpowers/specs/2026-09-05-picasso-design.md) — 시스템 전체 설계 정본 스펙
 
-> 마지막 대조: 2026-10-05 · sha256:e1335133d560 · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126
+> 마지막 대조: 2026-10-06 · sha256:d651b490cefd · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126

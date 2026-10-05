@@ -44,4 +44,4 @@ mimic         → profile-model, contracts
 - 설계 문서 §3.1, §3.2 (모듈 아키텍처 구성도), §7.2 ([ADR 10](0010-projection-boundary.md) 프로젝션 경계)
 - [ADR 30](0030-codegen-outside-buf.md) (Gradle 기반 빌드 도구 구성)
 
-> 마지막 대조: 2026-10-05 · sha256:5b74d18bfcae · 열림: 없음
+> 마지막 대조: 2026-10-06 · sha256:5b74d18bfcae · 열림: 없음

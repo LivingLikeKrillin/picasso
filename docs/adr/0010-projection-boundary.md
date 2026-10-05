@@ -58,7 +58,7 @@
 ## 5. 관련 사양 및 문서
 
 - 설계 문서 §7.2, §7.3 (프로파일 사양), §12.2 제10조 (프로젝션 동치성 기준)
-- [ADR 9](0009-no-declaration-without-consumer.md) (소비 표면 없는 선언 배제)
+- [ADR 9](0009-no-declaration-without-consumer.md) (소비 API 표면 없는 선언 배제)
 - [ADR 29](0029-shared-profile-model.md) (`profile-model` 공통 추출)
 
-> 마지막 대조: 2026-10-05 · sha256:4db93e39bd36 · 열림: 없음
+> 마지막 대조: 2026-10-06 · sha256:c18782a8b3b2 · 열림: 없음

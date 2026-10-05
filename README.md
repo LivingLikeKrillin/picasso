@@ -7,7 +7,7 @@
 [![ci](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml/badge.svg)](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-상위 시스템(MES·WMS)과 이기종 모바일 로봇(휴머노이드 및 4족보행 로봇) 간의 **표준 인터페이스 계약(Standard Interface Contract)**을 정의하고, 실물 로봇 없이 계약의 정합성을 검증할 수 있는 **결정론적 에뮬레이터(`mimic`)** 및 **운영 중 변경 파급도 사전 계산 체계**를 제공하는 엔지니어링 미들웨어 PoC 프로젝트입니다.
+상위 시스템(MES·WMS)과 이기종 모바일 로봇(휴머노이드 및 4족보행 로봇) 간의 **표준 인터페이스 계약(Standard Interface Contract)**을 정의하고, 실제 하드웨어 로봇 없이 계약의 정합성을 검증할 수 있는 **결정론적 에뮬레이터(`mimic`)** 및 **운영 중 변경 파급도 사전 계산 체계**를 제공하는 엔지니어링 미들웨어 PoC 프로젝트입니다.
 
 본 시스템은 다음 두 가지 핵심 명제를 기반으로 설계되었으며, 단순한 개념 증명이 아닌 **CI 빌드 실패 조건 및 런타임 조작 거부 조건**으로 강제됩니다:
 
@@ -19,7 +19,7 @@
   <img alt="상위 시스템은 작업 지시를 picasso에 보내고 작업 응답을 받습니다. picasso와 호스트 및 에뮬레이터 영역은 기종 분기 없이 표준 계약으로 동작하며 검사 7로 검증합니다. 기종 전용 코드는 4개 어댑터에 두고 외부 벤더 API를 호출합니다." src="docs/diagrams/seam.svg">
 </picture>
 
-**기종별 식별자와 종속성은 최하위 어댑터 계층에만 격리됩니다.** 상위 연계 계층부터 어댑터 호스트(Adapter Host)까지의 전 계층은 특정 기종에 대한 의존성을 갖지 않으며, 게이트 검사 7번이 공용 모듈의 소스코드를 정적 분석하여 기종 종속성 누출을 **CI 실패 조건**으로 차단합니다. 계약 하위 계층은 상호 호환 가능한 구조로 설계되어, 실물 기종 어댑터 넷이 배치되는 위치에 프로파일 주도 에뮬레이터인 `mimic`을 동일하게 바인딩할 수 있으며, `HostParityTest`를 통해 동일한 요청 사양에 대해 수락·거부 판정의 동등성을 검증합니다.
+**기종별 식별자와 종속성은 최하위 어댑터 계층에만 격리됩니다.** 상위 연계 계층부터 어댑터 호스트(Adapter Host)까지의 전 계층은 특정 기종에 대한 의존성을 갖지 않으며, 게이트 검사 7번이 공용 모듈의 소스코드를 정적 분석하여 기종 종속성 누출을 **CI 실패 조건**으로 차단합니다. 계약 하위 계층은 상호 호환 가능한 구조로 설계되어, 실제 하드웨어 기종 어댑터 넷이 배치되는 위치에 프로파일 주도 에뮬레이터인 `mimic`을 동일하게 바인딩할 수 있으며, `HostParityTest`를 통해 동일한 요청 사양에 대해 수락·거부 판정의 동등성을 검증합니다.
 
 **운영 변경 원칙 (비대칭성)**: 시스템 변경 통제는 *"신규 엔티티 추가는 안전하고, 기존 엔티티 삭제·수정은 잠재적 위험을 내포한다"*는 비대칭성 원리에 기초합니다.
 
@@ -77,7 +77,7 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/runtime-flow.dark.svg">
-  <img alt="상위의 작업 지시는 검증을 거쳐 pump로 넘어가 로봇 기체 제어로 이어집니다. 지시가 거절되면 조치 탐색 제안이 생성되며 외부 에이전트나 운영자의 승인을 거쳐 실행됩니다. 실행 결과와 인시던트 기록은 파일 3개로 출력되어 외부와 연동됩니다." src="docs/diagrams/runtime-flow.svg">
+  <img alt="상위의 작업 지시는 검증을 거쳐 pump로 넘어가 로봇 기체 제어로 이어집니다. 작업 지시가 거절되면 조치 탐색 제안이 생성되며 외부 에이전트나 운영자의 승인을 거쳐 실행됩니다. 실행 결과와 인시던트 기록은 파일 3개로 출력되어 외부와 연동됩니다." src="docs/diagrams/runtime-flow.svg">
 </picture>
 
 - **인터페이스 계약 (Contracts)**: 명령/질의는 gRPC, 상태/이벤트/연결 스트리밍은 MQTT를 사용합니다. 태스크는 `(task_id, revision)` 튜플로 멱등성을 보장하며, 수명주기 상태 전이와 파지 상태(`hold`) 갱신을 전달합니다. 계약은 특정 도메인 수치나 파라미터 제약조건을 하드코딩하지 않으며, 이는 프로파일에 위임합니다.
@@ -89,9 +89,9 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 
 ## 검증 현황 및 한계 관리
 
-저장소 내 대외 문서 57종은 자동화 대조 검증을 완료한 상태입니다. 문서에 명시된 모든 기술적 주장은 자동화 테스트로 증명되거나, [`docs/limits.md`](docs/limits.md)의 미결 항목 대장에 등록되어 추적 관리됩니다. 각 문서 하단의 대조 스탬프(Hash Stamp)은 본문 내용과 연결되어 있어, `CompletionCriterionTest`를 통해 임의 변경 시 스탬프 갱신을 요구합니다.
+저장소 내 대외 문서 57종은 자동화 대조 검증을 완료한 상태입니다. 문서에 명시된 모든 기술적 주장은 자동화 테스트로 증명되거나, [`docs/limits.md`](docs/limits.md)의 오픈 항목 레지스터에 등록되어 추적 관리됩니다. 각 문서 하단의 대조 스탬프(Hash Stamp)은 본문 내용과 연결되어 있어, `CompletionCriterionTest`를 통해 임의 변경 시 스탬프 갱신을 요구합니다.
 
-한계 대장(`limits.md`)에 등록된 미결 항목은 **62개**(내부 28개 · 소비자 대기 9개 · 외부 25개, 의도적 제외 13개 제외)이며, 그 상세 목록과 해결 조건은 `limits.md`에 명시되어 있습니다. 특히 실물 어댑터가 넷 있다(기체 셋, 플릿 하나). 다만, 어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다(C-3)는 물리적 검증 한계가 존재하며, 이는 SDK 라이선스, JVM 바인딩 부재, 플릿 실기체 인스턴스 부재 등에 기인합니다.
+한계 레지스터(`limits.md`)에 등록된 미결 항목은 **62개**(내부 28개 · 소비자 대기 9개 · 외부 25개, 의도적 제외 13개 제외)이며, 그 상세 목록과 해결 조건은 `limits.md`에 명시되어 있습니다. 특히 실물 어댑터가 넷 있다(기체 셋, 플릿 하나). 다만, 어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다(C-3)는 물리적 검증 한계가 존재하며, 이는 SDK 라이선스, JVM 바인딩 부재, 플릿 실기체 인스턴스 부재 등에 기인합니다.
 
 실물 넷이 계약에 얼마나 닿나 확인한 정량 분석 결과는 [`profile/distance/`](profile/distance)에서 확인할 수 있습니다. 계약 개정판은 **0.9.0** 이다.
 
@@ -122,11 +122,11 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 
 | 문서 분류 | 대상 문서 및 링크 | 설명 |
 |---|---|---|
-| **검증 신뢰도** | [`docs/verification.md`](docs/verification.md) | 구간별 실물 기체, 실 네트워크, 모의 대역(Mock) 적용 범위 및 검증 수준 정의 |
+| **검증 신뢰도** | [`docs/verification.md`](docs/verification.md) | 구간별 실제 하드웨어 기체, 실 네트워크, 모의 대역(Mock) 적용 범위 및 검증 수준 정의 |
 | **아키텍처** | [`docs/architecture.md`](docs/architecture.md) | 4단계 어휘 모델(ADR 36), 데이터 흐름, 상태 전이 모델 및 의존성 규칙 |
-| **오케스트레이션과 자원 소유** | [`docs/orchestration.md`](docs/orchestration.md) | 배정·실행 보장·경로 세 계층의 구분, 자원별 소유자와 관문 대장, 배선도 |
+| **오케스트레이션과 자원 소유** | [`docs/orchestration.md`](docs/orchestration.md) | 배정·실행 보증·경로 세 계층의 구분, 자원별 소유자와 관문 레지스터, 배선도 |
 | **인터페이스 계약** | [`docs/contract.md`](docs/contract.md) | 계약 진입 게이트 규칙, 지원 범위 한계, 계약 보장 항목 및 1:1 테스트 매핑 |
-| **인터페이스 접합부** | [`docs/seams.md`](docs/seams.md) | 9대 접합부(Seam) 명세, 대상 인터페이스 및 실물 전환 가이드 |
+| **인터페이스 접합부** | [`docs/seams.md`](docs/seams.md) | 9대 접합부(Seam) 명세, 대상 인터페이스 및 실제 하드웨어 전환 가이드 |
 | **어댑터 개발** | [`tools/adapter-template/`](tools/adapter-template/README.md) | 신규 기종 어댑터 구현을 위한 7개 필수 구성 요소 및 템플릿 가이드 |
 | **어휘 거리 측정** | [`docs/vocabulary-distance.md`](docs/vocabulary-distance.md) | 벤더 API 명세와 계약 스킬 간의 어휘 거리 측정 절차 및 유의점 |
 | **상위 표준 연계** | [`docs/isa95.md`](docs/isa95.md) | ISA-95 표준 데이터 모델 매핑 및 미들웨어 계층의 근거 등급 정의 |
@@ -140,7 +140,7 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | **벤더 인터페이스** | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) | 벤더 API 표면 분석 및 플릿 관리 인터페이스 측정 노트 |
 | **현장 전제조건** | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) | 로봇 도입 현장의 인프라(도어, 바닥, 조명 등) 엔지니어링 전제조건 |
 | **벤더 매니페스트** | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) | 어댑터의 사우스바운드 포트 벤더 심볼 인용 대조 검증 도구 |
-| **미결 과제 대장** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 62개(내부·소비자 대기·외부) 및 해결 조건 관리 대장 |
+| **오픈 항목 과제 레지스터** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 62개(내부·소비자 대기·외부) 및 해결 조건 관리 레지스터 |
 
 ## 핵심 엔지니어링 규율
 
@@ -151,4 +151,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-10-05 · sha256:286000d94238 · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-06 · sha256:98206d8d2382 · 열림: C-3, §15.81

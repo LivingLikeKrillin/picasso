@@ -15,7 +15,7 @@
 
 | 어휘 타입 | 모델링 상태 및 분기 기준 |
 |---|---|
-| `Acceptance` · `Applied` · `Refusal` | 작업 접수 성공 / 실행 거부 및 거부 상세 사유 (호스트가 표준 RejectionReason으로 매핑) |
+| `Acceptance` · `Applied` · `Refusal` | 작업 수락 성공 / 실행 거부 및 거부 상세 사유 (호스트가 표준 RejectionReason으로 매핑) |
 | `HoldObservation` | 파지 상태 3분기: 파지 중(`HELD`), 미파지(`EMPTY`), **관측 불가(`NOT_OBSERVABLE`)** |
 | `FaultObservation` | 결함 감지 2분기: 결함 확인(`DETECTED`), **관측 불가(`NOT_OBSERVABLE`)** |
 | `ProgressObservation` | 진행률 2분기: 정량 측정 가능(`MEASURED`, 측정 기준 포함), **측정 불가(`UNMEASURABLE`)** |
@@ -31,4 +31,4 @@
 
 특정 하드웨어 센서나 벤더 고유의 실패 원인을 열거형으로 정의하지 않으며, 관측 불가 사유는 문자열 기반으로 캡슐화합니다. 특정 기종에 특화된 타입 구조를 노출할 경우 게이트 검사 7번(기종 분기 금지)을 위반하게 되기 때문입니다.
 
-> 마지막 대조: 2026-10-05 · sha256:22257f25aa35 · 열림: 없음
+> 마지막 대조: 2026-10-06 · sha256:19b7a814c1a3 · 열림: 없음
