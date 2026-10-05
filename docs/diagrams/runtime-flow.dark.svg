@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="632" viewBox="0 0 840 632">
+  <defs>
+    <marker id="data" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1,1 L8,5 L1,9" fill="none" stroke="#e6e6e6" stroke-width="1.2"/>
+    </marker>
+    <marker id="obs" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1,1 L8,5 L1,9" fill="none" stroke="#9a9a9a" stroke-width="1.2"/>
+    </marker>
+    <marker id="cmd" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,1 L9,5 L0,9 Z" fill="#d4654a"/>
+    </marker>
+    <marker id="gov" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1,1 L8,5 L1,9" fill="none" stroke="#8fa2cc" stroke-width="1.2"/>
+    </marker>
+  </defs>
+
+  <g font-family="'Helvetica Neue', Helvetica, Arial, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', sans-serif" fill="#e6e6e6">
+    <text x="20" y="36" font-size="17" font-weight="700">런타임 실행 흐름</text>
+    <text x="20" y="56" font-size="12" fill="#9a9a9a">작업 주문 접수와 실행 조율 및 대안 탐색 흐름</text>
+
+    <!-- ===== zone: outside ===== -->
+    <rect x="32" y="84" width="776" height="72" fill="none" stroke="#4a4a4a"/>
+    <text x="44" y="100" font-size="11" fill="#9a9a9a">외부 시스템 및 운영자와 에이전트</text>
+    <rect x="48" y="108" width="184" height="32" fill="none" stroke="#4a4a4a"/>
+    <text x="60" y="129" font-size="12" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">MES, WMS</text>
+    <rect x="328" y="108" width="184" height="32" fill="none" stroke="#4a4a4a"/>
+    <text x="340" y="129" font-size="12">운영자</text>
+    <rect x="608" y="108" width="184" height="32" fill="none" stroke="#4a4a4a"/>
+    <text x="620" y="129" font-size="12" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">narrator, koshei</text>
+
+    <!-- ===== zone: this repository ===== -->
+    <rect x="32" y="184" width="776" height="304" fill="none" stroke="#8fa2cc"/>
+    <text x="48" y="202" font-size="11" font-weight="700" fill="#8fa2cc">저장소 내부</text>
+    <rect x="48" y="224" width="184" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="60" y="247" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">submit</text>
+    <text x="60" y="263" font-size="11" fill="#9a9a9a">사슬 검사 기반 주문 접수</text>
+    <rect x="328" y="224" width="184" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="340" y="247" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">RemedyDesk</text>
+    <text x="340" y="263" font-size="11" fill="#9a9a9a">대안 탐색 및 제안 관리</text>
+    <rect x="608" y="224" width="184" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="620" y="247" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">ApprovalHost</text>
+    <text x="620" y="263" font-size="11" fill="#9a9a9a">루프백 HTTP 승인 창구</text>
+    <rect x="48" y="320" width="464" height="52" fill="#2b3f6b" stroke="#8fa2cc" stroke-width="1.5"/>
+    <rect x="52" y="324" width="456" height="44" fill="none" stroke="#fff" stroke-width="0.75" stroke-opacity="0.6"/>
+    <text x="64" y="343" font-size="12.5" font-weight="700" fill="#fff" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">Middleware.pump</text>
+    <text x="64" y="359" font-size="11" fill="#cfd6e6">유일한 상태 변경 적용자 및 실행 조율과 결과 통보</text>
+    <rect x="608" y="320" width="184" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="620" y="343" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">build/export/live</text>
+    <text x="620" y="359" font-size="11" fill="#9a9a9a">사건 및 결과 파일 3개</text>
+    <rect x="48" y="416" width="184" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="60" y="439" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">adapter-*</text>
+    <text x="60" y="455" font-size="11" fill="#9a9a9a">로봇 제어 및 상태 보고</text>
+
+    <!-- ===== zone: field ===== -->
+    <rect x="32" y="512" width="776" height="72" fill="none" stroke="#4a4a4a"/>
+    <text x="44" y="528" font-size="11" fill="#9a9a9a">현장 물리 기체 및 설비</text>
+    <rect x="48" y="536" width="184" height="32" fill="none" stroke="#4a4a4a"/>
+    <text x="60" y="557" font-size="12">로봇 기체</text>
+    <rect x="328" y="536" width="184" height="32" fill="none" stroke="#4a4a4a"/>
+    <text x="340" y="557" font-size="12">셀 설비</text>
+
+    <!-- ===== edges: data ===== -->
+    <g fill="none" stroke="#e6e6e6" stroke-width="1.2">
+      <path d="M200,140 V222" marker-end="url(#data)"/>
+      <path d="M48,346 H16 V124 H46" marker-end="url(#data)"/>
+      <path d="M140,276 V318" marker-end="url(#data)"/>
+      <path d="M232,250 H326" marker-end="url(#data)"/>
+      <path d="M512,346 H606" marker-end="url(#data)"/>
+      <path d="M488,276 V300 H700 V318" marker-end="url(#data)"/>
+    </g>
+    <g font-size="10.5" fill="#e6e6e6">
+      <text x="208" y="176" font-size="10.5">JobOrder 전송</text>
+      <text x="24" y="176" font-size="10.5">JobResponse 통보</text>
+      <text x="148" y="302" font-size="10.5">주문 전달</text>
+      <text x="240" y="243" font-size="10.5">거절로 제안 생성</text>
+      <text x="520" y="339" font-size="10.5">결과 파일 쓰기</text>
+      <text x="520" y="293" font-size="10.5">탐색 대장 쓰기</text>
+    </g>
+
+    <!-- ===== edges: command ===== -->
+    <g fill="none" stroke="#d4654a" stroke-width="2">
+      <path d="M700,140 V222" marker-end="url(#cmd)"/>
+      <path d="M608,250 H514" marker-end="url(#cmd)"/>
+      <path d="M380,140 V222" marker-end="url(#cmd)"/>
+      <path d="M440,276 V318" marker-end="url(#cmd)"/>
+      <path d="M100,372 V414" marker-end="url(#cmd)"/>
+      <path d="M216,468 V534" marker-end="url(#cmd)"/>
+    </g>
+    <g font-size="10.5" fill="#d4654a">
+      <text x="692" y="200" font-size="10.5" text-anchor="end">POST /approvals</text>
+      <text x="520" y="243" font-size="10.5">제안 승인</text>
+      <text x="388" y="176" font-size="10.5">직접 승인</text>
+      <text x="432" y="302" font-size="10.5" text-anchor="end">조치 실행</text>
+      <text x="108" y="398" font-size="10.5">명령 전달</text>
+      <text x="224" y="504" font-size="10.5">기체 구동</text>
+    </g>
+
+    <!-- ===== edges: observation ===== -->
+    <g fill="none" stroke="#9a9a9a" stroke-width="1.2" stroke-dasharray="5 3">
+      <path d="M792,346 H824 V124 H794" marker-end="url(#obs)"/>
+      <path d="M200,416 V374" marker-end="url(#obs)"/>
+      <path d="M420,536 V374" marker-end="url(#obs)"/>
+    </g>
+    <g font-size="10.5" fill="#9a9a9a">
+      <text x="816" y="176" font-size="10.5" text-anchor="end">파일 읽기</text>
+      <text x="208" y="398" font-size="10.5">상태 보고</text>
+      <text x="428" y="444" font-size="10.5">확인 신호 전달</text>
+    </g>
+
+    <!-- ===== key ===== -->
+    <g font-size="10.5" fill="#9a9a9a">
+      <path d="M20,608 H44" fill="none" stroke="#e6e6e6" stroke-width="1.2"/>
+      <text x="50" y="612" font-size="11">데이터</text>
+      <path d="M107,608 H131" fill="none" stroke="#d4654a" stroke-width="2"/>
+      <text x="137" y="612" font-size="11">명령 및 쓰기</text>
+      <path d="M238,608 H262" fill="none" stroke="#9a9a9a" stroke-width="1.2" stroke-dasharray="5 3"/>
+      <text x="268" y="612" font-size="11">관측</text>
+      <rect x="314" y="602" width="14" height="10" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+      <text x="334" y="612" font-size="11">저장소 모듈</text>
+      <rect x="424" y="602" width="14" height="10" fill="#2b3f6b" stroke="#8fa2cc"/>
+      <text x="444" y="612" font-size="11">핵심 모듈</text>
+      <rect x="523" y="602" width="14" height="10" fill="none" stroke="#4a4a4a"/>
+      <text x="543" y="612" font-size="11">외부 시스템</text>
+    </g>
+  </g>
+</svg>

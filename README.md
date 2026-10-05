@@ -16,7 +16,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/seam.dark.svg">
-  <img alt="단일 계약 인터페이스가 핵심 이음매 역할을 수행합니다. 상류 시스템·picasso·contracts·adapter-host는 기종별 종속성을 갖지 않으며 게이트 검사 7이 이를 CI 실패 조건으로 강제합니다. 계약 하위 계층에는 기종별 어댑터 넷과, 단일 프로파일로 구동되는 mimic이 동일한 위치에 플러그인됩니다." src="docs/diagrams/seam.svg">
+  <img alt="상류 시스템은 작업 주문을 picasso에 보내고 결과 통보를 받습니다. picasso와 호스트 및 에뮬레이터 영역은 기종 분기 없이 표준 계약으로 동작하며 검사 7로 검증합니다. 기종 전용 코드는 4개 어댑터에 두고 외부 벤더 API를 호출합니다." src="docs/diagrams/seam.svg">
 </picture>
 
 **기종별 식별자와 종속성은 최하위 어댑터 계층에만 격리됩니다.** 상류 연계 계층부터 어댑터 호스트(Adapter Host)까지의 전 계층은 특정 기종에 대한 의존성을 갖지 않으며, 게이트 검사 7번이 공용 모듈의 소스코드를 정적 분석하여 기종 종속성 누출을 **CI 실패 조건**으로 차단합니다. 계약 하위 계층은 상호 호환 가능한 구조로 설계되어, 실물 기종 어댑터 넷이 배치되는 위치에 프로파일 주도 에뮬레이터인 `mimic`을 동일하게 바인딩할 수 있으며, `HostParityTest`를 통해 동일한 요청 사양에 대해 수락·거절 판정의 동등성을 검증합니다.
@@ -29,7 +29,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/components.dark.svg">
-  <img alt="16개 모듈을 역할별 영역으로 구분한 아키텍처 다이어그램. 중심에 계약 어휘 둘(contracts · profile-model)이 위치하며 각각 13개와 7개 모듈에서 참조합니다. 상단은 소비자 영역(picasso · client), 하단은 발신자 영역(mimic · adapter-host)으로 구성되며, adapter-host 내부에 기종 어댑터 넷과 adapter-core가 포함됩니다. 최하단에는 테스트 하네스(harness)와 레지스트리(registry ← gate)가 위치합니다." src="docs/diagrams/components.svg">
+  <img alt="저장소 모듈 16개 사이의 출하 의존 관계를 나타냅니다. 계약 어휘인 contracts는 13개 모듈이, profile-model은 7개 모듈이 출하 의존으로 사용합니다. 해당 계약 어휘로 향하는 20개를 제외한 나머지 의존 간선 17개는 화살표로 직접 연결합니다." src="docs/diagrams/components.svg">
 </picture>
 
 ```
@@ -74,6 +74,11 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 - 플릿 관리 시스템에 연계되는 `adapter-boston-dynamics-orbit`은 배치 런처 및 서비스 호스팅 구조를 포함하여 5개 모듈에 의존합니다. (ADR 37·39)
 
 ## 핵심 동작 메커니즘
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/runtime-flow.dark.svg">
+  <img alt="상류의 작업 주문은 검증을 거쳐 pump로 넘어가 로봇 기체 제어로 이어집니다. 주문이 거절되면 대안 탐색 제안이 생성되며 외부 에이전트나 운영자의 승인을 거쳐 실행됩니다. 실행 결과와 사건 기록은 파일 3개로 출력되어 외부와 연동됩니다." src="docs/diagrams/runtime-flow.svg">
+</picture>
 
 - **인터페이스 계약 (Contracts)**: 명령/질의는 gRPC, 상태/이벤트/연결 스트리밍은 MQTT를 사용합니다. 태스크는 `(task_id, revision)` 튜플로 멱등성을 보장하며, 수명주기 상태 전이와 파지 상태(`hold`) 갱신을 전달합니다. 계약은 특정 도메인 수치나 파라미터 제약조건을 하드코딩하지 않으며, 이는 프로파일에 위임합니다.
 - **기종 프로파일 (Profile)**: 각 로봇 기종의 지원 역량을 선언하는 JSON 스펙 문서입니다. 기능 지원 여부는 3값 논리(`YES`, `NO`, `UNKNOWN`)를 채택하여, 명확히 입증되지 않은 사양을 `NO`로 단정하여 발생하는 정보 왜곡을 방지합니다.
@@ -146,4 +151,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-10-05 · sha256:b1480219f42d · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-05 · sha256:835e20fc8184 · 열림: C-3, §15.81
