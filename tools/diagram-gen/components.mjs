@@ -8,7 +8,7 @@ import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const W = 840, H = 588;
+const W = 840, H = 560;
 const INK = '#262626', GREY = '#6f6f6f', HAIR = '#bdbdbd', GOV = '#2b3f6b', TINT = '#e8ebf3', TEXT2 = '#cfd6e6';
 const SANS = "'Helvetica Neue', Helvetica, Arial, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', sans-serif";
 const MONO = "Menlo, Consolas, 'DejaVu Sans Mono', monospace";
@@ -107,6 +107,8 @@ for (const [m, deps] of Object.entries(graph)) {
   }
 }
 for (const k of Object.keys(ROUTES)) if (!drawn.has(k)) throw new Error(`빌드에 없는 경로: ${k}`);
+// 바닥 둘로 가는 간선은 그림에 안 그리고 수도 화면에 적지 않는다. 시험이 대조할 수만 주석으로 싣는다.
+o.push(`  <!-- hidden-edges: ${rootEdges} -->`);
 
 o.push(`  <g font-family="${SANS}" fill="${INK}">`);
 o.push('    ' + text(20, 36, T.COMP_TITLE, { size: 17, weight: 700 }));
@@ -134,7 +136,6 @@ o.push('\n    <!-- foundation: contract vocabularies -->');
   o.push('    ' + text(x + 16, 495, role, { fill: TEXT2 }));
   o.push('    ' + text(x + 360, 479, users.replace(/^\d+/, String(usersOf(name).length)), { fill: TEXT2, anchor: 'end' }));
 });
-o.push('    ' + text(20, 536, T.COMP_FOOT.replace(/화살표 \d+ 개/, `화살표 ${rootEdges} 개`), { fill: GREY }));
 
 o.push('\n    <!-- edges: shipping dependencies -->');
 o.push(`    <g fill="none" stroke="${INK}" stroke-width="1.2">`);
@@ -143,14 +144,14 @@ o.push('    </g>');
 
 o.push('\n    <!-- key -->');
 o.push(`    <g font-size="10.5" fill="${GREY}">`);
-o.push(`      <path d="M20,564 H44" fill="none" stroke="${INK}" stroke-width="1.2"/>`);
-o.push('      ' + text(50, 568, T.COMP_KEY_ARROW));
-o.push(`      <rect x="160" y="558" width="14" height="10" fill="${TINT}" stroke="${GOV}" stroke-width="1.5"/>`);
-o.push('      ' + text(180, 568, T.KEY_PROJECT));
-o.push(`      <rect x="268" y="558" width="14" height="10" fill="${GOV}" stroke="${GOV}"/>`);
-o.push('      ' + text(288, 568, T.KEY_CORE));
-o.push(`      <rect x="368" y="558" width="14" height="10" fill="none" stroke="${HAIR}"/>`);
-o.push('      ' + text(388, 568, T.KEY_ZONE));
+o.push(`      <path d="M20,536 H44" fill="none" stroke="${INK}" stroke-width="1.2"/>`);
+o.push('      ' + text(50, 540, T.COMP_KEY_ARROW));
+o.push(`      <rect x="160" y="530" width="14" height="10" fill="${TINT}" stroke="${GOV}" stroke-width="1.5"/>`);
+o.push('      ' + text(180, 540, T.KEY_PROJECT));
+o.push(`      <rect x="268" y="530" width="14" height="10" fill="${GOV}" stroke="${GOV}"/>`);
+o.push('      ' + text(288, 540, T.KEY_CORE));
+o.push(`      <rect x="368" y="530" width="14" height="10" fill="none" stroke="${HAIR}"/>`);
+o.push('      ' + text(388, 540, T.KEY_ZONE));
 o.push('    </g>');
 o.push('  </g>');
 o.push('</svg>');

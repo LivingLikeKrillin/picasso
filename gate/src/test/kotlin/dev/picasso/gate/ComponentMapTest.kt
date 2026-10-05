@@ -66,8 +66,9 @@ class ComponentMapTest {
 
     @Test
     fun `구성도가 적은 수가 빌드와 같다`() {
-        // ★**그림이 스스로 무엇을 숨겼는지 적는다.** 바닥 둘로 가는 간선은 안 그리는 대신 수로 적었고,
-        // 의존이 늘거나 줄면 그 수가 먼저 틀어진다.
+        // ★**그림이 스스로 무엇을 숨겼는지 적는다.** 바닥 둘로 가는 간선은 안 그리고, 그 수를 화면이 아니라
+        // 주석(`<!-- hidden-edges: N -->`)에 싣는다(2026-10-05 사용자 요청으로 화면 문장에서 뺐다). 의존이 늘거나
+        // 줄면 그 수가 먼저 틀어진다.
         val graph = shipping()
         val modules = graph.keys.size
         val hidden = graph.values.flatten().count { it in ROOTS }
@@ -77,7 +78,7 @@ class ComponentMapTest {
             "구성도가 적은 모듈 수가 settings.gradle.kts 와 다르다",
         )
         assertEquals(
-            hidden, claimed("""화살표 (\d+) 개는 안 그렸다"""),
+            hidden, claimed("""<!-- hidden-edges: (\d+) -->"""),
             "바닥 둘로 가는 간선 수가 빌드와 다르다",
         )
     }
