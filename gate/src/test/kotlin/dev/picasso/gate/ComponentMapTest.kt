@@ -60,7 +60,7 @@ class ComponentMapTest {
         assertEquals(
             drawable, edges.size,
             "빌드의 간선과 구성도의 간선 수가 다르다 — 의존이 늘거나 줄었으면 그림을 다시 뽑아라: " +
-                "node tools/diagram-gen/components.mjs docs/diagrams/components.svg 1000 .",
+                "node tools/diagram-gen/components.mjs docs/diagrams/components.svg 840 .",
         )
     }
 

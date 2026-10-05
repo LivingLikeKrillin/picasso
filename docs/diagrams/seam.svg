@@ -1,54 +1,133 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="840" height="900" viewBox="0 0 840 900" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="824" viewBox="0 0 840 824">
   <defs>
-    <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#57606a"/></marker>
-    <marker id="ab" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#0969da"/></marker>
+    <marker id="data" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1,1 L8,5 L1,9" fill="none" stroke="#262626" stroke-width="1.2"/>
+    </marker>
+    <marker id="obs" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1,1 L8,5 L1,9" fill="none" stroke="#6f6f6f" stroke-width="1.2"/>
+    </marker>
+    <marker id="cmd" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,1 L9,5 L0,9 Z" fill="#b23a1d"/>
+    </marker>
+    <marker id="gov" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1,1 L8,5 L1,9" fill="none" stroke="#2b3f6b" stroke-width="1.2"/>
+    </marker>
   </defs>
-  <rect x="6" y="6" width="828" height="888" rx="14" fill="#ffffff" stroke="#d0d7de"/>
-  <text x="32" y="46" font-size="17" font-weight="600" fill="#1f2328">단일 표준 계약 기반 아키텍처 이음매 (Architectural Seam)</text>
-  <text x="32" y="70" font-size="12.5" fill="#57606a">상위는 기종 비종속 오케스트레이션, 하위는 플러그형 어댑터 — 게이트 검증으로 격리 보장</text>
-  <rect x="32" y="96" width="776" height="92" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
-  <text x="48" y="116" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">상위 시스템 계층</text>
-  <rect x="176" y="124" width="340" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="346" y="146" font-size="12.5" fill="#1f2328" text-anchor="middle">상위 도메인 시스템 — MES · WMS · SCADA</text>
-  <text x="346" y="164" font-size="11" fill="#57606a" text-anchor="middle">이기종 상위 프로토콜을 단일 인바운드 ACL 계층에서 변환 접수</text>
-  <polyline points="346,180 346,228" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <rect x="32" y="204" width="776" height="112" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
-  <text x="48" y="224" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">계약 상위 — 기종 비종속 코어 오케스트레이션</text>
-  <rect x="176" y="232" width="340" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="346" y="254" font-size="12.5" fill="#1f2328" text-anchor="middle">picasso — 미들웨어 코어 오케스트레이터</text>
-  <text x="346" y="272" font-size="11" fill="#57606a" text-anchor="middle">정준 도메인 모델 · 트랜잭션 공통 실행 파이프라인</text>
-  <rect x="560" y="232" width="248" height="56" rx="10" fill="#eef5ff" stroke="#cfe0f5"/>
-  <text x="576" y="252" font-size="11" font-weight="700" fill="#0969da" letter-spacing="1">CI 정적 검증</text>
-  <text x="576" y="272" font-size="11" fill="#57606a">검사 7 — 공용 모듈 기종 심볼 금지</text>
-  <polyline points="560,260 516,260" fill="none" stroke="#0969da" stroke-width="1.6" marker-end="url(#ab)"/>
-  <polyline points="346,288 346,352" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <rect x="32" y="383" width="104" height="2.5" fill="#1a7f37"/>
-  <rect x="556" y="383" width="252" height="2.5" fill="#1a7f37"/>
-  <text x="640" y="374" font-size="11" font-weight="700" fill="#1a7f37" letter-spacing="1">표준 인터페이스 이음매</text>
-  <rect x="136" y="352" width="420" height="64" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
-  <text x="346" y="378" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">contracts — 표준 인터페이스 계약 (Proto)</text>
-  <text x="346" y="398" font-size="11" fill="#57606a" text-anchor="middle">gRPC 명령/질의 · MQTT 원격측정/이벤트 — 데이터 스키마 및 수명주기 상태 규격</text>
-  <rect x="32" y="452" width="776" height="336" rx="10" fill="#fbfcfd" stroke="#e6e9ee"/>
-  <text x="48" y="472" font-size="11" font-weight="700" fill="#8b95a1" letter-spacing="1">계약 하위 — 플러그형 기종 확장 및 가상화 계층</text>
-  <polyline points="204,416 204,488" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <polyline points="500,416 500,560 588,560 588,584" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <rect x="64" y="488" width="280" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="204" y="510" font-size="12.5" fill="#1f2328" text-anchor="middle">adapter-host</text>
-  <text x="204" y="528" font-size="11" fill="#57606a" text-anchor="middle">기종 비종속 호스트 (ADR 39) · 검사 7 대상</text>
-  <polyline points="204,544 204,584" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <rect x="64" y="584" width="280" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="204" y="610" font-size="12.5" font-weight="600" fill="#1f2328" text-anchor="middle">기종별 전용 어댑터 (4종)</text>
-  <text x="204" y="630" font-size="11" font-weight="700" fill="#1a7f37" text-anchor="middle">기종 전용 프로토콜/SDK 격리 영역</text>
-  <polyline points="204,648 204,688" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
-  <rect x="64" y="688" width="280" height="56" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="204" y="710" font-size="12" fill="#1f2328" text-anchor="middle">하향 벤더 통신 인터페이스 (Southbound)</text>
-  <text x="204" y="728" font-size="11" fill="#57606a" text-anchor="middle">Spot · Digit · G1 · Orbit</text>
-  <rect x="448" y="584" width="280" height="64" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
-  <text x="588" y="610" font-size="12.5" fill="#1f2328" text-anchor="middle">mimic — 프로파일 주도 가상화 에뮬레이터</text>
-  <text x="588" y="630" font-size="11" fill="#57606a" text-anchor="middle">단일 프로파일 선언 기반 고충실도 시뮬레이션</text>
-  <rect x="64" y="800" width="744" height="60" rx="10" fill="#eef5ff" stroke="#cfe0f5"/>
-  <text x="80" y="820" font-size="11" font-weight="700" fill="#0969da" letter-spacing="1">동일 계약 패리티(Parity) 보장</text>
-  <text x="80" y="842" font-size="11" fill="#57606a">harness :: HostParityTest — 에뮬레이터와 어댑터 호스트 간 동일 요청에 대한 동작 등가성 검증</text>
-  <polyline points="64,516 46,516 46,830 64,830" fill="none" stroke="#0969da" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ab)"/>
-  <polyline points="588,648 588,800" fill="none" stroke="#0969da" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#ab)"/>
+
+  <g font-family="'Helvetica Neue', Helvetica, Arial, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', sans-serif" fill="#262626">
+    <text x="20" y="36" font-size="17" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">picasso</text>
+    <text x="20" y="56" font-size="12" fill="#6f6f6f">공장 운영 시스템과 이기종 모바일 로봇을 잇는 표준 계약 이음매.</text>
+    <text x="820" y="36" font-size="11" fill="#6f6f6f" text-anchor="end">기종 식별자는 어댑터 넷에만 있다</text>
+    <text x="820" y="52" font-size="11" fill="#6f6f6f" text-anchor="end">게이트 검사 7이 기종 분기 차단</text>
+
+    <!-- ===== zone: upstream ===== -->
+    <rect x="32" y="84" width="776" height="72" fill="none" stroke="#bdbdbd"/>
+    <text x="44" y="100" font-size="11" fill="#6f6f6f">상류 공장 운영 시스템</text>
+    <rect x="212" y="112" width="200" height="32" fill="none" stroke="#bdbdbd"/>
+    <text x="224" y="133" font-size="12" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">MES, WMS, SCADA</text>
+
+    <!-- ===== zone: model-agnostic ===== -->
+    <rect x="32" y="184" width="560" height="344" fill="none" stroke="#2b3f6b"/>
+    <text x="48" y="202" font-size="11" font-weight="700" fill="#2b3f6b">기종 비종속 영역</text>
+    <text x="48" y="218" font-size="11" fill="#6f6f6f">게이트 검사 7이 공용 모듈 기종 분기를 차단한다.</text>
+    <rect x="192" y="244" width="240" height="52" fill="#e8ebf3" stroke="#2b3f6b" stroke-width="1.5"/>
+    <text x="204" y="267" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">picasso</text>
+    <text x="204" y="283" font-size="11" fill="#6f6f6f">미들웨어 코어. 접수, 협상, 조율</text>
+    <rect x="152" y="344" width="320" height="52" fill="#2b3f6b" stroke="#2b3f6b" stroke-width="1.5"/>
+    <rect x="156" y="348" width="312" height="44" fill="none" stroke="#fff" stroke-width="0.75" stroke-opacity="0.6"/>
+    <text x="168" y="367" font-size="12.5" font-weight="700" fill="#fff" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">contracts</text>
+    <text x="168" y="383" font-size="11" fill="#cfd6e6">표준 계약. gRPC 명령, MQTT 원격측정</text>
+    <rect x="48" y="448" width="240" height="52" fill="#e8ebf3" stroke="#2b3f6b" stroke-width="1.5"/>
+    <text x="60" y="471" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">adapter-host</text>
+    <text x="60" y="487" font-size="11" fill="#6f6f6f">기종 비종속. 단일 어댑터 호스팅</text>
+    <rect x="336" y="448" width="240" height="52" fill="#e8ebf3" stroke="#2b3f6b" stroke-width="1.5"/>
+    <text x="348" y="471" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">mimic</text>
+    <text x="348" y="487" font-size="11" fill="#6f6f6f">프로파일 주도. 계약 에뮬레이터</text>
+
+    <!-- right column: gate, seam note, parity -->
+    <rect x="624" y="244" width="184" height="52" fill="#e8ebf3" stroke="#2b3f6b" stroke-width="1.5"/>
+    <text x="636" y="267" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">gate</text>
+    <text x="636" y="283" font-size="11" fill="#6f6f6f">검사 7. 기종 분기 유입 검사</text>
+    <text x="624" y="364" font-size="11" fill="#6f6f6f">계약 하나가 이음매다</text>
+    <text x="624" y="380" font-size="11" fill="#6f6f6f">위층은 기종을 모른다</text>
+    <text x="624" y="396" font-size="11" fill="#6f6f6f">아래층만 기종을 안다</text>
+    <rect x="624" y="448" width="184" height="52" fill="#e8ebf3" stroke="#2b3f6b" stroke-width="1.5"/>
+    <text x="636" y="471" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">HostParityTest</text>
+    <text x="636" y="487" font-size="11" fill="#6f6f6f">호스트와 mimic 대조</text>
+
+    <!-- ===== zone: model-specific ===== -->
+    <rect x="32" y="560" width="560" height="96" fill="none" stroke="#bdbdbd"/>
+    <text x="44" y="576" font-size="11" fill="#6f6f6f">기종 전용 영역 (어댑터 넷)</text>
+    <rect x="48" y="588" width="336" height="52" fill="#e8ebf3" stroke="#2b3f6b" stroke-width="1.5"/>
+    <text x="60" y="611" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">adapter-*</text>
+    <text x="60" y="627" font-size="11" fill="#6f6f6f">기종 전용 어댑터. unitree-g1, spot, agility-digit, orbit</text>
+
+    <!-- ===== zone: vendor ===== -->
+    <rect x="32" y="688" width="560" height="72" fill="none" stroke="#bdbdbd"/>
+    <text x="44" y="704" font-size="11" fill="#6f6f6f">벤더 SDK (저장소 밖)</text>
+    <rect x="48" y="716" width="240" height="32" fill="none" stroke="#bdbdbd"/>
+    <text x="60" y="737" font-size="12" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">Spot, Digit, G1, Orbit</text>
+
+    <!-- ===== edges: data ===== -->
+    <g fill="none" stroke="#262626" stroke-width="1.2">
+      <path d="M292,144 V242" marker-end="url(#data)"/>
+      <path d="M332,244 V146" marker-end="url(#data)"/>
+    </g>
+    <g font-size="10.5" fill="#262626">
+      <text x="284" y="176" font-size="10.5" text-anchor="end">JobOrder 발주</text>
+      <text x="340" y="176" font-size="10.5">JobResponse 통보</text>
+    </g>
+
+    <!-- ===== edges: command ===== -->
+    <g fill="none" stroke="#b23a1d" stroke-width="2">
+      <path d="M312,296 V342" marker-end="url(#cmd)"/>
+      <path d="M196,396 V446" marker-end="url(#cmd)"/>
+      <path d="M428,396 V446" marker-end="url(#cmd)"/>
+      <path d="M264,500 V586" marker-end="url(#cmd)"/>
+      <path d="M264,640 V714" marker-end="url(#cmd)"/>
+    </g>
+    <g font-size="10.5" fill="#b23a1d">
+      <text x="320" y="324" font-size="10.5">명령과 질의 전달</text>
+      <text x="204" y="428" font-size="10.5">명령 전달</text>
+      <text x="436" y="428" font-size="10.5">명령 전달</text>
+      <text x="256" y="520" font-size="10.5" text-anchor="end">기종 어댑터 위임</text>
+      <text x="256" y="676" font-size="10.5" text-anchor="end">벤더 SDK 호출</text>
+    </g>
+
+    <!-- ===== edges: control ===== -->
+    <g fill="none" stroke="#2b3f6b" stroke-width="1.2" stroke-dasharray="1.5 2.5">
+      <path d="M624,270 H434" marker-end="url(#gov)"/>
+    </g>
+    <g font-size="10.5" fill="#2b3f6b">
+      <text x="440" y="263" font-size="10.5">기종 분기 차단</text>
+    </g>
+
+    <!-- ===== edges: observation ===== -->
+    <g fill="none" stroke="#6f6f6f" stroke-width="1.2" stroke-dasharray="5 3">
+      <path d="M576,474 H622" marker-end="url(#obs)"/>
+      <path d="M288,488 H316 V544 H716 V502" marker-end="url(#obs)"/>
+    </g>
+    <g font-size="10.5" fill="#6f6f6f">
+      <text x="708" y="524" font-size="10.5" text-anchor="end">판정 결과 대조</text>
+    </g>
+
+    <!-- ===== key ===== -->
+    <text x="820" y="784" font-size="10.5" fill="#6f6f6f" text-anchor="end">같은 계약에 실물과 에뮬레이터가 똑같이 붙는다</text>
+    <g font-size="10.5" fill="#6f6f6f">
+      <path d="M20,800 H44" fill="none" stroke="#262626" stroke-width="1.2"/>
+      <text x="50" y="804" font-size="11">데이터</text>
+      <path d="M107,800 H131" fill="none" stroke="#b23a1d" stroke-width="2"/>
+      <text x="137" y="804" font-size="11">명령, 쓰기</text>
+      <path d="M227,800 H251" fill="none" stroke="#2b3f6b" stroke-width="1.2" stroke-dasharray="1.5 2.5"/>
+      <text x="257" y="804" font-size="11">통제</text>
+      <path d="M303,800 H327" fill="none" stroke="#6f6f6f" stroke-width="1.2" stroke-dasharray="5 3"/>
+      <text x="333" y="804" font-size="11">관측</text>
+      <rect x="379" y="794" width="14" height="10" fill="#e8ebf3" stroke="#2b3f6b" stroke-width="1.5"/>
+      <text x="399" y="804" font-size="11">이 저장소</text>
+      <rect x="478" y="794" width="14" height="10" fill="#2b3f6b" stroke="#2b3f6b"/>
+      <text x="498" y="804" font-size="11">핵심 모듈</text>
+      <rect x="577" y="794" width="14" height="10" fill="none" stroke="#bdbdbd"/>
+      <text x="597" y="804" font-size="11">외부 시스템</text>
+    </g>
+  </g>
 </svg>

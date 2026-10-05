@@ -32,15 +32,37 @@ const MAP = {
   '#ffebe9': '#25171c',   // danger fill
 };
 
+// engineering-diagram-svg 토큰(§7 다크 변종). 반전 칸의 governed 와 그 안의 글자는 그대로 둔다.
+// 이 토큰으로 그린 그림은 governed(#2b3f6b)를 들고 있으므로 그것으로 가른다.
+const ENGINEERING = {
+  '#ffffff': '#1a1a1a',   // paper
+  '#262626': '#e6e6e6',   // ink
+  '#6f6f6f': '#9a9a9a',   // grey
+  '#bdbdbd': '#4a4a4a',   // hairline
+  '#e8ebf3': '#232a3a',   // governed-tint
+  '#2b3f6b': '#2b3f6b',   // governed
+  '#cfd6e6': '#cfd6e6',   // governed-text2
+  '#b23a1d': '#d4654a',   // command
+};
+
 const src = process.argv[2];
 if (!src) { console.error('usage: node make-dark.mjs <light.svg>'); process.exit(2); }
 
 let svg = readFileSync(src, 'utf8');
+const map = /#2b3f6b/i.test(svg) ? ENGINEERING : MAP;
+// ★governed 는 반전 칸의 **채움**으로는 다크에서도 읽히지만, 선과 글자로는 검은 바탕에 묻힌다.
+//   그래서 칸 채움(rect 의 fill)만 그대로 두고 선과 글자는 밝은 남색으로 올린다.
+if (map === ENGINEERING) {
+  svg = svg.replace(/<(\w+)([^>]*)>/g, (tag, name, attrs) =>
+    `<${name}${attrs.replace(/stroke="#2b3f6b"/gi, 'stroke="#8fa2cc"')
+      .replace(/fill="#2b3f6b"/gi, name === 'rect' ? 'fill="#2b3f6b"' : 'fill="#8fa2cc"')}>`);
+  ENGINEERING['#8fa2cc'] = '#8fa2cc';
+}
 const seen = new Set();
 svg = svg.replace(/#[0-9a-fA-F]{6}/g, (hex) => {
   const k = hex.toLowerCase();
-  if (!(k in MAP)) { seen.add(k); return hex; }
-  return MAP[k];
+  if (!(k in map)) { seen.add(k); return hex; }
+  return map[k];
 });
 
 if (seen.size) {

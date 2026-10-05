@@ -136,7 +136,7 @@ registry         ← 메타데이터 및 카탈로그 레지스트리 (무상태
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/components.dark.svg">
-  <img alt="16개 모듈 구성도. 중앙에 계약 어휘 둘이 위치하고 상단에 소비자, 하단에 발신자 및 어댑터 호스트가 위치합니다." src="diagrams/components.svg">
+  <img alt="전체 모듈 16 개 가운데 직접 그린 간선 17 개로 의존성을 표현합니다. 바닥 둘로 가는 의존 20 개는 선 대신 수로 적었습니다. 기종 코드는 어댑터에만 격리하여 공용 모듈의 독립성을 유지합니다." src="diagrams/components.svg">
 </picture>
 
 본 다이어그램과 의존성 표는 임의 작성된 산문이 아니며, 각 모듈의 `build.gradle.kts` 출하 의존성 선언을 `DocumentClaimsTest`가 직접 파싱하여 정합성을 검증합니다.
@@ -185,4 +185,4 @@ uplink                         → contracts
 5. [`commissioning.md`](commissioning.md) — 현장 시운전 절차 및 운영 설정 REST API 명세
 6. [공식 설계 문서](superpowers/specs/2026-09-05-picasso-design.md) — 시스템 전체 설계 정본 스펙
 
-> 마지막 대조: 2026-09-15 · sha256:62adcfbdbda4 · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126
+> 마지막 대조: 2026-10-05 · sha256:f6232597dfc2 · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126
