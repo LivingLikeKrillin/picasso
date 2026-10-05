@@ -22,93 +22,101 @@
   <!-- edge: picasso -> client -->
   <!-- edge: registry -> gate -->
   <g font-family="'Helvetica Neue', Helvetica, Arial, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', sans-serif" fill="#e6e6e6">
-    <text x="20" y="36" font-size="17" font-weight="700">picasso 모듈 구성</text>
-    <text x="20" y="56" font-size="12" fill="#9a9a9a">모듈 16 개의 출하 의존과 표준 계약 어휘 구조를 나타낸다.</text>
-    <text x="820" y="36" font-size="11" fill="#9a9a9a" text-anchor="end">간선은 빌드 파일에서 뽑는다</text>
-    <text x="820" y="52" font-size="11" fill="#9a9a9a" text-anchor="end">기종 코드는 어댑터 모듈에만 있다</text>
+    <text x="20" y="36" font-size="17" font-weight="700">모듈 의존 관계</text>
+    <text x="20" y="56" font-size="12" fill="#9a9a9a">모듈 16 개 사이의 출하 의존 관계</text>
 
-    <!-- zone: model-specific adapters -->
-    <rect x="504" y="84" width="152" height="196" fill="none" stroke="#4a4a4a"/>
+    <!-- role zones -->
+    <rect x="24" y="188" width="144" height="224" fill="none" stroke="#4a4a4a"/>
+    <text x="36" y="204" font-size="11" fill="#9a9a9a">코어 및 클라이언트</text>
+    <rect x="184" y="84" width="304" height="192" fill="none" stroke="#4a4a4a"/>
+    <text x="196" y="100" font-size="11" fill="#9a9a9a">런타임 및 통합 시험 모듈</text>
+    <rect x="184" y="324" width="304" height="112" fill="none" stroke="#4a4a4a"/>
+    <text x="196" y="428" font-size="11" fill="#9a9a9a">능력 협상 및 원격측정 모듈</text>
+    <rect x="504" y="84" width="144" height="328" fill="none" stroke="#4a4a4a"/>
     <text x="516" y="100" font-size="11" fill="#9a9a9a">기종 어댑터 모듈</text>
+    <rect x="664" y="188" width="144" height="224" fill="none" stroke="#4a4a4a"/>
+    <text x="676" y="204" font-size="11" fill="#9a9a9a">운영 및 검증 모듈</text>
 
     <!-- modules -->
-    <rect x="192" y="112" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="204" y="135" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">harness</text>
-    <text x="204" y="151" font-size="11" fill="#9a9a9a">통합 시험 러너</text>
-    <rect x="512" y="112" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="524" y="135" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">orbit</text>
-    <text x="524" y="151" font-size="11" fill="#9a9a9a">플릿 어댑터와 런처</text>
-    <rect x="32" y="216" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="44" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">picasso</text>
-    <text x="44" y="255" font-size="11" fill="#9a9a9a">미들웨어 코어</text>
-    <rect x="192" y="216" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="204" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">mimic</text>
-    <text x="204" y="255" font-size="11" fill="#9a9a9a">프로파일 에뮬레이터</text>
-    <rect x="352" y="216" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="364" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">adapter-host</text>
-    <text x="364" y="255" font-size="11" fill="#9a9a9a">기종 비종속 런타임</text>
-    <rect x="512" y="216" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="524" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">g1, spot, digit</text>
-    <text x="524" y="255" font-size="11" fill="#9a9a9a">이기종 기체 어댑터</text>
-    <rect x="672" y="216" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="684" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">registry</text>
-    <text x="684" y="255" font-size="11" fill="#9a9a9a">기체 수명주기 운영</text>
-    <rect x="32" y="352" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="44" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">client</text>
-    <text x="44" y="391" font-size="11" fill="#9a9a9a">참조 클라이언트</text>
-    <rect x="192" y="352" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="204" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">capability</text>
-    <text x="204" y="391" font-size="11" fill="#9a9a9a">능력 투영과 협상</text>
-    <rect x="352" y="352" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="364" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">uplink</text>
-    <text x="364" y="391" font-size="11" fill="#9a9a9a">원격측정과 상태보고</text>
-    <rect x="512" y="352" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="524" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">adapter-core</text>
-    <text x="524" y="391" font-size="11" fill="#9a9a9a">추상 어댑터 계약</text>
-    <rect x="672" y="352" width="136" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-    <text x="684" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">gate</text>
-    <text x="684" y="391" font-size="11" fill="#9a9a9a">정합성 규칙 검증</text>
+    <rect x="192" y="112" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="202" y="135" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">harness</text>
+    <text x="202" y="151" font-size="11" fill="#9a9a9a">통합 시험 러너</text>
+    <rect x="512" y="112" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="522" y="135" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">orbit</text>
+    <text x="522" y="151" font-size="11" fill="#9a9a9a">플릿 연동 런처</text>
+    <rect x="32" y="216" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="42" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">picasso</text>
+    <text x="42" y="255" font-size="11" fill="#9a9a9a">미들웨어 코어</text>
+    <rect x="192" y="216" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="202" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">mimic</text>
+    <text x="202" y="255" font-size="11" fill="#9a9a9a">계약 에뮬레이터</text>
+    <rect x="352" y="216" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="362" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">adapter-host</text>
+    <text x="362" y="255" font-size="11" fill="#9a9a9a">어댑터 런타임</text>
+    <rect x="512" y="216" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="522" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">g1, spot, digit</text>
+    <text x="522" y="255" font-size="11" fill="#9a9a9a">기체 전용 어댑터</text>
+    <rect x="672" y="216" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="682" y="239" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">registry</text>
+    <text x="682" y="255" font-size="11" fill="#9a9a9a">기체 운영 서비스</text>
+    <rect x="32" y="352" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="42" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">client</text>
+    <text x="42" y="391" font-size="11" fill="#9a9a9a">참조 클라이언트</text>
+    <rect x="192" y="352" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="202" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">capability</text>
+    <text x="202" y="391" font-size="11" fill="#9a9a9a">능력 투영과 협상</text>
+    <rect x="352" y="352" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="362" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">uplink</text>
+    <text x="362" y="391" font-size="11" fill="#9a9a9a">원격측정 및 보고</text>
+    <rect x="512" y="352" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="522" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">adapter-core</text>
+    <text x="522" y="391" font-size="11" fill="#9a9a9a">공통 어댑터 계약</text>
+    <rect x="672" y="352" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+    <text x="682" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">gate</text>
+    <text x="682" y="391" font-size="11" fill="#9a9a9a">프로파일 검증기</text>
 
     <!-- foundation: contract vocabularies -->
     <rect x="32" y="456" width="376" height="52" fill="#2b3f6b" stroke="#8fa2cc" stroke-width="1.5"/>
     <rect x="36" y="460" width="368" height="44" fill="none" stroke="#fff" stroke-width="0.75" stroke-opacity="0.6"/>
     <text x="48" y="479" font-size="12.5" font-weight="700" fill="#fff" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">contracts</text>
-    <text x="48" y="495" font-size="11" fill="#cfd6e6">proto 계약. 스킬, 원격측정, 결함</text>
+    <text x="48" y="495" font-size="11" fill="#cfd6e6">스킬 수명주기 원격측정 proto 계약</text>
     <text x="392" y="479" font-size="11" fill="#cfd6e6" text-anchor="end">13개 모듈이 사용</text>
     <rect x="432" y="456" width="376" height="52" fill="#2b3f6b" stroke="#8fa2cc" stroke-width="1.5"/>
     <rect x="436" y="460" width="368" height="44" fill="none" stroke="#fff" stroke-width="0.75" stroke-opacity="0.6"/>
     <text x="448" y="479" font-size="12.5" font-weight="700" fill="#fff" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">profile-model</text>
-    <text x="448" y="495" font-size="11" fill="#cfd6e6">기체 프로파일 모델. 데이터 직렬화</text>
+    <text x="448" y="495" font-size="11" fill="#cfd6e6">기체 프로파일 데이터 모델과 직렬화</text>
     <text x="792" y="479" font-size="11" fill="#cfd6e6" text-anchor="end">7개 모듈이 사용</text>
-    <text x="20" y="536" font-size="11" fill="#9a9a9a">바닥의 두 계약 어휘로 향하는 화살표 20 개는 안 그렸다.</text>
+    <text x="20" y="536" font-size="11" fill="#9a9a9a">계약 어휘로 향하는 화살표 20 개는 안 그렸다</text>
 
     <!-- edges: shipping dependencies -->
     <g fill="none" stroke="#e6e6e6" stroke-width="1.2">
-      <path d="M100,268 V350" marker-end="url(#data)"/>
-      <path d="M144,268 V292 H228 V350" marker-end="url(#data)"/>
-      <path d="M260,268 V350" marker-end="url(#data)"/>
-      <path d="M328,252 H336 V400 H350" marker-end="url(#data)"/>
-      <path d="M368,268 V316 H300 V350" marker-end="url(#data)"/>
-      <path d="M420,268 V350" marker-end="url(#data)"/>
-      <path d="M468,268 V328 H548 V350" marker-end="url(#data)"/>
-      <path d="M580,268 V350" marker-end="url(#data)"/>
-      <path d="M740,268 V350" marker-end="url(#data)"/>
-      <path d="M260,164 V214" marker-end="url(#data)"/>
+      <path d="M96,268 V350" marker-end="url(#data)"/>
+      <path d="M128,268 V292 H224 V350" marker-end="url(#data)"/>
+      <path d="M256,268 V350" marker-end="url(#data)"/>
+      <path d="M320,252 H332 V400 H350" marker-end="url(#data)"/>
+      <path d="M384,268 V308 H296 V350" marker-end="url(#data)"/>
+      <path d="M416,268 V350" marker-end="url(#data)"/>
+      <path d="M456,268 V300 H548 V350" marker-end="url(#data)"/>
+      <path d="M600,268 V350" marker-end="url(#data)"/>
+      <path d="M736,268 V350" marker-end="url(#data)"/>
+      <path d="M256,164 V214" marker-end="url(#data)"/>
       <path d="M192,128 H16 V378 H30" marker-end="url(#data)"/>
-      <path d="M328,148 H344 V384 H350" marker-end="url(#data)"/>
-      <path d="M512,132 H440 V214" marker-end="url(#data)"/>
-      <path d="M512,156 H496 V392 H490" marker-end="url(#data)"/>
-      <path d="M648,140 H664 V378 H650" marker-end="url(#data)"/>
+      <path d="M320,148 H340 V384 H350" marker-end="url(#data)"/>
+      <path d="M512,132 H432 V214" marker-end="url(#data)"/>
+      <path d="M512,156 H496 V392 H482" marker-end="url(#data)"/>
+      <path d="M640,140 H656 V378 H642" marker-end="url(#data)"/>
     </g>
 
     <!-- key -->
     <g font-size="10.5" fill="#9a9a9a">
       <path d="M20,564 H44" fill="none" stroke="#e6e6e6" stroke-width="1.2"/>
-      <text x="50" y="568" font-size="11">출하 의존 (A가 B를 사용)</text>
-      <rect x="216" y="558" width="14" height="10" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
-      <text x="236" y="568" font-size="11">이 저장소</text>
-      <rect x="312" y="558" width="14" height="10" fill="#2b3f6b" stroke="#8fa2cc"/>
-      <text x="332" y="568" font-size="11">핵심 모듈</text>
+      <text x="50" y="568" font-size="11">출하 의존 관계</text>
+      <rect x="160" y="558" width="14" height="10" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
+      <text x="180" y="568" font-size="11">저장소 모듈</text>
+      <rect x="268" y="558" width="14" height="10" fill="#2b3f6b" stroke="#8fa2cc"/>
+      <text x="288" y="568" font-size="11">핵심 모듈</text>
+      <rect x="368" y="558" width="14" height="10" fill="none" stroke="#4a4a4a"/>
+      <text x="388" y="568" font-size="11">역할 그룹</text>
     </g>
   </g>
 </svg>
