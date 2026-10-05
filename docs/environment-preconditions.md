@@ -2,22 +2,22 @@
 
 **본 문서는 기계적 적합성 검사 명세가 아닌 현장 설비 및 공정 엔지니어링을 위한 설계 입력 사양(Design Input)입니다.** 로봇을 도입하는 제조 공장 및 물류 창고 구축 시, 특정 태스크를 정상 수행하기 위해 물리 환경 측면에 요구되는 필수 조건과 인프라 제약 사항을 정의합니다.
 
-설계 문서 §15.81에 기술된 바와 같이, **로봇의 실질적 작업 능력은 단일 기체의 고유 스펙이 아닌 (기체 사양 × 현장 인프라)의 결합 특성으로 결정됩니다.** 동일한 기체라도 현장의 인프라 지원 수준과 자재 제시 방식에 따라 가동 여부가 좌우됩니다.
+설계 문서 §15.81에 기술된 바와 같이, **로봇의 실질적 작업 케이퍼빌리티는 단일 기체의 고유 스펙이 아닌 (기체 사양 × 현장 인프라)의 결합 특성으로 결정됩니다.** 동일한 기체라도 현장의 인프라 지원 수준과 자재 제시 방식에 따라 가동 여부가 좌우됩니다.
 
 **근거 등급.** 본 분석의 근거는 벤더 1차 자료(Spot 공개 SDK Proto 152개 8,089 심볼, Digit 공식 매뉴얼 409 심볼)를 전수 분석하여 도출되었습니다. 인용된 모든 심볼 명칭은 `adapter-*/src/test/resources/vendor-manifest.txt`의 공식 매니페스트와 일치합니다.
 
 ---
 
-## 1. 전제 검증 가능성 분류: 관측 가능 전제 vs 보증 전제
+## 1. 전제 검증 가능성 분류: 관측 가능 전제 vs 보장 전제
 
 | 분류 | 정의 및 검증 성격 | 전제 상태 전이 |
 |---|---|---|
 | **관측 가능 (Observable)** | 로봇 센서 및 어댑터 API 질의를 통해 런타임에 기계적 판정 가능 | CLAIMED → **CONFIRMED / CONTRADICTED** |
-| **인프라 보증 (Guaranteed)** | 로봇의 센서/인지 범위를 벗어나 관리 주체(작업자/설비)가 보증해야 함 | **영구 CLAIMED** |
+| **인프라 보장 (Guaranteed)** | 로봇의 센서/인지 범위를 벗어나 관리 주체(작업자/설비)가 보증해야 함 | **영구 CLAIMED** |
 
 벤더 API 역시 이 축을 명시적으로 반영하고 있습니다. 예를 들어 `Staircase.KnowledgeType`은 `KNOWLEDGE_TYPE_MAPPED`(지도 기반) · `KNOWLEDGE_TYPE_TRACKED_ONGOING`(실시간 감지 중) · `KNOWLEDGE_TYPE_TRACKED_COMPLETED` · `KNOWLEDGE_TYPE_UNKNOWN`으로 세분화하여 "전제 충족 여부"를 열거형으로 응답합니다.
 
-두 전제 축은 결코 동일한 검증 상태로 통합되어서는 안 됩니다. 시스템 관측값과 인간의 사전 보증이 분리되지 않으면, 대시보드 상태가 정상(Green)임에도 현장 작업이 실패하고, 그 원인이 인프라 결함임에도 기체 결함으로 오인될 수 있습니다.
+두 전제 축은 결코 동일한 검증 상태로 통합되어서는 안 됩니다. 시스템 관측값과 인간의 사전 보장이 분리되지 않으면, 대시보드 상태가 정상(Green)임에도 현장 작업이 실패하고, 그 원인이 인프라 결함임에도 기체 결함으로 오인될 수 있습니다.
 
 ---
 
@@ -29,7 +29,7 @@
 | 지점마다 고유 식별 명칭이 부여됨 | `Waypoint.Annotations.name` (*"Kitchen Fridge"*) | 관측 가능 (`GetKnownSiteNames`) |
 | 해당 명칭이 운영자에 의해 명시적으로 등록됨 | `Annotations.waypoint_source` ∈ {`ROBOT_PATH`, **`USER_REQUEST`**, `ALTERNATE_ROUTE_FINDING`} | 관측 가능 |
 | 지도를 물리 세계 좌표계에 결속하기 위한 앵커 구비 | `graph_nav.Anchoring{anchors, objects}` · `AnchoringHint{waypoint_anchors, world_objects}` | 관측 가능 |
-| **녹화 시점과 운영 시점의 물리 환경 배치 일치** | — | **보증** |
+| **녹화 시점과 운영 시점의 물리 환경 배치 일치** | — | **보장** |
 
 > **배치 비용 특성**: Spot의 GraphNav 지도는 실물 로봇을 현장에서 직접 주행시키며 기록해야 생성됩니다. 제조 라인 재배치 시 재매핑 주행이 필수적이며 도면 데이터로부터 자동 생성되지 않습니다.
 
@@ -38,10 +38,10 @@
 | 환경 전제 | 벤더 근거 심볼 | 검증 가능성 |
 |---|---|---|
 | 이동 목적지 — 2D 웨이포인트 수준으로 충분 | `Waypoint.waypoint_tform_ko`(`SE3Pose`)가 **로봇 정지 위치** 정의 | 관측 가능 |
-| **적재/파지 위치 — 웨이포인트 좌표만으로 불충분** | `Annotations` 내에 조작 대상의 6DoF 자세 정보 부재 | §15.79 열림 |
+| **적재/파지 위치 — 웨이포인트 좌표만으로 불충분** | `Annotations` 내에 조작 대상의 6DoF 자세 정보 부재 | §15.79 미결 |
 | 조작 위치를 6DoF 자세와 함께 저작 가능 | `MutateWorldObjects`(`ACTION_ADD`) · `WorldObject.transforms_snapshot` | 관측 가능 |
 | **점검 대상이 세계 모델(World Model)에 등록되어 있음** | `WorldObject.name` (`ListWorldObjects`) — `inspect(target)` 질의 기반 | 관측 가능 |
-| **점검 위치 정지 시 대상이 카메라 화각 내에 포함** | 화상 취득은 센서 지정 방식이며 타깃 지향 방식이 아님 (`AcquisitionRequestList`) — 웨이포인트 녹화 시 대상 가시성을 확보하는 것은 작업자 책임 | **보증** |
+| **점검 위치 정지 시 대상이 카메라 화각 내에 포함** | 화상 취득은 센서 지정 방식이며 타깃 지향 방식이 아님 (`AcquisitionRequestList`) — 웨이포인트 녹화 시 대상 가시성을 확보하는 것은 작업자 책임 | **보장** |
 
 > 동일한 위치 명칭이라도 단순 이동(`navigate_to`)에는 충분하지만 정밀 조작(`pick_place`)에는 부족할 수 있습니다. 예를 들어 2차원 웨이포인트 좌표는 선반 단수나 적재 높이 정보를 포함하지 않습니다.
 
@@ -49,8 +49,8 @@
 
 | 자재 제시 방식 | 엔지니어링 결과 및 특성 | 검증 분류 |
 |---|---|---|
-| **품종별 전용 용기 및 지정 구역 제시** | 위치 자체가 자재의 신원을 보증하므로 마킹 및 복잡한 시각 인지 불필요 | **보증** |
-| 혼재 적재 제시 (Bin Picking / Mixed) | 런타임 객체 식별 인지 필요 (D 마킹 또는 E 비전 모델 배포 전제 수반) | **보증** |
+| **품종별 전용 용기 및 지정 구역 제시** | 위치 자체가 자재의 신원을 보증하므로 마킹 및 복잡한 시각 인지 불필요 | **보장** |
+| 혼재 적재 제시 (Bin Picking / Mixed) | 런타임 객체 식별 인지 필요 (D 마킹 또는 E 비전 모델 배포 전제 수반) | **보장** |
 
 > 공정이 품종별 전용 구역 제시를 지원하면 객체 식별 복잡도가 획기적으로 낮아집니다. 고정형 워크셀 기반의 Pick-and-Place 공정이 현장에서 선제적으로 상용화된 배경입니다.
 
@@ -70,7 +70,7 @@
 | 외부 ML 인퍼런스 워커 프로세스 기동 | `NetworkComputeBridgeWorker.WorkerCompute` | 관측 가능 (`ListAvailableModels`) |
 | 모델이 요구되는 클래스 라벨셋을 반환 | `ModelLabels.available_labels`(`repeated string`) | 관측 가능 |
 | 신뢰도 문턱값을 초과하는 객체 가시성 | `NetworkComputeInputData.min_confidence` | 부분적 |
-| **조명, 카메라 화각, 작업 거리가 모델 전제 충족** | — | **보증** |
+| **조명, 카메라 화각, 작업 거리가 모델 전제 충족** | — | **보장** |
 
 ## F. 충전 및 도킹 인프라 (Charging & Docking Station)
 
@@ -79,7 +79,7 @@
 | 전용 도크 설치 및 식별자(ID) 배정 완료 | `DockProperties{dock_id, type, frame_name_dock}` · `docking.ConfigRange{id_start, id_end, type}` | 관측 가능 |
 | 도킹 스테이션이 현재 사용 가능한 유휴 상태 | `DockProperties.unavailable` | 관측 가능 |
 | 단일 배터리 용량을 초과하는 작업에 대한 자동 복귀 정책 설정 | Autowalk `Element.battery_monitor` · Orbit `SiteWalk.batteryMonitor` | 관측 가능 |
-| **단일 도크에 대한 다중 기체 점유 충돌 방지** | 벤더 공식 문서: *"as of 4.1.0, users are responsible for ensuring the physical dock is not taken"* 명시 | **보증** |
+| **단일 도크에 대한 다중 기체 점유 충돌 방지** | 벤더 공식 문서: *"as of 4.1.0, users are responsible for ensuring the physical dock is not taken"* 명시 | **보장** |
 
 ## G. 통행 가능성 (Passability — Floor, Stairs, Doors)
 
@@ -87,11 +87,11 @@
 |---|---|---|
 | 통행 경로 상의 계단이 지도에 기등록됨 | `Staircase.KnowledgeType.KNOWLEDGE_TYPE_MAPPED` | 관측 가능 |
 | 바닥 표면 마찰 계수의 적합성 확보 | `FootState.TerrainState.ground_mu_est` | 관측 가능 (사후 추정) |
-| **문의 경첩 위치 및 개폐 방향(Swing Direction) 사전 구성** | `DoorCommand.AutoGraspCommand{hinge_side, swing_direction}` | **보증** (설정 파일 주입) |
-| 도어 메커니즘 유형 (푸시형 vs 핸들 래치형) | `AutoPushCommand` vs `AutoGraspCommand` (후자는 매니퓰레이터 필수) | **보증** |
+| **문의 경첩 위치 및 개폐 방향(Swing Direction) 사전 구성** | `DoorCommand.AutoGraspCommand{hinge_side, swing_direction}` | **보장** (설정 파일 주입) |
+| 도어 메커니즘 유형 (푸시형 vs 핸들 래치형) | `AutoPushCommand` vs `AutoGraspCommand` (후자는 매니퓰레이터 필수) | **보장** |
 | 문 가시성 확보 여부 | `DoorCommand.Feedback.Status.STATUS_NOT_DETECTED` | 관측 가능 (사후 감지) |
 
-> "도어 통과" 능력은 물리 문의 구조에 따라 실행 전략이 분기됩니다. 단순 푸시 도어는 팔 없이 몸체 추진으로 개방 가능하나, 래치형 손잡이는 매니퓰레이터가 필수적입니다. 경첩 방향 등의 구조 정보는 로봇이 자율 판단하지 않으며 엔지니어가 설정 파라미터로 명시해야 합니다.
+> "도어 통과" 케이퍼빌리티는 물리 문의 구조에 따라 실행 전략이 분기됩니다. 단순 푸시 도어는 팔 없이 몸체 추진으로 개방 가능하나, 래치형 손잡이는 매니퓰레이터가 필수적입니다. 경첩 방향 등의 구조 정보는 로봇이 자율 판단하지 않으며 엔지니어가 설정 파라미터로 명시해야 합니다.
 
 ## H. 통행 금지 구역 (Keep-out / No-Go Regions)
 
@@ -110,7 +110,7 @@
 
 | 환경 전제 | 벤더 근거 심볼 | 검증 가능성 |
 |---|---|---|
-| **실시간 명령 제어 경로의 무단절 보증** | BD 공식 가이드: *"send short-lived commands and **continuously resend** them so that the robot stops in the event of a client-side issue"* 요구 | 부분적 |
+| **실시간 명령 제어 경로의 무단절 보장** | BD 공식 가이드: *"send short-lived commands and **continuously resend** them so that the robot stops in the event of a client-side issue"* 요구 | 부분적 |
 
 > 제어 패킷이 단절되면 로봇은 안전을 위해 즉시 동작을 정지합니다. 이는 통신 결함이 아니라 페일세이프(Fail-safe) 설계 원칙입니다. 따라서 통신 음영 구역은 단순한 네트워크 지연이 아니라 **작업 수행이 성립할 수 없는 영역**으로 다루어져야 합니다.
 
@@ -126,14 +126,14 @@
 |---|---|---|---|
 | **지도 생성 방식** | **실기 주행 기반 녹화 (Walk-through)** | **2D 평면도 이미지 업로드** | **자체 지도 계층 부재** |
 | 정렬 (Alignment) | `Anchoring` (선택적) | **랜드마크 3차원 자세 실측 등록 필수** | 지원 없음 |
-| 위치 결속의 충분성 | **선언 없음** (§15.79 열림) | **`object-attribute.pickable` 명시** | 위치/오브젝트 개념 부재 |
+| 위치 결속의 충분성 | **선언 없음** (§15.79 미결) | **`object-attribute.pickable` 명시** | 위치/오브젝트 개념 부재 |
 | 정적 vs 일시적 수명주기 | 구분 속성 없음 | **`transient` · `timeout` · `persistent`** | 지원 없음 |
 | 충전 자동 복귀 | `DockProperties` · `batteryMonitor` | 공개 API 표면에 도크 관련 인터페이스 부재 | 지원 없음 |
 | 통행 금지 구역 | `NoGoRegionProperties` | `object-attribute.keep-out` | 지원 없음 |
 | 도어 / 계단 모델 | `DoorCommand` · `Staircase` | 공개 API 표면에 부재 | 지원 없음 |
 | 배타적 제어 권한 | `Lease` (epoch · `STATUS_OLDER`) | `request-privilege{**priority**}` | `SWITCH_TO_USER_CTRL` / `SWITCH_TO_INTERNAL_CTRL` |
 | **지형 제약 표현** | `ground_mu_est` · `Staircase` | `step-clearance` · `steppable` | `SET_SWING_HEIGHT` (원시 값 제어) |
-| 가용 능력 런타임 열거 | `ModelLabels.available_labels` | `object-attribute` | **`ARM_ACTION_GET_ACTION_LIST`** |
+| 가용 케이퍼빌리티 런타임 열거 | `ModelLabels.available_labels` | `object-attribute` | **`ARM_ACTION_GET_ACTION_LIST`** |
 | 세션 종료 조건 제공 | 자연어 권고 (*"continuously resend"*) | — | **`terminations.hpp` 판정 함수 7종** |
 
 ## A′. 지도 커미셔닝 패러다임 차이
@@ -167,7 +167,7 @@ object-attribute{ name, pose, box-geometry, polygon, mass, april-tag-id,
 
 `dock` 관련 심볼은 0건이며 충전 상태는 `battery-status.charge-percent` 단일 속성만 제공됩니다. Spot과 달리 공식 API에는 도크 자동 등록, 도킹 명령, 배터리 임계치 기반 복귀 로직이 노출되어 있지 않습니다.
 
-> **근거 등급 주의**: "하드웨어적으로 불가능하다"가 아니라 "공개 조사 표면(`survey_scope`)에 해당 API가 노출되지 않았다"는 의미입니다. 엔지니어링 배치 관점에서는 현시점에서 자체 구현만으로 자동 충전 복귀 일감을 구성할 수 없으며 작업자 개입 또는 외부 프로토콜이 요구됩니다.
+> **근거 등급 주의**: "하드웨어적으로 불가능하다"가 아니라 "공개 조사 표면(`survey_scope`)에 해당 API가 노출되지 않았다"는 의미입니다. 엔지니어링 배치 관점에서는 현시점에서 자체 구현만으로 자동 충전 복귀 작업을 구성할 수 없으며 작업자 개입 또는 외부 프로토콜이 요구됩니다.
 
 ## D′. 기동 방식에 요구되는 물리 인프라
 
@@ -244,7 +244,7 @@ UT_ROBOT_AUDIO_ERR_COMM
 
 ## 저작형 환경 모델 부재
 
-지도, 위치 명칭, 객체 월드 모델, 도킹, 비전 인퍼런스 인터페이스가 G1 공개 API에는 포함되지 않습니다. 따라서 G1은 현장 환경 구조를 내재화한 고수준 일감을 직접 처리할 수 없습니다. 이는 기체 제어기 설계가 저작형 환경 계층을 배제하고 하위 모빌리티 제어에 집중된 결과이며, 상위 제어기가 해당 환경 모델을 전담해야 함을 의미합니다.
+지도, 위치 명칭, 객체 월드 모델, 도킹, 비전 인퍼런스 인터페이스가 G1 공개 API에는 포함되지 않습니다. 따라서 G1은 현장 환경 구조를 내재화한 고수준 작업을 직접 처리할 수 없습니다. 이는 기체 제어기 설계가 저작형 환경 계층을 배제하고 하위 모빌리티 제어에 집중된 결과이며, 상위 제어기가 해당 환경 모델을 전담해야 함을 의미합니다.
 
 ---
 
@@ -259,16 +259,16 @@ UT_ROBOT_AUDIO_ERR_COMM
 | 해당 위치에 **물체가 존재하는가** | 기종별 상이 — Digit: 월드 모델(`notify-objects`, `object-attribute.pickable`), Spot: `WorldObjectService`, G1: 지원 없음 | 매니페스트 |
 | 해당 물체가 **요청된 지정 컨테이너인가** | **불가.** 용기 식별은 인계 설비(게이트 리더, 바코드 센서) 또는 상위 시스템의 책임 | — |
 
-따라서 자재 인계 전제는 '물체 존재 여부'의 관측 가능 영역과 '품목 일치 여부'의 보증 영역으로 양분되며, 후자는 영구 CLAIMED 상태로 유지됩니다. 계약 레이어는 물체 부재 시 실패 응답(자재 없음)을 반환하고, 신원 판정은 상위 3계층이 설비 신호를 통해 최종 승인합니다.
+따라서 자재 인계 전제는 '물체 존재 여부'의 관측 가능 영역과 '품목 일치 여부'의 보장 영역으로 양분되며, 후자는 영구 CLAIMED 상태로 유지됩니다. 계약 레이어는 물체 부재 시 실패 응답(자재 없음)을 반환하고, 신원 판정은 상위 3계층이 설비 신호를 통해 최종 승인합니다.
 
 ---
 
 ## 미결 과제 (Known Open Issues)
 
-- **전제 선언 위치 확정**: 기종 프로파일은 기체 단위이나 환경 전제는 (일감 × 현장) 조합에 바인딩되므로 적절한 메타데이터 배치 구조 결정 필요 (§15.81).
-- **보증 항목 기록 표준화**: 영구 CLAIMED 항목과 런타임 CONFIRMED 항목의 격리 기록 체계 수립.
+- **전제 선언 위치 확정**: 기종 프로파일은 기체 단위이나 환경 전제는 (작업 × 현장) 조합에 바인딩되므로 적절한 메타데이터 배치 구조 결정 필요 (§15.81).
+- **보장 항목 기록 표준화**: 영구 CLAIMED 항목과 런타임 CONFIRMED 항목의 격리 기록 체계 수립.
 - **분류 체계(A~J) 확장성**: Digit 분석 시 기동 설비(D′)가 신규 도출된 바와 같이 신규 기종 추가에 따른 분류 체계 확장 검증 필요.
 - ~~**G1 조사 범위 제한**~~: 서비스 4종 및 IDL 전수 분석을 통해 161개 심볼 재측정 완료로 종결 처리.
 - **안전 구역 격리 명세**: 작업자-로봇 물리 분리 방안과 [ADR 32](adr/0032-safety-boundary.md)(안전 계통의 계약 외 격리) 간의 상호작용 명세 필요.
 
-> 마지막 대조: 2026-09-15 · sha256:d99361fa0011 · 열림: §15.81, §15.79, §15.2, C-3
+> 마지막 대조: 2026-10-05 · sha256:bdd0f2f7dd7a · 열림: §15.81, §15.79, §15.2, C-3

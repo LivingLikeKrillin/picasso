@@ -1,6 +1,6 @@
-# 컴포넌트 교체 지점(Seams) 명세서 — 실물 전환 및 확장 가이드
+# 컴포넌트 접합부(Seams) 명세서 — 실물 전환 및 확장 가이드
 
-본 문서는 `picasso` 미들웨어 아키텍처에서 모의 대역(Mock/Mimic)을 실제 공장 설비, 상위 시스템, 실물 로봇 기체 및 통신 인프라로 전환하기 위한 **9대 핵심 교체 지점(Seams)**의 인터페이스 규격과 수정 범위를 정의합니다.
+본 문서는 `picasso` 미들웨어 아키텍처에서 모의 대역(Mock/Mimic)을 실제 공장 설비, 상위 시스템, 실물 로봇 기체 및 통신 인프라로 전환하기 위한 **9대 핵심 접합부(Seams)**의 인터페이스 규격과 수정 범위를 정의합니다.
 
 구간별 현행 검증 수준은 [`verification.md`](verification.md)를 참조하십시오.
 
@@ -8,20 +8,20 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/seams.dark.svg">
-  <img alt="9대 교체 지점 아키텍처 다이어그램. 최상단 미들웨어 코어 계층과 하단 9개 교체 지점의 인터페이스, 실물 전환 시 작업 대상, 불변 유지 대상 및 대상 모듈이 정의되어 있습니다." src="diagrams/seams.svg">
+  <img alt="9대 접합부 아키텍처 다이어그램. 최상단 미들웨어 코어 계층과 하단 9개 접합부의 인터페이스, 실물 전환 시 작업 대상, 불변 유지 대상 및 대상 모듈이 정의되어 있습니다." src="diagrams/seams.svg">
 </picture>
 
-## 교체 가능성의 아키텍처적 보증
+## 교체 가능성의 아키텍처적 보장
 
 - **포트와 대역의 모듈 레벨 분리**:
   - `CellSignals`, `AmrFleetPort`, `RobotPort` 등의 인터페이스(포트)는 `picasso/src/main`에 정의되어 있으며, 이를 구현하는 테스트 더블(`CellMimic`, `AmrFleetMimic` 등)은 `picasso/src/test`에 완전히 격리되어 있습니다.
   - 코어 엔진은 모의 대역의 존재를 전혀 참조하지 않으며, 테스트 대역을 삭제하더라도 본체 코드는 정상 컴파일됩니다.
-- **교체 지점 간의 완전한 독립성**:
-  - 9개 교체 지점은 상호 결합되어 있지 않으므로, 특정 지점(예: PLC 설비 신호)을 실물로 교체할 때 다른 지점(로봇 어댑터, 상위 MES 연계 등)의 코드를 수정할 필요가 없습니다.
+- **접합부 간의 완전한 독립성**:
+  - 9개 접합부는 상호 결합되어 있지 않으므로, 특정 지점(예: PLC 설비 신호)을 실물로 교체할 때 다른 지점(로봇 어댑터, 상위 MES 연계 등)의 코드를 수정할 필요가 없습니다.
 
 ---
 
-## 9대 교체 지점 상세 명세
+## 9대 접합부 상세 명세
 
 ### 1. 상위 시스템 연계 (MES·WMS·SCADA → picasso)
 
@@ -30,9 +30,9 @@
 
 - **실물 전환 작업**:
   - 상위 통신 프로토콜(OPC UA, REST, Kafka, MQTT 등)을 수신하는 **인바운드 ACL(Anti-Corruption Layer)**을 구현하여 본 공개 API를 호출합니다.
-  - 상류 데이터 포맷과 미들웨어의 `JobOrder` / `JobResponse` 간 상호 변환은 ACL 계층이 전담합니다.
-- **불변 유지 대상**: `picasso` 내부 코어 전체 (논리적 능력, 오케스트레이션 엔진, 3대 포트).
-- **포트 인터페이스를 별도 정의하지 않은 이유**: 현시점에서 상류 소비자는 통합 테스트뿐이며, 실제 상위 시스템 요구사항 없이 추상 인터페이스를 사전 발명하는 것은 ADR 9(소비자 존재 원칙)에 위배되기 때문입니다.
+  - 상위 데이터 포맷과 미들웨어의 `JobOrder` / `JobResponse` 간 상호 변환은 ACL 계층이 전담합니다.
+- **불변 유지 대상**: `picasso` 내부 코어 전체 (논리적 케이퍼빌리티, 오케스트레이션 엔진, 3대 포트).
+- **포트 인터페이스를 별도 정의하지 않은 이유**: 현시점에서 상위 소비자는 통합 테스트뿐이며, 실제 상위 시스템 요구사항 없이 추상 인터페이스를 사전 발명하는 것은 ADR 9(소비자 존재 원칙)에 위배되기 때문입니다.
 
 ### 2. 현장 설비 센서 신호 (PLC/WCS)
 
@@ -40,8 +40,8 @@
 
 - **실물 전환 작업**:
   - 현장 PLC의 OPC UA 노드 또는 무전압 I/O 접점 상태를 폴링하여 `SlotSignal(identity, observedAt, latched)` 객체로 변환하는 구현체를 제공합니다.
-  - 설비 신호 폴링 주기 및 하드웨어 래치 정책은 현장 환경에 맞춰 구현하며, 시간창 δ는 논리적 능력 파라미터로 설정합니다.
-- **불변 유지 대상**: 근거 결합 엔진 규칙 전체 (시간창 판정, 센서 재확인, `UNVERIFIED`, `VERIFICATION_MISMATCH` 처리 로직).
+  - 설비 신호 폴링 주기 및 하드웨어 래치 정책은 현장 환경에 맞춰 구현하며, 시간 윈도우 δ는 논리적 케이퍼빌리티 파라미터로 설정합니다.
+- **불변 유지 대상**: 근거 결합 엔진 규칙 전체 (시간 윈도우 판정, 센서 재확인, `UNVERIFIED`, `VERIFICATION_MISMATCH` 처리 로직).
 
 ### 3. AMR 플릿 관리 시스템
 
@@ -66,13 +66,13 @@
 
 계약 인터페이스 배후의 런타임 구현체를 교체하는 지점입니다. `MimicServer`(프로파일 기반 에뮬레이터)와 `AdapterHost`(실물 어댑터 호스팅 서버)가 상호 대체 가능합니다. 소비자는 통신 엔드포인트 URL만 변경합니다.
 
-**함께 교체되는 것**: 자리 이름의 결속 정본(`SiteBindingSource`). 기본값은 「안 붙임」이며, 현장에서는 활성 지도 판을 아는 정본을 물려 옛 판에서 배운 자리로 가는 명령을 차단합니다(§15.156). 별도 교체 지점으로 세지 않는 이유는 이 지점과 같은 경계에서 같은 시점에 바뀌기 때문입니다.
+**함께 교체되는 것**: 자리 이름의 결속 정본(`SiteBindingSource`). 기본값은 「안 붙임」이며, 현장에서는 활성 지도 버전을 아는 정본을 물려 옛 버전에서 배운 자리로 가는 명령을 차단합니다(§15.156). 별도 접합부로 세지 않는 이유는 이 지점과 같은 경계에서 같은 시점에 바뀌기 때문입니다.
 
 **인터페이스**: `RobotAdapter` — 호스트 서버가 로봇 어댑터를 구동하기 위한 표준 인터페이스 (ADR 39)
 
 - **실물 전환 작업**:
   - 배포 환경에 따라 실행 프로세스를 `mimic` 또는 `adapter-host`로 선택 실행합니다. (예: `OrbitLauncher`)
-- **불변 유지 대상**: 상위 클라이언트 코드 일체 (`HostParityTest`를 통해 두 실행체의 거동 동등성 보증).
+- **불변 유지 대상**: 상위 클라이언트 코드 일체 (`HostParityTest`를 통해 두 실행체의 동작 동등성 보장).
 
 ### 6. 어댑터 사우스바운드 — 벤더 API 연동
 
@@ -123,7 +123,7 @@
 | 벤더 — Digit | `DigitLink` | `adapter-agility-digit/src/main/kotlin/dev/picasso/adapter/digit/DigitLink.kt` |
 | 벤더 — G1 | `G1Link` | `adapter-unitree-g1/src/main/kotlin/dev/picasso/adapter/g1/G1Link.kt` |
 | 벤더 — Orbit | `OrbitLink` | `adapter-boston-dynamics-orbit/src/main/kotlin/dev/picasso/adapter/orbit/OrbitLink.kt` |
-| 어댑터 북쪽 | `RobotAdapter` | `adapter-core/src/main/kotlin/dev/picasso/adapter/core/RobotAdapter.kt` |
+| 어댑터 노스바운드 | `RobotAdapter` | `adapter-core/src/main/kotlin/dev/picasso/adapter/core/RobotAdapter.kt` |
 | 발행 | `Publisher` | `uplink/src/main/kotlin/dev/picasso/uplink/Publisher.kt` |
 | 적재 — 핸드셰이크 | `HandshakeReporter` | `uplink/src/main/kotlin/dev/picasso/uplink/report/HandshakeReporter.kt` |
 | 적재 — 태스크 | `TaskObservations` | `uplink/src/main/kotlin/dev/picasso/uplink/report/IngestBridge.kt` |
@@ -132,6 +132,6 @@
 | 프로파일 — 파일 | `ProfileSource` | `mimic/src/main/kotlin/dev/picasso/mimic/profile/ProfileSource.kt` |
 | 프로파일 — 원장 | `RegistrySource` | `mimic/src/main/kotlin/dev/picasso/mimic/RegistrySource.kt` |
 
-> **검증 보증:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
+> **검증 보장:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
 
-> 마지막 대조: 2026-09-17 · sha256:be6b2f2f4e60 · 열림: §15.34, C-3, §15.5, §15.156
+> 마지막 대조: 2026-10-05 · sha256:a70b9fe99c04 · 열림: §15.34, C-3, §15.5, §15.156

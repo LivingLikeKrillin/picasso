@@ -22,7 +22,7 @@
 | 6 | **실행 제약 유형 분류**: `YES`로 판정된 항목을 포함하여 제약 유형 태깅 | `limitations` |
 | 6b | **스킬 실행 범위(Scope) 설정**: 각 스킬이 구동되는 계층 정의 (문서 레벨 계층은 각 스킬의 최댓값으로 수렴) | `execution_scope` |
 | 7 | **어댑터 책임 구현 항목 명세**: 미지원 기능을 메우기 위해 어댑터가 직접 구현해야 할 소프트웨어 요구사항 도출 | `adapter_must_own` |
-| 8 | **검토 서명 및 도장 갱신** | `review` |
+| 8 | **검토 서명 및 스탬프 갱신** | `review` |
 | 9 | **최종 기종 프로파일 작성**: 상기 분석 완료 후 프로파일 생성 | `profile/profiles/<기종>.json` |
 
 ### 순서 결정의 엔지니어링 근거
@@ -121,7 +121,7 @@ Open-RMF가 플릿 단위로 `Full Control`, `Traffic Light` 등급을 부여한
 | 프레임워크 | 등급 분류 단위 | 분석 근거의 시스템 내 영속성 |
 |---|---|---|
 | **Open-RMF** | 기종(플릿) 단위 (`Full Control`, `Traffic Light`) | 코드 및 설정 파일에 흡수되어 원본 분석 근거 유실 |
-| **openTCS** | 주문별 `canProcess` 동적 불리언 평가 | 분석 근거가 구현 내부에 은닉됨 |
+| **openTCS** | 지시별 `canProcess` 동적 불리언 평가 | 분석 근거가 구현 내부에 은닉됨 |
 | **VDA 5050** | AGV의 `factsheet.agvActions[]` 정적 선언 | 선언 스펙만 유지되며 매핑 근거 부재 |
 | **picasso** | **(기종 × 스킬) 매트릭스 단위** | `evidence`, `survey_scope`, `missing`, `adapter_must_own` 데이터로 영구 보존 |
 
@@ -133,4 +133,4 @@ VDA 5050의 `node` / `edge` 스코프는 그래프 기반 경로 계획에 종�
 
 본 절차는 [`tools/adapter-template/`](../tools/adapter-template/README.md)의 기반 입력으로 활용되며, 1~8단계의 어휘 거리 측정이 선행 완료되어야 9단계 어댑터 구현 및 기체 프로파일 생성이 가능합니다.
 
-> 마지막 대조: 2026-09-15 · sha256:11c90d0f018c · 열림: C-3
+> 마지막 대조: 2026-10-05 · sha256:2c8e43c17d45 · 열림: C-3

@@ -7,7 +7,7 @@
 
 저장소 내 벤더 원문 바이너리 배제 원칙에 따라 심볼 명칭과 해시값만을 기록 관리합니다.
 
-> **2026-09-10 매니페스트 확정**: 원본 데이터 재검증(페이지 해시 `7563e16e…`, 클라이언트 해시 `19c7f980…`)을 거쳐 **총 323개 공식 심볼**을 추출하고 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt`에 체크인했습니다. 추출 도구는 `tools/vendor-manifest/openapi_symbols.py`이며, 남쪽 포트 인용의 정합성은 `OrbitVendorSurfaceTest`를 통해 검증됩니다. 기계 판독용 데이터는 `profile/vendors/orbit.json`에 정의되어 있습니다.
+> **2026-09-10 매니페스트 확정**: 원본 데이터 재검증(페이지 해시 `7563e16e…`, 클라이언트 해시 `19c7f980…`)을 거쳐 **총 323개 공식 심볼**을 추출하고 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt`에 체크인했습니다. 추출 도구는 `tools/vendor-manifest/openapi_symbols.py`이며, 사우스바운드 포트 인용의 정합성은 `OrbitVendorSurfaceTest`를 통해 검증됩니다. 기계 판독용 데이터는 `profile/vendors/orbit.json`에 정의되어 있습니다.
 >
 > **공식 스펙 외 엔드포인트 실측 (9종)**: 공식 파이썬 클라이언트(`bosdyn-orbit`)가 호출하는 40개 경로 중 다음 9개 경로는 공식 게시 OpenAPI 스펙에 누락되어 있음이 확인되었습니다:
 > - 즉시 파견: `calendar/mission/dispatch/{nickname}`
@@ -111,9 +111,9 @@ RunEvent.eventType { enum: ["daq", "screenshot"] }
 공식 가이드 문서(`about_orbit.md`)에 기술된 Work Order 연동 방식:
 > *"When alerts occur in Orbit, work orders can be created manually from within the Orbit UI or automatically at the time of the alert. … Orbit will send an HTTP POST request to a configured external endpoint … The external system is then responsible for creating the work order in its own system."*
 
-이는 **Orbit 내부에서 발생한 이상 감지 이벤트를 외부 유지보수 시스템(SAP, EAM 등)으로 통보하는 아웃바운드 티켓팅 구조**입니다. 상류 시스템이 로봇에게 세부 작업을 지시하는 인바운드 명령 채널이 아닙니다.
+이는 **Orbit 내부에서 발생한 이상 감지 이벤트를 외부 유지보수 시스템(SAP, EAM 등)으로 통보하는 아웃바운드 티켓팅 구조**입니다. 상위 시스템이 로봇에게 세부 작업을 지시하는 인바운드 명령 채널이 아닙니다.
 
-따라서 Orbit의 공개 REST 표면만으로는 상류 비즈니스 시스템이 동적 파라미터를 실어 로봇에게 실시간 일감을 직접 하달할 수 없으며, 중간 연동 계층(Middleman)의 구축이 필수적입니다.
+따라서 Orbit의 공개 REST 표면만으로는 상위 비즈니스 시스템이 동적 파라미터를 실어 로봇에게 실시간 작업을 직접 하달할 수 없으며, 중간 연동 계층(Middleman)의 구축이 필수적입니다.
 
 ---
 
@@ -141,4 +141,4 @@ RunEvent.eventType { enum: ["daq", "screenshot"] }
 4. **인스턴스 API 전수 검증**: 실제 구동 중인 Orbit 인스턴스와의 라이브 연동 확인
 5. **Atlas/Stretch 연동 채널 확인**: 비공개 전용 SDK 존재 여부 검증 (확인 전까지 가설 유지)
 
-> 마지막 대조: 2026-09-15 · sha256:79e5b7bd9b80 · 열림: C-3
+> 마지막 대조: 2026-10-05 · sha256:2d31a5c8ce01 · 열림: C-3

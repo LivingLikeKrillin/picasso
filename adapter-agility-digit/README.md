@@ -1,6 +1,6 @@
 # adapter-agility-digit — Agility Robotics Digit 어댑터
 
-Agility Robotics Digit 이족 보행 로봇 전용 하드웨어 어댑터 모듈입니다 (ADR 33). 남쪽 통신 포트는 Digit SDK의 WebSocket JSON 프로토콜을 추상화합니다.
+Agility Robotics Digit 이족 보행 로봇 전용 하드웨어 어댑터 모듈입니다 (ADR 33). 사우스바운드 통신 포트는 Digit SDK의 WebSocket JSON 프로토콜을 추상화합니다.
 
 ---
 
@@ -32,6 +32,6 @@ Agility Robotics Digit 이족 보행 로봇 전용 하드웨어 어댑터 모듈
 
 ## 4. 모듈 경계 및 벤더 심볼 검증
 
-남쪽 포트(`DigitLink`)는 순수 인터페이스로 선언되어 있으며, 실제 벤더 심볼의 정합성은 `vendor-manifest.txt` 기반의 단위 테스트로 검증됩니다. 실물 기체에 대한 라이브 연동 검증은 미결(C-3)로 관리됩니다.
+사우스바운드 포트(`DigitLink`)는 순수 인터페이스로 선언되어 있으며, 실제 벤더 심볼의 정합성은 `vendor-manifest.txt` 기반의 단위 테스트로 검증됩니다. 실물 기체에 대한 라이브 연동 검증은 미결(C-3)로 관리됩니다.
 
-> 마지막 대조: 2026-09-15 · sha256:1279685c477e · 열림: C-3
+> 마지막 대조: 2026-10-05 · sha256:d614f0cece8f · 열림: C-3

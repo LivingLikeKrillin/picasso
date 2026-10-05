@@ -7,7 +7,7 @@
 [![ci](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml/badge.svg)](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-공장 운영 시스템(MES·WMS)과 이기종 모바일 로봇(휴머노이드 및 4족보행 로봇) 간의 **표준 인터페이스 계약(Standard Interface Contract)**을 정의하고, 실물 로봇 없이 계약의 정합성을 검증할 수 있는 **결정론적 에뮬레이터(`mimic`)** 및 **운영 중 변경 파급도 사전 계산 체계**를 제공하는 엔지니어링 미들웨어 PoC 프로젝트입니다.
+상위 시스템(MES·WMS)과 이기종 모바일 로봇(휴머노이드 및 4족보행 로봇) 간의 **표준 인터페이스 계약(Standard Interface Contract)**을 정의하고, 실물 로봇 없이 계약의 정합성을 검증할 수 있는 **결정론적 에뮬레이터(`mimic`)** 및 **운영 중 변경 파급도 사전 계산 체계**를 제공하는 엔지니어링 미들웨어 PoC 프로젝트입니다.
 
 본 시스템은 다음 두 가지 핵심 명제를 기반으로 설계되었으며, 단순한 개념 증명이 아닌 **CI 빌드 실패 조건 및 런타임 조작 거부 조건**으로 강제됩니다:
 
@@ -16,10 +16,10 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/seam.dark.svg">
-  <img alt="상류 시스템은 작업 주문을 picasso에 보내고 결과 통보를 받습니다. picasso와 호스트 및 에뮬레이터 영역은 기종 분기 없이 표준 계약으로 동작하며 검사 7로 검증합니다. 기종 전용 코드는 4개 어댑터에 두고 외부 벤더 API를 호출합니다." src="docs/diagrams/seam.svg">
+  <img alt="상위 시스템은 작업 지시를 picasso에 보내고 작업 응답을 받습니다. picasso와 호스트 및 에뮬레이터 영역은 기종 분기 없이 표준 계약으로 동작하며 검사 7로 검증합니다. 기종 전용 코드는 4개 어댑터에 두고 외부 벤더 API를 호출합니다." src="docs/diagrams/seam.svg">
 </picture>
 
-**기종별 식별자와 종속성은 최하위 어댑터 계층에만 격리됩니다.** 상류 연계 계층부터 어댑터 호스트(Adapter Host)까지의 전 계층은 특정 기종에 대한 의존성을 갖지 않으며, 게이트 검사 7번이 공용 모듈의 소스코드를 정적 분석하여 기종 종속성 누출을 **CI 실패 조건**으로 차단합니다. 계약 하위 계층은 상호 호환 가능한 구조로 설계되어, 실물 기종 어댑터 넷이 배치되는 위치에 프로파일 주도 에뮬레이터인 `mimic`을 동일하게 바인딩할 수 있으며, `HostParityTest`를 통해 동일한 요청 사양에 대해 수락·거절 판정의 동등성을 검증합니다.
+**기종별 식별자와 종속성은 최하위 어댑터 계층에만 격리됩니다.** 상위 연계 계층부터 어댑터 호스트(Adapter Host)까지의 전 계층은 특정 기종에 대한 의존성을 갖지 않으며, 게이트 검사 7번이 공용 모듈의 소스코드를 정적 분석하여 기종 종속성 누출을 **CI 실패 조건**으로 차단합니다. 계약 하위 계층은 상호 호환 가능한 구조로 설계되어, 실물 기종 어댑터 넷이 배치되는 위치에 프로파일 주도 에뮬레이터인 `mimic`을 동일하게 바인딩할 수 있으며, `HostParityTest`를 통해 동일한 요청 사양에 대해 수락·거부 판정의 동등성을 검증합니다.
 
 **운영 변경 원칙 (비대칭성)**: 시스템 변경 통제는 *"신규 엔티티 추가는 안전하고, 기존 엔티티 삭제·수정은 잠재적 위험을 내포한다"*는 비대칭성 원리에 기초합니다.
 
@@ -29,7 +29,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/components.dark.svg">
-  <img alt="저장소 모듈 16개 사이의 출하 의존 관계를 나타냅니다. 계약 어휘인 contracts는 13개 모듈이, profile-model은 7개 모듈이 출하 의존으로 사용합니다. 해당 계약 어휘로 향하는 20개를 제외한 나머지 의존 간선 17개는 화살표로 직접 연결합니다." src="docs/diagrams/components.svg">
+  <img alt="저장소 모듈 16개 사이의 프로덕션 의존 관계를 나타냅니다. 계약 어휘인 contracts는 13개 모듈이, profile-model은 7개 모듈이 프로덕션 의존으로 사용합니다. 해당 계약 어휘로 향하는 20개를 제외한 나머지 의존 간선 17개는 화살표로 직접 연결합니다." src="docs/diagrams/components.svg">
 </picture>
 
 ```
@@ -77,7 +77,7 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/runtime-flow.dark.svg">
-  <img alt="상류의 작업 주문은 검증을 거쳐 pump로 넘어가 로봇 기체 제어로 이어집니다. 주문이 거절되면 대안 탐색 제안이 생성되며 외부 에이전트나 운영자의 승인을 거쳐 실행됩니다. 실행 결과와 사건 기록은 파일 3개로 출력되어 외부와 연동됩니다." src="docs/diagrams/runtime-flow.svg">
+  <img alt="상위의 작업 지시는 검증을 거쳐 pump로 넘어가 로봇 기체 제어로 이어집니다. 지시가 거절되면 조치 탐색 제안이 생성되며 외부 에이전트나 운영자의 승인을 거쳐 실행됩니다. 실행 결과와 인시던트 기록은 파일 3개로 출력되어 외부와 연동됩니다." src="docs/diagrams/runtime-flow.svg">
 </picture>
 
 - **인터페이스 계약 (Contracts)**: 명령/질의는 gRPC, 상태/이벤트/연결 스트리밍은 MQTT를 사용합니다. 태스크는 `(task_id, revision)` 튜플로 멱등성을 보장하며, 수명주기 상태 전이와 파지 상태(`hold`) 갱신을 전달합니다. 계약은 특정 도메인 수치나 파라미터 제약조건을 하드코딩하지 않으며, 이는 프로파일에 위임합니다.
@@ -85,11 +85,11 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 - **품질 및 아키텍처 게이트 (Gate)**: 계약 스펙과 프로파일 간의 불일치 시 PR 병합을 차단합니다. 검사 열이 있고 CI 와 `registry` 가 기준선만 달리해 같은 코드를 부른다. 네거티브 테스트 케이스는 코드가 아닌 데이터 기반으로 관리됩니다.
 - **프로파일 에뮬레이터 (Mimic)**: 기종 프로파일을 로드하여 계약 인터페이스를 에뮬레이션합니다. 시드(Seed)와 가상 클록(Virtual Clock)을 고정하여 결정론적(Deterministic) 이벤트 시퀀스를 생성하며, 제어 채널을 통해 네트워크 지연·유실·래치 위반 등의 결함을 주입할 수 있습니다.
 - **로봇 어댑터 (Adapter)**: 노스바운드(Northbound)는 표준 계약을 구현하고, 사우스바운드(Southbound)는 벤더 API 포트로 연결됩니다. 벤더 독점 SDK는 저장소에 일절 포함하지 않으며, `@VendorSurface` 어노테이션과 `vendor-manifest.txt` 매니페스트(심볼명 및 SHA-256 해시)를 통해 정합성을 검증합니다. 어댑터가 벤더의 어느 추상화 계층에 연동되든 상위 계약 면에서는 투명해야 합니다.
-- **운영 레지스트리 (Registry)**: Spring Boot 및 PostgreSQL 기반의 서비스 관리 모듈입니다. 개정판 관리, 어댑터 라이프사이클, 의존성 원장, 변경 계획 수립, 사이트 카탈로그 및 진단 표면 열 개를 제공합니다. 환경변수 기반 무상태 구성을 원칙으로 합니다.
+- **운영 레지스트리 (Registry)**: Spring Boot 및 PostgreSQL 기반의 서비스 관리 모듈입니다. 리비전 관리, 어댑터 라이프사이클, 의존성 원장, 변경 계획 수립, 사이트 카탈로그 및 진단 표면 열 개를 제공합니다. 환경변수 기반 무상태 구성을 원칙으로 합니다.
 
 ## 검증 현황 및 한계 관리
 
-저장소 내 대외 문서 57종은 자동화 대조 검증을 완료한 상태입니다. 문서에 명시된 모든 기술적 주장은 자동화 테스트로 증명되거나, [`docs/limits.md`](docs/limits.md)의 미결 항목 대장에 등록되어 추적 관리됩니다. 각 문서 하단의 대조 도장(Hash Stamp)은 본문 내용과 연결되어 있어, `CompletionCriterionTest`를 통해 임의 변경 시 도장 갱신을 요구합니다.
+저장소 내 대외 문서 57종은 자동화 대조 검증을 완료한 상태입니다. 문서에 명시된 모든 기술적 주장은 자동화 테스트로 증명되거나, [`docs/limits.md`](docs/limits.md)의 미결 항목 대장에 등록되어 추적 관리됩니다. 각 문서 하단의 대조 스탬프(Hash Stamp)은 본문 내용과 연결되어 있어, `CompletionCriterionTest`를 통해 임의 변경 시 스탬프 갱신을 요구합니다.
 
 한계 대장(`limits.md`)에 등록된 미결 항목은 **62개**(내부 28개 · 소비자 대기 9개 · 외부 25개, 의도적 제외 13개 제외)이며, 그 상세 목록과 해결 조건은 `limits.md`에 명시되어 있습니다. 특히 실물 어댑터가 넷 있다(기체 셋, 플릿 하나). 다만, 어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다(C-3)는 물리적 검증 한계가 존재하며, 이는 SDK 라이선스, JVM 바인딩 부재, 플릿 실기체 인스턴스 부재 등에 기인합니다.
 
@@ -124,18 +124,18 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 |---|---|---|
 | **검증 신뢰도** | [`docs/verification.md`](docs/verification.md) | 구간별 실물 기체, 실 네트워크, 모의 대역(Mock) 적용 범위 및 검증 수준 정의 |
 | **아키텍처** | [`docs/architecture.md`](docs/architecture.md) | 4단계 어휘 모델(ADR 36), 데이터 흐름, 상태 전이 모델 및 의존성 규칙 |
-| **오케스트레이션과 자원 소유** | [`docs/orchestration.md`](docs/orchestration.md) | 배정·실행 보증·경로 세 층의 구분, 자원별 소유자와 관문 대장, 배선도 |
-| **인터페이스 계약** | [`docs/contract.md`](docs/contract.md) | 계약 진입 게이트 규칙, 지원 범위 한계, 계약 담보 항목 및 1:1 테스트 매핑 |
-| **인터페이스 이음매** | [`docs/seams.md`](docs/seams.md) | 9대 교체 지점(Seam) 명세, 대상 인터페이스 및 실물 전환 가이드 |
+| **오케스트레이션과 자원 소유** | [`docs/orchestration.md`](docs/orchestration.md) | 배정·실행 보장·경로 세 계층의 구분, 자원별 소유자와 관문 대장, 배선도 |
+| **인터페이스 계약** | [`docs/contract.md`](docs/contract.md) | 계약 진입 게이트 규칙, 지원 범위 한계, 계약 보장 항목 및 1:1 테스트 매핑 |
+| **인터페이스 접합부** | [`docs/seams.md`](docs/seams.md) | 9대 접합부(Seam) 명세, 대상 인터페이스 및 실물 전환 가이드 |
 | **어댑터 개발** | [`tools/adapter-template/`](tools/adapter-template/README.md) | 신규 기종 어댑터 구현을 위한 7개 필수 구성 요소 및 템플릿 가이드 |
 | **어휘 거리 측정** | [`docs/vocabulary-distance.md`](docs/vocabulary-distance.md) | 벤더 API 명세와 계약 스킬 간의 어휘 거리 측정 절차 및 유의점 |
-| **상류 표준 연계** | [`docs/isa95.md`](docs/isa95.md) | ISA-95 표준 데이터 모델 매핑 및 미들웨어 계층의 근거 등급 정의 |
+| **상위 표준 연계** | [`docs/isa95.md`](docs/isa95.md) | ISA-95 표준 데이터 모델 매핑 및 미들웨어 계층의 근거 등급 정의 |
 | **현장 시운전** | [`docs/commissioning.md`](docs/commissioning.md) | 마스터 데이터 설정, 10단계 시운전 절차 및 관리 API 표면 명세 |
 | **모듈별 상세 명세** | 모듈별 `README.md` 참조 | 각 모듈의 단일 책임 원칙, 경계 조건, 테스트 항목 명세 ([`contracts`](contracts/README.md) → [`picasso`](picasso/README.md) → [`adapter-host`](adapter-host/README.md)) |
 | **설계 정본 스펙** | [공식 설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md) | 목적, 비목표(Non-goals), 세부 아키텍처, 계약, 프로파일, 변경 관리 종합 사양 |
 | **한계 및 이력** | [설계 문서 §15 알려진 한계](docs/superpowers/specs/2026-09-05-picasso-design.md#15) | 설계 변경 이력 및 누적 정정 기록 |
 | **운영 시나리오** | [`docs/scenarios.md`](docs/scenarios.md) | 공장 3대 시나리오(용기 공급 AMR, 부품 시퀀싱, 설비 점검) 및 완료 증명 체계 |
-| **미들웨어 코어** | [`docs/superpowers/specs/2026-09-09-middleware-core-design.md`](docs/superpowers/specs/2026-09-09-middleware-core-design.md) | 정준 실행 모델, 논리적 능력 정의, 근거 등급 결합 및 장애 전이 모델 |
+| **미들웨어 코어** | [`docs/superpowers/specs/2026-09-09-middleware-core-design.md`](docs/superpowers/specs/2026-09-09-middleware-core-design.md) | 정준 실행 모델, 논리적 케이퍼빌리티 정의, 근거 등급 결합 및 장애 전이 모델 |
 | **설계 결정 기록** | [ADR 색인](docs/adr/README.md) | 주요 아키텍처 결정 레코드 (ADR 9, 31~44 등) |
 | **벤더 인터페이스** | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) | 벤더 API 표면 분석 및 플릿 관리 인터페이스 측정 노트 |
 | **현장 전제조건** | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) | 로봇 도입 현장의 인프라(도어, 바닥, 조명 등) 엔지니어링 전제조건 |
@@ -151,4 +151,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-10-05 · sha256:835e20fc8184 · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-05 · sha256:286000d94238 · 열림: C-3, §15.81
