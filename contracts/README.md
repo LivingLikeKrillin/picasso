@@ -1,6 +1,6 @@
 # contracts — 인터페이스 계약 사양 (Interface Contracts)
 
-상류 비즈니스 시스템(MES/WMS)과 이종 로봇 기체 간의 명령·질의(gRPC) 및 비동기 상태 발행(MQTT) 규격, 그리고 메시지 헤더와 계약 신원 체계(§5.5)를 정의하는 핵심 인터페이스 모듈입니다.
+상위 비즈니스 시스템(MES/WMS)과 이종 로봇 기체 간의 명령·질의(gRPC) 및 비동기 상태 발행(MQTT) 규격, 그리고 메시지 헤더와 계약 식별 정보 체계(§5.5)를 정의하는 핵심 인터페이스 모듈입니다.
 
 계약의 정본(Single Source of Truth)은 `proto/picasso/v1/` 디렉터리 아래의 **여섯** 파일이고, 각 필드별 상세 주석을 통해 필드 도입 목적과 유효 값 도메인을 명시합니다. 본 문서는 전체 계약 구조를 조망하는 아키텍처 개요입니다.
 
@@ -17,9 +17,9 @@
 
 | 프로토콜 파일 | 정의 사양 및 역할 |
 |---|---|
-| `common.proto` | 공통 엔벨로프 헤더, 요청 거절 코드(`RejectionReason`), 3값 지원 플래그(`Support`), 참조 식별자 |
+| `common.proto` | 공통 엔벨로프 헤더, 요청 거부 코드(`RejectionReason`), 3값 지원 플래그(`Support`), 참조 식별자 |
 | `task.proto` | 태스크 수명주기 상태 10종, 상태 감시 스트림(`WatchTaskResponse`), 대기 상태(`HoldState`), 진행률 근거(`ProgressBasis`) |
-| `skill.proto` | 능력 투영 인터페이스 (`Capability`), 파라미터 메타데이터 선언, 런타임 협상(`Negotiation`) |
+| `skill.proto` | 케이퍼빌리티 프로젝션 인터페이스 (`Capability`), 파라미터 메타데이터 선언, 런타임 협상(`Negotiation`) |
 | `skill_catalog.proto` | 4대 표준 스킬 파라미터 사양 (`pick_place`, `navigate_to`, `inspect`, `move_relative`) |
 | `event.proto` · `fault.proto` | 비동기 3대 이벤트 스트림 및 결함 진단 — 15종 정준 실패 분류 체계 (`FailureClass`) |
 | `src/main/kotlin/…/wire/` | 공통 헤더 13개 필드 주입 및 직렬화 규칙 (클라이언트/서버 간 드리프트 방지) |
@@ -39,6 +39,6 @@
 
 - **계약 다이제스트 계산 방식 (§15.22)**: `contract_digest`는 Buf 모듈 다이제스트 대신 디스크립터 셋(`FileDescriptorSet`)의 SHA-256을 사용합니다. 이는 에뮬레이터(`mimic`)가 Docker 데몬 없이 독립 기동할 수 있도록 하기 위한 결정입니다.
 - **인덱스 기본값 0의 미설정 혼동 가능성 (§15.25)**: `update_index` 및 `sequence`가 0부터 시작하여 Protobuf 기본값(미설정 상태)과 형태상 구분되지 않으나, `schema_id`를 통해 전송 방향을 식별하므로 런타임 오류는 발생하지 않습니다.
-- **`GetCapabilitiesResponse` 전용 Rejection 필드 부재 (§15.24)**: 해당 RPC만 신원 불일치 오류를 메시지 본문이 아닌 gRPC 상태 코드(Status)로 전달합니다.
+- **`GetCapabilitiesResponse` 전용 Rejection 필드 부재 (§15.24)**: 해당 RPC만 식별 정보 불일치 오류를 메시지 본문이 아닌 gRPC 상태 코드(Status)로 전달합니다.
 
-> 마지막 대조: 2026-09-15 · sha256:3ae8f95d15a7 · 열림: §15.24, §15.25, §15.22
+> 마지막 대조: 2026-10-06 · sha256:f26b89497c2a · 열림: §15.24, §15.25, §15.22
