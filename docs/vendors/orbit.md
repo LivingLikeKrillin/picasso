@@ -7,7 +7,7 @@
 
 저장소 내 벤더 원문 바이너리 배제 원칙에 따라 심볼 명칭과 해시값만을 기록 관리합니다.
 
-> **2026-09-10 매니페스트 확정**: 원본 데이터 재검증(페이지 해시 `7563e16e…`, 클라이언트 해시 `19c7f980…`)을 거쳐 **총 323개 공식 심볼**을 추출하고 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt`에 체크인했습니다. 추출 도구는 `tools/vendor-manifest/openapi_symbols.py`이며, 남쪽 포트 인용의 정합성은 `OrbitVendorSurfaceTest`를 통해 검증됩니다. 기계 판독용 데이터는 `profile/vendors/orbit.json`에 정의되어 있습니다.
+> **2026-09-10 매니페스트 확정**: 원본 데이터 재검증(페이지 해시 `7563e16e…`, 클라이언트 해시 `19c7f980…`)을 거쳐 **총 323개 공식 심볼**을 추출하고 `adapter-boston-dynamics-orbit/src/test/resources/vendor-manifest.txt`에 체크인했습니다. 추출 도구는 `tools/vendor-manifest/openapi_symbols.py`이며, 사우스바운드 포트 인용의 정합성은 `OrbitVendorSurfaceTest`를 통해 검증됩니다. 기계 판독용 데이터는 `profile/vendors/orbit.json`에 정의되어 있습니다.
 >
 > **공식 스펙 외 엔드포인트 실측 (9종)**: 공식 파이썬 클라이언트(`bosdyn-orbit`)가 호출하는 40개 경로 중 다음 9개 경로는 공식 게시 OpenAPI 스펙에 누락되어 있음이 확인되었습니다:
 > - 즉시 파견: `calendar/mission/dispatch/{nickname}`
@@ -40,11 +40,11 @@
 그러나 실제 게시된 5.0.0 OpenAPI 스펙에는 'Work Order' 관련 문자열 및 엔드포인트가 전무(0건)합니다. 벤더가 공식 설명한 인터페이스가 게시 스펙에서 누락되어 있습니다.
 
 ### ③ 배포 인스턴스 종속성
-Orbit API는 현장에 구축된 개별 서버 인스턴스의 `/api/v0`를 통해 제공되므로, 실제 배포된 인스턴스의 기능 표면이 문서 게시본보다 확장되어 있을 가능성이 존재합니다.
+Orbit API는 현장에 구축된 개별 서버 인스턴스의 `/api/v0`를 통해 제공되므로, 실제 배포된 인스턴스의 기능 API 표면이 문서 게시본보다 확장되어 있을 가능성이 존재합니다.
 
 ---
 
-## 2. API 기능 표면 및 상태 변경 엔드포인트
+## 2. API 기능 API 표면 및 상태 변경 엔드포인트
 
 전체 35개 엔드포인트 중 상태 변경(Write)이 가능한 인터페이스:
 
@@ -111,9 +111,9 @@ RunEvent.eventType { enum: ["daq", "screenshot"] }
 공식 가이드 문서(`about_orbit.md`)에 기술된 Work Order 연동 방식:
 > *"When alerts occur in Orbit, work orders can be created manually from within the Orbit UI or automatically at the time of the alert. … Orbit will send an HTTP POST request to a configured external endpoint … The external system is then responsible for creating the work order in its own system."*
 
-이는 **Orbit 내부에서 발생한 이상 감지 이벤트를 외부 유지보수 시스템(SAP, EAM 등)으로 통보하는 아웃바운드 티켓팅 구조**입니다. 상류 시스템이 로봇에게 세부 작업을 지시하는 인바운드 명령 채널이 아닙니다.
+이는 **Orbit 내부에서 발생한 이상 감지 이벤트를 외부 유지보수 시스템(SAP, EAM 등)으로 통보하는 아웃바운드 티켓팅 구조**입니다. 상위 시스템이 로봇에게 세부 작업을 지시하는 인바운드 명령 채널이 아닙니다.
 
-따라서 Orbit의 공개 REST 표면만으로는 상류 비즈니스 시스템이 동적 파라미터를 실어 로봇에게 실시간 일감을 직접 하달할 수 없으며, 중간 연동 계층(Middleman)의 구축이 필수적입니다.
+따라서 Orbit의 공개 REST 표면만으로는 상위 비즈니스 시스템이 동적 파라미터를 실어 로봇에게 실시간 작업을 직접 하달할 수 없으며, 중간 연동 계층(Middleman)의 구축이 필수적입니다.
 
 ---
 
@@ -122,7 +122,7 @@ RunEvent.eventType { enum: ["daq", "screenshot"] }
 - **분석 등급**: `INFERRED` (공식 공개 자료로부터의 논리적 추론)
 1. **공개 SDK의 기종 한계**: 현재 공식 개발자 포털(`dev.bostondynamics.com`)에서 공개 제공하는 SDK는 Spot 1종에 한정됩니다.
 2. **마케팅 및 제품 발표**: 공식 블로그는 Orbit을 통해 Atlas를 WMS/MES에 통합하는 워크플로 연동을 발표한 바 있습니다.
-3. **Orbit 신원 스키마의 기종 중립성**: Orbit OpenAPI 스펙 전체에서 `Atlas`, `Stretch`, `quadruped`, `model` 명칭은 전무(0건)하며, `Robot` 스키마는 기종 구분 없이 `{ robotIndex, hostname, nickname, username }`만으로 정의되어 있습니다.
+3. **Orbit 식별 정보 스키마의 기종 중립성**: Orbit OpenAPI 스펙 전체에서 `Atlas`, `Stretch`, `quadruped`, `model` 명칭은 전무(0건)하며, `Robot` 스키마는 기종 구분 없이 `{ robotIndex, hostname, nickname, username }`만으로 정의되어 있습니다.
 
 **결론**: Atlas 및 Stretch 기종은 별도의 공개 저수준 SDK 없이 Orbit 플릿 플랫폼을 통해 상위 시스템에 연동되는 구조로 설계되어 있을 가능성이 높습니다.
 
@@ -133,7 +133,7 @@ RunEvent.eventType { enum: ["daq", "screenshot"] }
 
 ---
 
-## 6. 미결 과제 (Known Open Issues)
+## 6. 오픈 항목 과제 (Known Open Issues)
 
 1. **거리 재측정**: `vendor_layer`를 `MissionService`에서 `SiteWalk` 기준으로 재평가
 2. **결함 결과 어휘 정준화**: `Fault.error_type`의 정수 코드 표준화
@@ -141,4 +141,4 @@ RunEvent.eventType { enum: ["daq", "screenshot"] }
 4. **인스턴스 API 전수 검증**: 실제 구동 중인 Orbit 인스턴스와의 라이브 연동 확인
 5. **Atlas/Stretch 연동 채널 확인**: 비공개 전용 SDK 존재 여부 검증 (확인 전까지 가설 유지)
 
-> 마지막 대조: 2026-09-15 · sha256:79e5b7bd9b80 · 열림: C-3
+> 마지막 대조: 2026-10-06 · sha256:a1572ceb0be9 · 열림: C-3
