@@ -10,7 +10,7 @@
 
 로봇 어댑터가 연동되는 물리적 위치는 기종에 따라 상이합니다. Spot, Digit, G1 등은 로봇 제어기에 직접 연결되지만, Boston Dynamics Orbit과 같은 시스템은 상위 플릿 매니저(Fleet Manager)를 경유하여 연결됩니다.
 
-초기에는 기종 프로파일에 `attachment: ROBOT_DIRECT | FLEET_MANAGER` 필드를 추가하여 런타임에 노출하자는 제안이 있었으나, 이는 벤더의 물리 배포 형태가 상류 클라이언트 코드의 조건 분기(`if attachment == FLEET_MANAGER`)로 누출되므로 기각되었습니다 (ADR 36 결정 5 위반).
+초기에는 기종 프로파일에 `attachment: ROBOT_DIRECT | FLEET_MANAGER` 필드를 추가하여 런타임에 노출하자는 제안이 있었으나, 이는 벤더의 물리 배포 형태가 상위 클라이언트 코드의 조건 분기(`if attachment == FLEET_MANAGER`)로 누출되므로 기각되었습니다 (ADR 36 결정 5 위반).
 
 그러나 두 연동 방식 간의 본질적 차이는 **"기체 목록의 소유권과 등록 절차"**에 명확히 존재합니다:
 - **플릿 경유 방식**: 플릿 매니저가 기체 목록을 보유하고 있으며, 어댑터가 이를 **동적으로 발견(Discovery)**하여 등록.
@@ -49,4 +49,4 @@
 
 `adapter-boston-dynamics-orbit` 모듈이 실제 플릿 발견 파이프라인을 구현하였으며, `OrbitDiscoveryEndToEndTest`를 통해 모의 플릿 서버로부터 기체가 자동 탐지되어 레지스트리에 `DISCOVERED` 상태로 등록되는 전 과정을 실증 검증하였습니다.
 
-> 마지막 대조: 2026-09-15 · sha256:723d36b8a799 · 열림: §15.106 · CLI
+> 마지막 대조: 2026-10-06 · sha256:3c047b444474 · 열림: §15.106 · CLI
