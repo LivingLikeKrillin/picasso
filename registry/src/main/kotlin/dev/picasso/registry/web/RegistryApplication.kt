@@ -74,6 +74,10 @@ open class RegistryApplication {
     open fun adapterInstances(db: Db): dev.picasso.registry.adapter.AdapterInstanceService =
         dev.picasso.registry.adapter.AdapterInstanceService(db)
 
+    @Bean
+    open fun adapters(db: Db): dev.picasso.registry.adapter.AdapterService =
+        dev.picasso.registry.adapter.AdapterService(db)
+
     /** ADR 37 의 두 문. **서비스는 하나이고 문이 둘인 것이 요점이다** — 출처는 컨트롤러가 정한다. */
     @Bean
     open fun robotRegistration(db: Db): dev.picasso.registry.binding.RobotRegistration =
