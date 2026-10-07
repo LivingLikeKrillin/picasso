@@ -24,7 +24,7 @@
 | `ingest/` · `observe/` | 상태 적재 파이프라인 — 핸드셰이크, 하트비트 생존 확인, 태스크 진행률 및 신규 기체 발견 이벤트 수신 |
 | `web/` | REST API 계층. **이원화된 토큰 체계** — 기체용 적재 토큰(`/ingest/*`) 및 운영자용 관리 토큰(`/operations/*`) 분리 |
 
-데이터베이스 스키마는 Flyway 마이그레이션 스크립트를 정본으로 유지합니다 (`src/main/resources/db/migration/`, V1~V15).
+데이터베이스 스키마는 Flyway 마이그레이션 스크립트를 정본으로 유지합니다 (`src/main/resources/db/migration/`, V1~V16).
 
 ---
 
@@ -39,7 +39,7 @@
 
 - **실제 PostgreSQL 16 연동 (Testcontainers)**: 임베디드 H2 대신 실제 PostgreSQL 컨테이너 환경에서 실행되어 테이블 제약 조건, CHECK 제약, 외래키(FK) 무결성을 엄밀히 검증합니다.
 - **실제 HTTP 엔드포인트 통합 테스트**: `TestRestTemplate`과 임의 포트 바인딩을 통해 HTTP 응답 상태 코드, 이원화 토큰 인증 및 JSON 직렬화를 실제 통신 환경에서 검증합니다.
-- `web/*EndpointTest` 다섯이 전체 REST API 표면 계약을 검증하고, `binding/`, `plan/`, `ledger/` 단위 테스트가 비즈니스 규칙을 담당합니다.
+- `web/*EndpointTest` 여섯이 전체 REST API 표면 계약을 검증하고, `binding/`, `plan/`, `ledger/` 단위 테스트가 비즈니스 규칙을 담당합니다.
 - 상위 통합 검증은 `harness` 모듈에서 담당합니다: `LedgerIngestEndToEndTest` (에뮬레이터 경로), `HostIngestEndToEndTest` (어댑터 경로), `OrbitDiscoveryEndToEndTest` (동적 발견 경로).
 
 ---
@@ -50,4 +50,4 @@
 - **원장 적재의 비동기 메시지 브로커 구독기 미구현 (§15.34)**: 상태 발행은 외부 MQTT 브로커로 전달되나, 브로커로부터 이벤트를 읽어 원장에 자동 반영하는 컨슈머가 아직 구현되지 않아 현재는 프로세스 내 직접 적재 방식을 병행합니다.
 - **원장 정합성의 계약 인터페이스 경유 의존성 (§15.10)**: 모든 클라이언트가 본 인터페이스 계약을 통과할 때만 원장의 완전성이 보증됩니다.
 
-> 마지막 대조: 2026-10-07 · sha256:0ec99b3fe140 · 열림: §15.5, §15.10, §15.34, §15.38
+> 마지막 대조: 2026-10-08 · sha256:5957ab3ea644 · 열림: §15.5, §15.10, §15.34, §15.38

@@ -76,6 +76,8 @@ const ROUTES = {
   'registry>gate': 'M736,268 V350',
   'harness>mimic': 'M256,164 V214',
   'harness>client': 'M192,128 H16 V378 H30',
+  // 통로(x 168~184)의 한가운데로 내려간다. picasso>capability 의 가로 구간(y 292)과 한 번 직각으로 엇갈린다.
+  'harness>capability': 'M192,148 H176 V392 H190',
   'harness>uplink': 'M320,148 H340 V384 H350',
   'orbit>adapter-host': 'M512,132 H432 V214',
   'orbit>uplink': 'M512,156 H496 V392 H482',

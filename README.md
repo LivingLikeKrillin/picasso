@@ -29,7 +29,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/components.dark.svg">
-  <img alt="저장소 모듈 16개 사이의 프로덕션 의존 관계를 나타냅니다. 계약 어휘인 contracts는 13개 모듈이, profile-model은 7개 모듈이 프로덕션 의존으로 사용합니다. 해당 계약 어휘로 향하는 20개를 제외한 나머지 의존 간선 17개는 화살표로 직접 연결합니다." src="docs/diagrams/components.svg">
+  <img alt="저장소 모듈 16개 사이의 프로덕션 의존 관계를 나타냅니다. 계약 어휘인 contracts는 13개 모듈이, profile-model은 7개 모듈이 프로덕션 의존으로 사용합니다. 해당 계약 어휘로 향하는 20개를 제외한 나머지 의존 간선 18개는 화살표로 직접 연결합니다." src="docs/diagrams/components.svg">
 </picture>
 
 ```
@@ -151,4 +151,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-10-06 · sha256:98206d8d2382 · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-08 · sha256:6dd5d46bfff0 · 열림: C-3, §15.81
