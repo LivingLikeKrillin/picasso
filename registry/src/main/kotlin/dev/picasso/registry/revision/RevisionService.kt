@@ -23,6 +23,24 @@ sealed interface SubmitOutcome {
 }
 
 /**
+ * 조작 문의 제출 결과(picasso-ops P2·S1d 스펙 §6.2). [SubmitOutcome] 과 달리 **같은 문서의 재제출을 거절하지 않는다** —
+ * 응답을 못 받은 화면이 다시 보내면 같은 개정판을 돌려준다.
+ */
+sealed interface Submitted {
+    /** 새로 저장했다. 검증에 실패했으면 [status] 가 `DRAFT` 다. */
+    data class Created(val profileRevisionId: Long, val revision: Int, val status: RevisionStatus, val reasons: List<String>) : Submitted
+
+    /** 같은 기종·같은 번호·같은 문서가 이미 있다. 그 개정판이다. */
+    data class Existing(val profileRevisionId: Long, val revision: Int, val status: RevisionStatus, val reasons: List<String>) : Submitted
+
+    /** 번호가 단조 증가하지 않는다. 같은 번호에 다른 문서도 여기다. */
+    data class NotMonotonic(val received: Int, val highest: Int) : Submitted
+
+    /** 프로파일 문서로 읽을 수 없다. */
+    data class Unreadable(val detail: String) : Submitted
+}
+
+/**
  * §8.4 ①의 개정판 등록.
  *
  * **검증에 실패해도 저장한다.** `DRAFT`에 머무르며 사유가 붙고 편집 후
@@ -53,6 +71,49 @@ class RevisionService(
             )
         }
 
+        store(c, profileId, parsed, documentJson, actor)
+    }
+
+    /**
+     * 조작 문의 제출. **기종 행을 잠그고 진행한다** — 같은 문서가 동시에 두 번 오면 둘 다 «최대 번호보다 크다» 를 보고
+     * 넣다가 `(profile_id, revision)` 유일 제약에 걸려 500 이 되는데, 잠그면 둘째가 첫째의 개정판을 본다.
+     *
+     * 같은 번호·같은 문서 해시면 [Submitted.Existing] 이고 감사를 남기지 않는다. 일어난 일이 없다.
+     */
+    fun submitDocument(documentJson: String, actor: String): Submitted = db.transaction { c ->
+        val parsed = ProfileDocument.parse("submitted", documentJson).getOrNull()
+            ?: return@transaction Submitted.Unreadable("프로파일을 읽을 수 없다")
+
+        val profileId = upsertProfile(c, parsed.vendor, parsed.model)
+        c.prepareStatement("SELECT 1 FROM capability_profile WHERE profile_id = ? FOR UPDATE").use { s ->
+            s.setLong(1, profileId)
+            s.executeQuery().close()
+        }
+
+        existing(c, profileId, parsed.revision)?.let { row ->
+            if (row.hash == sha256(documentJson)) {
+                return@transaction Submitted.Existing(row.id, parsed.revision, row.status, row.reasons)
+            }
+        }
+        val highest = highestRevision(c, profileId)
+        if (highest != null && parsed.revision <= highest) {
+            return@transaction Submitted.NotMonotonic(parsed.revision, highest)
+        }
+
+        val stored = store(c, profileId, parsed, documentJson, actor)
+        Submitted.Created(stored.profileRevisionId, stored.revision, stored.status, stored.reasons)
+    }
+
+    // ── 저장 (프레임워크 없이 JDBC로. §3.4의 "도메인은 프레임워크를 모른다")
+
+    /** 검증하고 저장한다. 두 제출 길([submit]·[submitDocument])이 같은 저장을 지나게 하려고 뗐다. */
+    private fun store(
+        c: Connection,
+        profileId: Long,
+        parsed: ProfileDocument,
+        documentJson: String,
+        actor: String,
+    ): SubmitOutcome.Stored {
         val baseline = activeDocument(c, profileId)
         val outcome = validator.validate(documentJson, "revision-${parsed.revision}", baseline)
 
@@ -80,10 +141,21 @@ class RevisionService(
             subject = "${parsed.vendor}/${parsed.model}#${parsed.revision}",
             after = """{"status":"$status","reasons":${reasons.size}}""",
         )
-        SubmitOutcome.Stored(id, parsed.revision, status, reasons)
+        return SubmitOutcome.Stored(id, parsed.revision, status, reasons)
     }
 
-    // ── 저장 (프레임워크 없이 JDBC로. §3.4의 "도메인은 프레임워크를 모른다")
+    private class StoredRow(val id: Long, val hash: String, val status: RevisionStatus, val reasons: List<String>)
+
+    private fun existing(c: Connection, profileId: Long, revision: Int): StoredRow? = c.prepareStatement(
+        "SELECT profile_revision_id, document_hash, status, validation_detail::text FROM profile_revision " +
+            "WHERE profile_id = ? AND revision = ?",
+    ).use { s ->
+        s.setLong(1, profileId); s.setInt(2, revision)
+        s.executeQuery().use { rs ->
+            if (!rs.next()) return@use null
+            StoredRow(rs.getLong(1), rs.getString(2), RevisionStatus.valueOf(rs.getString(3)), reasonsOf(rs.getString(4)))
+        }
+    }
 
     private fun upsertProfile(c: Connection, vendor: String, model: String): Long {
         c.prepareStatement(
@@ -152,7 +224,8 @@ class RevisionService(
      *
      * **`skill_type`에 없는 스킬은 건너뛴다.** 동기화가 아직 안 돌았거나
      * 계약에 없는 스킬인데, 여기서 만들어 넣으면 §8.1의 "이 표는 계약이
-     * 소유한다"가 깨진다. 그 부재는 바인딩이 보고 막는다.
+     * 소유한다"가 깨진다. **그 부재를 막는 곳은 없다** — 건너뛴 스킬은 사이트 명칭 요구 집합에도, 바인딩의 계약
+     * semver 검사에도 안 들어간다. 그래서 registry 가 기동할 때 동기화한다([SkillTypeCatalog.syncAtBoot]).
      */
     private fun insertSkills(c: Connection, revisionId: Long, document: ProfileDocument) {
         document.skills.forEach { skill ->
@@ -220,4 +293,11 @@ class RevisionService(
     private fun sha256(text: String): String =
         MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
             .joinToString("") { "%02x".format(it) }
+
+    private fun reasonsOf(detail: String?): List<String> =
+        detail?.let { MAPPER.readTree(it)["reasons"]?.map { r -> r.asText() } } ?: emptyList()
+
+    private companion object {
+        val MAPPER = com.fasterxml.jackson.databind.ObjectMapper()
+    }
 }

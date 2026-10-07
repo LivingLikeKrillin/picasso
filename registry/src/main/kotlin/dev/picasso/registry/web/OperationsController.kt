@@ -158,7 +158,7 @@ class OperationsController(
                 mapOf("robot" to robotId, "status" to (robots.statusOf(robotId)?.name ?: "UNKNOWN"), "was_retired" to outcome.wasRetired),
             )
         is RetirementOutcome.Unknown ->
-            ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to "모르는 기체다: ${'$'}{outcome.robotId}"))
+            ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to "모르는 기체다: ${outcome.robotId}"))
         is RetirementOutcome.Rejected ->
             ResponseEntity.status(HttpStatus.BAD_REQUEST).body(mapOf("error" to outcome.detail))
     }

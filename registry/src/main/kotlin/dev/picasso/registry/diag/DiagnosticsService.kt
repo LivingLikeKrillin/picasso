@@ -46,7 +46,7 @@ data class BindingRow(
     /**
      * 이 바인딩이 **사이트의 이름들을 아는가**(ADR 35의 결정 3).
      *
-     * `NOT_REQUIRED` / `UNREGISTERED` / `REGISTERED`. §9.7 ④의
+     * `NOT_REQUIRED` / `UNREGISTERED` / `CLAIMED` / `CONFIRMED` / `CONTRADICTED`([SiteNameStatus]). §9.7 ④의
      * `conformance_status`, §15.47의 `liveness`와 같은 자리다 — **막지 않고
      * 보이게 한다.** 등록 대상은 프로파일이 선언한 스킬의 시맨틱 파라미터에서
      * 유도하므로 기종마다 손으로 적는 목록이 없다.
@@ -55,6 +55,23 @@ data class BindingRow(
 
     /** 무엇을 알아야 하는가. 비어 있으면 [siteNames]가 `NOT_REQUIRED`다. */
     val siteNameKeys: List<String>,
+
+    /**
+     * 묶인 빌드. **어댑터 이름과 버전만으로는 모자란다** — 운영 화면이 응답 없음 뒤에 «요청한 빌드로 묶였는가» 를
+     * 다시 물어 판정하려면 id 가 있어야 한다(picasso-ops P2·S1d 스펙 §6.3).
+     */
+    val adapterVersionId: Long,
+    val boundBy: String,
+    val boundAt: String,
+
+    /** 사람이 명칭을 등록했다고 적은 이·시각. [siteNames] 의 «사람의 말» 절반이다. */
+    val siteNamesRegisteredBy: String?,
+    val siteNamesRegisteredAt: String?,
+
+    /** 기체가 명칭을 답한 시각·개수·호스팅 불가. [siteNames] 의 «기체의 답» 절반이다. 널은 아직 안 물어본 것이다. */
+    val siteNamesReportedAt: String?,
+    val siteNamesCount: Int?,
+    val siteNamesUnsupported: Boolean?,
 )
 
 /**
@@ -164,7 +181,10 @@ class DiagnosticsService(
                        pr.profile_revision_id, pr.revision,
                        a.name, av.version, av.conformance_status,
                        (b.unbound_at IS NULL) AS active,
-                       l.last_reported_at, l.connection_state
+                       l.last_reported_at, l.connection_state,
+                       b.adapter_version_id, b.bound_by, b.bound_at,
+                       b.site_names_registered_by, b.site_names_registered_at,
+                       l.site_names_reported_at, l.site_names_count, l.site_names_unsupported
                 FROM robot_binding b
                 JOIN robot r               ON r.robot_id = b.robot_id
                 JOIN profile_revision pr   ON pr.profile_revision_id = b.profile_revision_id
@@ -204,6 +224,14 @@ class DiagnosticsService(
                                     // "모른다"로 읽힌다.
                                     siteNames = "",
                                     siteNameKeys = emptyList(),
+                                    adapterVersionId = rs.getLong(13),
+                                    boundBy = rs.getString(14),
+                                    boundAt = rs.getTimestamp(15).toInstant().toString(),
+                                    siteNamesRegisteredBy = rs.getString(16),
+                                    siteNamesRegisteredAt = rs.getTimestamp(17)?.toInstant()?.toString(),
+                                    siteNamesReportedAt = rs.getTimestamp(18)?.toInstant()?.toString(),
+                                    siteNamesCount = rs.getInt(19).takeUnless { rs.wasNull() },
+                                    siteNamesUnsupported = rs.getBoolean(20).takeUnless { rs.wasNull() },
                                 ),
                             )
                         }

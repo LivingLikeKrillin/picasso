@@ -15,6 +15,7 @@ import dev.picasso.registry.observe.ObservationService
 import dev.picasso.registry.revision.RevisionValidator
 import dev.picasso.registry.store.Db
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.ApplicationRunner
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
 import org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
@@ -155,6 +156,35 @@ open class RegistryApplication {
     @Bean
     open fun siteNames(db: Db): dev.picasso.registry.binding.SiteNameRegistration =
         dev.picasso.registry.binding.SiteNameRegistration(db)
+
+    /** 개정판 제출(§8.4 ①). 조작 문이 생기기 전에는 빈이 없어 시험만 직접 불렀다. */
+    @Bean
+    open fun revisions(db: Db, validator: RevisionValidator): dev.picasso.registry.revision.RevisionService =
+        dev.picasso.registry.revision.RevisionService(db, validator)
+
+    @Bean
+    open fun revisionListing(db: Db): dev.picasso.registry.revision.RevisionListing =
+        dev.picasso.registry.revision.RevisionListing(db)
+
+    @Bean
+    open fun skillTypes(db: Db): dev.picasso.registry.revision.SkillTypeCatalog =
+        dev.picasso.registry.revision.SkillTypeCatalog(db)
+
+    /**
+     * §8.3 ④ — **계약 메타데이터를 기동 때 넣는다.** 넣지 않으면 `skill_type` 이 비어 개정판 제출이 선언 스킬을 조용히
+     * 건너뛴다. 기술자를 못 읽으면 예외로 기동을 멈춘다.
+     */
+    @Bean
+    open fun catalogBootSync(skillTypes: dev.picasso.registry.revision.SkillTypeCatalog): ApplicationRunner =
+        ApplicationRunner {
+            val descriptor = RegistryApplication::class.java.getResourceAsStream("/picasso.desc")?.use { it.readBytes() }
+            val outcome = skillTypes.syncAtBoot(descriptor, dev.picasso.contracts.wire.ContractIdentity.semver)
+            val log = org.slf4j.LoggerFactory.getLogger(RegistryApplication::class.java)
+            when (outcome) {
+                is dev.picasso.registry.revision.BootSync.Synced -> log.info("계약 카탈로그 동기화: 새 스킬 종류 {}", outcome.inserted)
+                dev.picasso.registry.revision.BootSync.NoSchema -> log.warn("스키마가 없어 계약 카탈로그 동기화를 건너뛴다")
+            }
+        }
 
     /**
      * **활성화는 `BindingService`를 지난다**(§8.4 ③). 계획이 status를 직접
