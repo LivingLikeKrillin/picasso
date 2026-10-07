@@ -258,7 +258,7 @@ class RobotRegistration(private val db: Db, private val now: () -> Instant = Ins
         // 매번 덮고, 선언이 되살리면 *"복귀" 라는 사건이 등록과 구별되지 않는다.* 복귀는 따로 누른다.
         if (existing?.retiredAt != null) {
             return RobotRegistrationOutcome.RetiredAlready(
-                "${'$'}robotId 은 ${'$'}{existing.retiredAt} 에 퇴역한 기체다 — 되돌리려면 복귀시킨다",
+                "$robotId 은 ${existing.retiredAt} 에 퇴역한 기체다 — 되돌리려면 복귀시킨다",
             )
         }
 

@@ -29,19 +29,21 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 | 단계 | 작업 내용 | 실행 위치 / API | 미완료 시 장애 영향 |
 |---|---|---|---|
 | **Step 0** | 인터페이스 계약 SemVer 버전 고정 | 빌드 설정 | 어댑터와 소비자 간 계약 버전 불일치 발생 |
-| **Step 1** | 사이트 및 스킬 카탈로그 초기화 | `GET /catalog` 로 조회 검증 | 로봇 케이퍼빌리티를 선언할 계약 어휘 부재 |
+| **Step 1** | 사이트 및 스킬 카탈로그 초기화 | registry 기동 시 계약 기술자(`/picasso.desc`)에서 스킬 종류 자동 동기화<br>`GET /operations/skill-types` 로 동기화 결과 조회 검증 | 로봇 케이퍼빌리티를 선언할 계약 어휘 부재. 기술자를 못 읽으면 registry 가 기동하지 않음 |
 | **Step 2** | 어댑터 제품 및 릴리스 빌드 등록 | `POST /operations/adapters`<br>`POST /operations/adapters/{adapterId}/versions` | 어댑터 인스턴스 등록 시 유효 빌드 참조 불가로 거부 |
+| **Step 2b** | 기종 프로파일 개정판 제출·시험·활성화 (시험 3종은 시험 실행기가 요청을 집어 보고) | `POST /operations/profile-revisions`<br>`POST /operations/profile-revisions/{profileRevisionId}/test-requests`<br>`POST /operations/profile-revisions/{profileRevisionId}/activation` | 활성 개정판 부재로 기체 바인딩이 `REVISION_NOT_ACTIVE` 로 거절됨 |
 | **Step 3** | **로봇 기체 내부 사이트(웨이포인트) 명칭 등록** | **현장 기체 직접 설정 작업** (Spot: Autowalk 웨이포인트 명명, Digit: add-object) | 계약이 전달하는 장소명을 로봇이 인식하지 못해 작업 요청이 `PARAMETER_INVALID` 로 거절됨 |
 | **Step 4** | 어댑터 런타임 인스턴스 등록 | `POST /operations/adapter-instances` | 기체 자동 발견 시 미승인 인스턴스 오류로 등록 차단 |
 | **Step 5** | 어댑터 인스턴스 프로세스 기동 | 배치 런처 / 컨테이너 | — |
 | **Step 6** | 로봇 기체 등록 승인 | 플릿 자동 발견: `POST /ingest/robots`<br>단일 직결 기체: `POST /operations/robots` | 레지스트리에 기체가 식별되지 않아 작업 배정 불가 |
+| **Step 6b** | 로봇 기체 바인딩(어댑터 빌드와 활성 개정판) | `POST /operations/robots/{robotId}/binding`<br>`GET /diag/bindings` 로 `adapterVersionId` 와 활성 바인딩 확인 | 사이트 명칭 요구 집합 부재로 명칭 기록이 404. 기체에 어느 어댑터·개정판으로 묶였는지 기록 부재 |
 | **Step 7** | 사이트 명칭 등록 기록 대조 | `POST /operations/site-names` 등록 후 검증 질의 | 기체 상태가 `CLAIMED` 에 머물며 명칭 오타 시 작업 실패 |
 | **Step 8** | 설비 센서 신호 연동 및 시간 윈도우 δ 설정 | `CellSignals` 인터페이스 구현 | 작업 완료 증명이 `E1` 등급으로 제한됨 |
 | **Step 9** | 소비자 요구조건 집합 등록 | `POST /requirements` | 기능 축소/변경 시 영향도 사전 계산 불가 (ADR 9) |
 
 > **주의 (Step 3의 중요성):** 3단계는 소프트웨어 배포가 아니라 현장에서 로봇 기체를 운용하며 환경 지도를 학습시키는 물리적 티칭 작업입니다. 계약은 표준 시맨틱 명칭을 전달하지만, 해당 명칭의 좌표 해석 권한은 기체 자체에 귀속됩니다 (ADR 35).
 > 
-> 시운전 완료 검증은 `GET /diag/robots` 및 `GET /diag/adapter-instances` 엔드포인트를 호출하여 모든 기체 상태가 `CONFIRMED` 로 전환되었는지 확인합니다.
+> 시운전 완료 검증은 세 조건으로 판정한다. `GET /diag/robots` 에서 원장 상태가 `CONFIRMED` 이고 퇴역이 아님, `GET /diag/bindings` 에서 활성 바인딩이 있음, `GET /operations/site-names` 에서 사이트 명칭 상태가 `CONFIRMED` 또는 `NOT_REQUIRED` 임을 확인한다.
 
 ---
 
@@ -61,7 +63,8 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 | **기체 퇴역(Retirement) 처리** | `POST /operations/robots/{robotId}/retirement` | 불필요 |
 | **기체 퇴역 취소(복귀)** | `DELETE /operations/robots/{robotId}/retirement` | 불필요 |
 | 사이트 명칭 등록 기록 갱신 | `POST /operations/site-names` | 불필요 |
-| 기종 케이퍼빌리티 프로파일 개정 | 레지스트리 개정 파이프라인 | 축소 개정 시 잔여 소비자 요구조건에 따라 사전 승인 검증 수반 |
+| 기체 바인딩 변경 | `POST /operations/robots/{robotId}/binding` | 불필요 (같은 조합 재요청 시 같은 바인딩 반환) |
+| 기종 케이퍼빌리티 프로파일 개정 | `POST /operations/profile-revisions`<br>`POST /operations/profile-revisions/{profileRevisionId}/test-requests`<br>`POST /operations/profile-revisions/{profileRevisionId}/activation` | 축소 개정 시 잔여 소비자 요구조건에 따라 사전 승인 검증 수반 |
 
 ### 기체 퇴역 관리 정책
 - **운영자 명시적 조작 원칙**: 어댑터 관측 시 일시적으로 기체가 검색되지 않는다고 해서 자동으로 퇴역 처리하지 않습니다. 통신 일시 단절은 관측 상태의 문제이며, 퇴역은 비즈니스적 판단입니다 (ADR 37).
@@ -76,18 +79,23 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 |---|---|---|
 | `POST /operations/adapter-instances` | 조작 (Operations) | 어댑터 빌드 버전, 호스트 주소, 플릿 엔드포인트 등록 |
 | `POST /operations/robots` | 조작 (Operations) | 운영자가 신규 기체를 수동으로 선언 등록 |
-| `POST /operations/robots/{robotId}/retirement` | 조작 (Operations) | 대상 기체를 가용 자원 목록에서 퇴역 처리 |
-| `DELETE /operations/robots/{robotId}/retirement` | 조작 (Operations) | 퇴역 처리된 기체의 가용 상태 복원 |
+| `POST /operations/robots/{robotId}/retirement` | 조작 (Operations) | 원장에서 기체를 퇴역으로 표시(바인딩은 풀지 않음) |
+| `DELETE /operations/robots/{robotId}/retirement` | 조작 (Operations) | 퇴역 처리된 기체를 원장에 복귀 |
 | `POST /operations/site-names` | 조작 (Operations) | 대상 기체에 사이트 명칭 세트가 등록되었음을 기록 |
 | `GET /operations/site-names` | 조작 (Operations) | 등록 기록과 기체 실제 응답 간의 대조 결과 조회 |
 | `POST /operations/adapters` | 조작 (Operations) | 어댑터 제품(vendor, name) 등록 |
 | `POST /operations/adapters/{adapterId}/versions` | 조작 (Operations) | 어댑터 빌드(version, 계약 SemVer) 등록 |
 | `GET /operations/adapters` | 조작 (Operations) | 등록된 제품과 빌드 목록 및 빌드별 적합성 상태 조회 |
+| `GET /operations/skill-types` | 조작 (Operations) | 지금 계약 semver 와 스킬 종류 목록 조회(기동 동기화 결과 검증) |
+| `POST /operations/profile-revisions` | 조작 (Operations) | 기종 프로파일 문서를 개정판으로 제출(같은 문서 재제출은 같은 개정판 반환, 번호 역행은 409) |
+| `GET /operations/profile-revisions` | 조작 (Operations) | 개정판별 상태·사유·문서 해시·스위트별 최신 결과·최신 시험 요청 조회 |
+| `POST /operations/profile-revisions/{profileRevisionId}/activation` | 조작 (Operations) | `TESTED`·`SUPERSEDED` 이고 세 스위트가 모두 PASS 인 개정판 활성화(이미 `ACTIVE` 면 200 `already`) |
 | `POST /operations/profile-revisions/{profileRevisionId}/test-requests` | 조작 (Operations) | 프로파일 개정판 시험 요청(스위트 3종) 등록 |
+| `POST /operations/robots/{robotId}/binding` | 조작 (Operations) | 기체를 어댑터 빌드와 활성 개정판에 바인딩(같은 조합 재요청은 같은 바인딩 반환, 거절 사유는 `reason`) |
 | `POST /ingest/robots` | 적재 (Ingest) | 어댑터가 플릿 관리자에서 자동 발견한 기체 정보 전송 |
 | `POST /ingest/test-requests/claim` | 적재 (Ingest) | 실행기의 시험 요청 집기(후보 문서 및 집은 시각 인출) |
 | `POST /ingest/test-requests/{requestId}/results` | 적재 (Ingest) | 실행기의 스위트 3종 결과 보고 및 `TESTED` 승격 |
-| `POST /ingest/handshake` | 적재 (Ingest) | 기동 시 어댑터 빌드 및 바인딩된 프로파일 정보 보고 |
+| `POST /ingest/handshake` | 적재 (Ingest) | 클라이언트 협상(`Negotiate`)의 요청과 응답을 보고해 소비자 요구 원장에 적재(어댑터 빌드 칸 없음, 바인딩과 대조하지 않음) |
 | `POST /ingest/liveness` | 적재 (Ingest) | 기체 주기적 하트비트(Liveness) 보고 |
 | `POST /ingest/task` | 적재 (Ingest) | 기체의 원자적 태스크 실행 관측치 수집 |
 | `POST /requirements` | 적재 (Ingest) | 상위 시스템/소비자가 요구하는 스킬 규격 집합 등록 (ADR 9) |
@@ -116,4 +124,4 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 - **비가역 차원 (계약)**: 인터페이스 계약(Contracts)의 변경은 소비자가 이미 생성된 stub 코드를 탑재하고 있으므로 즉각적인 롤백이 불가능합니다.
 - **가역 차원 (프로파일·어댑터·바인딩)**: 프로파일 재활성화, 이전 어댑터 재배포, 이전 바인딩 롤백을 통해 운영 중 안전하게 복구 가능합니다.
 
-> 마지막 대조: 2026-10-08 · sha256:9263c65e1df7 · 열림: §15.123, §15.106 · CLI, §15.128, §15.129
+> 마지막 대조: 2026-10-08 · sha256:1601b2dd0bc1 · 열림: §15.123, §15.106 · CLI, §15.128, §15.129

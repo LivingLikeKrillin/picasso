@@ -88,7 +88,10 @@ class RobotInstance(
      * 요구하게 된다. 원장이 "0"과 "모른다"를 가른 것과 같은 규율이다.
      *
      * 기본값이 빈 목록인 것이 요점이다: **기동한 기체는 아무 이름도 모른다.**
+     *
+     * `@Volatile` 인 것은 쓰는 스레드(제어 채널, 담는 쪽의 런처)와 읽는 스레드(생존 보고 발행)가 다르기 때문이다.
      */
+    @Volatile
     var knownSiteNames: List<String>? = emptyList()
 
     /**

@@ -20,6 +20,46 @@ sealed interface BindOutcome {
     data class Refused(val detail: String) : BindOutcome
 }
 
+/** 조작 문의 활성화 결과(picasso-ops P2·S1d 스펙 §6.2). [ActivateOutcome] 과 달리 거절을 값으로 가른다. */
+sealed interface Activation {
+    /** @param superseded 내려간 옛 활성 개정판. 없으면 널. */
+    data class Activated(val superseded: Long?) : Activation
+
+    /** 이미 `ACTIVE` 다. 아무것도 바꾸지 않았다. */
+    data object AlreadyActive : Activation
+
+    /** 상태가 활성화할 수 없거나 세 스위트의 최신 결과가 모두 `PASS` 가 아니다. */
+    data class Refused(val status: RevisionStatus, val latest: Map<String, String>) : Activation
+
+    data object Unknown : Activation
+}
+
+/**
+ * 조작 문의 바인딩 결과(스펙 §6.2). [BindOutcome] 은 사유 문자열 하나라 표면이 거절을 가를 수 없었다.
+ *
+ * 순서는 검사 순서다 — 기체 있음, 퇴역 아님, 개정판 있음, 빌드 있음, 개정판 활성, 계약 semver.
+ */
+sealed interface Binding {
+    /** @param unbound 해제한 이전 바인딩. 없으면 널. */
+    data class Bound(val bindingId: Long, val unbound: Long?) : Binding
+
+    /** 같은 조합이 이미 활성이다. 행과 사이트 명칭 기록을 그대로 두었다. */
+    data class AlreadyBound(val bindingId: Long) : Binding
+
+    data object UnknownRobot : Binding
+
+    data object RobotRetired : Binding
+
+    data object UnknownRevision : Binding
+
+    data object UnknownBuild : Binding
+
+    data class RevisionNotActive(val status: RevisionStatus) : Binding
+
+    /** @param tooNew 빌드의 계약보다 새 스킬마다 `(이름, 처음 들어온 계약 semver)`. */
+    data class ContractTooOld(val contractSemver: String, val tooNew: List<Pair<String, String>>) : Binding
+}
+
 /**
  * §8.4 ③의 활성화와 §9.1의 바인딩.
  *
@@ -104,19 +144,48 @@ class BindingService(private val db: Db) {
         return promoted
     }
 
-    fun activate(profileRevisionId: Long, actor: String): ActivateOutcome = db.transaction { c ->
-        val status = statusOf(c, profileRevisionId)
-            ?: return@transaction ActivateOutcome.Refused("없는 개정판이다: $profileRevisionId")
-
-        if (status !in ACTIVATABLE) {
-            return@transaction ActivateOutcome.Refused(
-                "활성화할 수 있는 상태가 아니다: $status (가능: $ACTIVATABLE)",
+    /**
+     * [activateRevision] 에 위임한다. SQL 경로를 하나로 두려는 것이며 바뀐 동작은 없다 — 이미 `ACTIVE` 인 개정판은
+     * 전처럼 «활성화할 수 있는 상태가 아니다» 로 거부한다.
+     */
+    fun activate(profileRevisionId: Long, actor: String): ActivateOutcome =
+        when (val outcome = activateRevision(profileRevisionId, actor)) {
+            is Activation.Activated -> ActivateOutcome.Activated(outcome.superseded)
+            Activation.AlreadyActive -> ActivateOutcome.Refused(
+                "활성화할 수 있는 상태가 아니다: ${RevisionStatus.ACTIVE} (가능: $ACTIVATABLE)",
+            )
+            Activation.Unknown -> ActivateOutcome.Refused("없는 개정판이다: $profileRevisionId")
+            is Activation.Refused -> ActivateOutcome.Refused(
+                if (outcome.status !in ACTIVATABLE) {
+                    "활성화할 수 있는 상태가 아니다: ${outcome.status} (가능: $ACTIVATABLE)"
+                } else {
+                    "세 스위트의 최신 실행이 모두 PASS가 아니다: ${outcome.latest}"
+                },
             )
         }
-        if (!allSuitesPass(c, profileRevisionId)) {
-            return@transaction ActivateOutcome.Refused(
-                "세 스위트의 최신 실행이 모두 PASS가 아니다: ${latestResults(c, profileRevisionId)}",
-            )
+
+    /**
+     * 조작 문의 활성화. **이미 `ACTIVE` 면 멱등이다** — 응답을 못 받은 화면이 다시 눌러도 거절로 보이지 않는다.
+     *
+     * 기종 행을 잠그고 진행한다. 같은 기종의 두 개정판이 동시에 활성화되면 둘 다 같은 «옛 활성» 을 내리고 각자를
+     * 올려 `ACTIVE` 가 둘이 되는데, 잠그면 둘째가 첫째를 옛 활성으로 본다.
+     */
+    fun activateRevision(profileRevisionId: Long, actor: String): Activation = db.transaction { c ->
+        val profileId = c.prepareStatement(
+            "SELECT profile_id FROM profile_revision WHERE profile_revision_id = ?",
+        ).use { s ->
+            s.setLong(1, profileRevisionId)
+            s.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) else null }
+        } ?: return@transaction Activation.Unknown
+        c.prepareStatement("SELECT 1 FROM capability_profile WHERE profile_id = ? FOR UPDATE").use { s ->
+            s.setLong(1, profileId)
+            s.executeQuery().close()
+        }
+
+        val status = checkNotNull(statusOf(c, profileRevisionId))
+        if (status == RevisionStatus.ACTIVE) return@transaction Activation.AlreadyActive
+        if (status !in ACTIVATABLE || !allSuitesPass(c, profileRevisionId)) {
+            return@transaction Activation.Refused(status, latestResults(c, profileRevisionId))
         }
 
         // 같은 기종의 옛 활성 개정판은 **지우지 않고** SUPERSEDED로 내린다 —
@@ -140,7 +209,7 @@ class BindingService(private val db: Db) {
         ).use { it.setString(1, actor); it.setLong(2, profileRevisionId); it.executeUpdate() }
 
         audit(c, actor, "PROFILE_REVISION_ACTIVATE", "$profileRevisionId")
-        ActivateOutcome.Activated(previous)
+        Activation.Activated(previous)
     }
 
     /**
@@ -179,6 +248,68 @@ class BindingService(private val db: Db) {
             )
         }
 
+        val (id, unbound) = rebind(c, robotId, adapterVersionId, profileRevisionId, actor, reason)
+        BindOutcome.Bound(id, unbound)
+    }
+
+    /**
+     * 조작 문의 바인딩. [bind] 가 열어 둔 세 구멍을 막는다 — 없는 기체가 FK 위반 500 이 되고, 퇴역 기체도 묶이며,
+     * 같은 조합을 다시 묶으면 새 행이 생겨 사이트 명칭 기록이 «미등록» 으로 돌아간다.
+     *
+     * **기체 행을 잠그고 진행한다.** 같은 기체에 동시에 온 첫 바인딩 둘이 둘 다 «활성 없음» 을 보고 넣으면
+     * `robot_binding_one_active` 위반 500 이 되는데, 잠그면 둘째가 첫째를 본다.
+     *
+     * 같은 조합 검사는 **모든 검사 뒤**다. 요청이 지금 유효할 때만 «이미 됨» 이라고 답한다 — 묶인 뒤 개정판이
+     * 대체됐으면 같은 조합이어도 [Binding.RevisionNotActive] 다. 감사 `ROBOT_BIND` 는 새로 묶을 때만 남는다.
+     */
+    fun bindRobot(
+        robotId: String,
+        adapterVersionId: Long,
+        profileRevisionId: Long,
+        actor: String,
+        reason: String? = null,
+    ): Binding = db.transaction { c ->
+        val retired = c.prepareStatement("SELECT retired_at IS NOT NULL FROM robot WHERE robot_id = ? FOR UPDATE").use { s ->
+            s.setString(1, robotId)
+            s.executeQuery().use { rs -> if (rs.next()) rs.getBoolean(1) else null }
+        } ?: return@transaction Binding.UnknownRobot
+        if (retired) return@transaction Binding.RobotRetired
+
+        val status = statusOf(c, profileRevisionId) ?: return@transaction Binding.UnknownRevision
+        val contractSemver = c.prepareStatement(
+            "SELECT contract_semver FROM adapter_version WHERE adapter_version_id = ?",
+        ).use { s ->
+            s.setLong(1, adapterVersionId)
+            s.executeQuery().use { rs -> if (rs.next()) rs.getString(1) else null }
+        } ?: return@transaction Binding.UnknownBuild
+        if (status != RevisionStatus.ACTIVE) return@transaction Binding.RevisionNotActive(status)
+
+        val tooNew = requiredSemvers(c, profileRevisionId)
+            .filter { (_, introduced) -> Semver.parse(introduced) > Semver.parse(contractSemver) }
+        if (tooNew.isNotEmpty()) return@transaction Binding.ContractTooOld(contractSemver, tooNew)
+
+        val same = c.prepareStatement(
+            "SELECT robot_binding_id FROM robot_binding " +
+                "WHERE robot_id = ? AND unbound_at IS NULL AND adapter_version_id = ? AND profile_revision_id = ?",
+        ).use { s ->
+            s.setString(1, robotId); s.setLong(2, adapterVersionId); s.setLong(3, profileRevisionId)
+            s.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) else null }
+        }
+        if (same != null) return@transaction Binding.AlreadyBound(same)
+
+        val (id, unbound) = rebind(c, robotId, adapterVersionId, profileRevisionId, actor, reason)
+        Binding.Bound(id, unbound)
+    }
+
+    /** 옛 활성을 풀고 새 행을 넣는다. 두 바인딩 길([bind]·[bindRobot])이 같은 기록을 남기게 하려고 뗐다. */
+    private fun rebind(
+        c: Connection,
+        robotId: String,
+        adapterVersionId: Long,
+        profileRevisionId: Long,
+        actor: String,
+        reason: String?,
+    ): Pair<Long, Long?> {
         // **해제는 삭제가 아니라 `unbound_at`이다.** 이력이 남아야 진단 1번이
         // "이 기체는 어느 어댑터·개정판이었는가"에 답할 수 있다.
         val unbound = c.prepareStatement(
@@ -200,7 +331,7 @@ class BindingService(private val db: Db) {
         }
 
         audit(c, actor, "ROBOT_BIND", robotId)
-        BindOutcome.Bound(id, unbound)
+        return id to unbound
     }
 
     /** 지금 이 기체가 쓰는 조합. 없으면 `null`. */

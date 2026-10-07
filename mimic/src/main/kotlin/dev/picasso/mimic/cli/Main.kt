@@ -26,7 +26,18 @@ import kotlin.system.exitProcess
  */
 class MimicCli {
 
-    class Started(val server: MimicServer, val robotIds: Set<String>)
+    /**
+     * @param instances 기체 id 별 인스턴스. 담는 쪽이 기체가 아는 사이트 명칭([RobotInstance.knownSiteNames])을 넣는
+     *   자리다 — 현장의 명칭 티칭(`commissioning.md` Step 3)을 제어 서버 없이 흉내 낸다.
+     */
+    class Started(
+        val server: MimicServer,
+        val robotIds: Set<String>,
+        private val instances: Map<String, RobotInstance> = emptyMap(),
+    ) {
+        /** 이 서버가 띄운 기체. 모르는 id 면 널이다. */
+        fun instance(robotId: String): RobotInstance? = instances[robotId]
+    }
 
     /** 기동한 서버. 프로세스가 소유하며, 시험은 이것으로 닫는다. */
     var started: Started? = null
@@ -209,6 +220,7 @@ class MimicCli {
                 link.reporter,
             ).start(),
             robots.keys,
+            built.toMap(),
         )
     }
 
