@@ -1,6 +1,6 @@
 # 시스템 검증 충실도 및 환경 신뢰도 매트릭스 (Verification & Fidelity Matrix)
 
-본 문서는 `picasso` 미들웨어 시스템의 1,853개 자동화 테스트가 **어느 구간에서 실제 외부 시스템/하드웨어와 연동되고, 어느 구간에서 모의 대역(Mock/In-process)에 의존하는지**를 명확히 구분하여 기술적 검증 신뢰도(Verification Fidelity)를 투명하게 공개하기 위해 작성되었습니다.
+본 문서는 `picasso` 미들웨어 시스템의 1,871개 자동화 테스트가 **어느 구간에서 실제 외부 시스템/하드웨어와 연동되고, 어느 구간에서 모의 대역(Mock/In-process)에 의존하는지**를 명확히 구분하여 기술적 검증 신뢰도(Verification Fidelity)를 투명하게 공개하기 위해 작성되었습니다.
 
 ---
 
@@ -30,7 +30,7 @@
 | 5 | 어댑터 ↔ 벤더 — **Orbit** | **실 회선 · 세운 상대** | **벤더 공식 명세** (OpenAPI + SDK) | 실제 HTTP/HTTPS 프로토콜(쿠키, Bearer 토큰, 상태코드)을 통과하며, 응답 서버는 `com.sun.net.httpserver` 기반 스텁 연동 | `OrbitHttpLinkTest` · `OrbitLauncherTest` |
 | 6 | 어댑터 ↔ 벤더 — **Spot · Digit · G1** | **없음** | **벤더 공식 명세** (SDK Proto·IDL·매뉴얼) | 저장소 내 벤더 독점 SDK 배제 원칙에 따라 네트워크 전송은 수행하지 않으며, `@VendorSurface` 선언과 `vendor-manifest.txt` 간의 심볼 대조 검증 수행 | `*VendorSurfaceTest` 넷 |
 | 7 | 발행(MQTT) | **실제 하드웨어** | 자체 토픽·헤더 규격 (§5.5) | Docker 컨테이너 기반 실제 Mosquitto 브로커와 연동하여 토픽 발행/구독, QoS, Last Will 정상 동작 검증 | `MqttBrokerTest` |
-| 8 | 레지스트리 HTTP API | **실제 하드웨어** | 자체 REST API | Spring Boot 임의 포트(`RANDOM_PORT`)에 실제 구동하여 `TestRestTemplate` 기반 HTTP 통합 검증 | `*EndpointTest` 넷 |
+| 8 | 레지스트리 HTTP API | **실제 하드웨어** | 자체 REST API | Spring Boot 임의 포트(`RANDOM_PORT`)에 실제 구동하여 `TestRestTemplate` 기반 HTTP 통합 검증 | `*EndpointTest` 다섯 |
 | 9 | 레지스트리 ↔ DB | **실제 하드웨어** | 자체 DB 스키마 | Testcontainers 기반 PostgreSQL 16 컨테이너에 대해 Flyway 마이그레이션 및 외래키/CHECK 제약조건 검증 | `registry` 테스트 스위트 전체 |
 | 10 | 설비(PLC/WCS) ↔ `picasso` | **대역** | **자체 정의** | `CellMimic`을 통해 시간 윈도우 δ 기반 신호 수신 로직을 검증하나, 신호 스펙은 공장 표준 사례 기반의 자체 모델링임 | `EvidenceWindowTest` |
 | 11 | AMR 플릿 ↔ `picasso` | **대역** | **자체 정의** | `AmrFleetMimic` 기반 멱등 이송 작업 지시(Dispatch) 및 취소 정리를 검증하나, 상용 플릿 규격(VDA5050 등)과의 직접 연동은 미수행 | `DeliverContainerTest` |
@@ -45,4 +45,4 @@
 2. **로봇 인터페이스 계층의 격리성**: 어댑터 계층은 벤더 SDK 격리 원칙에 따라 매니페스트 대조를 통해 정합성을 검증하며, 실기체 직접 연동(C-3)은 환경적 제약으로 인해 오픈 항목 상태로 명시 관리됩니다.
 3. **상위 및 설비 연계 계층의 가정 기반성**: 설비(PLC) 및 AMR 플릿과의 연동 규격은 시스템적 일관성을 입증하기 위한 자체 설계 모델이며, 실제 현장 도입 시 대상 설비에 맞춘 Seam 어댑터 구현이 요구됩니다.
 
-> 마지막 대조: 2026-10-06 · sha256:4bb00b807043 · 열림: C-3
+> 마지막 대조: 2026-10-07 · sha256:361fbb143e18 · 열림: C-3

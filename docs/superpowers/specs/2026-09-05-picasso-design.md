@@ -3097,6 +3097,16 @@ mimic/
 
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
 
+206. **소비자의 시운전 Step 2 를 위해 어댑터 제품·빌드 등록과 조회 조작 문을 열었다.**
+
+    registry 에 어댑터 제품·빌드를 등록·조회하는 조작 문 3개를 열었다. 바깥 첫 소비자 picasso-ops(운영 화면, S1 스펙 §5)가 시운전 Step 2 를 화면에서 하려 했지만 빌드를 넣는 문이 없었다. `AdapterService.registerAdapter`·`registerVersion` 은 있었으나 부르는 컨트롤러가 없어 시험만 직접 불렀다. 어댑터 인스턴스 등록은 실재하는 `adapter_version_id` 를 요구한다. `/diag/software` 는 바인딩된 기체의 소프트웨어 대조라 빌드 목록이 아니며, `/diag/adapter-instances` 는 인스턴스가 있어야 빌드가 보였다. 소비자가 생겨서 문을 열었다(ADR 9).
+
+    `POST /operations/adapters` 는 새 제품이면 201, 이미 있으면 200, vendor·name 이 빈 값이면 400 이다. `POST /operations/adapters/{adapterId}/versions` 는 새 빌드이면 201, 같은 내용의 재요청이면 200, 같은 버전에 다른 계약 SemVer 이면 409 이다. SemVer 형식 오류 또는 빈 version 은 400, 없는 제품은 404 이다. `GET /operations/adapters` 는 제품과 빌드 목록 및 빌드마다 적합성을 돌려준다. 운영자 토큰 관문(`/operations/**`)과 `X-Actor` 필수는 기존 조작 문과 같다. 응답 키는 snake_case 이고 컨트롤러가 정한다. 서비스에는 결과를 구분하는 `declareAdapter`·`declareVersion`·`list` 와 결과 타입 `AdapterDeclared`·`VersionDeclared` 를 더했다. 옛 `registerAdapter` 는 `Long` 하나만 돌려줘 새로 만들었는지 알 수 없었고, 옛 `registerVersion` 은 SemVer 형식 오류와 중복을 `Rejected` 하나로 접었으며 없는 제품은 FK 위반 예외가 났다.
+
+    새 등록은 같은 내용의 재요청에 같은 id 를 돌려주는 멱등이다. 같은 버전에 다른 계약값은 덮어쓰지 않고 409 로 응답한다. 감사 기록은 새로 만들 때만 남기며 빌드 목록은 등록 순서다. 옛 `registerVersion` 은 새 메서드에 위임해 SQL 경로를 하나로 했다. 옛 호출자는 멱등을 기대하지 않으므로 같은 버전 재등록 거절은 그대로 두었다. 위임으로 동작이 바뀐 곳은 3곳이다. 없는 제품은 예외 대신 거절하고, 빈 version 과 빈 actor 는 저장 대신 거절한다. `registerAdapter` 는 호출 18곳이 시험 파일 14개에 있고 그중 harness 3개가 있어 그대로 두었다.
+
+    새 시험은 18개로, 서비스 `AdapterDeclarationTest` 10개와 표면 `AdapterEndpointTest` 8개다. 결함 주입 8건은 모두 이름 있는 시험으로 잡혔다. 빌드 감사 기록 위치를 옮긴 경우, Conflict 앞에서 저장값을 덮어쓴 경우, 409 를 400 으로 바꾼 경우, 이미 있는 제품의 200 을 201 로 바꾼 경우, 같은 내용 판정을 지운 경우, 없는 제품의 404 를 500 으로 바꾼 경우, 목록 응답에서 제품 이름을 vendor 칸에 넣은 경우, 빈 version 의 400 을 409 로 바꾼 경우다. 계약 SemVer 문자열은 정규화하지 않았다. 따라서 뜻이 같은 다른 표기라도 앞뒤 공백이나 앞자리 0 이 있으면 409 가 된다. 정규화하면 옛 경로의 저장값도 바뀌므로 이번에는 하지 않았다.
+
 205. **승인 창구 HTTP 규약과 구동기 인자를 문서화하고 실물 담는 측 조건을 적어 §15.203을 외부 미결로 옮긴다 — 바깥 루프(koshei) 세션이 창구 명세를 물었고 실물 담는 측의 자리를 정했다.**
 
     바깥 루프(koshei) 세션이 승인 창구의 HTTP 상태, 오류 본문, `Content-Type`, 경로, 기동할 때 알 것을 물었다. 답은 코드 주석과 인계본(`handoff/narrator/INDEX.txt`)에만 있었고 `docs/orchestration.md` §7.5에는 명령 두 줄뿐이었다. 그래서 §7.5에 HTTP 규약 표와 구동기 인자 표를 넣었다. HTTP 규약의 행은 `ApprovalHostTest` 의 시험 이름을 댄다. ★**`Content-Type` 두 가지는 시험이 없어 보증이 아니라 지금 구현의 사실이라고 적었다.**

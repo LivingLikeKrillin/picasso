@@ -30,7 +30,7 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 |---|---|---|---|
 | **Step 0** | 인터페이스 계약 SemVer 버전 고정 | 빌드 설정 | 어댑터와 소비자 간 계약 버전 불일치 발생 |
 | **Step 1** | 사이트 및 스킬 카탈로그 초기화 | `GET /catalog` 로 조회 검증 | 로봇 케이퍼빌리티를 선언할 계약 어휘 부재 |
-| **Step 2** | 어댑터 제품 및 릴리스 빌드 등록 | 운영 레지스트리 | 어댑터 인스턴스 등록 시 유효 빌드 참조 불가로 거부 |
+| **Step 2** | 어댑터 제품 및 릴리스 빌드 등록 | `POST /operations/adapters`<br>`POST /operations/adapters/{adapterId}/versions` | 어댑터 인스턴스 등록 시 유효 빌드 참조 불가로 거부 |
 | **Step 3** | **로봇 기체 내부 사이트(웨이포인트) 명칭 등록** | **현장 기체 직접 설정 작업** (Spot: Autowalk 웨이포인트 명명, Digit: add-object) | 계약이 전달하는 장소명을 로봇이 인식하지 못해 작업 요청이 `PARAMETER_INVALID` 로 거절됨 |
 | **Step 4** | 어댑터 런타임 인스턴스 등록 | `POST /operations/adapter-instances` | 기체 자동 발견 시 미승인 인스턴스 오류로 등록 차단 |
 | **Step 5** | 어댑터 인스턴스 프로세스 기동 | 배치 런처 / 컨테이너 | — |
@@ -54,6 +54,7 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 
 | 변경 대상 작업 | 호출 API 엔드포인트 | 라인 정지(Downtime) 수반 여부 |
 |---|---|---|
+| 어댑터 제품 및 빌드 추가 | `POST /operations/adapters`<br>`POST /operations/adapters/{adapterId}/versions` | 불필요 (동일 내용 재요청 시 동일 id 반환) |
 | 어댑터 인스턴스 추가 및 재배포 | `POST /operations/adapter-instances` | 불필요 (동일 식별자로 호출 시 무중단 갱신) |
 | 기체 자동 발견 등록 | `POST /ingest/robots` (어댑터 발신) | 불필요 |
 | 기체 수동 선언 등록 | `POST /operations/robots` (운영자 발신) | 불필요 |
@@ -79,6 +80,9 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 | `DELETE /operations/robots/{robotId}/retirement` | 조작 (Operations) | 퇴역 처리된 기체의 가용 상태 복원 |
 | `POST /operations/site-names` | 조작 (Operations) | 대상 기체에 사이트 명칭 세트가 등록되었음을 기록 |
 | `GET /operations/site-names` | 조작 (Operations) | 등록 기록과 기체 실제 응답 간의 대조 결과 조회 |
+| `POST /operations/adapters` | 조작 (Operations) | 어댑터 제품(vendor, name) 등록 |
+| `POST /operations/adapters/{adapterId}/versions` | 조작 (Operations) | 어댑터 빌드(version, 계약 SemVer) 등록 |
+| `GET /operations/adapters` | 조작 (Operations) | 등록된 제품과 빌드 목록 및 빌드별 적합성 상태 조회 |
 | `POST /ingest/robots` | 적재 (Ingest) | 어댑터가 플릿 관리자에서 자동 발견한 기체 정보 전송 |
 | `POST /ingest/handshake` | 적재 (Ingest) | 기동 시 어댑터 빌드 및 바인딩된 프로파일 정보 보고 |
 | `POST /ingest/liveness` | 적재 (Ingest) | 기체 주기적 하트비트(Liveness) 보고 |
@@ -109,4 +113,4 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 - **비가역 차원 (계약)**: 인터페이스 계약(Contracts)의 변경은 소비자가 이미 생성된 stub 코드를 탑재하고 있으므로 즉각적인 롤백이 불가능합니다.
 - **가역 차원 (프로파일·어댑터·바인딩)**: 프로파일 재활성화, 이전 어댑터 재배포, 이전 바인딩 롤백을 통해 운영 중 안전하게 복구 가능합니다.
 
-> 마지막 대조: 2026-10-06 · sha256:b037d1f1b1bb · 열림: §15.123, §15.106 · CLI, §15.128, §15.129
+> 마지막 대조: 2026-10-07 · sha256:1f529dba3f20 · 열림: §15.123, §15.106 · CLI, §15.128, §15.129
