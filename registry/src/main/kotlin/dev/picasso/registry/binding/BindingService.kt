@@ -57,22 +57,51 @@ class BindingService(private val db: Db) {
         require(suite in SUITES) { "모르는 스위트다: $suite (아는 것: $SUITES)" }
         require(result in setOf("PASS", "FAIL")) { "모르는 결과다: $result" }
 
+        insertRun(c, profileRevisionId, suite, result, ranBy, requestId = null, detail = null)
+        promoteIfAllPass(c, profileRevisionId, ranBy)
+    }
+
+    /**
+     * 실행 한 행을 남긴다. 시험 요청의 보고(`TestRequestService.report`)가 같은 트랜잭션에서 세 번 부른다 —
+     * 실행 행과 요청의 «끝남» 이 따로 커밋되면, 행은 남았는데 요청은 열려 있어 다시 집히는 창이 생긴다.
+     *
+     * @param detail 스위트가 낸 상세(JSON 문자열). 없으면 널
+     */
+    internal fun insertRun(
+        c: Connection,
+        profileRevisionId: Long,
+        suite: String,
+        result: String,
+        ranBy: String,
+        requestId: Long?,
+        detail: String?,
+    ) {
         c.prepareStatement(
-            "INSERT INTO revision_test_run (profile_revision_id, suite, result, ran_by) " +
-                "VALUES (?, ?, ?, ?)",
+            "INSERT INTO revision_test_run (profile_revision_id, suite, result, ran_by, request_id, detail) " +
+                "VALUES (?, ?, ?, ?, ?, ?::jsonb)",
         ).use {
             it.setLong(1, profileRevisionId); it.setString(2, suite)
             it.setString(3, result); it.setString(4, ranBy)
+            if (requestId == null) it.setNull(5, java.sql.Types.BIGINT) else it.setLong(5, requestId)
+            it.setString(6, detail)
             it.executeUpdate()
         }
+    }
 
+    /**
+     * 세 스위트의 최신 실행이 모두 `PASS` 이고 `VALIDATED` 면 `TESTED` 로 올린다. 올렸으면 참.
+     *
+     * 개별 기록([recordTestRun])과 요청 보고가 같은 규칙을 지나야 한다. 두 곳에 규칙을 두면 한쪽만 고쳐지는 날
+     * «시험은 통과했는데 상태는 아닌» 창이 다시 생긴다.
+     */
+    internal fun promoteIfAllPass(c: Connection, profileRevisionId: Long, actor: String): Boolean {
         val promoted = allSuitesPass(c, profileRevisionId) &&
             statusOf(c, profileRevisionId) == RevisionStatus.VALIDATED
         if (promoted) {
             setStatus(c, profileRevisionId, RevisionStatus.TESTED)
-            audit(c, ranBy, "PROFILE_REVISION_TESTED", "$profileRevisionId")
+            audit(c, actor, "PROFILE_REVISION_TESTED", "$profileRevisionId")
         }
-        promoted
+        return promoted
     }
 
     fun activate(profileRevisionId: Long, actor: String): ActivateOutcome = db.transaction { c ->

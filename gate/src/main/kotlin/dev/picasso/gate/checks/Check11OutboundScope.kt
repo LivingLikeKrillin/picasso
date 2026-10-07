@@ -125,6 +125,8 @@ class Check11OutboundScope : GateCheck {
          *
          * `uplink` 넷은 이 저장소 자신의 `registry` 로 관측을 올린다(`/ingest` 아래). `adapter-orbit`
          * 하나는 벤더 플릿 관제와 말한다(ADR 37 · 39) — 기종 지식이 갈 수 있는 유일한 자리다.
+         * `harness` 의 개정판 시험 실행기는 이 저장소의 `registry` 에서 시험 요청을 집고 결과를 올린다(`/ingest` 아래,
+         * ADR 49).
          */
         val DECLARED = setOf(
             "uplink/src/main/kotlin/dev/picasso/uplink/report/HttpHandshakeReporter.kt",
@@ -132,6 +134,7 @@ class Check11OutboundScope : GateCheck {
             "uplink/src/main/kotlin/dev/picasso/uplink/report/HttpTaskObservations.kt",
             "uplink/src/main/kotlin/dev/picasso/uplink/report/RobotDiscovery.kt",
             "adapter-boston-dynamics-orbit/src/main/kotlin/dev/picasso/adapter/orbit/OrbitHttpLink.kt",
+            "harness/src/main/kotlin/dev/picasso/harness/revision/RevisionTestRunner.kt",
         )
     }
 }

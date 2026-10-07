@@ -69,6 +69,11 @@ open class RegistryApplication {
     @Bean
     open fun bindings(db: Db): BindingService = BindingService(db)
 
+    /** 시험 요청(§8.4 ②). 보고가 실행 행과 승격을 [BindingService] 로 남기므로 같은 빈을 쓴다. */
+    @Bean
+    open fun testRequests(db: Db, bindings: BindingService): dev.picasso.registry.testing.TestRequestService =
+        dev.picasso.registry.testing.TestRequestService(db, bindings = bindings)
+
     /** ADR 37 결정 2 의 셋째 축 — 배포된 것. */
     @Bean
     open fun adapterInstances(db: Db): dev.picasso.registry.adapter.AdapterInstanceService =

@@ -1103,10 +1103,11 @@ mimic/
 | [46](../../adr/0046-consumed-approval-is-recorded.md) | 승인이 소모한 제안을 (기체, 주문)마다 기록하고, 다시 온 승인에 `CONSUMED` 로 그 기록을 돌려줌 | §15.201 |
 | [47](../../adr/0047-operator-decision-is-made-by-a-person.md) | 운영자 판단은 사람만 내고 누가 냈는지 사건에 남기며, 판단자는 읽는 쪽이 생길 때까지 내보내지 않음 | §15.202 |
 | [48](../../adr/0048-result-notice-has-an-outside-shape.md) | 결과 통보에 판이 있는 바깥 형식을 두고, 승인 답과 실행 · 걸음 단위 · 인스턴스 식별자로 이음 | §15.203 |
+| [49](../../adr/0049-revision-tests-have-a-runner.md) | 개정판 시험 3종의 뜻을 정하고, 실행기를 harness 에 두어 registry 의 문 3개(요청 · 집기 · 보고)에 HTTP 로만 닿게 함 | §15.207 |
 
 기록은 `docs/adr/`에 있고 번호가 이 표의 행 번호다. **이미 내려서 코드에 박힌 것만 쓴다** — 3a·3b가 만들 것(11~21)은 그때 쓴다. 결정하지 않은 것을 미리 적어 두면 그것이 결정처럼 보인다.
 
-> 마지막 대조: 2026-10-02 · sha256:9e82d3174e84 · 열림: C-3, §15.7, §15.126, ADR 32 · 시나리오 5, §15.4, §15.5, §15.6 · §15.11 · §15.28, §15.8, §15.9, §15.10, §15.1, §15.2, §15.33, §15.87
+> 마지막 대조: 2026-10-08 · sha256:a0f4bd977d83 · 열림: C-3, §15.7, §15.126, ADR 32 · 시나리오 5, §15.4, §15.5, §15.6 · §15.11 · §15.28, §15.8, §15.9, §15.10, §15.1, §15.2, §15.33, §15.87
 
 ## 15. 알려진 한계
 
@@ -3096,6 +3097,18 @@ mimic/
     **정본을 안 붙인 배치는 안 막는다.** `ActiveMap.NotConfigured` 가 「검사할 정본이 없다」이고 `Unavailable` 이 「못 물어봤다」이며, 뒤엣것만 멈춘다. 둘을 접으면 정본 없는 현장이 통째로 서고 그러면 이 검사가 곧 꺼진다 — `SiteNames` 가 `Unsupported` 와 `Unavailable` 을 가른 것과 같은 규율이다.
 
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
+
+207. **개정판 시험 3종의 뜻을 정하고 실행기를 지어 요청 → 집기 → 3종 → 보고 → `TESTED` 고리를 닫았다.**
+
+    설계 §8.4 ② 가 적은 «시험 요청 적재 → harness 폴링 인출 → 가상화 계약 검증 스위트 완주 → TESTED» 고리는 지어지지 않은 채였다. `V2__testing.sql` 주석이 «폴링 고리(harness 쪽)는 3a-2다» 로 미뤘고, `harness` 의 `Suite` 열거형을 쓰는 코드가 없었으며, `TestRequestService.claim` 과 `BindingService.recordTestRun` 은 시험 소스만 불렀다. 시험 요청에 «끝남» 칸이 없어 집은 요청은 15분 만료 뒤 다시 집혔다. 바깥 첫 소비자 picasso-ops 의 P2·S1d 설계 스펙(`docs/superpowers/specs/2026-10-08-p2-s1d-runner-binding-commissioning-design.md`, picasso-ops 저장소)이 화면에서 개정판을 시험 요청하고 진짜 실행기가 시험하게 정했다(2026-10-07 사용자 결정). 실행기는 picasso-ops 의 가짜 현장(`site/`) 프로세스가 띄운다. 소비자가 생겨서 고리를 지었다(ADR 9).
+
+    registry 에 문 3개를 열었다. `POST /operations/profile-revisions/{profileRevisionId}/test-requests`(운영자 토큰, `X-Actor` 필수)는 201 새 요청, 200 끝나지 않은 요청이 이미 있음(그 요청, 멱등), 404 없는 개정판, 409 `DRAFT`·`REVOKED`(본문 `status`)다. `POST /ingest/test-requests/claim`(적재 토큰, 본문 `worker`)은 200 요청 id·개정판 id·집은 시각(`claimed_at`, DB 에 적힌 값)·후보 문서, 204 집을 것 없음이고 끝난 요청은 집지 않는다. `POST /ingest/test-requests/{requestId}/results`(적재 토큰, 본문 `worker`·`claimed_at`·`results` 3개)는 200 보고 뒤 상태, 400 스위트가 셋이 아니거나 모르는 결과·시각 형식 오류, 404 없는 요청, 409 는 본문 `reason` 으로 가른다(`COMPLETED`·`NOT_CLAIMER`). 실행 3행, 요청의 «끝남», 승격이 한 트랜잭션이다. 스키마 `V16__test_request_completion.sql` 이 `revision_test_request.completed_at` 칸과 부분 유일 색인 `revision_test_request_one_open` 을 더했다. 집은 시각까지 대는 것은 실행기 이름이 같은 이름으로 다시 뜰 수 있어 이름만으로는 죽은 실행기의 늦은 보고를 못 가르기 때문이다. 집은 시각은 DB 값(마이크로초)을 그대로 돌려준다 — 메모리 값(나노초)을 내주면 모든 보고가 거절된다.
+
+    시험 3종의 뜻을 정했다(ADR 49). `CONTRACT` 는 선언 스킬 전부와 `REQUIRED` 선택 필드로 협상하면 수락되고, 능력 조회가 `CapabilityProjection.of(문서)` 와 같으며, 선언 스킬마다 새 기체에서 태스크가 수락되고 성공이거나 선언한 결함으로 멈춘다. `NEGATIVE` 는 프로파일이 못 한다고 적은 것마다 탐침 1개를 보내 정해진 거절 코드(`SKILL_ABSENT`·`PARAMETER_INVALID`·`CANCEL_UNSUPPORTED`·`PAUSE_UNSUPPORTED`·`REQUIRED_OPTIONAL_MISSING`)가 오는지 본다. `DETERMINISM` 은 `CONTRACT` 의 태스크 시나리오를 같은 시드로 두 번, 각각 새 `Harness` 에서 돌려 발행 전부와 태스크 갱신이 같은지 댄다. 스위트가 검사를 하나도 안 돌렸으면 통과가 아니고, 상세 JSON(`checks`·`failures`)이 `revision_test_run.detail` 에 그대로 들어간다. `MinimalParameters` 가 선언에서 최소 유효값과 어긴 값을 만든다. 실행기 `RevisionTestRunner` 는 `harness` 의 운영 코드(`dev.picasso.harness.revision`)에 두고, 후보 문서를 임시 파일로 써서 기존 `Harness` 에 넘기며, registry 에는 HTTP 로만 닿는다(`HttpTestDesk`). `harness` 운영 코드는 `:registry` 에 의존하지 않고 `:capability` 의존이 하나 늘었다. 적재에서 거절된 문서는 세 스위트를 모두 FAIL(`LOAD`)로 보고하고, 보고의 응답을 못 받으면 최대 3번 다시 보내며 409 `COMPLETED` 면 앞 보고가 반영된 것으로 본다. 게이트 검사 11 목록에 `RevisionTestRunner.kt` 를 더하고 `docs/diagrams/components.svg` 에 `harness → capability` 간선을 그렸다.
+
+    시험 34개를 더해 총수가 1,871 에서 1,905 가 됐다. registry 서비스 `RevisionTestRequestTest` 12, 표면 `TestRequestEndpointTest` 8, harness `RevisionSuitesTest` 4, `RevisionTestRunnerTest` 7, `RevisionRunnerEndToEndTest` 3(registry 를 같은 JVM 에 띄우고 실행기는 HTTP 로만 닿음)이다. `humanoid-a` 와 `quadruped-b` 가 요청 → 집기 → 3종 PASS → `TESTED` 로 간다. 한 프로파일의 3종은 1초 안팎에 끝난다(humanoid-a 약 0.3초). 결함 주입 19건이 모두 이름 있는 시험으로 잡혔다. registry 9: 열린 요청 재사용 제거, 집기의 끝남 조건 제거, 보고의 집은 시각 대조 제거, 집은 시각을 메모리 값으로, `DRAFT`·`REVOKED` 거절 제거, «끝남» 기록 제거, 409 `reason` 바꿈, 멱등 200 을 201 로, 보고의 승격 제거. harness·mimic 9: mimic 의 취소 미지원 거절 제거(`NEGATIVE`), 능력 응답의 개정판 번호 바꿈(`CONTRACT`), 두 번째 실행의 시드를 먼 값으로(`DETERMINISM`, humanoid-a), 정규화 제거(`DETERMINISM`), 보고 재전송 제거, 적재 거절을 예외로 던짐, 보고의 집은 시각을 현재 시각으로, 선언 안 한 스킬 탐침 제거, 409 `COMPLETED` 판별 제거. 게이트 1: 검사 11 목록에서 실행기 제거.
+
+    실측한 덫이 둘이다. `java.util.Random` 은 이웃한 작은 시드의 첫 난수가 거의 같다. 시드 0~6 으로 humanoid-a `pick_place`(작업 시간 45초, 지터 비율 0.1)를 새 기체에서 돌리면 모두 48초째 성공하고 자취가 같았다. 그래서 «두 번째 실행의 시드를 1 올린다» 는 주입은 등가 변이였고, 먼 시드(987654321)로 넣었다. 지터를 선언하지 않은 `quadruped-b` 는 시드를 바꿔도 같은 자취다. harness 시험 클래스패스에서 registry(Spring)를 띄우면 slf4j 구현 충돌(mimic 쪽 NOP 와 Spring 의 logback)로 기동이 거부된다. 시험이 Spring 의 로깅 초기화만 끈다(`org.springframework.boot.logging.LoggingSystem=none`). harness 시험 의존에 Spring Boot(starter-web)를 더했다. 남긴 것은 셋이다. 실행기를 상주시키는 `main`(picasso 에 없고 첫 소비자가 프로세스 안에서 `start(interval)` 로 띄운다), 시험 요청의 취소(만료만 있음), mimic 의 후보 개정판 검증 모드(설계 §10.2 `--registry --profile-revision`).
 
 206. **소비자의 시운전 Step 2 를 위해 어댑터 제품·빌드 등록과 조회 조작 문을 열었다.**
 

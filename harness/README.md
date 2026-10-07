@@ -13,6 +13,11 @@
 ## 2. 테스트 스위트 구성
 
 - `Harness` · `ContractSuite`: 에뮬레이터를 기동하고 제어 채널을 통해 가상 시계 및 결함을 조작하는 테스트 기반 런처.
+- `RevisionSuites` · `RevisionTestRunner`: 프로파일 개정판 시험 실행기. registry 에서 시험 요청을 집어 후보 문서를 `Harness` 에 넘기고, 가상 시계·고정 시드 in-process mimic 으로 스위트 3종을 돌려 결과를 HTTP 로 보고한다([ADR 49](../docs/adr/0049-revision-tests-have-a-runner.md)).
+  - `CONTRACT`: 선언 스킬 전부와 `REQUIRED` 선택 필드로 협상 수락, 능력 조회가 `CapabilityProjection.of(문서)` 와 일치, 선언 스킬마다 태스크가 성공하거나 선언한 결함으로 멈춤.
+  - `NEGATIVE`: 프로파일이 못 한다고 적은 것마다 탐침 1개를 보내 정해진 거절 코드(`SKILL_ABSENT`·`PARAMETER_INVALID`·`CANCEL_UNSUPPORTED`·`PAUSE_UNSUPPORTED`·`REQUIRED_OPTIONAL_MISSING`) 확인. 게이트 역검증(`gate/negative/`)과 다른 것.
+  - `DETERMINISM`: `CONTRACT` 의 태스크 시나리오를 같은 시드로 두 번 돌려 발행 전부와 태스크 갱신이 같은지 대조(`session_id`·`event_id` 는 비교 전에 제거).
+  - 검사를 하나도 안 돌린 스위트는 통과가 아니며, 상세 JSON(`checks`·`failures`)이 `revision_test_run.detail` 에 들어간다. 상주 `main` 은 없고 소비자가 `start(interval)` 로 띄운다.
 - **완료 기준별 적합성 테스트**:
   - `A1Test`: 동일한 클라이언트 코드로 상이한 케이퍼빌리티의 2개 기종 제어 검증
   - `ReconstructionTest`: 중간 구독자의 과거 이벤트 스트림 스냅샷 재구성 검증
@@ -32,4 +37,4 @@
 - **컨테이너 환경 의존성 (§15.39)**: 카나리 테스트는 실제 레지스트리 컨테이너를 구동하고, 브로커 테스트는 실제 MQTT 브로커 컨테이너(Docker) 환경을 요구합니다. 검증 신뢰성을 위해 컨테이너 부재 시 임의로 성공 처리하지 않습니다.
 - **실제 하드웨어 기체 연동 한계**: 본 하네스의 검증 성공은 소프트웨어 계약 계층까지의 정합성을 보증하며, 물리 하드웨어 실제 하드웨어에 대한 연동 검증(C-3)은 분리되어 있습니다 (상세 검증 등급: [`docs/verification.md`](../docs/verification.md)).
 
-> 마지막 대조: 2026-10-06 · sha256:65464c9fcccb · 열림: C-3, §15.39
+> 마지막 대조: 2026-10-08 · sha256:01a1f6c79704 · 열림: C-3, §15.39

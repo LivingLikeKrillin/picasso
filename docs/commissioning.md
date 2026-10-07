@@ -83,7 +83,10 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 | `POST /operations/adapters` | 조작 (Operations) | 어댑터 제품(vendor, name) 등록 |
 | `POST /operations/adapters/{adapterId}/versions` | 조작 (Operations) | 어댑터 빌드(version, 계약 SemVer) 등록 |
 | `GET /operations/adapters` | 조작 (Operations) | 등록된 제품과 빌드 목록 및 빌드별 적합성 상태 조회 |
+| `POST /operations/profile-revisions/{profileRevisionId}/test-requests` | 조작 (Operations) | 프로파일 개정판 시험 요청(스위트 3종) 등록 |
 | `POST /ingest/robots` | 적재 (Ingest) | 어댑터가 플릿 관리자에서 자동 발견한 기체 정보 전송 |
+| `POST /ingest/test-requests/claim` | 적재 (Ingest) | 실행기의 시험 요청 집기(후보 문서 및 집은 시각 인출) |
+| `POST /ingest/test-requests/{requestId}/results` | 적재 (Ingest) | 실행기의 스위트 3종 결과 보고 및 `TESTED` 승격 |
 | `POST /ingest/handshake` | 적재 (Ingest) | 기동 시 어댑터 빌드 및 바인딩된 프로파일 정보 보고 |
 | `POST /ingest/liveness` | 적재 (Ingest) | 기체 주기적 하트비트(Liveness) 보고 |
 | `POST /ingest/task` | 적재 (Ingest) | 기체의 원자적 태스크 실행 관측치 수집 |
@@ -113,4 +116,4 @@ ISA-95 제조 통합 표준의 핵심 원칙에 따라 시스템 엔티티를 **
 - **비가역 차원 (계약)**: 인터페이스 계약(Contracts)의 변경은 소비자가 이미 생성된 stub 코드를 탑재하고 있으므로 즉각적인 롤백이 불가능합니다.
 - **가역 차원 (프로파일·어댑터·바인딩)**: 프로파일 재활성화, 이전 어댑터 재배포, 이전 바인딩 롤백을 통해 운영 중 안전하게 복구 가능합니다.
 
-> 마지막 대조: 2026-10-07 · sha256:1f529dba3f20 · 열림: §15.123, §15.106 · CLI, §15.128, §15.129
+> 마지막 대조: 2026-10-08 · sha256:9263c65e1df7 · 열림: §15.123, §15.106 · CLI, §15.128, §15.129

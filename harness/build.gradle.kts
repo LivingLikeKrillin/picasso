@@ -11,6 +11,10 @@ dependencies {
     api(project(":contracts"))
     implementation(project(":profile-model"))
 
+    // 개정판 시험의 CONTRACT 가 능력 응답을 프로파일의 투영과 맞댄다(picasso-ops P2·S1d 스펙 §5.4). 투영을 다시 짜면
+    // 미믹이 내는 것과 시험이 기대하는 것이 같은 코드에서 나오지 않게 된다.
+    implementation(project(":capability"))
+
     // 적재 폴백이 계약 메시지를 protobuf JSON으로 적는다. 적재 표면이
     // 같은 규약으로 읽으므로 다른 규약을 쓰면 밀어 넣는 날 갈린다.
     implementation(libs.protobuf.java.util)
@@ -41,6 +45,11 @@ dependencies {
     // 컨테이너 기동기는 `registry`의 `testFixtures`에서 온다 — 복사하면
     // 시험이 DB를 얻는 방식에 두 번째 진실이 생긴다.
     testImplementation(testFixtures(project(":registry")))
+
+    // 개정판 시험 실행기가 registry 와 HTTP 로 왕복하는지 본다(RevisionRunnerEndToEndTest). registry 를 이 JVM 에
+    // 띄우려면 Spring 이 시험 클래스패스에 있어야 한다 — registry 는 그것을 implementation 으로만 든다.
+    testImplementation(platform(libs.spring.boot.bom))
+    testImplementation(libs.spring.boot.starter.web)
 
     // 실제 브로커를 띄워 §15.30의 "증명되지 않는 것"을 줄인다.
     // **여기 두는 것은 harness가 이미 Docker를 요구하기 때문이다**(§15.39) —
