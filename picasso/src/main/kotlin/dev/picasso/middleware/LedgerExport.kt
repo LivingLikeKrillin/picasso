@@ -39,8 +39,16 @@ object LedgerExport {
      *
      * `4` 에서 탐색 줄의 `outcome` 에 **갈래가 하나 늘었다**(`SOURCE_MISSING`, §15.183). 사건 줄은 안 바뀌었다.
      * **칸이 는 것과 다르다** — `outcome` 으로 분기하는 읽는 쪽은 모르는 값을 만나므로 판을 봐야 한다.
+     *
+     * `5` 에서 인시던트 줄에 `resolution`(사람이 그 단위에 낸 판단) 한 칸이 붙었다(§15.188). 칸이 는 것뿐이고, 해시에서
+     * 빠지는 칸이라 요약은 안 바뀌었다.
+     *
+     * `6` 에서 인시던트 줄의 `route` 에 **하위 범주가 하나 늘었다**(`SIGNAL`, 설비 대기). 칸은 안 늘었다. `4` 와 같은 이유로
+     * 버전을 올린다 — `route` 로 분기하는 읽는 쪽은 모르는 값을 만난다. 의도의 임무 버전(`Intent.missionVersion`)은
+     * 싣지 않는다 — 읽는 쪽이 아직 없다(ADR 9). 다만 그 값이 해시에 들므로 **요약(`digest`)은 모든 줄에서 바뀐다** —
+     * 코드 케이퍼빌리티로 돈 줄(임무 버전 널)도 해시의 모양이 바뀌었기 때문이다.
      */
-    const val SCHEMA_VERSION: String = "5"
+    const val SCHEMA_VERSION: String = "6"
 
     const val INCIDENTS: String = "incidents.jsonl"
     const val REMEDY_SEARCHES: String = "remedy-searches.jsonl"
@@ -184,7 +192,11 @@ object LedgerExport {
         .str("value", r.value)
         .done()
 
-    /** 무엇을 하려던 일이었나 — 상류가 적은 것과 이 층이 편 것을 함께. */
+    /**
+     * 무엇을 하려던 일이었나 — 상류가 적은 것과 이 층이 편 것을 함께.
+     *
+     * **임무 버전(`missionVersion`)은 안 싣는다.** 프로세스 안의 인시던트 번들에만 있다 — 읽는 쪽이 생기면 버전을 올려 싣는다.
+     */
     private fun intent(i: Intent): String = Obj()
         .str("workMasterId", i.workMasterId)
         .num("orderVersion", i.orderVersion)

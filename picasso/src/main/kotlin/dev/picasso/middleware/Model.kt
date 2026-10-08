@@ -125,8 +125,56 @@ data class LateEvent(
  *
  * - [ROBOT] — 계약(④)의 원자 스킬 하나. 기종은 어댑터 뒤에 있다
  * - [FLEET] — D 수준 위임. 운반 전체를 플릿에 맡기고 결과만 받는다([AmrFleetPort], 프로젝트용 계약)
+ * - [SIGNAL] — 설비 대기. 하위에 요청을 보내지 않고 이름 있는 설비 신호([CellSignals.signal])가 기대 값이
+ *   될 때까지 기다린다. 대기 사양은 단위의 [ExecutionUnit.wait] 에 있다
+ *
+ * ★**셋째 값이 생겼으므로 «로봇이 아니면 플릿» 으로 가르지 않는다.** 그렇게 가르면 설비 대기가 조용히 플릿으로
+ * 간다 — 경로마다 `when` 으로 나눈다.
  */
-enum class Route { ROBOT, FLEET }
+enum class Route { ROBOT, FLEET, SIGNAL }
+
+/**
+ * 설비 대기의 기한이 지났을 때 갈 상태(임무 정의의 `onDeadline`).
+ *
+ * - [OPERATOR_HOLD] — 대기 단위가 운영자 판단에 선다. 라인이 멈추고 확인(진행)·재작업(다시 기다림)·실행 취소로 푼다
+ * - [ABORTED] — 대기 단위는 `FAILED`(`SIGNAL_DEADLINE`)로 남고 실행이 중단된다. 남은 단위는 내보내지 않는다
+ *
+ * `FAILED` 로만 두고 진행을 맡기지 않는 이유: 엔진은 `FAILED` 단위 뒤에도 다음 단위를 내보낸다. 신호를 못 본 채
+ * 다음 로봇 단계를 하면 대기를 둔 뜻이 없다.
+ */
+enum class DeadlineOutcome { OPERATOR_HOLD, ABORTED }
+
+/**
+ * 설비 대기 단위([Route.SIGNAL])의 사양 — 무엇을 어떤 값이 될 때까지, 언제까지 기다리고, 그 뒤에 어디로 가는가.
+ *
+ * 판정은 신호의 **지금 값**이다. 읽은 값이 [expect] 와 같으면 끝난다. 관측 시각은 자취에만 쓴다 — 상태 신호만
+ * 다루므로 시작 전부터 그 값이었다면 그 상태가 이미 성립한 것이다. 짧게 켜졌다 꺼지는 이벤트형 신호는 다루지 않는다.
+ *
+ * @param deadline 단위가 시작한 시각부터의 기한. 재작업하면 다시 시작한다.
+ */
+data class WaitSpec(
+    val signal: String,
+    val expect: String,
+    val deadline: Duration,
+    val onDeadline: DeadlineOutcome,
+) {
+    companion object {
+        /**
+         * 대기 단위의 `skillType`. **계약 카탈로그의 스킬 이름과 겹치지 않는 값이다** — 겹치면 효과·사전 조건·선택
+         * 파라미터를 읽는 자리가 이 단위를 그 스킬로 잘못 읽는다. 플릿의 `transport` 와 같은 자리의 이름이다.
+         */
+        const val SKILL_TYPE = "equipment_wait"
+
+        /** 기한까지 기대 값을 못 봤다 — 대기 단위의 실패 분류. */
+        const val SIGNAL_DEADLINE = "SIGNAL_DEADLINE"
+
+        /** 대기 사양을 단위 파라미터에도 싣는 키 — 인시던트의 `intent.unitParameters` 로 나가 무엇을 기다렸는지가 보인다. */
+        const val P_SIGNAL = "signal"
+        const val P_EXPECT = "expect"
+        const val P_DEADLINE_SECONDS = "deadlineSeconds"
+        const val P_ON_DEADLINE = "onDeadline"
+    }
+}
 
 // ── 상류 인터페이스의 모양 — OPC UA ISA-95 Job Control 10031-4 의 타입을 따른다
 
@@ -236,6 +284,8 @@ data class ExecutionUnit(
      * 지금은 아무 발신자도 채우지 않는다(§15.76). 비어 있으면 `null`.
      */
     var result: String? = null,
+    /** 설비 대기 단위([Route.SIGNAL])의 사양. 다른 경로의 단위는 널이다. */
+    val wait: WaitSpec? = null,
 )
 
 /**

@@ -17,6 +17,11 @@ import java.time.Instant
  *   신호 지속 시간보다 길 때 생기는 일이며, 보고서가 PLC 쪽 **래치 비트**를 요구하라고 한 이유다.
  * - [latch] — 그 자리에 래치 비트를 둔다. 펄스가 지나가도 마지막 펄스가 **시각과 함께** 남는다.
  *
+ * ## 이름 있는 신호 (설비 대기)
+ *
+ * [setSignal] 이 이름 있는 신호의 **지금 값**을 정한다 — 랙 도착 같은 상태 신호다. 정하지 않은 이름과 [clearSignal] 한
+ * 이름은 말이 없다(`null`). 시각을 주면 그 시각을, 안 주면 읽는 순간을 관측 시각으로 답한다.
+ *
  * [live] 를 주면 프로그램된 값이 없는 자리는 그 세계를 읽는다 — 시나리오 ①에서
  * 플릿 더블이 실제로 내려놓은 용기를 인계 설비가 **보는** 것을 흉내낸다. 침묵시킨
  * 자리는 세계가 어떻든 말이 없다.
@@ -34,6 +39,19 @@ class CellMimic(
     private val pulses = mutableMapOf<String, Pulse>()
     private val latched = mutableSetOf<String>()
     private val silenced = mutableSetOf<String>()
+    private val signals = mutableMapOf<String, NamedSignal>()
+
+    /** 이름 있는 신호가 이 값을 읽게 한다. [at] 이 없으면 읽는 순간이 관측 시각이다. */
+    fun setSignal(name: String, value: String, at: Instant? = null) {
+        signals[name] = NamedSignal(value, at)
+    }
+
+    /** 그 신호에 대해서는 말이 없게 한다 — 못 읽는 신호다. */
+    fun clearSignal(name: String) {
+        signals.remove(name)
+    }
+
+    override fun signal(name: String): NamedSignal? = signals[name]
 
     /**
      * 이 자재를 든 자리들. **침묵한 자리는 안 센다** — 신호가 없는 자리를 «없다» 에 넣으면 그것이

@@ -43,6 +43,14 @@ data class Intent(
     val destination: String?,
     /** 설비가 그 자리에서 읽어야 할 것. 대조의 기대값이다. */
     val expectedIdentity: String?,
+    /**
+     * 이 실행을 계획한 **임무 버전**. 코드 케이퍼빌리티로 돈 실행이면 널이다. 작업 지시의 버전([orderVersion])과 다른 축이다 —
+     * 같은 작업 지시라도 어느 정의로 펼쳤는지가 «무엇을 하려 했나» 를 바꾼다.
+     *
+     * **해시에 든다** — 다른 버전으로 펼친 같은 모양의 인시던트는 다른 인시던트다. **내보내기에는 안 실린다** — 읽는 쪽이
+     * 아직 없다(ADR 9). 읽는 쪽이 생기는 날 내보내기 버전을 올려 싣는다.
+     */
+    val missionVersion: Int? = null,
 )
 
 /**
@@ -294,7 +302,8 @@ data class IncidentBundle(
                     intent.equipment.joinToString(";") { "${it.id}/${it.equipmentUse}/${canonicalMap(it.properties)}" } + "|" +
                     "${intent.capabilityMaxEvidence.name}|${intent.evidenceWindowBefore}|${intent.evidenceWindowAfter}|" +
                     "${intent.skillType}|${canonicalMap(intent.unitParameters)}|" +
-                    "${intent.source.orEmpty()}|${intent.destination.orEmpty()}|${intent.expectedIdentity.orEmpty()}",
+                    "${intent.source.orEmpty()}|${intent.destination.orEmpty()}|${intent.expectedIdentity.orEmpty()}|" +
+                    intent.missionVersion?.toString().orEmpty(),
             )
             appendLine(
                 "${observation.linkBroken}|${observation.progressObservable}|${observation.progressStalled}|" +

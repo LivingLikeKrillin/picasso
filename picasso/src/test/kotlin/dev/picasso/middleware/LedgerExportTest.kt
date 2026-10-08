@@ -239,6 +239,7 @@ class LedgerExportTest {
             "막는 결함" to b.copy(blockedBy = listOf(FAULT)),
             "걸음 위치" to b.copy(step = b.step.copy(at = 1)),
             "의도" to b.copy(intent = b.intent.copy(destination = "다른-자리")),
+            "임무 버전" to b.copy(intent = b.intent.copy(missionVersion = 2)),
             "관측 신뢰" to b.copy(observation = b.observation.copy(linkBroken = true)),
         )
 
