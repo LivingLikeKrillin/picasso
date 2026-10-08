@@ -109,8 +109,9 @@ class Harness(
     val events: dev.picasso.contracts.v1.EventServiceGrpc.EventServiceBlockingStub =
         dev.picasso.contracts.v1.EventServiceGrpc.newBlockingStub(channel)
 
-    fun client(clientId: String = "line-controller", identityOverride: String? = null) =
-        PicassoClient(channel, clientId, identityOverride)
+    /** [deadlineSeconds] 는 스트림에도 걸린다. 짧게 주면 기한으로 닫힌 스트림을 만들 수 있다. */
+    fun client(clientId: String = "line-controller", identityOverride: String? = null, deadlineSeconds: Long = 10) =
+        PicassoClient(channel, clientId, identityOverride, deadlineSeconds)
 
     /** 시간을 흘리고 그것이 만든 전이를 열린 스트림까지 민다. */
     fun advance(duration: Duration) = server.advance(duration)

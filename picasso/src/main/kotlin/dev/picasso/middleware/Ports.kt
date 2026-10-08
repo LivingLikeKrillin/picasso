@@ -8,6 +8,7 @@ import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
+import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.ValueType
 import dev.picasso.contracts.v1.WatchTaskResponse
 import java.time.Instant
@@ -49,13 +50,26 @@ interface RobotPort {
     fun replay(robotId: String, from: Long): Replay?
 }
 
-/** [PicassoClient] 위의 [RobotPort]. 핸들마다 팔로워 하나를 붙여 두고 그것을 읽는다. */
+/**
+ * [PicassoClient] 위의 [RobotPort]. 태스크마다 받은 갱신을 누적해 들고, 스트림이 닫히면 다시 붙는다([watch]).
+ *
+ * 태스크별 표는 잠금 없는 맵이다. 호출자는 미들웨어 하나이고 그 미들웨어를 지키는 호스트의 잠금 아래에서
+ * 부른다고 전제한다(미들웨어 자체에 스레드가 없다).
+ */
 class ClientRobotPort(private val client: PicassoClient) : RobotPort {
 
     /** `PicassoClient` 가 이미 세대별로 캐시한다 — 여기서 또 들면 두 캐시가 어긋난다. */
     override fun capabilities(robotId: String): Capability? = runCatching { client.capabilities(robotId) }.getOrNull()
 
-    private val followers = mutableMapOf<String, TaskFollower>()
+    /** 태스크마다 지금까지 받은 갱신과 지금 열린 팔로워. 팔로워는 끊기면 바뀌고 누적 목록은 남는다. */
+    private class Followed(var follower: TaskFollower) {
+        val updates = mutableListOf<WatchTaskResponse>()
+
+        /** [follower] 에서 이미 [updates] 로 옮긴 수. */
+        var taken = 0
+    }
+
+    private val followed = mutableMapOf<String, Followed>()
 
     override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse =
         client.start(
@@ -88,8 +102,31 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
         }
     }
 
-    override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
-        followers.getOrPut(handle.taskId) { client.follow(robotId, handle, from = 0) }.updates
+    /**
+     * 지금까지 받은 갱신 **전체**를 돌려준다(미들웨어가 마지막 원소를 상태로 읽는다).
+     *
+     * 스트림은 기한(`PicassoClient` 의 `deadlineSeconds`)이 지나거나 연결이 끊기면 닫힌다. 그때 마지막 갱신이
+     * 종료가 아니면 **그 다음 갱신 번호부터 다시 붙는다** — 계약의 `from_update_index` 다. 다시 붙지 않으면
+     * 기한보다 긴 스킬의 종료를 영영 못 본다. 이어 붙인 목록은 갱신 번호가 늘기만 한다.
+     */
+    override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> {
+        val f = followed.getOrPut(handle.taskId) { Followed(client.follow(robotId, handle, from = 0)) }
+        take(f)
+        if (f.follower.ended && f.updates.lastOrNull()?.state !in TERMINAL) {
+            val next = f.updates.lastOrNull()?.let { it.header.updateIndex + 1 } ?: 0L
+            f.follower = client.follow(robotId, handle, from = next)
+            f.taken = 0
+            take(f)
+        }
+        return f.updates.toList()
+    }
+
+    /** 팔로워가 새로 받은 것을 누적 목록으로 옮긴다. */
+    private fun take(f: Followed) {
+        val fresh = f.follower.updates
+        f.updates += fresh.drop(f.taken)
+        f.taken = fresh.size
+    }
 
     override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = client.cancel(robotId, handle)
 
@@ -114,6 +151,16 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
         }
     } catch (_: RuntimeException) {
         null
+    }
+
+    private companion object {
+        /** 이 상태 뒤에는 갱신이 없다 — 다시 붙을 까닭이 없다. */
+        val TERMINAL = setOf(
+            TaskState.TASK_STATE_SUCCEEDED,
+            TaskState.TASK_STATE_FAILED,
+            TaskState.TASK_STATE_CANCELLED,
+            TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED,
+        )
     }
 }
 

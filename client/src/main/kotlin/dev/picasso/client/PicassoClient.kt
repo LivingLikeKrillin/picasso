@@ -233,21 +233,32 @@ class PicassoClient(
         )
 }
 
-/** 열려 있는 `WatchTask` 스트림이 준 것을 모은다. */
+/**
+ * 열려 있는 `WatchTask` 스트림이 준 것을 모은다.
+ *
+ * **쓰는 스레드와 읽는 스레드가 다르다.** 네트워크 채널에서는 gRPC 스레드가 [onNext] 를 부르고 미들웨어의
+ * pump 가 [updates] 를 읽는다. 그래서 목록은 잠금 안에서만 만지고 끝 표시는 `@Volatile` 이다. in-process
+ * 채널의 `directExecutor` 는 둘이 한 스레드라 이 결함이 시험에서 안 보였다.
+ */
 class TaskFollower : StreamObserver<WatchTaskResponse> {
 
     private val received = mutableListOf<WatchTaskResponse>()
 
-    val updates: List<WatchTaskResponse> get() = received.toList()
+    val updates: List<WatchTaskResponse> get() = synchronized(received) { received.toList() }
 
+    @Volatile
     var completed: Boolean = false
         private set
 
+    @Volatile
     var error: Throwable? = null
         private set
 
+    /** 스트림이 닫혔다(정상 종료든 오류든). 닫힌 뒤에는 아무것도 더 오지 않는다. */
+    val ended: Boolean get() = completed || error != null
+
     override fun onNext(value: WatchTaskResponse) {
-        received += value
+        synchronized(received) { received += value }
     }
 
     override fun onError(t: Throwable) {
