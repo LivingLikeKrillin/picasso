@@ -103,6 +103,14 @@ class HandoffFixtureTest {
     }
 
     @Test
+    fun `현장 설정 없이 만든 번들의 요약이 설정 칸을 더하기 전과 같다`() {
+        // ★**커밋된 인계 요약을 지금 인코더로 다시 대는 시험이 없다** — 위의 대조는 두 구동을 서로 견줄 뿐이라, 요약의
+        //   재료가 모든 번들에서 바뀌어도 둘이 함께 바뀌어 초록이다. 그래서 설정 버전 칸을 더하기 전(`2ca7cd6`)에 잰
+        //   값을 문자열로 박는다. 설정 없이 도는 번들의 요약이 움직이면 인계 번들과 내보내기 버전이 함께 움직여야 한다.
+        assertEquals(GOLDEN_DIGEST, bundle().digest(), "현장 설정 없이 만든 번들의 요약이 바뀌었다")
+    }
+
+    @Test
     fun `안내문이 대는 구동 식별자가 커밋된 한 벌의 것과 같다`() {
         // ★**한 번 낡았던 자리다.** 한 벌을 다시 산출하면서 `INDEX.txt` 의 값만 안 고쳐, 받는 쪽이
         //   읽는 안내문이 없는 구동을 가리키고 있었다. 칸과 판을 대는 검사는 **값을 안 보므로**
@@ -332,6 +340,9 @@ class HandoffFixtureTest {
         /** 인계 지점의 모든 벌. 칸과 판을 대는 검사는 전부에 건다. */
         private val RUNS = REPLAY + RECURRENCE + AFTER_INCIDENT
         private val AT: Instant = Instant.parse("2026-09-05T00:03:21Z")
+
+        /** [bundle] 의 요약을 `2ca7cd6`(현장 설정 칸을 더하기 전)에서 잰 값. */
+        private const val GOLDEN_DIGEST = "d511e96df06e6be67f0b4af8d73bef4a23aedab6253870c30908768358801682"
 
         private val STEP = RemedyStep("pick_place", emptyList(), HoldKind.HOLD_KIND_EMPTY, HoldKind.HOLD_KIND_HOLDING)
 

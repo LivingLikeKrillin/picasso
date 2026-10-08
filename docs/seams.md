@@ -126,12 +126,27 @@
 
 ---
 
+## 데이터 접합부: 현장 시간값 (Site Timings)
+
+**인터페이스**: `SiteTimingsSource.current(): SiteTimings?` (기본 구현은 `SiteTimingsSource.NONE`, 값 없음)
+
+값이 없으면 미들웨어는 케이퍼빌리티 기본값으로 판정합니다. 값이 있으면 `Middleware.pump()` 가 시작할 때 한 번 읽어 그 라운드의 모든 판정에 쓰고, 허용 범위는 `SiteTimings.problems()` 가 검사합니다. 저장과 읽기 주기는 picasso-ops 실행 호스트가 붙입니다(S3c).
+
+`current()` 는 pump 안에서 불리므로 미들웨어를 지키는 소비자(호스트)의 잠금 아래에서 돈다고 전제합니다(미들웨어 자체에 스레드가 없습니다). 그래서 막히지 않아야 하고, 이미 검사한 스냅숏을 돌려줍니다. 여기서 DB 를 읽지 않습니다. 읽기 주기가 다른 스레드에서 값을 바꾸면 안전하게 게시합니다(`@Volatile` 필드나 `AtomicReference`).
+
+- **데이터 공급 구현 전환 작업**:
+  - 현장 설정의 현재 버전을 읽어 `SiteTimings.problems()` 를 통과한 값만 주는 구현체를 제공합니다. 범위 밖 값은 주지 않고 마지막으로 통과한 값을 줍니다.
+- **불변 유지 대상**: 엔진 규칙(라운드마다 한 번 읽고, 단위에 저장하는 값은 근거 기한 하나), 허용 범위 상수.
+
+---
+
 ## 색인 — 자리와 인터페이스
 
 | 자리 | 인터페이스 | 어디 |
 |---|---|---|
 | 설비 | `CellSignals` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 임무 정의 | `MissionCatalog` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
+| 현장 시간값 | `SiteTimingsSource` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 플릿 | `AmrFleetPort` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 로봇(소비자) | `RobotPort` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 벤더 — Spot | `SpotLink` | `adapter-boston-dynamics-spot/src/main/kotlin/dev/picasso/adapter/spot/SpotLink.kt` |
@@ -149,4 +164,4 @@
 
 > **검증 보증:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
 
-> 마지막 대조: 2026-10-08 · sha256:38bd25e33bc2 · 열림: §15.34, C-3, §15.5, §15.156
+> 마지막 대조: 2026-10-09 · sha256:f5bb99f05515 · 열림: §15.34, C-3, §15.5, §15.156
