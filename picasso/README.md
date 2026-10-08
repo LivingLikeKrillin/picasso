@@ -17,7 +17,7 @@
 | `RemedyDesk.kt` | 탐색 기록·제안·보류·진단·승인 장부와 승인 판정(설계안 §6.4, ADR 43·44·45). 승인 뒤의 작업 수락은 `Middleware` 가 조율 |
 | `IncidentLog.kt` | 인시던트 번들의 봉인·조회, 사후 검토의 기록과 지표, 운영자 판단 부착(설계안 §4) |
 | `Canonical.kt` | 작업 응답·인시던트 번들·이벤트 자취가 나눠 쓰는 정준 프로젝션 셋 |
-| `Ports.kt` | 하위 시스템 연동 추상화 포트: `RobotPort` (인터페이스 계약 소비자), `CellSignals` (현장 설비 센서 신호, E2), `AmrFleetPort` (이송 플릿 연동, E1), `MissionCatalog` (WorkMaster 마다 지금 활성인 케이퍼빌리티와 임무 버전을 주는 포트, 새 작업 지시만 읽음) |
+| `Ports.kt` | 하위 시스템 연동 추상화 포트: `RobotPort` (인터페이스 계약 소비자), `CellSignals` (현장 설비 센서 신호, E2), `AmrFleetPort` (이송 플릿 연동, E1), `MissionCatalog` (WorkMaster 마다 지금 활성인 케이퍼빌리티와 임무 버전을 주는 포트, 새 작업 지시만 읽음), `SiteTimingsSource` (현장 시간값 한 세트 `SiteTimings` 를 주는 포트, pump 라운드마다 한 번 읽음, 허용 범위 상수와 검사 함수 포함) |
 | `mission/` | **임무 정의 패키지** (`dev.picasso.middleware.mission`): 임무 정의 스키마(`MissionDefinition`)와 엄격 파서(`MissionDefinitionParser`), 신호 사양(`SignalSpec`), 해석기(`DefinedCapability`), 검증기(`MissionValidator`, 5검사 + 노드 id), 메모리 카탈로그(`InMemoryMissionCatalog`, 활성화 관문). 설비 대기 진행 · 버전 고정 · 인시던트 칸 등 엔진 쪽 변경은 기존 파일에 있음 (ADR 50) |
 
 ---
@@ -60,4 +60,4 @@
 
 본 모듈의 단위/통합 테스트는 외부 상위 시스템과 현장 설비를 모사한 테스트 대역(`CellMimic`, `AmrFleetMimic`)을 기반으로 동작합니다. 따라서 테스트 스위트의 성공은 설계 가정 하에서의 시스템 일관성을 증명하며, 물리 실제 하드웨어 환경과의 실제 연동 검증 등급은 [`docs/verification.md`](../docs/verification.md)의 10·11번 항목에 명시되어 있습니다.
 
-> 마지막 대조: 2026-10-08 · sha256:aa27ad319b93 · 열림: §15.126
+> 마지막 대조: 2026-10-09 · sha256:5df4d5693c2d · 열림: §15.126

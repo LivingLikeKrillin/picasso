@@ -78,12 +78,14 @@ internal class IncidentLog(
      * 라운드 끝에 번들을 봉한다. **전이 순간이 아니다** — 단위가 닫히는 그 자리에서는 실행 수준의
      * 사실(무엇이 다음 단위를 막는가)이 아직 안 정해져 있고, 그것 없이 묶으면 번들이 "단위의 문제인지
      * 기체의 문제인지" 를 가르지 못한다(설계안 §4.2 넷째 줄).
+     *
+     * @param timings 봉인하는 라운드의 현장 시간값. 널이면 케이퍼빌리티 값이다. 근거 시간 윈도우와 의도의 시간값이 이것에서 나온다.
      */
-    fun sealIncidents(execution: Execution) {
+    fun sealIncidents(execution: Execution, timings: SiteTimings?) {
         if (execution.pendingIncidents.isEmpty()) return
         val at = now()
         val wall = wallClock()
-        val window = execution.capability.evidenceWindow
+        val window = timings?.evidenceWindow ?: execution.capability.evidenceWindow
         val inWindow = execution.eventTrail.filter { within(it, at.minus(window.before), at.plus(window.after)) }
         execution.pendingIncidents.forEach { unitId ->
             val unit = execution.units.firstOrNull { it.unitId == unitId } ?: return@forEach
@@ -131,6 +133,10 @@ internal class IncidentLog(
                     expectedIdentity = unit.expectedIdentity,
                     // **실행이 쥔 버전이다** — 지금 활성인 버전이 아니다. 활성화가 실행 도중에 끼어도 이 실행은 옛 버전으로 돈다.
                     missionVersion = execution.missionVersion,
+                    // 봉인하는 라운드의 값이다. 근거 기한을 정한 값(단위가 완료된 라운드의 뒤 폭)과 다를 수 있다.
+                    siteSettingsVersion = timings?.siteSettingsVersion,
+                    inDoubtGrace = timings?.inDoubtGrace?.toString(),
+                    stallWindow = timings?.stallWindow?.toString(),
                 ),
                 observation = ObservationTrust(
                     linkBroken = execution.linkBroken,

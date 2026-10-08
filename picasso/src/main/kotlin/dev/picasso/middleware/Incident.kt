@@ -31,7 +31,10 @@ data class Intent(
      * 도달 등급이 낮은 이유가 «능력의 한계» 인지 «이번에 못 받았다» 인지를 이것이 가른다.
      */
     val capabilityMaxEvidence: Evidence,
-    /** 유효 시간창의 폭. `evidenceWindow` 가 **왜 그 범위였는지**가 이 둘이다. ISO-8601. */
+    /**
+     * 유효 시간 윈도우의 폭. `evidenceWindow` 가 **왜 그 범위였는지**가 이 둘이다. ISO-8601.
+     * 현장 시간값이 있으면 봉인하는 라운드의 그 값이고, 없으면 케이퍼빌리티 값이다.
+     */
     val evidenceWindowBefore: String,
     val evidenceWindowAfter: String,
     /** 이 단위가 하려던 스킬. */
@@ -51,7 +54,26 @@ data class Intent(
      * 아직 없다(ADR 9). 읽는 쪽이 생기는 날 내보내기 버전을 올려 싣는다.
      */
     val missionVersion: Int? = null,
-)
+    /**
+     * 봉인하는 라운드에 적용한 **현장 설정의 버전**. 현장 시간값 없이 돌면 널이다. 어느 버전의 설정에서 난 인시던트인지
+     * 되짚는 자리다(운영 관리 화면 설계 제안 §9).
+     *
+     * **해시에는 이 값이 있을 때만 줄 하나가 든다** — 그래서 설정 없이 도는 인시던트의 요약은 이 칸이 생기기 전과 같다.
+     * **내보내기에는 안 실린다**([missionVersion] 과 같은 이유, ADR 9).
+     */
+    val siteSettingsVersion: Long? = null,
+    /** 봉인하는 라운드의 `IN_DOUBT` 유예. ISO-8601. [siteSettingsVersion] 이 널이면 널이다. */
+    val inDoubtGrace: String? = null,
+    /** 봉인하는 라운드의 진행 정체 유예. ISO-8601. [siteSettingsVersion] 이 널이면 널이다. */
+    val stallWindow: String? = null,
+) {
+    init {
+        // 시간값 둘은 설정 버전과 함께만 선다. 버전 없이 값만 있으면 해시에 안 들어 같은 요약의 두 인시던트가 생긴다.
+        require(siteSettingsVersion != null || (inDoubtGrace == null && stallWindow == null)) {
+            "설정 버전 없이 현장 시간값을 실었다: inDoubtGrace=$inDoubtGrace, stallWindow=$stallWindow"
+        }
+    }
+}
 
 /**
  * **관측을 얼마나 믿을 수 있나**(§15.178).
@@ -305,6 +327,10 @@ data class IncidentBundle(
                     "${intent.source.orEmpty()}|${intent.destination.orEmpty()}|${intent.expectedIdentity.orEmpty()}|" +
                     intent.missionVersion?.toString().orEmpty(),
             )
+            // 현장 설정이 있을 때만 한 줄. 없을 때 줄을 더하면 설정 없이 도는 모든 요약이 바뀐다(인계 번들 포함).
+            intent.siteSettingsVersion?.let {
+                appendLine("$it|${intent.evidenceWindowBefore}|${intent.evidenceWindowAfter}|${intent.inDoubtGrace}|${intent.stallWindow}")
+            }
             appendLine(
                 "${observation.linkBroken}|${observation.progressObservable}|${observation.progressStalled}|" +
                     observation.lateEvents.joinToString(";") {

@@ -11,6 +11,7 @@ import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.ValueType
 import dev.picasso.contracts.v1.WatchTaskResponse
+import java.time.Duration
 import java.time.Instant
 
 /**
@@ -334,3 +335,100 @@ data class ActiveMission(val capability: LogicalCapability, val missionVersion: 
  * 카운터가 있어야 폴링이 놓치지 않는다).
  */
 data class SlotSignal(val occupied: Boolean, val identity: String?, val observedAt: Instant? = null)
+
+// ── 현장 시간값 — 케이퍼빌리티 기본값을 덮는 현장 설정 한 세트
+
+/**
+ * 현장 시간값의 출처. 미들웨어는 [Middleware.pump] 가 시작할 때 **한 번** 읽고 그 라운드의 모든 판정에 같은 값을 쓴다.
+ *
+ * `null` 은 현장 값이 없다는 뜻이고, 그때는 케이퍼빌리티의 기본값([LogicalCapability.evidenceWindow]·
+ * [LogicalCapability.inDoubtGrace]·[LogicalCapability.stallWindow])으로 판정한다. 값을 쓰기 전에 검사하는 것은 구현의 일이다.
+ * 범위 밖 값을 받아 둔 구현은 그것을 주지 말고 마지막으로 통과한 값을 준다([SiteTimings.problems]).
+ *
+ * [current] 는 pump 안에서 불리므로 미들웨어를 지키는 소비자(호스트)의 잠금 아래에서 돈다고 전제한다(미들웨어 자체에
+ * 스레드가 없다). 그래서 막히지 않아야 하고, 이미 검사한 스냅숏을 돌려준다. 여기서 DB 를 읽지 않는다. 읽기 주기가 다른
+ * 스레드에서 값을 바꾸면 안전하게 게시한다(`@Volatile` 필드나 `AtomicReference`).
+ */
+fun interface SiteTimingsSource {
+
+    /** 지금 적용할 값. 없으면 `null`. */
+    fun current(): SiteTimings?
+
+    companion object {
+        /** 현장 값이 없다. 미들웨어의 기본값이며, 모든 판정이 케이퍼빌리티 값으로 돈다. */
+        val NONE: SiteTimingsSource = SiteTimingsSource { null }
+    }
+}
+
+/**
+ * 현장 설정 한 버전의 시간값 넷. 현장 전체에 한 값이며, 값이 있으면 모든 케이퍼빌리티의 같은 값을 덮는다.
+ *
+ * 값은 **초 단위 정수**다. 허용 범위는 이 라이브러리가 쥐고([EVIDENCE_WINDOW_BEFORE_SECONDS] 들), 쓰는 쪽은 적용 전에
+ * [problems] 로 검사한다. 생성자는 검사하지 않는다. 범위 밖 값을 읽어 «왜 적용하지 않았나» 를 보여야 하는 쪽이 있기 때문이다.
+ *
+ * @param siteSettingsVersion 현장 설정의 버전. 1 부터 오른다. 인시던트의 의도에 실린다.
+ * @param evidenceWindowBefore 근거 시간 윈도우의 앞 폭. 늘리면 옛 신호가 완료 근거로 들어온다.
+ * @param evidenceWindowAfter 근거 시간 윈도우의 뒤 폭. 줄이면 `UNVERIFIED` 가 는다. 단위가 완료될 때 근거 기한에 저장된다.
+ * @param inDoubtGrace `IN_DOUBT` 에서 물리 관측을 기다리는 유예. 줄이면 운영자 대기가 는다.
+ * @param stallWindow 진행 정체를 사람에게 보이기까지의 유예. 결과 판정은 바꾸지 않는다.
+ */
+data class SiteTimings(
+    val siteSettingsVersion: Long,
+    val evidenceWindowBefore: Duration,
+    val evidenceWindowAfter: Duration,
+    val inDoubtGrace: Duration,
+    val stallWindow: Duration,
+) {
+    /** 앞·뒤 폭을 케이퍼빌리티와 같은 모양으로. */
+    val evidenceWindow: EvidenceWindow get() = EvidenceWindow(before = evidenceWindowBefore, after = evidenceWindowAfter)
+
+    /**
+     * 허용 범위를 벗어난 칸마다 문장 하나. 비어 있으면 적용해도 된다.
+     *
+     * 문장은 칸 이름으로 시작한다(`"stallWindow: ..."`). 범위 밖 값은 적용하지 않고 마지막으로 적용한 버전을 유지한다
+     * (운영 관리 화면 설계 제안 §9). 초 단위가 아닌 값(밀리초가 남는 값)도 범위 밖으로 친다.
+     */
+    fun problems(): List<String> = buildList {
+        if (siteSettingsVersion < 1) add("siteSettingsVersion: 1 이상이어야 한다 ($siteSettingsVersion)")
+        outside("evidenceWindowBefore", evidenceWindowBefore, EVIDENCE_WINDOW_BEFORE_SECONDS)?.let(::add)
+        outside("evidenceWindowAfter", evidenceWindowAfter, EVIDENCE_WINDOW_AFTER_SECONDS)?.let(::add)
+        outside("inDoubtGrace", inDoubtGrace, IN_DOUBT_GRACE_SECONDS)?.let(::add)
+        outside("stallWindow", stallWindow, STALL_WINDOW_SECONDS)?.let(::add)
+    }
+
+    private fun outside(field: String, value: Duration, range: LongRange): String? = when {
+        value.nano != 0 -> "$field: 초 단위 정수여야 한다 ($value)"
+        value.seconds !in range -> "$field: ${range.first}~${range.last} 초 밖이다 (${value.seconds})"
+        else -> null
+    }
+
+    companion object {
+        /**
+         * 앞 폭의 허용 범위(초). 하한은 셀이 슬롯을 보고 기체가 완료를 보고하는 순서가 뒤바뀌는 것을 받기 위함이고,
+         * 상한(기본값의 4배)은 옛 신호가 완료 근거로 들어오는 파급을 묶는다. 기본값 30.
+         */
+        val EVIDENCE_WINDOW_BEFORE_SECONDS: LongRange = 5L..120L
+
+        /** 뒤 폭의 허용 범위(초). 하한은 pump 주기와 셀 폴링 주기를 넘기기 위함이고, 상한은 기본값의 8배다. 기본값 15. */
+        val EVIDENCE_WINDOW_AFTER_SECONDS: LongRange = 5L..120L
+
+        /**
+         * `IN_DOUBT` 유예의 허용 범위(초). 하한은 같은 참조로 다시 묻는 상한(pump 마다 한 번, 세 번)을 마친 뒤에도 설비를
+         * 여러 번 읽을 폭이고, 상한은 기본값의 10배다. 기본값 60.
+         */
+        val IN_DOUBT_GRACE_SECONDS: LongRange = 10L..600L
+
+        /** 진행 정체 유예의 허용 범위(초). 하한은 기종 프로파일의 가장 긴 발행 간격(30초)이고, 상한은 기본값의 12배다. 기본값 300. */
+        val STALL_WINDOW_SECONDS: LongRange = 30L..3600L
+
+        /** 초 단위 정수로 만든다. 저장소가 초 단위 정수로 드는 값을 그대로 옮길 때 쓴다. */
+        fun ofSeconds(siteSettingsVersion: Long, evidenceWindowBefore: Long, evidenceWindowAfter: Long, inDoubtGrace: Long, stallWindow: Long) =
+            SiteTimings(
+                siteSettingsVersion,
+                Duration.ofSeconds(evidenceWindowBefore),
+                Duration.ofSeconds(evidenceWindowAfter),
+                Duration.ofSeconds(inDoubtGrace),
+                Duration.ofSeconds(stallWindow),
+            )
+    }
+}

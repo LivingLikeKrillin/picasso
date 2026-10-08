@@ -108,6 +108,13 @@ class Middleware(
      * 그래서 활성 버전이 바뀌어도 도는 실행은 옛 버전으로 끝난다.
      */
     missions: MissionCatalog? = null,
+    /**
+     * 현장 시간값의 출처. 기본값은 «없음» 이고, 그때는 케이퍼빌리티 값으로 판정한다.
+     *
+     * [pump] 가 시작할 때 한 번 읽어 그 라운드의 모든 판정에 같은 값을 쓴다. 바꾼 값은 다음 pump 부터다. 단위에 저장하는 값은
+     * 근거 기한(완료 시각 + 뒤 폭) 하나뿐이라, 바꾼 `inDoubtGrace` 는 이미 `IN_DOUBT` 인 단위에도 다음 라운드부터 미친다.
+     */
+    private val siteTimings: SiteTimingsSource = SiteTimingsSource.NONE,
 ) {
     // ⚠ 생성자 인자 `missions`(널 허용)가 이 속성을 가린다 — 다른 속성의 초기화식에서 `missions` 는 인자다. 거기서는 `this.missions` 로 쓴다.
     private val missions: MissionCatalog = run {
@@ -554,8 +561,25 @@ class Middleware(
 
     // ── 구동
 
+    /**
+     * 이번 라운드의 현장 시간값. [pump] 가 시작할 때 [siteTimings] 를 한 번 읽어 둔다. 널이면 케이퍼빌리티 값이다.
+     *
+     * 라운드 안에서는 다시 읽지 않는다. 판정마다 읽으면 한 라운드 안에서 두 버전의 값이 섞인다.
+     */
+    private var round: SiteTimings? = null
+
+    /** 이 라운드의 근거 시간 윈도우. 현장 값이 있으면 그것, 없으면 케이퍼빌리티 값이다. */
+    private fun windowOf(execution: Execution): EvidenceWindow = round?.evidenceWindow ?: execution.capability.evidenceWindow
+
+    /** 이 라운드의 `IN_DOUBT` 유예. 단위에 저장하지 않는다. */
+    private fun inDoubtGraceOf(execution: Execution): Duration = round?.inDoubtGrace ?: execution.capability.inDoubtGrace
+
+    /** 이 라운드의 진행 정체 유예. */
+    private fun stallWindowOf(execution: Execution): Duration = round?.stallWindow ?: execution.capability.stallWindow
+
     /** 하류에서 온 것을 읽고 상태를 한 걸음 민다. 몇 번 불러도 같은 결과다(멱등). */
     fun pump() {
+        round = siteTimings.current()
         val live = executions.values.filter { !(it.physicalState.isSettled && it.physicalState != PhysicalState.PARTIAL) }
         live.map { it.robotId }.distinct().forEach { sync(it, live.filter { e -> e.robotId == it }) }
         executions.values.forEach { pump(it) }
@@ -636,7 +660,7 @@ class Middleware(
 
     private fun pump(execution: Execution) {
         pumpRound(execution)
-        incidentLog.sealIncidents(execution)
+        incidentLog.sealIncidents(execution, round)
     }
 
     private fun pumpRound(execution: Execution) {
@@ -791,7 +815,7 @@ class Middleware(
             return
         }
         if (unit.progressStalled) return
-        val window = execution.capability.stallWindow
+        val window = stallWindowOf(execution)
         if (Duration.between(unit.progressAt, at) < window) return
 
         unit.progressStalled = true
@@ -922,13 +946,13 @@ class Middleware(
 
         // ② 물리 관측 — 요청 시각부터의 신호만 이 요청의 것이다.
         val requestedAt = unit.requestedAt!!
-        val window = execution.capability.evidenceWindow
+        val window = windowOf(execution)
         val signal = execution.observeCell(unit)
         val observedAt = signal?.observedAt ?: now()
         val provisional = signal != null && signal.occupied &&
             (unit.expectedIdentity == null || signal.identity == unit.expectedIdentity) &&
             !observedAt.isBefore(requestedAt.minus(window.before))
-        if (!provisional && now().isBefore(requestedAt.plus(execution.capability.inDoubtGrace))) {
+        if (!provisional && now().isBefore(requestedAt.plus(inDoubtGraceOf(execution)))) {
             execution.physicalState = PhysicalState.IN_DOUBT
             return false
         }
@@ -1281,7 +1305,8 @@ class Middleware(
             return
         }
         unit.state = UnitState.VERIFYING
-        unit.evidenceDeadline = doneAt.plus(execution.capability.evidenceWindow.after)
+        // **이 순간의 뒤 폭으로 정해 저장한다.** 나중에 뒤 폭이 바뀌어도 다시 계산하지 않는다.
+        unit.evidenceDeadline = doneAt.plus(windowOf(execution).after)
         checkEvidence(execution, unit)
     }
 
@@ -1297,7 +1322,7 @@ class Middleware(
      */
     private fun checkEvidence(execution: Execution, unit: ExecutionUnit): Boolean {
         val doneAt = unit.downstreamDoneAt!!
-        val window = execution.capability.evidenceWindow
+        val window = windowOf(execution)
         val current = now()
         unit.rechecks += 1
 
@@ -1362,7 +1387,7 @@ class Middleware(
         unit.note = detail
         unit.downstreamDoneAt = at
         if (execution.order.requiredEvidence > Evidence.E1) {
-            val window = execution.capability.evidenceWindow
+            val window = windowOf(execution)
             val signal = execution.observeCell(unit)
             val observedAt = signal?.observedAt ?: now()
             val present = signal != null && signal.occupied &&
