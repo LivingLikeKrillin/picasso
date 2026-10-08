@@ -67,7 +67,7 @@ class ControlServer(
     private val mimic: MimicServer,
     builder: ServerBuilder<*>,
 ) {
-    private val server: Server = builder.addService(Service(registry, mimic)).build()
+    private val server: Server = builder.addService(mimic.serialized(Service(registry, mimic))).build()
 
     val port: Int get() = server.port
 
