@@ -129,6 +129,8 @@ internal class IncidentLog(
                     source = unit.source,
                     destination = unit.destination,
                     expectedIdentity = unit.expectedIdentity,
+                    // **실행이 쥔 버전이다** — 지금 활성인 버전이 아니다. 활성화가 실행 도중에 끼어도 이 실행은 옛 버전으로 돈다.
+                    missionVersion = execution.missionVersion,
                 ),
                 observation = ObservationTrust(
                     linkBroken = execution.linkBroken,

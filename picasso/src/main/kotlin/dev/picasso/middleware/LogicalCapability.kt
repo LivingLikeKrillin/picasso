@@ -227,7 +227,8 @@ class DeliverContainer : LogicalCapability {
  * 점검 결과를 실을 자리는 계약에 `partial_result` 문자열 하나뿐이고 미믹은 채우지 않는다(§15.76·§15.87).
  * 그래서 이 능력이 낸 `JobResponse.results` 는 지금 비어 있으며, 그 사실을 시험이 고정한다.
  *
- * 공통 엔진은 손대지 않았다 — 이 클래스와 [EquipmentUse] 의 낱말 셋이 확장의 전부다(17장 10번).
+ * 이 능력을 들일 때 공통 엔진은 손대지 않았다 — 이 클래스와 [EquipmentUse] 의 용어 셋이 그때 확장의 전부였다(17장 10번).
+ * 단위의 **종류**가 늘면 이야기가 다르다 — 설비 대기는 엔진에 경로 하나([Route.SIGNAL])와 그 진행을 더했다(ADR 50).
  */
 class InspectAsset : LogicalCapability {
 

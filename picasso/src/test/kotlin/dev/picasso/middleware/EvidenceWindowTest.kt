@@ -255,14 +255,14 @@ class EvidenceWindowTest {
 
     @Test
     fun `판단자는 내보내는 사건 줄에 실리지 않는다`() {
-        // 읽는 쪽이 아직 없다(ADR 9). 실리면 판이 오르고 인계본이 다시 산출된다 — 판 5 그대로여야 한다.
+        // 읽는 쪽이 아직 없다(ADR 9). 실리면 판이 오르고 인계본이 다시 산출된다 — 판 6 그대로여야 한다.
         World().use { w ->
             val exec = w.held()
             w.mw.resolve(exec.executionId, SLOT, OperatorDecision.REWORK, OPERATOR)
             val line = LedgerExport.incidents(w.mw.incidents())
             assertTrue("\"resolution\":{\"decision\":\"REWORK\"" in line, line)
             assertTrue("decidedBy" !in line && OPERATOR.id !in line, line)
-            assertEquals("5", LedgerExport.SCHEMA_VERSION)
+            assertEquals("6", LedgerExport.SCHEMA_VERSION)
         }
     }
 

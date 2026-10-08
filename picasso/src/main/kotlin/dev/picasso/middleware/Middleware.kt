@@ -33,7 +33,8 @@ import java.time.format.DateTimeParseException
  *
  * [Route.ROBOT] 은 계약(④)의 원자 스킬이고 [Route.FLEET] 은 D 수준 위임이다.
  * 둘을 가르는 것은 하류의 **종류**이지 기종이 아니다 — 여기에 기종 이름은 없고
- * 게이트 7번이 그것을 지킨다.
+ * 게이트 7번이 그것을 지킨다. 셋째 경로 [Route.SIGNAL] 은 하위가 아니라 설비 대기다 —
+ * 요청을 보내지 않고 이름 있는 설비 신호를 기다린다.
  *
  * ## 기체
  *
@@ -44,7 +45,11 @@ class Middleware(
     private val robots: RobotPort,
     private val cell: CellSignals = CellSignals.None,
     private val fleet: AmrFleetPort = AmrFleetPort.None,
-    capabilities: List<LogicalCapability> = listOf(PrepareSequencedRack(), DeliverContainer(), InspectAsset()),
+    /**
+     * 코드로 정의한 케이퍼빌리티 목록. 널이면 [MissionCatalog.codeCapabilities] 다. [missions] 를 주면 쓰지 않으므로
+     * 둘을 함께 주면 생성이 실패한다 — 한쪽이 조용히 무시되는 길을 두지 않는다.
+     */
+    capabilities: List<LogicalCapability>? = null,
     private val now: () -> Instant = { Instant.now() },
     /**
      * `IN_DOUBT` 에서 같은 참조로 다시 묻는 횟수의 상한(13.2 ①). 이만큼 물어도 답이 없으면 하류가 지금은 조회 불가인
@@ -96,8 +101,21 @@ class Middleware(
      * 같은 시드로 다시 띄운 인스턴스가 같은 값을 내면 앞 구동의 통보가 이번 시도의 것으로 읽힌다.
      */
     val instanceId: String = "mw-${java.util.UUID.randomUUID()}",
+    /**
+     * 작업 지시를 계획할 케이퍼빌리티의 출처(임무 버전). 널이면 [capabilities] 로 만든 카탈로그다(버전 없음).
+     *
+     * **새 작업 지시만 읽는다.** 실행은 생성 때 읽은 케이퍼빌리티와 버전을 쥐고 리비전까지 그것으로 돈다 —
+     * 그래서 활성 버전이 바뀌어도 도는 실행은 옛 버전으로 끝난다.
+     */
+    missions: MissionCatalog? = null,
 ) {
-    private val capabilities = capabilities.associateBy { it.workMasterId }
+    // ⚠ 생성자 인자 `missions`(널 허용)가 이 속성을 가린다 — 다른 속성의 초기화식에서 `missions` 는 인자다. 거기서는 `this.missions` 로 쓴다.
+    private val missions: MissionCatalog = run {
+        require(capabilities == null || missions == null) {
+            "케이퍼빌리티 목록과 임무 카탈로그를 함께 줬다 — 카탈로그를 주면 목록은 쓰지 않는다"
+        }
+        missions ?: MissionCatalog.of(capabilities ?: MissionCatalog.codeCapabilities())
+    }
     private val executions = linkedMapOf<String, Execution>()
     private val views = mutableMapOf<String, RobotView>()
 
@@ -147,6 +165,11 @@ class Middleware(
         /** 지금 이 일을 든 기체. **재할당으로 바뀐다** — 옮긴 이력은 자취에 남는다. */
         var robotId: String,
         val capability: LogicalCapability,
+        /**
+         * 이 실행을 계획한 임무 버전. 코드 케이퍼빌리티면 `null` 이다. **생성 때 정해지고 바뀌지 않는다** —
+         * 리비전도 [capability] 로 계획하므로, 활성 버전이 바뀌어도 이 실행은 이 버전으로 끝난다.
+         */
+        val missionVersion: Int?,
         val units: MutableList<ExecutionUnit>,
     ) {
         var physicalState: PhysicalState = PhysicalState.REQUESTED
@@ -196,6 +219,12 @@ class Middleware(
         /** 연결이 끊긴 채 도는 중인가 — 그동안 결과는 미확정이다(`scenarios.md` §4.4 넷째 행). */
         var linkBroken: Boolean = false
             internal set
+
+        /**
+         * 설비 대기가 마지막으로 자취에 남긴 신호 값 — 태스크 id(시도마다 다르다)로 단다. 값이 바뀔 때만 남기기 위한
+         * 표시다. 재작업하면 새 시도라 첫 값을 다시 남긴다.
+         */
+        internal val signalSeen: MutableMap<String, String> = mutableMapOf()
 
         /** 지연 이벤트(15.1) — 옛 버전의 종착. 폐기하지 않는다. */
         val lateEvents: MutableList<LateEvent> = mutableListOf()
@@ -259,19 +288,23 @@ class Middleware(
      * @param prefix 승인된 조치 열(설계안 §6.4). **[approveRemedy] 만 채운다** — 밖에서 부를 길이 없으므로
      *   승인 없이 조치가 실행되는 경로가 생기지 않는다.
      */
-    private fun submit(order: JobOrder, robotId: String, prefix: List<ExecutionUnit>, approvedBy: Approver? = null): Submission {
-        val capability = capabilities[order.workMasterId]
-            ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
-        // 보고서 11.3 — 능력은 최고 등급을 선언하고 요청은 요구 등급을 지정한다. 확인 수단이 없으면 제공 불가다.
-        // 받아 놓고 UNVERIFIED 로 끝내는 것은 상류에 "될지도 모른다" 고 말한 셈이다.
-        if (order.requiredEvidence > capability.maxEvidence) {
-            return Submission.Rejected(
-                "요구 근거 등급 ${order.requiredEvidence} 은 ${capability.workMasterId} 의 최고 등급 ${capability.maxEvidence} 를 넘는다 — 확인 수단이 없다",
-            )
-        }
-
+    private fun submit(
+        order: JobOrder,
+        robotId: String,
+        prefix: List<ExecutionUnit>,
+        approvedBy: Approver? = null,
+        /** [adopt] 가 관문에 대려고 이미 읽은 쌍. 널이면 지금 카탈로그를 읽는다 — 한 작업 수락이 카탈로그를 두 번 읽지 않게 한다. */
+        mission: ActiveMission? = null,
+    ): Submission {
+        // **이미 있는 실행이면 카탈로그를 안 본다.** 리비전은 그 실행이 쥔 케이퍼빌리티로 계획한다 — 여기서 카탈로그를
+        // 읽으면 활성 버전이 바뀐 뒤의 리비전이 새 버전의 단위를 옛 실행에 들인다.
         val existing = executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }
         if (existing != null) return revise(existing, order)
+
+        val active = mission ?: missions.active(order.workMasterId)
+            ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
+        val capability = active.capability
+        evidenceRefusal(order, capability)?.let { return it }
 
         val planned = prefix + capability.plan(order)
         when (val admission = admits(order, robotId, planned)) {
@@ -284,6 +317,7 @@ class Middleware(
             order = order,
             robotId = robotId,
             capability = capability,
+            missionVersion = active.missionVersion,
             units = planned.toMutableList(),
         )
         execution.units.forEach { it.revision = order.version }
@@ -292,6 +326,19 @@ class Middleware(
         executions[execution.executionId] = execution
         return Submission.Accepted(execution)
     }
+
+    /**
+     * 보고서 11.3 — 능력은 최고 등급을 선언하고 요청은 요구 등급을 지정한다. 확인 수단이 없으면 제공 불가다.
+     * 받아 놓고 UNVERIFIED 로 끝내는 것은 상류에 "될지도 모른다" 고 말한 셈이다.
+     */
+    private fun evidenceRefusal(order: JobOrder, capability: LogicalCapability): Submission.Rejected? =
+        if (order.requiredEvidence > capability.maxEvidence) {
+            Submission.Rejected(
+                "요구 근거 등급 ${order.requiredEvidence} 은 ${capability.workMasterId} 의 최고 등급 ${capability.maxEvidence} 를 넘는다 — 확인 수단이 없다",
+            )
+        } else {
+            null
+        }
 
     /**
      * **배정 관문**(설계안 §7)의 공개 창구. 판정은 [AdmissionGate.admits] 가 한다.
@@ -312,13 +359,15 @@ class Middleware(
      * 전부 떨어지면 [Unassigned] 다. **재계산을 요청하지 않는다** — 요청하면 이 층이 중재자가 된다.
      */
     fun adopt(order: JobOrder, ranked: List<String>): Submission {
-        val capability = capabilities[order.workMasterId]
+        // **카탈로그를 한 번 읽고 그 쌍을 작업 수락까지 넘긴다.** 관문에 댄 계획과 실행이 쥘 계획이 같은 버전이어야
+        // 한다 — 그 사이에 활성화가 끼면 관문이 본 적 없는 단위가 나간다.
+        val mission = missions.active(order.workMasterId)
             ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
-        val planned = capability.plan(order)
+        val planned = mission.capability.plan(order)
         val refusals = linkedMapOf<String, String>()
         for (robotId in ranked) {
             when (val admission = admits(order, robotId, planned)) {
-                Admission.Passed -> return submit(order, robotId)
+                Admission.Passed -> return submit(order, robotId, prefix = emptyList(), mission = mission)
                 is Admission.Refused -> refusals[robotId] = admission.rejection.reason
             }
         }
@@ -395,6 +444,14 @@ class Middleware(
     }
 
     private fun revise(execution: Execution, order: JobOrder): Submission {
+        // **실행이 쥔 케이퍼빌리티로 판정한다**(카탈로그가 아니다). 다른 WorkMaster 로 바꾸는 리비전은 그 케이퍼빌리티로
+        // 계획할 수 없으므로 받지 않는다 — 새 작업 지시다.
+        if (order.workMasterId != execution.order.workMasterId) {
+            return Submission.Rejected(
+                "리비전이 WorkMaster 를 바꾼다: 받은 값=${order.workMasterId}, 현재=${execution.order.workMasterId} — 새 작업 지시로 낸다",
+            )
+        }
+        evidenceRefusal(order, execution.capability)?.let { return it }
         if (order.version == execution.order.version) return Submission.Idempotent(execution)
         if (order.version < execution.order.version) {
             return Submission.Rejected("이미 지난 버전이다: 받은 값=${order.version}, 현재=${execution.order.version}")
@@ -432,7 +489,13 @@ class Middleware(
                 // task_id: 접수돼 있었으면 갱신, 아니었으면 새 접수. 어느 쪽이든 핸들이 돌아오면 이제 추적한다).
                 UnitState.RUNNING, UnitState.IN_DOUBT -> {
                     val fresh = replanned[unit.unitId]
-                    if (fresh != null && unit.route == Route.ROBOT) {
+                    // 경로마다 가른다. 로봇 단위만 계약의 갱신 규칙을 탄다 — 플릿에 맡긴 운반은 아래 이유로, 설비 대기는
+                    // 같은 실행이 쥔 같은 정의의 같은 노드라 바꿀 것이 없어 그대로 둔다(기다림이 이어진다).
+                    val updatable = when (unit.route) {
+                        Route.ROBOT -> true
+                        Route.FLEET, Route.SIGNAL -> false
+                    }
+                    if (fresh != null && updatable) {
                         val previous = unit.revision
                         unit.revision = order.version
                         // **기대도 새 버전의 것이다.** 옛 기대를 들고 있으면 옛 버전의 완료가 옛 기대에 맞아 새 버전의 완료로 적힌다.
@@ -607,8 +670,11 @@ class Middleware(
             val settled = when {
                 active.state == UnitState.IN_DOUBT -> resolveDoubt(execution, active)
                 active.state == UnitState.VERIFYING -> checkEvidence(execution, active)
-                active.route == Route.ROBOT -> pumpRobotUnit(execution, active)
-                else -> pumpFleetUnit(execution, active)
+                else -> when (active.route) {
+                    Route.ROBOT -> pumpRobotUnit(execution, active)
+                    Route.FLEET -> pumpFleetUnit(execution, active)
+                    Route.SIGNAL -> pumpSignalUnit(execution, active)
+                }
             }
             if (!settled) return
             execution.active = null
@@ -619,6 +685,9 @@ class Middleware(
                 if (execution.physicalState != PhysicalState.ABORTED) abort(execution, inProgress = active, hold = active.hold, cleanup = "not_applicable")
                 return
             }
+            // **설비 대기의 기한이 실행을 중단했다**(`onDeadline = ABORTED`). 취소 요청이 아니라서 위 분기에 안 걸리고,
+            // 여기서 돌아가지 않으면 아래가 다음 단위를 찾아 출발시킨다 — 신호를 못 본 채 로봇이 움직인다.
+            if (execution.physicalState == PhysicalState.ABORTED) return
         }
 
         if (execution.cancelRequested) {
@@ -825,7 +894,7 @@ class Middleware(
      * @return 단위가 이 펌프에서 종착(운영자 보류 포함)했는가.
      */
     private fun resolveDoubt(execution: Execution, unit: ExecutionUnit): Boolean {
-        val lookup = if (unit.route == Route.ROBOT) robots.executionLookup else fleet.executionLookup
+        val lookup = lookupOf(unit.route)
         if (lookup == ExecutionLookup.CLIENT_REFERENCE && unit.lookups < lookupRetries) {
             unit.lookups += 1
             val found = try {
@@ -920,7 +989,92 @@ class Middleware(
                 false
             }
         }
+
+        // 설비 대기는 하위에 보낼 요청이 없다 — 시작이 곧 기다림의 시작이고, 읽기는 [pumpSignalUnit] 이 한다.
+        Route.SIGNAL -> true
     }
+
+    /**
+     * 경로마다 하위가 클라이언트 참조로 기존 실행을 찾아 주는가(13.2 ①).
+     *
+     * 설비 대기는 요청을 보내지 않으므로 미확정이 생기지 않는다 — 실행의 미확정 자동 해소를 막지 않는 쪽으로 응답한다.
+     */
+    private fun lookupOf(route: Route): ExecutionLookup = when (route) {
+        Route.ROBOT -> robots.executionLookup
+        Route.FLEET -> fleet.executionLookup
+        Route.SIGNAL -> ExecutionLookup.CLIENT_REFERENCE
+    }
+
+    /**
+     * 설비 대기 단위를 한 단계 민다([Route.SIGNAL]) — 이름 있는 신호를 당겨 읽고, 기대 값이면 끝낸다.
+     *
+     * 규칙 넷이다.
+     *
+     * 1. **취소가 걸렸으면 기다림을 끝낸다.** 하위 손잡이가 없어 취소가 하위로 가지 않으므로 여기서 본다. 대기 단위는
+     *    `ABORTED`, 실행은 취소 경로(정리 «해당 없음»)로 끝난다.
+     * 2. **지금 값이 기대 값이면 `DONE` 이다.** 설비가 관측한 사실이라 근거 등급은 E2 다. 관측 시각은 자취에만 남긴다.
+     * 3. **못 읽으면(`null`) 계속 기다린다.** 못 읽은 것을 «기대 값이 아님» 으로 접지 않는다 — 기한이 판정한다.
+     * 4. **기한(시작 시각 + 기한)이 지나면** [WaitSpec.onDeadline] 으로 간다. 마지막으로 읽은 값을 자취에 한 번 남기고
+     *    인시던트를 연다(`SIGNAL_DEADLINE`).
+     *
+     * 신호는 **값이 바뀔 때만** 자취에 남긴다. 진행마다 남기면 자취가 넘쳐 근거 윈도우가 그 줄로 찬다.
+     *
+     * @return 단위가 이 진행에서 종료(운영자 보류 포함)했는가.
+     */
+    private fun pumpSignalUnit(execution: Execution, unit: ExecutionUnit): Boolean {
+        val wait = unit.wait ?: error("설비 대기 단위에 대기 사양이 없다: ${unit.unitId}")
+        if (execution.cancelRequested) {
+            unit.state = UnitState.ABORTED
+            unit.annotate("cancelled while waiting for ${wait.signal}")
+            abort(execution, inProgress = unit, hold = null, cleanup = "not_applicable")
+            return true
+        }
+
+        val reading = cell.signal(wait.signal)
+        val seen = reading?.value ?: NO_SIGNAL
+        if (execution.signalSeen[unit.taskId] != seen) {
+            execution.signalSeen[unit.taskId] = seen
+            execution.trail("CELL_SIGNAL", "signal ${wait.signal}: ${describe(reading)}")
+        }
+
+        if (reading != null && reading.value == wait.expect) {
+            unit.reached = Evidence.E2
+            unit.verification = Verification.MATCHED
+            unit.evidenceAt = reading.observedAt ?: now()
+            unit.state = UnitState.DONE
+            return true
+        }
+
+        val startedAt = unit.requestedAt!!
+        if (!now().isAfter(startedAt.plus(wait.deadline))) {
+            execution.physicalState = PhysicalState.RUNNING
+            return false
+        }
+
+        // 기한이 지났다. 마지막으로 읽은 값을 **기한 시점의 관측으로** 한 번 더 남긴다 — 값이 안 바뀌었으면 그 줄은 시작
+        // 무렵에 한 번 적혔을 뿐이라 인시던트의 근거 윈도우 밖에 있다.
+        execution.trail("CELL_SIGNAL", "signal ${wait.signal} at deadline: ${describe(reading)}")
+        unit.failureClass = WaitSpec.SIGNAL_DEADLINE
+        unit.annotate("signal ${wait.signal} did not read '${wait.expect}' within ${wait.deadline} — ${wait.onDeadline.name}")
+        execution.markIncident(unit)
+        when (wait.onDeadline) {
+            DeadlineOutcome.OPERATOR_HOLD -> unit.state = UnitState.OPERATOR_HOLD
+            DeadlineOutcome.ABORTED -> {
+                unit.state = UnitState.FAILED
+                // **남은 단위는 내보내지 않는다** — 먼저 중단으로 적고 실행을 끝낸다. `PENDING` 으로 두면 그 단위가
+                // «아직 안 시작함» 으로 남아, 진행 루프가 출발시킬 자리와 정산 규칙이 부분 완료로 읽을 자리가 남는다.
+                execution.units.filter { it.state == UnitState.PENDING }.forEach {
+                    it.state = UnitState.ABORTED
+                    it.annotate("not started: ${wait.signal} deadline aborted the execution")
+                }
+                abort(execution, inProgress = unit, hold = null, cleanup = "not_applicable", requested = false)
+            }
+        }
+        return true
+    }
+
+    private fun describe(reading: NamedSignal?): String =
+        if (reading == null) NO_SIGNAL else "value=${reading.value} at=${reading.observedAt?.toString() ?: "(read now)"}"
 
     private fun transportOrderOf(unit: ExecutionUnit) = TransportOrder(
         reference = unit.taskId,
@@ -1452,7 +1606,23 @@ class Middleware(
 
     fun lastCancel(executionId: String): CancelReport? = executions[executionId]?.lastCancel
 
-    private fun abort(execution: Execution, inProgress: ExecutionUnit?, hold: HoldState?, cleanup: String) {
+    /**
+     * @param requested 상위의 취소 요청([cancel])으로 멈췄는가. 거짓이면 이 계층이 정해 둔 규칙(설비 대기의 기한 뒤
+     *   `ABORTED`)으로 멈춘 것이고, **취소 응답([CancelReport])을 남기지 않는다** — 아무도 취소를 안 했는데 취소 응답이
+     *   있으면 «누가 멈췄나» 에 거짓으로 응답한다.
+     */
+    private fun abort(
+        execution: Execution,
+        inProgress: ExecutionUnit?,
+        hold: HoldState?,
+        cleanup: String,
+        requested: Boolean = true,
+    ) {
+        if (!requested) {
+            execution.physicalState = PhysicalState.ABORTED
+            notify(execution)
+            return
+        }
         // 단위가 끝까지 갔으면(하류가 중단을 거절했거나, 취소가 닿기 전에 끝났거나) 중단된 단위가 아니라 **그 뒤에서 멈춘** 경계다.
         val refused = inProgress != null && (inProgress.state == UnitState.DONE || inProgress.state == UnitState.UNVERIFIED)
         val report = CancelReport(
@@ -1501,9 +1671,7 @@ class Middleware(
             results = units.filter { it.state == UnitState.DONE && !it.result.isNullOrBlank() }.associate { it.unitId to it.result!! },
             blockedBy = execution.blockedBy.map { canonicalClassOf(it) },
             connection = (views[execution.robotId]?.takeIf { it.observable }?.connection ?: ConnectionState.CONNECTION_STATE_UNSPECIFIED).name,
-            autoResolvesInDoubt = units.all {
-                (if (it.route == Route.ROBOT) robots.executionLookup else fleet.executionLookup) == ExecutionLookup.CLIENT_REFERENCE
-            },
+            autoResolvesInDoubt = units.all { lookupOf(it.route) == ExecutionLookup.CLIENT_REFERENCE },
         )
         outbox += response
         execution.upstreamAck = UpstreamAck.SENT_UNACKED
@@ -1562,5 +1730,8 @@ class Middleware(
 
         /** 계약 `FailureClass.UNCLASSIFIED` 의 이름 — 하류가 분류를 안 실었을 때의 값. 지어낸 분류가 아니다. */
         const val UNCLASSIFIED = "UNCLASSIFIED"
+
+        /** 설비 대기가 이름 있는 신호를 못 읽었다 — 자취의 값 자리. «기대 값이 아님» 과 다르다. */
+        private const val NO_SIGNAL = "no signal"
     }
 }

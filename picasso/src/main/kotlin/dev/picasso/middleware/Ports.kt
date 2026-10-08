@@ -215,10 +215,68 @@ interface CellSignals {
      */
     fun holding(material: String): List<String>? = null
 
+    /**
+     * 이름 있는 설비 신호의 **지금 값**(설비 대기, [Route.SIGNAL]). 이름은 현장 신호 사양의 이름이다.
+     *
+     * `null` 은 **읽지 못했다**는 뜻이고 «기대 값이 아니다» 와 다르다. 설비 대기는 `null` 을 받으면 계속 기다리고,
+     * 기한이 지나면 정해 둔 상태로 간다 — 못 읽은 것을 아닌 것으로 접지 않는다.
+     *
+     * 기본값이 `null` 인 것은 **자리별 점유만 내는 설비가 이름 있는 신호를 모르기** 때문이다. 어느 주소가 어느 신호인지의
+     * 매핑은 이 층이 아니라 드라이버의 일이다.
+     */
+    fun signal(name: String): NamedSignal? = null
+
     object None : CellSignals {
         override fun observe(location: String): SlotSignal? = null
     }
 }
+
+/**
+ * 이름 있는 설비 신호 하나의 값과 그 관측 시각.
+ *
+ * 값은 문자열이다 — 신호 사양의 종류가 `BOOLEAN` 이면 `true`·`false` 다. [observedAt] 이 `null` 이면 설비가
+ * 시각을 안 주는 것이고 **읽은 순간**이 그 시각이다([SlotSignal] 과 같은 규칙). 시각은 자취에 남기는 데만 쓴다.
+ */
+data class NamedSignal(val value: String, val observedAt: Instant? = null)
+
+// ── 임무 정의 — 작업 지시를 실행 단위로 펼치는 케이퍼빌리티의 출처
+
+/**
+ * WorkMaster 마다 **지금 활성인** 케이퍼빌리티와 그 임무 버전을 주는 포트.
+ *
+ * 미들웨어는 새 작업 지시를 계획할 때만 이것을 읽는다. 실행은 생성 때 읽은 쌍을 쥐고 끝까지 그것으로 돈다 —
+ * 리비전도 그 쌍으로 계획한다. 그래서 활성 버전이 바뀌어도 **도는 실행은 옛 버전으로 끝난다.**
+ *
+ * 활성화(새 버전을 세우는 일)는 이 포트에 없다. 그것은 구현의 일이고, 검증을 통과해야 선다
+ * (`dev.picasso.middleware.mission.InMemoryMissionCatalog`). 이 층은 읽기만 한다.
+ */
+interface MissionCatalog {
+
+    /** 이 WorkMaster 의 지금 활성인 정의. 없으면 `null` — 그 작업 지시는 «모르는 논리적 능력» 으로 거부된다. */
+    fun active(workMasterId: String): ActiveMission?
+
+    companion object {
+        /** 코드로 정의한 케이퍼빌리티 셋. 미들웨어의 기본 목록이다. 부를 때마다 새 인스턴스를 만든다. */
+        fun codeCapabilities(): List<LogicalCapability> = listOf(PrepareSequencedRack(), DeliverContainer(), InspectAsset())
+
+        /** 코드 케이퍼빌리티만으로 된 카탈로그 — 임무 버전이 없다. 같은 WorkMaster 가 둘이면 뒤엣것이 남는다. */
+        fun of(capabilities: List<LogicalCapability>): MissionCatalog {
+            val byWorkMaster = capabilities.associateBy { it.workMasterId }
+            return object : MissionCatalog {
+                override fun active(workMasterId: String): ActiveMission? =
+                    byWorkMaster[workMasterId]?.let { ActiveMission(it, missionVersion = null) }
+            }
+        }
+    }
+}
+
+/**
+ * 활성인 정의 하나 — 케이퍼빌리티와 그것이 어느 임무 버전인지.
+ *
+ * @param missionVersion 데이터 정의면 그 WorkMaster 안에서 1부터 오르는 번호, 코드 케이퍼빌리티면 `null`.
+ *   작업 지시의 버전(`JobOrder.version`, 단위의 `revision`)과 다른 축이다.
+ */
+data class ActiveMission(val capability: LogicalCapability, val missionVersion: Int?)
 
 /**
  * 한 자리의 설비 신호 — 재석 여부와 설비가 읽은 식별자(부품 타입 라벨이든 용기 태그든,

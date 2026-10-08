@@ -1104,10 +1104,11 @@ mimic/
 | [47](../../adr/0047-operator-decision-is-made-by-a-person.md) | 운영자 판단은 사람만 내고 누가 냈는지 사건에 남기며, 판단자는 읽는 쪽이 생길 때까지 내보내지 않음 | §15.202 |
 | [48](../../adr/0048-result-notice-has-an-outside-shape.md) | 결과 통보에 판이 있는 바깥 형식을 두고, 승인 답과 실행 · 걸음 단위 · 인스턴스 식별자로 이음 | §15.203 |
 | [49](../../adr/0049-revision-tests-have-a-runner.md) | 개정판 시험 3종의 뜻을 정하고, 실행기를 harness 에 두어 registry 의 문 3개(요청 · 집기 · 보고)에 HTTP 로만 닿게 함 | §15.207 |
+| [50](../../adr/0050-mission-definition-is-versioned-data.md) | 임무 정의를 검증을 지난 데이터로 두어 판 번호를 매기고, 실행은 생성 때 쥔 임무 판으로 끝냄. 설비 대기를 셋째 경로로 둠 | §15.209 |
 
 기록은 `docs/adr/`에 있고 번호가 이 표의 행 번호다. **이미 내려서 코드에 박힌 것만 쓴다** — 3a·3b가 만들 것(11~21)은 그때 쓴다. 결정하지 않은 것을 미리 적어 두면 그것이 결정처럼 보인다.
 
-> 마지막 대조: 2026-10-08 · sha256:a0f4bd977d83 · 열림: C-3, §15.7, §15.126, ADR 32 · 시나리오 5, §15.4, §15.5, §15.6 · §15.11 · §15.28, §15.8, §15.9, §15.10, §15.1, §15.2, §15.33, §15.87
+> 마지막 대조: 2026-10-08 · sha256:30af927964c1 · 열림: C-3, §15.7, §15.126, ADR 32 · 시나리오 5, §15.4, §15.5, §15.6 · §15.11 · §15.28, §15.8, §15.9, §15.10, §15.1, §15.2, §15.33, §15.87
 
 ## 15. 알려진 한계
 
@@ -3097,6 +3098,18 @@ mimic/
     **정본을 안 붙인 배치는 안 막는다.** `ActiveMap.NotConfigured` 가 「검사할 정본이 없다」이고 `Unavailable` 이 「못 물어봤다」이며, 뒤엣것만 멈춘다. 둘을 접으면 정본 없는 현장이 통째로 서고 그러면 이 검사가 곧 꺼진다 — `SiteNames` 가 `Unsupported` 와 `Unavailable` 을 가른 것과 같은 규율이다.
 
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
+
+209. **임무 정의를 검증을 지나야 활성화되는 데이터 판으로 옮기고, 설비 대기를 셋째 경로로 더했으며, 실행이 생성 때 쥔 임무 판으로 개정판까지 끝나게 했다.**
+
+    임무 정의는 코드였다. `PrepareSequencedRack.plan()` 이 주문의 destination 마다 `pick_place` 단위 하나를 내고, 제시 자리는 material 로 짝을 지어 뒤엣것이 이기며, 짝이 없으면 계획 때 `FAILED`(`NO_SOURCE_FOR_MATERIAL`)였다. `Middleware` 는 케이퍼빌리티 목록을 workMasterId 로 묶은 맵을 생성 때 쥐었고 실행 중에 바꿀 길이 없었다. 임무 판 칸은 없었다. 실행은 케이퍼빌리티 객체를 쥐었으나 `submit` 이 개정판으로 가기 전에 그 맵을 다시 읽었다. 경로는 `ROBOT`·`FLEET` 둘이었고 진행 루프의 분기는 «로봇이 아니면 플릿» 이었다. 셀 신호 포트에는 이름으로 읽는 신호가 없었다. 바깥 첫 소비자 picasso-ops 의 운영 관리 화면 설계 제안 §10 입증 항목 3(임무 하나를 데이터 판으로: 모의 실행 → 활성화 → 도는 실행 중 새 판 전환 → 옛 실행은 옛 판으로 끝남)·4(신호 사양에 없는 신호를 참조하는 변경이 활성화에서 거절됨)와 P3 스펙(`docs/superpowers/specs/2026-10-08-p3-mission-definition-versions-design.md`, picasso-ops 저장소)이 이것을 정했다. 2026-10-08 사용자 결정은 임무 판을 먼저 picasso 에 짓고 picasso 시험 위에서 입증하며 노드형 스키마와 설비 대기까지 엔진에 구현하는 것이다. 소비자가 생겨서 지었다(ADR 9, ADR 50).
+
+    패키지 `dev.picasso.middleware.mission` 을 두었다. 정의 스키마 `MissionDefinition`(노드 `unit`·`wait`, 직선만, `schemaVersion` 1), 엄격 파서 `MissionDefinitionParser`(모르는 키·빠진 칸·형 틀림을 모두 모아 한 번에, `JsonFormat` → `Struct`, 수는 정수 검사), `StrictJson`(손으로 쓴 문법·중복 키 검사, `JsonFormat` 은 중복 키에 말없이 뒤엣것을 쓴다), 신호 사양 `SignalSpec`(이름·자리·종류·안전 여부), 해석기 `DefinedCapability`(정의 → `LogicalCapability`), 검증기 `MissionValidator`(노드 id 중복 + 기한·신호·자원·스킬·안전), 거절 `MissionRefusal` 9종(종류가 해결 담당과 바로 갈 작업을 정하고 바닥 소유만 화면 밖), 메모리 카탈로그 `InMemoryMissionCatalog`(코드 케이퍼빌리티와 데이터 정의가 함께, `synchronized`, 활성화는 검증 통과 시 WorkMaster 마다 1부터 오르는 판, 거절은 번호를 안 씀)다. 데이터로 옮긴 것은 `PrepareSequencedRack` 하나이고 코드 클래스는 동등성 기준으로 남는다. 설비 대기는 셋째 경로 `Route.SIGNAL` 이다. `WaitSpec(signal, expect, deadline, onDeadline)` 이 단위에 붙고 `pumpSignalUnit` 이 돈다. 판정은 신호의 지금 값이다. 기대 값이면 `DONE`·E2, null 이면 계속 기다리고, 기한을 넘으면 사건(`SIGNAL_DEADLINE`)을 낸 뒤 `OPERATOR_HOLD` 는 대기 단위가 운영자 보류로 서고 `ABORTED` 는 대기 단위 `FAILED`·남은 단위 `ABORTED`·실행 중단이며 취소 답은 남기지 않는다. 진행 루프의 경로 분기를 경로별 `when` 으로 바꾸고 중단 뒤 같은 라운드 반환 가드를 두었다. `CellSignals.signal(name)` 을 기본 null 로 더했고(기존 구현체 안 깨짐) `CellMimic` 에 `setSignal`·`clearSignal` 을 두었다.
+
+    포트 `MissionCatalog` 를 middleware 패키지에 두고 `Middleware` 생성자 맨 뒤에 `missions` 를 더했다(기본은 코드 케이퍼빌리티 셋, 판 없음, `capabilities` 와 함께 주면 `require` 실패). `Execution.missionVersion` 을 생성 때 고정한다. 이미 있는 실행이면 `submit` 은 카탈로그를 안 보고 개정판으로 가고, `revise` 는 실행이 쥔 케이퍼빌리티로 계획·근거 등급을 검사하며 WorkMaster 를 바꾸면 거절한다. `adopt` 는 카탈로그를 한 번 읽은 쌍을 접수까지 넘긴다. 사건의 `Intent.missionVersion` 은 실행이 쥔 판이고 해시에 든다. 내보내기에는 싣지 않는다. 내보내기 판은 5 에서 6 이 됐고 6 의 변경은 사건 줄 `route` 의 `SIGNAL` 하나다(칸은 안 늘었다). ADR 47 이 «실으면 조회 판이 6 으로 오르고» 라고 적은 6 을 이번에 `route` 가 썼다. 인계본 run-1..4 를 다시 산출했다. manifest `schemaVersion` 6, 새 runId, 해시에 임무 판 자리가 생겨 모든 사건 줄의 digest 가 바뀌었고 run-1·run-2 의 digest 는 서로 같으며 나머지 칸은 `wallClockAt`·`resolution.wallClockAt` 말고 같다.
+
+    시험 46개를 더해 총수가 1,931 에서 1,977 이 됐다. `MissionDefinitionParserTest` 9, `DefinedCapabilityEquivalenceTest` 6(주문 모양 9가지 × 10칸 + 통째), `MissionValidatorTest` 12, `InMemoryMissionCatalogTest` 5, `EquipmentWaitTest` 8, `MissionVersionScenarioTest` 6 다. 기존 시험 중 셋을 고쳤다. `EvidenceWindowTest` 의 «5» 를 «6» 으로, `LedgerExportTest` 의 해시 칸 목록에 «임무 버전» 행을, `CompletionCriterionTest` 의 65 를 66 으로다. 그 밖의 기존 시험은 고치지 않고 통과했다. 결함 주입 22건이 모두 이름 있는 시험으로 잡혔다. 해석기: 짝 짓기 규칙을 앞엣것이 이기게. 설비 대기: 기한 비교를 기한 시각에 넘기게, ABORTED 반환 가드 제거, 남은 PENDING 을 ABORTED 로 안 바꿈, 기한 중단이 취소 답을 남김, 개정판이 설비 대기를 로봇처럼 갱신, 대기 중 취소를 안 봄, 신호 자취를 진행마다 남김. 검증기: 기한·신호·자원·스킬·안전·노드 id 검사를 하나씩 뺌. 판: 개정판이 카탈로그를 다시 봄, 개정판의 WorkMaster 변경 거부를 뺌, 실행이 판을 안 쥠, 번들에 판을 안 실음, 번들이 활성 판을 실음, 해시에서 임무 판 빼기. 파서: 중복 키를 안 봄. 배정: 읽은 쌍을 안 넘김. 처음 돌린 주입에서 하나가 안 잡혔다. 배정이 읽은 쌍을 안 넘겨도 한 스레드 시험에서는 카탈로그를 두 번 읽어 같은 답이 와 등가 변이였다. 첫 읽기와 둘째 읽기에 다른 판을 주는 카탈로그로 시험을 더해 잡았다. 번들이 활성 판을 실게 하는 주입은 처음 코드가 컴파일되지 않았다. 생성자 인자 `missions` 가 같은 이름의 속성을 가려 속성 초기화식 안에서는 인자가 잡히므로 `this@Middleware.missions` 로 넣어 잡았다.
+
+    남긴 것은 한계 §15.209 의 행들이다. 나머지 두 정의(`DeliverContainer`·`InspectAsset`)의 데이터 이전, 분기·병렬, 주소 매핑, 정의 JSON Schema 파일, 이벤트형 신호, 주문 설비 id 와 대기 노드 id 겹침, `missionVersion` 내보내기다. 운영 실행 호스트(§15.176)와 저장·이력은 S3(picasso-ops)다.
 
 208. **계약 스킬 종류를 기동 때 채우고 개정판 제출·활성화와 기체 바인딩의 조작 문 5개를 열었다.**
 

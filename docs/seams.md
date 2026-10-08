@@ -36,12 +36,13 @@
 
 ### 2. 현장 설비 센서 신호 (PLC/WCS)
 
-**인터페이스**: `CellSignals.observe(location): SlotSignal?` (null 반환 시 '신호 없음'으로 처리)
+**인터페이스**: `CellSignals.observe(location): SlotSignal?` (null 반환 시 '신호 없음'으로 처리) · `CellSignals.holding(material): List<String>?` (기본 null — 그 질문에 응답하지 않는 설비) · `CellSignals.signal(name): NamedSignal?` (기본 null — 이름 있는 신호를 모르는 설비)
 
 - **실제 하드웨어 전환 작업**:
-  - 현장 PLC의 OPC UA 노드 또는 무전압 I/O 접점 상태를 폴링하여 `SlotSignal(identity, observedAt, latched)` 객체로 변환하는 구현체를 제공합니다.
+  - 현장 PLC의 OPC UA 노드 또는 무전압 I/O 접점 상태를 폴링하여 `SlotSignal(occupied, identity, observedAt)` 객체로 변환하는 구현체를 제공합니다.
   - 설비 신호 폴링 주기 및 하드웨어 래치 정책은 현장 환경에 맞춰 구현하며, 시간 윈도우 δ는 논리적 케이퍼빌리티 파라미터로 설정합니다.
-- **불변 유지 대상**: 근거 결합 엔진 규칙 전체 (시간 윈도우 판정, 센서 재확인, `UNVERIFIED`, `VERIFICATION_MISMATCH` 처리 로직).
+  - `CellSignals.signal(name)` 은 신호 사양의 이름으로 그 신호의 지금 값을 돌려주는 구현체를 제공합니다. 어느 PLC 주소가 어느 신호인지의 매핑은 이 구현체(드라이버)의 일이며, 본 계층은 이름으로만 읽습니다. `null` 은 «기대 값이 아님» 이 아니라 «못 읽음» 이므로 설비 대기는 계속 기다리고 기한이 판정합니다. 상태 신호만 다루며, 짧게 켜졌다 꺼지는 이벤트형 신호는 PLC 쪽 래치가 있어야 폴링이 놓치지 않습니다 (한계 §15.209).
+- **불변 유지 대상**: 근거 결합 엔진 규칙 전체 (시간 윈도우 판정, 센서 재확인, `UNVERIFIED`, `VERIFICATION_MISMATCH` 처리 로직), 설비 대기 판정(지금 값 · 기한 · 기한 뒤 상태).
 
 ### 3. AMR 플릿 관리 시스템
 
@@ -112,11 +113,25 @@
 
 ---
 
+## 데이터 접합부 — 임무 정의 카탈로그 (Mission Catalog)
+
+**인터페이스**: `MissionCatalog.active(workMasterId): ActiveMission?` (기본 구현은 코드 케이퍼빌리티 셋, 버전 없음)
+
+지금 구현은 둘입니다. `MissionCatalog.of(codeCapabilities)` 는 기본 구현으로 코드 케이퍼빌리티만 버전 없이 돌려주고, `InMemoryMissionCatalog` 는 코드 케이퍼빌리티와 데이터 정의를 함께 들며 활성화가 검증을 통과하면 그 WorkMaster 의 다음 버전을 활성으로 세웁니다(스레드 안전). 저장과 이력은 picasso-ops 호스트가 붙입니다(S3).
+
+- **데이터 공급 구현 전환 작업**:
+  - 정의 문서와 버전 이력을 영속 저장에 두는 구현체를 제공합니다.
+  - 활성화 전에 `MissionValidator.validate` 를 같은 규칙으로 부릅니다. 검증기 입력(신호 사양, 바닥 소유, 현장 기체가 제공하는 스킬)은 호스트가 줍니다.
+- **불변 유지 대상**: 엔진 규칙(실행은 생성 때 케이퍼빌리티와 임무 버전을 쥐고 리비전도 그것으로 돈다), 해석기(`DefinedCapability`)와 검증기의 규칙.
+
+---
+
 ## 색인 — 자리와 인터페이스
 
 | 자리 | 인터페이스 | 어디 |
 |---|---|---|
 | 설비 | `CellSignals` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
+| 임무 정의 | `MissionCatalog` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 플릿 | `AmrFleetPort` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 로봇(소비자) | `RobotPort` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 벤더 — Spot | `SpotLink` | `adapter-boston-dynamics-spot/src/main/kotlin/dev/picasso/adapter/spot/SpotLink.kt` |
@@ -134,4 +149,4 @@
 
 > **검증 보증:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
 
-> 마지막 대조: 2026-10-06 · sha256:4a1e0037f3a9 · 열림: §15.34, C-3, §15.5, §15.156
+> 마지막 대조: 2026-10-08 · sha256:38bd25e33bc2 · 열림: §15.34, C-3, §15.5, §15.156
