@@ -233,6 +233,12 @@ class Middleware(
          */
         internal val signalSeen: MutableMap<String, String> = mutableMapOf()
 
+        /**
+         * [resume] 이 마지막 로봇 태스크보다 앞선 것으로 둔 로봇 단위. 다시 관측한 성공에 설비 근거를 다시 묻지 않는다. 이전
+         * 인스턴스가 이미 판정했고 설비 값은 그 뒤 바뀌었을 수 있다.
+         */
+        internal val resumedPrior: MutableSet<String> = mutableSetOf()
+
         /** 지연 이벤트(15.1) — 옛 버전의 종착. 폐기하지 않는다. */
         val lateEvents: MutableList<LateEvent> = mutableListOf()
         private val seenLate = mutableSetOf<Triple<String, Int, String>>()
@@ -319,11 +325,22 @@ class Middleware(
             Admission.Passed -> Unit
         }
 
+        return Submission.Accepted(create(order, robotId, active, planned, approvedBy))
+    }
+
+    /** 실행 하나를 세워 표에 넣는다. [submit] 과 [resume] 이 함께 쓴다. 판정은 부르는 쪽이 이미 끝냈다. */
+    private fun create(
+        order: JobOrder,
+        robotId: String,
+        active: ActiveMission,
+        planned: List<ExecutionUnit>,
+        approvedBy: Approver?,
+    ): Execution {
         val execution = Execution(
             executionId = "exec-${executions.size + 1}",
             order = order,
             robotId = robotId,
-            capability = capability,
+            capability = active.capability,
             missionVersion = active.missionVersion,
             units = planned.toMutableList(),
         )
@@ -331,7 +348,105 @@ class Middleware(
         execution.approvedBy = approvedBy
         execution.physicalState = PhysicalState.ACCEPTED
         executions[execution.executionId] = execution
+        return execution
+    }
+
+    /**
+     * 담는 쪽이 재기동한 뒤 **자기 기록으로 실행을 다시 짓는 입구**다. 이전 인스턴스가 받은 작업 지시와 기체, 그때 계획한 임무
+     * 정의와 버전([mission])을 넘겨받는다. 미들웨어를 담는 실행 호스트가 기동할 때 [pump] 를 켜기 전에 부르는 자리다.
+     *
+     * **상태를 되살리는 것이 아니라 같은 정체성으로 다시 짓는 것이다.** 실행 id 와 작업 응답 id 는 이 인스턴스의 셈으로 새로
+     * 붙고, 로봇 단위와 플릿 단위는 대기에서 시작한다. 로봇 단위의 상태는 [pump] 가 기체에서 다시 관측해 세운다. 같은 태스크
+     * id 와 리비전으로 `StartTask` 를 다시 보내면 기체가 기존 핸들을 돌려주므로(계약의 멱등) 새 명령이 나가지 않는다.
+     *
+     * **넘기는 작업 지시는 이전 인스턴스가 받은 마지막 버전이어야 한다.** 리비전은 단위의 `revision` 이 되고 태스크의 멱등은
+     * 같은 `task_id`·`revision` 에만 서므로, 낮은 버전을 넘기면 기체가 기존 태스크에 붙여 주지 않는다.
+     *
+     * 같은 작업 지시 id 의 실행이 이미 있으면 [submit] 과 같이 리비전 경로로 간다. 같은 버전이면 [Submission.Idempotent] 다.
+     *
+     * 없으면 차례는 이렇다.
+     *
+     * 1. **넘겨받은 정의의 WorkMaster 를 작업 지시와 대조한다.** 다르면 거부한다.
+     * 2. **기체 스냅숏을 한 번 읽는다.** 못 읽으면(`null`) 실행을 만들지 않고 [RESUME_SNAPSHOT_UNREADABLE] 로 시작하는 사유로
+     *    거부한다. 스냅숏 없이 지으면 첫 pump 가 `@rN` 없는 태스크 id 로 가서 이미 끝난 첫 태스크에 붙고, 도는 재작업 태스크는
+     *    고아가 된다.
+     * 3. **넘겨받은 정의로 계획한다.** 카탈로그의 지금 활성 버전은 읽지 않는다. 근거 등급 검사만 거치고 **배정 관문을 걸지
+     *    않으며 조치 탐색 기록도 남기지 않는다.** 명령이 이미 나간 실행이라 관문이 다시 판정할 대상이 아니고, 관문은 이미 집어 간
+     *    자재를 출발 결품으로 읽어 거부할 수 있다.
+     * 4. **로봇 단위의 재작업 횟수를 태스크 id 에서 되찾는다.** 스냅숏 태스크 id 가운데 `jobOrderId#unitId` 이거나
+     *    `jobOrderId#unitId@rN` 인 것의 가장 큰 N(접미사가 없으면 0)을 [ExecutionUnit.attempt] 에 넣는다. 계약 스냅숏의 태스크
+     *    `attempt` 칸은 발신자의 재시도 횟수라 다른 값이다.
+     * 5. **앞선 설비 대기를 통과한 것으로 둔다.** 스냅숏에 태스크가 있는 마지막 로봇 단위보다 앞선 설비 대기 단위는 `DONE` 이다.
+     *    실행은 단위를 차례로 돌므로 뒤 로봇 단위가 기체에 있으면 앞 대기는 이미 통과했고, 지금 신호로 다시 판정하면 그 뒤 바뀐
+     *    신호로 보류나 중단이 난다. 이 인스턴스가 관측하지 않았으므로 근거 등급은 E0 그대로이고, 그래서 작업 응답의 도달 근거
+     *    등급도 E0 이다. 그 뒤의 설비 대기는 다시 기다리므로 재기동 뒤 바뀐 신호로 곧바로 보류나 중단이 날 수 있다.
+     * 6. **앞선 로봇 단위의 완료를 다시 확인하지 않는다.** 같은 마지막 로봇 단위보다 앞선 로봇 단위는 [pump] 가 다시 관측한
+     *    성공에 설비 근거를 다시 묻지 않고 근거 등급 E0 인 채 `DONE` 으로 둔다. 이전 인스턴스가 그 완료를 이미 확인했거나 못
+     *    했고, 설비 값은 그 뒤 바뀌었을 수 있다. 실패로 다시 관측되면 보통의 실패 경로를 탄다. 마지막 로봇 단위는 보통대로 확인한다.
+     *
+     * 마지막 로봇 단위를 찾을 때 플릿 단위는 세지 않는다. 4·5·6 의 사실은 단위 메모가 아니라 실행 자취([Execution.eventTrail])에
+     * [RESUME_ATTEMPT]·[RESUME_SIGNAL_PASSED]·[RESUME_PRIOR_ROBOT] 으로 남긴다. 단위 메모는 작업 응답의 미완 단위 값으로 나가기
+     * 때문이다.
+     *
+     * **넘어오지 않는 것**: 운영자 판단, 감수한 결함([Execution.acknowledgedFaults]), 승인 소모 기록, 근거 윈도우의 요청 시각,
+     * 설비 대기의 기한 시작 시각, 앞선 로봇 단위에 이전 인스턴스가 낸 근거 확인 결과. 모두 이 인스턴스에서 새로 서거나(6 은 E0
+     * 으로) 비어 있다. 계약과 내보내기 형식은 그대로다.
+     */
+    fun resume(order: JobOrder, robotId: String, mission: ActiveMission): Submission {
+        val existing = executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }
+        if (existing != null) return revise(existing, order)
+
+        if (mission.capability.workMasterId != order.workMasterId) {
+            return Submission.Rejected(
+                "넘겨받은 임무 정의의 WorkMaster 가 작업 지시와 다르다: 정의=${mission.capability.workMasterId}, 작업 지시=${order.workMasterId}",
+            )
+        }
+        val snapshot = robots.snapshot(robotId)
+            ?: return Submission.Rejected("$RESUME_SNAPSHOT_UNREADABLE: robot=$robotId, 재작업 횟수와 지난 설비 대기를 정할 근거가 없다")
+        evidenceRefusal(order, mission.capability)?.let { return it }
+
+        val planned = mission.capability.plan(order)
+        val execution = create(order, robotId, mission, planned, approvedBy = null)
+        rebuildFrom(execution, snapshot)
         return Submission.Accepted(execution)
+    }
+
+    /** [resume] 의 4·5·6. 스냅숏의 태스크 id 로 재작업 횟수, 지난 설비 대기, 앞선 로봇 단위를 정하고 자취에 남긴다. */
+    private fun rebuildFrom(execution: Execution, snapshot: RobotSnapshot) {
+        val jobOrderId = execution.order.jobOrderId
+        var lastHeld = -1
+        execution.units.forEachIndexed { index, unit ->
+            if (unit.route != Route.ROBOT) return@forEachIndexed
+            val base = "$jobOrderId#${unit.unitId}"
+            val found = snapshot.tasks.keys.mapNotNull { taskId -> attemptOf(taskId, base)?.let { taskId to it } }
+            val top = found.maxByOrNull { it.second } ?: return@forEachIndexed
+            unit.attempt = top.second
+            lastHeld = index
+            execution.trail(RESUME_ATTEMPT, "${unit.unitId}: attempt=${top.second} (스냅숏 태스크 ${top.first})")
+        }
+        val last = execution.units.getOrNull(lastHeld) ?: return
+        val before = execution.units.take(lastHeld)
+        before.filter { it.route == Route.SIGNAL }.forEach {
+            it.state = UnitState.DONE
+            execution.trail(
+                RESUME_SIGNAL_PASSED,
+                "${it.unitId}: 뒤 로봇 단위 ${last.unitId} 의 태스크가 기체에 있어 통과한 것으로 둔다, 이 인스턴스가 관측하지 않아 근거 등급 E0",
+            )
+        }
+        before.filter { it.route == Route.ROBOT }.forEach {
+            execution.resumedPrior += it.unitId
+            execution.trail(
+                RESUME_PRIOR_ROBOT,
+                "${it.unitId}: 뒤 로봇 단위 ${last.unitId} 보다 앞서 성공을 다시 관측해도 설비 근거를 다시 묻지 않는다, 근거 등급 E0",
+            )
+        }
+    }
+
+    /** [taskId] 가 [base] 의 태스크면 재작업 횟수, 아니면 널. 접미사가 없으면 0 이다. */
+    private fun attemptOf(taskId: String, base: String): Int? {
+        if (taskId == base) return 0
+        if (!taskId.startsWith(base)) return null
+        return RETRY_SUFFIX.matchEntire(taskId.substring(base.length))?.groupValues?.get(1)?.toIntOrNull()
     }
 
     /**
@@ -850,7 +965,8 @@ class Middleware(
             TaskState.TASK_STATE_SUCCEEDED -> {
                 // 하류가 실어 준 결과 참조(E0 의 내용). 비어 있으면 비어 있는 채로 — 지어내지 않는다.
                 unit.result = last.partialResult.takeIf { it.isNotBlank() }
-                beginVerify(execution, unit, reachedByDownstream = Evidence.E0, doneAt = stateTime(last))
+                val prior = unit.unitId in execution.resumedPrior
+                beginVerify(execution, unit, reachedByDownstream = Evidence.E0, doneAt = stateTime(last), prior = prior)
                 if (unit.state == UnitState.VERIFYING) return false // active 로 남아 시간창을 기다린다
             }
 
@@ -1295,11 +1411,19 @@ class Middleware(
      * 아니면 [UnitState.VERIFYING] 으로 옮기고 시간창이 닫힐 때까지([EvidenceWindow.after])
      * 설비에 묻는다 — PLC 는 폴링이라 신호가 보고보다 **늦게** 읽힐 수 있다. 첫 확인은 지금 한다.
      */
-    private fun beginVerify(execution: Execution, unit: ExecutionUnit, reachedByDownstream: Evidence, doneAt: Instant, strict: Boolean = false) {
+    private fun beginVerify(
+        execution: Execution,
+        unit: ExecutionUnit,
+        reachedByDownstream: Evidence,
+        doneAt: Instant,
+        strict: Boolean = false,
+        prior: Boolean = false,
+    ) {
         unit.reached = reachedByDownstream
         unit.downstreamDoneAt = doneAt
         // `strict` — 하류의 보고만으로는 못 닫는다(지연 이벤트: 옛 버전의 완료). 설비가 지금 버전의 기대에 대고 봐야 한다.
-        if (!strict && execution.order.requiredEvidence <= reachedByDownstream) {
+        // `prior` 는 [resume] 이 앞선 것으로 둔 로봇 단위다. 설비를 다시 묻지 않고 하류 등급 그대로 닫는다.
+        if (!strict && (prior || execution.order.requiredEvidence <= reachedByDownstream)) {
             unit.verification = Verification.NOT_REQUESTED
             unit.state = UnitState.DONE
             return
@@ -1758,5 +1882,23 @@ class Middleware(
 
         /** 설비 대기가 이름 있는 신호를 못 읽었다 — 자취의 값 자리. «기대 값이 아님» 과 다르다. */
         private const val NO_SIGNAL = "no signal"
+
+        /**
+         * [resume] 이 기체 스냅숏을 못 읽어 거부할 때 사유의 앞머리. 담는 쪽은 이것으로 «나중에 다시 시도» 와 그 밖의 거부를
+         * 나눈다. 뒤에 기체 id 가 붙는다.
+         */
+        const val RESUME_SNAPSHOT_UNREADABLE = "기체 스냅숏을 못 읽어 다시 짓지 않는다"
+
+        /** [resume] 이 로봇 단위의 재작업 횟수를 스냅숏 태스크 id 에서 맞췄다는 실행 자취의 종류. */
+        const val RESUME_ATTEMPT = "RESUME_ATTEMPT"
+
+        /** [resume] 이 마지막 로봇 태스크 앞의 설비 대기를 관측 없이 끝난 것으로 뒀다는 실행 자취의 종류. */
+        const val RESUME_SIGNAL_PASSED = "RESUME_SIGNAL_PASSED"
+
+        /** [resume] 이 마지막 로봇 태스크 앞의 로봇 단위를 설비 근거 재확인 없이 닫기로 했다는 실행 자취의 종류. */
+        const val RESUME_PRIOR_ROBOT = "RESUME_PRIOR_ROBOT"
+
+        /** 재작업 태스크 id 의 접미사. `startUnit` 이 재작업한 단위에 `@rN` 으로 붙인다. */
+        private val RETRY_SUFFIX = Regex("""@r([1-9]\d*)""")
     }
 }
