@@ -142,6 +142,15 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | **벤더 매니페스트** | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) | 어댑터의 사우스바운드 포트 벤더 심볼 인용 대조 검증 도구 |
 | **오픈 항목 과제 레지스터** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 74개(내부·소비자 대기·외부) 및 해결 조건 관리 레지스터 |
 
+## 연계 저장소
+
+picasso의 코드와 빌드는 두 저장소를 참조하지 않으며, 두 저장소가 picasso를 가져다 쓰는 단방향 구조로 연결됩니다. picasso 쪽에서 넘기는 산출물은 `handoff/<받는 쪽>/` 경로에 둡니다.
+
+| 저장소 | 설명 |
+| :--- | :--- |
+| [**picasso-ops**](https://github.com/LivingLikeKrillin/picasso-ops) | picasso를 라이브러리로 담는 PoC입니다. 실제 현장 대신 registry, mimic 가상 기체, 셀 대역으로 대역 현장을 띄우고, 운영 관리 화면으로 로봇·임무·엔드포인트를 운영할 수 있음을 입증합니다. picasso를 고정 커밋의 읽기 전용 git 서브모듈로 넣어 라이브러리 버전을 고정하고, Gradle includeBuild로 registry, mimic, harness, picasso, client 모듈을 씁니다. 입증 대상인 picasso의 운영 관리 화면 설계 제안(docs/superpowers/specs/2026-10-07-ops-console-lifecycle-design.md) §10의 입증 항목 다섯을 모두 닫았으며, 그 과정에서 필요한 picasso 쪽 변경은 picasso의 PR로 반영되었습니다. |
+| [**picasso-narrator**](https://github.com/LivingLikeKrillin/picasso-narrator) | picasso 인시던트 번들의 원인을 LLM으로 설명하고 근거를 인용하는 설명 계층 PoC입니다. 판정(picasso)과 설명(narrator)의 경계를 별도 저장소로 강제합니다. picasso를 import하지 않고 picasso가 `handoff/narrator/`에 내보낸 파일(실행별 인시던트 번들, 조치 탐색 기록, manifest와 자격·정답표 파일)만 읽습니다. picasso로 되돌리는 호출은 승인 창구에 대한 승인 시도 하나뿐이며 기본값은 꺼져 있습니다. 이 연결을 정하는 picasso 문서는 docs/orchestration.md §6(적재 규약)·§7(승인 창구), docs/glossary.md, ADR 43~47입니다. |
+
 ## 핵심 엔지니어링 규율
 
 - **3값 논리 준수**: 벤더 1차 자료에서 미확인된 사양은 `NO`가 아닌 `UNKNOWN`으로 선언하여 추정에 의한 왜곡을 방지합니다.
@@ -151,4 +160,4 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-10-09 · sha256:fd6d1f03b22b · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-10 · sha256:b381d3c4310c · 열림: C-3, §15.81
