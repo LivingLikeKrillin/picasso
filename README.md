@@ -149,7 +149,7 @@ picasso의 코드와 빌드는 두 저장소를 참조하지 않으며, 두 저�
 | 저장소 | 설명 |
 | :--- | :--- |
 | [**picasso-ops**](https://github.com/LivingLikeKrillin/picasso-ops) | picasso를 라이브러리로 담는 PoC입니다. 실제 현장 대신 registry, mimic 가상 기체, 셀 대역으로 대역 현장을 띄우고, 운영 관리 화면으로 로봇·임무·엔드포인트를 운영할 수 있음을 입증합니다. picasso를 고정 커밋의 읽기 전용 git 서브모듈로 넣어 라이브러리 버전을 고정하고, Gradle includeBuild로 registry, mimic, harness, picasso, client 모듈을 씁니다. 입증 대상인 picasso의 운영 관리 화면 설계 제안(docs/superpowers/specs/2026-10-07-ops-console-lifecycle-design.md) §10의 입증 항목 다섯을 모두 닫았으며, 그 과정에서 필요한 picasso 쪽 변경은 picasso의 PR로 반영되었습니다. |
-| [**picasso-narrator**](https://github.com/LivingLikeKrillin/picasso-narrator) | picasso 인시던트 번들의 원인을 LLM으로 설명하고 근거를 인용하는 설명 계층 PoC입니다. 판정(picasso)과 설명(narrator)의 경계를 별도 저장소로 강제합니다. 설명 경로에서는 picasso를 import하지 않고 picasso가 `handoff/narrator/`에 내보낸 파일(실행별 인시던트 번들, 조치 탐색 기록, manifest와 자격·정답표 파일)을 읽어 원인을 설명하고 근거를 인용하며, koshei의 진단 워커로는 koshei가 넘기는 picasso 스냅샷을 받아 계산된 대응 후보 하나를 근거 인용과 함께 권고합니다. picasso로 되돌리는 호출은 승인 창구에 대한 승인 시도 하나뿐이며 기본값은 꺼져 있습니다. 이 연결을 정하는 picasso 문서는 docs/orchestration.md §6(적재 규약)·§7(승인 창구), docs/glossary.md, ADR 43~47입니다. |
+| [**picasso-narrator**](https://github.com/LivingLikeKrillin/picasso-narrator) | picasso 인시던트 번들의 원인을 LLM으로 설명하고 근거를 인용하는 설명 계층 PoC입니다. 판정(picasso)과 설명(narrator)의 경계를 별도 저장소로 강제합니다. 설명 경로에서는 picasso를 import하지 않고 picasso가 `handoff/narrator/`에 내보낸 파일(실행별 manifest, 인시던트 번들, 조치 탐색 기록)만 읽어 원인을 설명하고 근거를 인용하며, koshei의 진단 워커로는 koshei가 넘기는 picasso 스냅샷을 받아 계산된 대응 후보 하나를 근거 인용과 함께 권고합니다. picasso로 되돌리는 호출은 승인 창구에 대한 승인 시도 하나뿐이며 기본값은 꺼져 있습니다. 이 연결을 정하는 picasso 문서는 docs/orchestration.md §6(적재 규약)·§7(승인 창구), docs/glossary.md, ADR 43~47입니다. |
 
 ## 핵심 엔지니어링 규율
 
@@ -160,4 +160,4 @@ picasso의 코드와 빌드는 두 저장소를 참조하지 않으며, 두 저�
 - **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
 - **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
 
-> 마지막 대조: 2026-10-10 · sha256:00536242209e · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-10 · sha256:53432cb03fa9 · 열림: C-3, §15.81
