@@ -2,35 +2,56 @@
   <img alt="picasso — Heterogeneous Robot Middleware" src="docs/assets/logo.png" width="560">
 </p>
 
-# picasso — 이기종 로봇 표준 인터페이스 계약 및 운영 변경 체계
+# picasso — 로봇의 차이와 운영 변경을 다루는 미들웨어
 
 [![ci](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml/badge.svg)](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-상위 시스템(MES·WMS)과 이기종 모바일 로봇(휴머노이드 및 4족보행 로봇) 간의 **표준 인터페이스 계약(Standard Interface Contract)**을 정의하고, 실제 하드웨어 로봇 없이 계약의 정합성을 검증할 수 있는 **결정론적 에뮬레이터(`mimic`)** 및 **운영 중 변경 파급도 사전 계산 체계**를 제공하는 엔지니어링 미들웨어 PoC 프로젝트입니다.
+공장에서 로봇에 작업을 지시할 때는 단순한 명령 전달만으로 충분하지 않습니다. 기종마다 수행 가능한 동작이 다르고, 응답을 수신했다고 해서 실제 작업이 끝났음을 보장할 수도 없습니다. 로봇이나 인터페이스를 변경할 때는 기존 임무에 미칠 영향도 사전에 파악해야 합니다.
 
-본 시스템은 다음 두 가지 핵심 명제를 기반으로 설계되었으며, 단순한 개념 증명이 아닌 **CI 빌드 실패 조건 및 런타임 조작 거부 조건**으로 강제됩니다:
+**picasso는 이러한 차이를 표준 계약, 능력 프로파일, 실행 근거로 다루는 로봇 미들웨어 PoC입니다.** 기종별 코드는 어댑터로 격리하고 공통 실행 구조를 공유합니다. 실물 장비가 없어도 `mimic`으로 계약과 장애 상황을 시험하고, 프로파일·바인딩 변경의 영향을 레지스트리에서 확인할 수 있습니다.
 
-1. **이기종 대응은 코드 수정이 아닌 프로파일(Profile) 교체로 달성되어야 한다.**
-2. **운영 변경은 파급 영향도를 사전에 정량적으로 계산할 수 있어야 한다.** 변경 파급을 계산할 수 없으면 변경 리스크가 극대화되어 시스템 확장이 불가능해집니다.
+이 저장소는 계약과 실행 코어를 제공합니다. MES 주문 접수와 운영 화면은 [picasso-ops](https://github.com/LivingLikeKrillin/picasso-ops), LLM을 활용한 근거 설명은 [picasso-narrator](https://github.com/LivingLikeKrillin/picasso-narrator)가 담당합니다. **실물 로봇 연결은 아직 검증하지 않았습니다.**
+
+## 대표 시나리오
+
+부품 시퀀싱 임무를 예로 들면 다음 질문을 차례대로 해결합니다.
+
+1. 이 로봇이 필요한 이동·파지·배치 능력을 갖추었는가? 프로파일과 임무 요구사항을 대조합니다. 확인하지 못한 능력은 `UNKNOWN`으로 남깁니다.
+2. 작업을 수락한 뒤 무엇을 수행했고 어떤 근거를 받았는가? 실행 상태와 근거를 결합해 결과를 도출합니다.
+3. 자재가 없거나 통신이 끊기면 어떻게 되는가? 실패, 불확실, 작업자의 판단이 필요한 상태를 구분합니다.
+4. 어댑터나 프로파일을 변경하면 어디에 영향이 미치는가? 의존 원장과 변경 계획으로 확인합니다.
+
+[공장 시나리오](docs/scenarios.md)와 `SequencingRackTest`, `EffectMismatchTest`, `WithholdingTest`에 이 흐름의 검증 사례가 있습니다. 제조 현장의 실제 성능을 측정한 결과는 아닙니다.
+
+## 무엇을 검증하는가
+
+| 설계 문제 | 구현 | 확인할 근거 |
+|---|---|---|
+| 기종 추가 시 공통 코드로 차이가 새어 들어감 | 표준 계약·프로파일과 기종별 어댑터의 분리 | [접합부](docs/seams.md), 게이트 검사 7, `HostParityTest` |
+| 설정 변경이 기존 소비자를 깨뜨림 | 개정판·바인딩·의존 원장·변경 계획 | [변경 관리](registry/README.md), [계약](docs/contract.md) |
+| 수락·응답·실제 완료를 혼동함 | 실행 상태와 태스크 상태의 분리, 근거 등급과 효과 대조 | [실행 모델](picasso/README.md), `EffectMismatchTest`, `RemedyApprovalTest` |
+| 실물 준비 전 장애를 시험하기 어려움 | 시드와 가상 클록을 쓰는 `mimic`, 결함 주입 | [에뮬레이터](mimic/README.md), [검증 범위](docs/verification.md) |
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/seam.dark.svg">
-  <img alt="상위 시스템은 작업 지시를 picasso에 보내고 작업 응답을 받습니다. picasso와 호스트 및 에뮬레이터 영역은 기종 분기 없이 표준 계약으로 동작하며 검사 7로 검증합니다. 기종 전용 코드는 4개 어댑터에 두고 외부 벤더 API를 호출합니다." src="docs/diagrams/seam.svg">
+  <img alt="공통 계약과 실행 구조 아래에 기종별 어댑터와 mimic을 연결하는 구조" src="docs/diagrams/seam.svg">
 </picture>
 
-**기종별 식별자와 종속성은 최하위 어댑터 계층에만 격리됩니다.** 상위 연계 계층부터 어댑터 호스트(Adapter Host)까지의 전 계층은 특정 기종에 대한 의존성을 갖지 않으며, 게이트 검사 7번이 공용 모듈의 소스코드를 정적 분석하여 기종 종속성 누출을 **CI 실패 조건**으로 차단합니다. 계약 하위 계층은 상호 호환 가능한 구조로 설계되어, 실제 하드웨어 기종 어댑터 넷이 배치되는 위치에 프로파일 주도 에뮬레이터인 `mimic`을 동일하게 바인딩할 수 있으며, `HostParityTest`를 통해 동일한 요청 사양에 대해 수락·거부 판정의 동등성을 검증합니다.
+## 세 저장소의 역할
 
-**운영 변경 원칙 (비대칭성)**: 시스템 변경 통제는 *"신규 엔티티 추가는 안전하고, 기존 엔티티 삭제·수정은 잠재적 위험을 내포한다"*는 비대칭성 원리에 기초합니다.
+| 저장소 | 책임 | 연결 방식 |
+|---|---|---|
+| **picasso** | 계약·능력 협상·공통 실행·어댑터·레지스트리 | 이 저장소 |
+| [picasso-ops](https://github.com/LivingLikeKrillin/picasso-ops) | 미션 정의와 상위 주문 매핑, 영속 접수, 공유 자원 조정, 운영 UI | 고정 커밋의 picasso를 라이브러리로 사용 |
+| [picasso-narrator](https://github.com/LivingLikeKrillin/picasso-narrator) | 사건과 운영 근거의 설명, 계산된 후보에 대한 권고 | 내보낸 파일과 별도 진단 계약 사용 |
 
-> **설계 정본:** 아키텍처 및 상세 명세의 정본은 [공식 설계 문서](docs/superpowers/specs/2026-09-05-picasso-design.md)입니다. 본 README는 입문 개요이며, 상충하는 내용이 있을 경우 설계 문서를 우선합니다.
+picasso의 빌드와 코드는 두 소비자 저장소를 참조하지 않습니다. HTTP 주문 API는 Ops에 있으며, Core 자체가 MES·WMS 연결 제품을 제공하는 것은 아닙니다. 소비자별 기능과 검증 범위는 각 저장소의 README를 따릅니다.
 
 ## 시스템 모듈 구성
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/components.dark.svg">
-  <img alt="저장소 모듈 16개 사이의 프로덕션 의존 관계를 나타냅니다. 계약 어휘인 contracts는 13개 모듈이, profile-model은 7개 모듈이 프로덕션 의존으로 사용합니다. 해당 계약 어휘로 향하는 20개를 제외한 나머지 의존 간선 18개는 화살표로 직접 연결합니다." src="docs/diagrams/components.svg">
-</picture>
+<details>
+<summary>모듈과 책임 보기</summary>
 
 ```
 contracts/                proto. 스킬·태스크·이벤트·결함. 프로젝트 내 의존 0
@@ -67,56 +88,35 @@ docs/environment-preconditions.md
 docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플릿 관리 API)
 ```
 
-모듈 간 의존성 규칙과 상세 책임은 설계 문서 §3 및 [`docs/architecture.md` §4b](docs/architecture.md)의 배포 의존성 매트릭스에 정의되어 있으며, 이는 빌드 정의와 직접 대조 검증됩니다.
+</details>
 
-- **`contracts/` 모듈의 내부 프로젝트 의존성은 0**입니다.
-- 기종별 단일 기체 어댑터 셋(`adapter-unitree-g1`, `adapter-boston-dynamics-spot`, `adapter-agility-digit`)은 오직 `adapter-core`와 `contracts`에만 의존합니다.
-- 플릿 관리 시스템에 연계되는 `adapter-boston-dynamics-orbit`은 배치 런처 및 서비스 호스팅 구조를 포함하여 5개 모듈에 의존합니다. (ADR 37·39)
-
-## 핵심 동작 메커니즘
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/runtime-flow.dark.svg">
-  <img alt="상위의 작업 지시는 검증을 거쳐 pump로 넘어가 로봇 기체 제어로 이어집니다. 작업 지시가 거절되면 조치 탐색 제안이 생성되며 외부 에이전트나 운영자의 승인을 거쳐 실행됩니다. 실행 결과와 인시던트 기록은 파일 3개로 출력되어 외부와 연동됩니다." src="docs/diagrams/runtime-flow.svg">
-</picture>
-
-- **인터페이스 계약 (Contracts)**: 명령/질의는 gRPC, 상태/이벤트/연결 스트리밍은 MQTT를 사용합니다. 태스크는 `(task_id, revision)` 튜플로 멱등성을 보장하며, 수명주기 상태 전이와 파지 상태(`hold`) 갱신을 전달합니다. 계약은 특정 도메인 수치나 파라미터 제약조건을 하드코딩하지 않으며, 이는 프로파일에 위임합니다.
-- **기종 프로파일 (Profile)**: 각 로봇 기종의 지원 역량을 선언하는 JSON 스펙 문서입니다. 기능 지원 여부는 3값 논리(`YES`, `NO`, `UNKNOWN`)를 채택하여, 명확히 입증되지 않은 사양을 `NO`로 단정하여 발생하는 정보 왜곡을 방지합니다.
-- **품질 및 아키텍처 게이트 (Gate)**: 계약 스펙과 프로파일 간의 불일치 시 PR 병합을 차단합니다. 검사 열이 있고 CI 와 `registry` 가 기준선만 달리해 같은 코드를 부른다. 네거티브 테스트 케이스는 코드가 아닌 데이터 기반으로 관리됩니다.
-- **프로파일 에뮬레이터 (Mimic)**: 기종 프로파일을 로드하여 계약 인터페이스를 에뮬레이션합니다. 시드(Seed)와 가상 클록(Virtual Clock)을 고정하여 결정론적(Deterministic) 이벤트 시퀀스를 생성하며, 제어 채널을 통해 네트워크 지연·유실·래치 위반 등의 결함을 주입할 수 있습니다.
-- **로봇 어댑터 (Adapter)**: 노스바운드(Northbound)는 표준 계약을 구현하고, 사우스바운드(Southbound)는 벤더 API 포트로 연결됩니다. 벤더 독점 SDK는 저장소에 일절 포함하지 않으며, `@VendorSurface` 어노테이션과 `vendor-manifest.txt` 매니페스트(심볼명 및 SHA-256 해시)를 통해 정합성을 검증합니다. 어댑터가 벤더의 어느 추상화 계층에 연동되든 상위 계약 면에서는 투명해야 합니다.
-- **운영 레지스트리 (Registry)**: Spring Boot 및 PostgreSQL 기반의 서비스 관리 모듈입니다. 리비전 관리, 어댑터 라이프사이클, 의존성 원장, 변경 계획 수립, 사이트 카탈로그 및 진단 표면 열 개를 제공합니다. 환경변수 기반 무상태 구성을 원칙으로 합니다.
-
-## 검증 현황 및 한계 관리
-
-저장소 내 대외 문서 57종은 자동화 대조 검증을 완료한 상태입니다. 문서에 명시된 모든 기술적 주장은 자동화 테스트로 증명되거나, [`docs/limits.md`](docs/limits.md)의 오픈 항목 레지스터에 등록되어 추적 관리됩니다. 각 문서 하단의 대조 스탬프(Hash Stamp)은 본문 내용과 연결되어 있어, `CompletionCriterionTest`를 통해 임의 변경 시 스탬프 갱신을 요구합니다.
-
-한계 레지스터(`limits.md`)에 등록된 미결 항목은 **74개**(내부 32개 · 소비자 대기 16개 · 외부 26개, 의도적 제외 13개 제외)이며, 그 상세 목록과 해결 조건은 `limits.md`에 명시되어 있습니다. 특히 실물 어댑터가 넷 있다(기체 셋, 플릿 하나). 다만, 어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다(C-3)는 물리적 검증 한계가 존재하며, 이는 SDK 라이선스, JVM 바인딩 부재, 플릿 실기체 인스턴스 부재 등에 기인합니다.
-
-실물 넷이 계약에 얼마나 닿나 확인한 정량 분석 결과는 [`profile/distance/`](profile/distance)에서 확인할 수 있습니다. 계약 개정판은 **0.9.0** 이다.
-
-## 라이선스
-
-[Apache License 2.0](LICENSE). 본 저장소에는 특정 벤더의 독점 SDK가 포함되어 있지 않으며, 벤더 API 사양의 심볼명 및 해시 매니페스트(`vendor-manifest.txt`)만을 포함합니다.
+명령·질의는 gRPC, 상태·이벤트·연결 스트리밍은 MQTT를 사용합니다. `capability`는 능력 판정을, `adapter-host`는 계약 서버를, `registry`는 개정판과 운영 변경을 담당합니다. 진단 표면 열 개를 포함한 상세 책임과 모듈 의존성은 [아키텍처](docs/architecture.md)에 정리되어 있습니다.
 
 ## 빌드 및 테스트 실행
 
-- **필수 환경**: **JDK 21**, **Docker** (buf 래퍼, Testcontainers 기반 PostgreSQL/Mosquitto 실행용), Kotlin/Gradle 환경.
+JDK 21과 Docker가 필요합니다. Docker는 buf 래퍼와 Testcontainers의 PostgreSQL·Mosquitto 실행에 사용합니다.
 
 ```bash
 ./gradlew build -Dpicasso.negative.strict=true -Dpicasso.buf="$PWD/tools/buf"
 ```
 
-계약 디스크립터(`picasso.desc`)는 Gradle의 `protoc` 태스크를 통해 자동 생성되며, `:gate:test`가 이를 런타임 입력으로 참조하여 구버전 디스크립터 참조로 인한 정합성 왜곡을 원천 방지합니다.
+Windows에서는 Git Bash와 JDK 21을 사용합니다. 위 명령은 전체 빌드·검증 명령이며, 실행 시간과 Docker 준비가 필요합니다. 운영 화면으로 흐름을 확인하려면 [picasso-ops 실행 안내](https://github.com/LivingLikeKrillin/picasso-ops#띄우기)를 따르세요.
 
-CLI 도구 실행:
+문서와 구현의 수치·링크·완료 기준만 대조할 때는 다음과 같이 실행합니다.
+
 ```bash
-# mimic 에뮬레이터 실행
-mimic --robot <id>=<profile.json> [--robot ...] --schema <path> [--port 0] [--clock real|virtual] [--seed N]
-
-# 검증 클라이언트 실행
-client --target <host:port> --robot <id> --requirements <file> --skill <type> [--param k=v ...]
+./gradlew :gate:test --tests '*DocumentClaimsTest*' --tests '*CompletionCriterionTest*'
 ```
+
+CLI 옵션과 프로파일 입력은 [mimic](mimic/README.md), [client](client/README.md), [harness](harness/README.md)를 참고하세요.
+
+## 검증 현황 및 한계 관리
+
+계약 개정판은 **0.9.0**입니다. 게이트 검사 열이 있고 CI와 `registry`가 같은 검증 구현을 사용합니다. README의 모듈 목록과 주요 수치는 `DocumentClaimsTest`가, 문서 본문과 대조 스탬프는 `CompletionCriterionTest`가 확인합니다. 자동 대조가 모든 기술 주장의 참을 보장하는 것은 아니므로 [검증 범위](docs/verification.md)와 한계 대장을 함께 읽어야 합니다.
+
+실물 어댑터가 넷 있다: 기체용 셋과 플릿용 하나입니다. **어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다**는 한계(C-3)가 있습니다. 실물 넷이 계약에 얼마나 닿나 조사한 결과는 [어휘 거리 측정](profile/distance/)에 있습니다. 벤더 표면 조사와 대역 시험은 실제 SDK 연결·현장 성능·산업 안전 검증을 대신하지 않습니다.
+
+한계 대장에 등록된 미결 항목은 **74개**입니다. 내부 32개 · 소비자 대기 16개 · 외부 26개이며 의도적 제외 13개는 이 합계에 넣지 않습니다. [미결 한계 항목 74개](docs/limits.md)의 해결 조건을 추적합니다. 경로 계획·교통 제어·안전 인증의 제공 여부도 이 범위 안에서 해석해야 합니다.
 
 ## 문서 체계 가이드
 
@@ -142,22 +142,8 @@ client --target <host:port> --robot <id> --requirements <file> --skill <type> [-
 | **벤더 매니페스트** | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) | 어댑터의 사우스바운드 포트 벤더 심볼 인용 대조 검증 도구 |
 | **오픈 항목 과제 레지스터** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 74개(내부·소비자 대기·외부) 및 해결 조건 관리 레지스터 |
 
-## 연계 저장소
+## 라이선스
 
-picasso의 코드와 빌드는 두 저장소를 참조하지 않으며, 두 저장소가 picasso를 가져다 쓰는 단방향 구조로 연결됩니다. picasso 쪽에서 넘기는 산출물은 `handoff/<받는 쪽>/` 경로에 둡니다.
+[Apache License 2.0](LICENSE). 벤더 독점 SDK는 포함하지 않습니다. 어댑터의 벤더 API 인용은 심볼명과 해시 매니페스트로 관리합니다.
 
-| 저장소 | 설명 |
-| :--- | :--- |
-| [**picasso-ops**](https://github.com/LivingLikeKrillin/picasso-ops) | picasso를 라이브러리로 담는 PoC입니다. 실제 현장 대신 registry, mimic 가상 기체, 셀 대역으로 대역 현장을 띄우고, 운영 관리 화면으로 로봇·임무·엔드포인트를 운영할 수 있음을 입증합니다. picasso를 고정 커밋의 읽기 전용 git 서브모듈로 넣어 라이브러리 버전을 고정하고, Gradle includeBuild로 registry, mimic, harness, picasso, client 모듈을 씁니다. 입증 대상인 picasso의 운영 관리 화면 설계 제안(docs/superpowers/specs/2026-10-07-ops-console-lifecycle-design.md) §10의 입증 항목 다섯을 모두 닫았으며, 그 과정에서 필요한 picasso 쪽 변경은 picasso의 PR로 반영되었습니다. |
-| [**picasso-narrator**](https://github.com/LivingLikeKrillin/picasso-narrator) | picasso 인시던트 번들의 원인을 LLM으로 설명하고 근거를 인용하는 설명 계층 PoC입니다. 판정(picasso)과 설명(narrator)의 경계를 별도 저장소로 강제합니다. 설명 경로에서는 picasso를 import하지 않고 picasso가 `handoff/narrator/`에 내보낸 파일(실행별 manifest, 인시던트 번들, 조치 탐색 기록)만 읽어 원인을 설명하고 근거를 인용하며, koshei의 진단 워커로는 koshei가 넘기는 picasso 스냅샷을 받아 계산된 대응 후보 하나를 근거 인용과 함께 권고합니다. picasso로 되돌리는 호출은 승인 창구에 대한 승인 시도 하나뿐이며 기본값은 꺼져 있습니다. 이 연결을 정하는 picasso 문서는 docs/orchestration.md §6(적재 규약)·§7(승인 창구), docs/glossary.md, ADR 43~47입니다. |
-
-## 핵심 엔지니어링 규율
-
-- **3값 논리 준수**: 벤더 1차 자료에서 미확인된 사양은 `NO`가 아닌 `UNKNOWN`으로 선언하여 추정에 의한 왜곡을 방지합니다.
-- **조사 범위 명시**: 벤더 기능 조사는 반드시 분석 대상 API 서비스 범위를 명시(`survey_scope`)해야 합니다.
-- **부재 판정 검증**: 벤더 사양 추출기의 0건 결과는 결함 주입을 통해 도구의 정상 동작 여부를 선행 검증합니다.
-- **벤더 원문 바이너리 격리**: 저장소 내 벤더 소스/SDK를 격리하고 심볼 식별자와 해시만 보관합니다.
-- **결함 주입(Mutation Testing)**: 테스트 케이스 작성 시 의도적 결함을 주입하여 검증 유효성을 선행 확인합니다.
-- **엄격한 실패 정책**: 사전 선언된 요구 검사 목록(`--require`)을 충족하지 못하는 경우 조용한 통과를 허용하지 않습니다.
-
-> 마지막 대조: 2026-10-10 · sha256:53432cb03fa9 · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-12 · sha256:ada9598c90dc · 열림: C-3, §15.81
