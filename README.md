@@ -22,7 +22,7 @@
 3. 자재가 없거나 통신이 끊기면 어떻게 되는가? 실패, 불확실, 작업자의 판단이 필요한 상태를 구분합니다.
 4. 어댑터나 프로파일을 변경하면 어디에 영향이 미치는가? 의존 원장과 변경 계획으로 확인합니다.
 
-[공장 시나리오](docs/scenarios.md)와 `SequencingRackTest`, `EffectMismatchTest`, `WithholdingTest`에 이 흐름의 검증 사례가 있습니다. 제조 현장의 실제 성능을 측정한 결과는 아닙니다.
+[공장 시나리오](docs/scenarios.md)에 이 흐름의 검증 사례가 있으며, 위 네 질문 가운데 1~3번은 `SequencingRackTest`가, 2번의 효과 대조는 `EffectMismatchTest`가, 4번(변경 영향)은 `ShrinkRefusalTest`(소비자나 진행 중 태스크가 남아 있으면 능력 제거 계획의 제거 단계가 거부됨)가 검증합니다. 제조 현장의 실제 성능을 측정한 결과는 아닙니다.
 
 ## 무엇을 검증하는가
 
@@ -30,7 +30,7 @@
 |---|---|---|
 | 기종 추가 시 공통 코드로 차이가 새어 들어감 | 표준 계약·프로파일과 기종별 어댑터의 분리 | [접합부](docs/seams.md), 게이트 검사 7, `HostParityTest` |
 | 설정 변경이 기존 소비자를 깨뜨림 | 개정판·바인딩·의존 원장·변경 계획 | [변경 관리](registry/README.md), [계약](docs/contract.md) |
-| 수락·응답·실제 완료를 혼동함 | 실행 상태와 태스크 상태의 분리, 근거 등급과 효과 대조 | [실행 모델](picasso/README.md), `EffectMismatchTest`, `RemedyApprovalTest` |
+| 수락·응답·실제 완료를 혼동함 | 실행 상태와 태스크 상태의 분리, 근거 등급과 효과 대조 | [실행 모델](picasso/README.md), `EffectMismatchTest`, `SequencingRackTest`(로봇은 끝났다는데 설비가 말이 없으면 UNVERIFIED, 셀 장치가 확인하면 E2 로 물리 완료) |
 | 실물 준비 전 장애를 시험하기 어려움 | 시드와 가상 클록을 쓰는 `mimic`, 결함 주입 | [에뮬레이터](mimic/README.md), [검증 범위](docs/verification.md) |
 
 <picture>
@@ -90,7 +90,7 @@ docs/vendors/             로봇이 아닌 벤더 표면의 측정 노트 (플�
 
 </details>
 
-명령·질의는 gRPC, 상태·이벤트·연결 스트리밍은 MQTT를 사용합니다. `capability`는 능력 판정을, `adapter-host`는 계약 서버를, `registry`는 개정판과 운영 변경을 담당합니다. 진단 표면 열 개를 포함한 상세 책임과 모듈 의존성은 [아키텍처](docs/architecture.md)에 정리되어 있습니다.
+명령·질의는 gRPC, 상태·이벤트·연결 스트리밍은 MQTT를 사용합니다. `capability`는 능력 판정을, `adapter-host`는 계약 서버를, `registry`는 개정판과 운영 변경을 담당합니다. 진단 표면 열 개(/diag/*)는 [registry](registry/README.md)에, 모듈 의존성은 [아키텍처](docs/architecture.md)에 정리되어 있습니다.
 
 ## 빌드 및 테스트 실행
 
@@ -100,7 +100,13 @@ JDK 21과 Docker가 필요합니다. Docker는 buf 래퍼와 Testcontainers의 P
 ./gradlew build -Dpicasso.negative.strict=true -Dpicasso.buf="$PWD/tools/buf"
 ```
 
-Windows에서는 Git Bash와 JDK 21을 사용합니다. 위 명령은 전체 빌드·검증 명령이며, 실행 시간과 Docker 준비가 필요합니다. 운영 화면으로 흐름을 확인하려면 [picasso-ops 실행 안내](https://github.com/LivingLikeKrillin/picasso-ops#띄우기)를 따르세요.
+위 명령은 리눅스·macOS와 CI용입니다. Windows에서는 Git Bash와 JDK 21을 쓰되 `picasso.buf` 값의 형식이 다릅니다. Git Bash의 `$PWD` 경로(`/c/...`)는 Java가 실행하지 못하므로, `bash.exe` 경로와 아무 값을 `|`로 이어 지정합니다.
+
+```bash
+./gradlew build -Dpicasso.negative.strict=true "-Dpicasso.buf=C:/Program Files/Git/bin/bash.exe|tools/buf"
+```
+
+위 명령은 전체 빌드·검증 명령이며, 실행 시간과 Docker 준비가 필요합니다. 운영 화면으로 흐름을 확인하려면 [picasso-ops 실행 안내](https://github.com/LivingLikeKrillin/picasso-ops#띄우기)를 따르세요.
 
 문서와 구현의 수치·링크·완료 기준만 대조할 때는 다음과 같이 실행합니다.
 
@@ -136,7 +142,7 @@ CLI 옵션과 프로파일 입력은 [mimic](mimic/README.md), [client](client/R
 | **한계 및 이력** | [설계 문서 §15 알려진 한계](docs/superpowers/specs/2026-09-05-picasso-design.md#15) | 설계 변경 이력 및 누적 정정 기록 |
 | **운영 시나리오** | [`docs/scenarios.md`](docs/scenarios.md) | 공장 3대 시나리오(용기 공급 AMR, 부품 시퀀싱, 설비 점검) 및 완료 증명 체계 |
 | **미들웨어 코어** | [`docs/superpowers/specs/2026-09-09-middleware-core-design.md`](docs/superpowers/specs/2026-09-09-middleware-core-design.md) | 정준 실행 모델, 논리적 케이퍼빌리티 정의, 근거 등급 결합 및 장애 전이 모델 |
-| **설계 결정 기록** | [ADR 색인](docs/adr/README.md) | 주요 아키텍처 결정 레코드 (ADR 9, 31~44 등) |
+| **설계 결정 기록** | [ADR 색인](docs/adr/README.md) | 주요 아키텍처 결정 레코드 (ADR 9, 10, 22, 23, 29~50) |
 | **벤더 인터페이스** | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) | 벤더 API 표면 분석 및 플릿 관리 인터페이스 측정 노트 |
 | **현장 전제조건** | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) | 로봇 도입 현장의 인프라(도어, 바닥, 조명 등) 엔지니어링 전제조건 |
 | **벤더 매니페스트** | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) | 어댑터의 사우스바운드 포트 벤더 심볼 인용 대조 검증 도구 |
@@ -146,4 +152,4 @@ CLI 옵션과 프로파일 입력은 [mimic](mimic/README.md), [client](client/R
 
 [Apache License 2.0](LICENSE). 벤더 독점 SDK는 포함하지 않습니다. 어댑터의 벤더 API 인용은 심볼명과 해시 매니페스트로 관리합니다.
 
-> 마지막 대조: 2026-10-12 · sha256:ada9598c90dc · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-12 · sha256:4fcc39890f19 · 열림: C-3, §15.81
