@@ -487,13 +487,17 @@ class Middleware(
             ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
         val planned = mission.capability.plan(order)
         val refusals = linkedMapOf<String, String>()
+        val missing = linkedMapOf<String, RemedyOutcome.SourceMissing>()
         for (robotId in ranked) {
             when (val admission = admits(order, robotId, planned)) {
                 Admission.Passed -> return submit(order, robotId, prefix = emptyList(), mission = mission)
-                is Admission.Refused -> refusals[robotId] = admission.rejection.reason
+                is Admission.Refused -> {
+                    refusals[robotId] = admission.rejection.reason
+                    admission.sourceMissing?.let { missing[robotId] = it }
+                }
             }
         }
-        return Unassigned(refusals)
+        return Unassigned(refusals, missing)
     }
 
     /**

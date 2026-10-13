@@ -61,5 +61,13 @@ data class AssignmentCost(val perLiveExecution: Int = 1, val whenHolding: Int = 
  * 재계산을 요청하지 않는다. 요청하면 이 층이 중재자가 되고, 배정기와 관문 사이에 «다시 해 봐» 가 오가는
  * 고리가 생긴다. 후보마다의 사유를 함께 내는 이유는, 그것이 없으면 배정기가 **무엇을 고쳐야 하는지**
  * 모른 채 같은 목록을 다시 보내기 때문이다.
+ *
+ * @param sourceMissing 출발 결품으로 떨어진 후보마다 관문이 **이미 계산한** 답(§15.164 의 절반). 다른 사유로
+ *   떨어진 후보는 여기 없다. 산문의 사유만 내면 대체 자리가 문장 안에 갇혀, 읽는 쪽이 한국어를 뜯어야 한다.
+ *   **대장에는 적지 않는다** — 후보를 묻기만 한 것이 쌓이면 묻는 것이 곧 결정이 된다(§15.161). 능력 사슬의
+ *   탐색 결과(조치 열)는 여전히 이 답에 없다
  */
-data class Unassigned(val refusals: Map<String, String>) : Middleware.Submission
+data class Unassigned(
+    val refusals: Map<String, String>,
+    val sourceMissing: Map<String, RemedyOutcome.SourceMissing> = emptyMap(),
+) : Middleware.Submission
