@@ -207,6 +207,40 @@ class OccupancyTest {
         }
     }
 
+    @Test
+    fun `미배정이어도 후보마다 출발 결품의 답이 구조로 남는다`() {
+        // 호스트는 `adopt` 로 배정한다. 전부 떨어지면 `Unassigned` 이고, 그 안에 대체 자리가 사유 문장에만
+        // 있으면 읽는 쪽이 문장을 뜯어야 한다(§15.164). 대장에는 여전히 안 쌓인다 — 물어보기만 했다.
+        World().use { w ->
+            w.cell.program(RACK, MATERIAL)
+            w.cell.empty(BIN_A)
+            w.cell.program(BIN_B, MATERIAL)
+
+            val unassigned = assertIs<Unassigned>(w.mw.adopt(rack("SEQ-1", BIN_A), listOf(ROBOT)))
+            val missing = unassigned.sourceMissing.getValue(ROBOT)
+            assertEquals(MATERIAL, missing.material)
+            assertEquals(BIN_A, missing.source)
+            assertNull(missing.observed)
+            assertEquals(listOf(BIN_B), missing.alternatives)
+            assertTrue(BIN_A in unassigned.refusals.getValue(ROBOT))
+            assertEquals(emptyList(), w.mw.remedySearches(), "물어보기만 한 것이 대장에 쌓였다")
+        }
+    }
+
+    @Test
+    fun `출발 결품이 아닌 거부는 미배정의 결품 답에 없다`() {
+        // 결품 답은 결품으로 떨어진 후보만 든다. 다른 사유까지 빈 답으로 채우면 «든 자리가 없다» 로 읽힌다.
+        World().use { w ->
+            w.cell.program(RACK, MATERIAL)
+            w.cell.program(BIN_A, MATERIAL)
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack("SEQ-1", BIN_A), ROBOT))
+
+            val unassigned = assertIs<Unassigned>(w.mw.adopt(rack("SEQ-2", BIN_A), listOf(ROBOT)))
+            assertTrue(ROBOT in unassigned.refusals, unassigned.toString())
+            assertEquals(emptyMap(), unassigned.sourceMissing)
+        }
+    }
+
     companion object {
         const val ROBOT = "hum-02"
         const val MATERIAL = "ENGINE-COVER-A"
