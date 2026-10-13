@@ -159,6 +159,8 @@ internal class AdmissionGate(
      *
      * **권위가 둘이라 순서가 있다.** 자리 경쟁은 이 층이 아는 사실(진행 중 실행)이라 단정하고, 결품은
      * 설비 관측이라 **말이 없으면 판정하지 않는다.** 없는 관측을 위반으로 세면 신호가 죽은 셀이 통째로 선다.
+     * 단, 임무 정의가 출발 관측을 요구한 단위([SourceObservation.REQUIRED])는 말이 없으면 보내지 않고 결품과 다른
+     * 확인 요구([SourceUnobserved])로 답한다.
      */
     private fun occupancyViolation(planned: List<ExecutionUnit>, moving: String?): Admission.Refused? {
         val claimed = liveClaims(moving)
@@ -183,7 +185,20 @@ internal class AdmissionGate(
             // 보고한다 — 여기서 막으면 그 경로가 영영 안 밟히고, 계약이 약속한 보고가 사라진다.
             if (unit.route != Route.ROBOT) continue
             val from = unit.source ?: continue
-            val check = CellOccupancy.sourceCheck(cell.observe(from), unit.expectedIdentity)
+            val check = CellOccupancy.sourceCheck(cell.observe(from), unit.expectedIdentity, unit.sourceObservation)
+            if (check is SourceCheck.Unobserved) {
+                // **확인 요구는 결품이 아니다.** 대체 자리를 계산하지 않고 결품의 답도 싣지 않는다 — 접으면 운영자가
+                // 멀쩡한 자재를 두고 주문을 고친다. 확인은 셀의 관측으로 들어오고, 그때 같은 작업 요청이 이 판정을 다시 지난다.
+                val unobserved = SourceUnobserved(material = unit.expectedIdentity, source = from, occupied = check.occupied)
+                val seen = if (check.occupied == true) "있다고만 하고 무엇인지 말하지 않았다" else "말이 없다"
+                return Admission.Refused(
+                    Submission.Rejected(
+                        "출발 자리 $from 의 ${unit.expectedIdentity ?: "자재"} 를 확인하지 못했다 — 설비가 $seen " +
+                            "(이 단위는 출발 관측을 요구한다, 확인 전에는 보내지 않는다)",
+                        sourceUnobserved = unobserved,
+                    ),
+                )
+            }
             if (check !is SourceCheck.Missing) continue
 
             val material = unit.expectedIdentity

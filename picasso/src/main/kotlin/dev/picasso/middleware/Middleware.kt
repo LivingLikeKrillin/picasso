@@ -276,6 +276,11 @@ class Middleware(
              * 자리 이름만 낸다. 어느 자리를 쓸지는 주문을 고치는 쪽의 결정이고, 이 층은 고르지 않는다.
              */
             val alternativeLocations: List<String>? = null,
+            /**
+             * 관측을 요구한 단위의 출발 자리를 **확인하지 못했다**([SourceUnobserved]). 널이면 이 거절은 그 갈래가 아니다.
+             * 결품이 아니므로 [alternativeLocations] 는 널이고, 다음 행동은 주문을 고치는 것이 아니라 사람의 확인이다.
+             */
+            val sourceUnobserved: SourceUnobserved? = null,
         ) : Submission
     }
 
@@ -488,16 +493,18 @@ class Middleware(
         val planned = mission.capability.plan(order)
         val refusals = linkedMapOf<String, String>()
         val missing = linkedMapOf<String, RemedyOutcome.SourceMissing>()
+        val unobserved = linkedMapOf<String, SourceUnobserved>()
         for (robotId in ranked) {
             when (val admission = admits(order, robotId, planned)) {
                 Admission.Passed -> return submit(order, robotId, prefix = emptyList(), mission = mission)
                 is Admission.Refused -> {
                     refusals[robotId] = admission.rejection.reason
                     admission.sourceMissing?.let { missing[robotId] = it }
+                    admission.rejection.sourceUnobserved?.let { unobserved[robotId] = it }
                 }
             }
         }
-        return Unassigned(refusals, missing)
+        return Unassigned(refusals, missing, unobserved)
     }
 
     /**

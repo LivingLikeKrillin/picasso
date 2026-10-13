@@ -306,6 +306,11 @@ data class ExecutionUnit(
     var result: String? = null,
     /** 설비 대기 단위([Route.SIGNAL])의 사양. 다른 경로의 단위는 널이다. */
     val wait: WaitSpec? = null,
+    /**
+     * 출발 자리의 관측을 요구하는가. 임무 정의의 단위 노드가 선언한 것이고, 코드 케이퍼빌리티의 단위는 기본값
+     * [SourceObservation.OPTIONAL] 이다. 배정 관문만 읽는다([AdmissionGate]).
+     */
+    val sourceObservation: SourceObservation = SourceObservation.OPTIONAL,
 )
 
 /**

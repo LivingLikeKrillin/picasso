@@ -7,6 +7,7 @@ import dev.picasso.middleware.ExecutionUnit
 import dev.picasso.middleware.JobOrder
 import dev.picasso.middleware.LogicalCapability
 import dev.picasso.middleware.Route
+import dev.picasso.middleware.SourceObservation
 import dev.picasso.middleware.UnitState
 import dev.picasso.middleware.WaitSpec
 import java.time.Duration
@@ -36,6 +37,15 @@ class DefinedCapability(val definition: MissionDefinition) : LogicalCapability {
         val outcome = DeadlineOutcome.entries.firstOrNull { it.name == step.onDeadline }
             ?: throw IllegalArgumentException("검증을 거치지 않은 정의다: ${step.id} 의 기한 뒤 상태가 허용 밖이다(${step.onDeadline})")
         step.id to WaitSpec(step.signal, step.expect, Duration.ofSeconds(seconds), outcome)
+    }
+
+    init {
+        // **선언 없는 신원 대조를 기본값으로 메우지 않는다.** 메우면 검증기가 없앤 암묵이 이 길로 돌아온다.
+        definition.steps.filterIsInstance<UnitStep>().forEach { step ->
+            require(!MissionValidator.needsSourceObservation(step) || step.sourceObservation != null) {
+                "검증을 거치지 않은 정의다: ${step.id} 가 출발 자리의 신원을 대는데 출발 관측 선언이 없다"
+            }
+        }
     }
 
     override fun plan(order: JobOrder): List<ExecutionUnit> = definition.steps.flatMap { step ->
@@ -98,6 +108,8 @@ class DefinedCapability(val definition: MissionDefinition) : LogicalCapability {
                     expectedIdentity = step.expectedIdentity?.let(value),
                     source = step.source?.let(value),
                     destination = step.destination?.let(value),
+                    // 신원을 안 대는 노드는 선언이 없어도 된다 — 그때는 코드 케이퍼빌리티와 같은 기본값이다.
+                    sourceObservation = step.sourceObservation ?: SourceObservation.OPTIONAL,
                     // 짝이 없으면 시작도 못 한다 — 부족은 계획에서 드러난다(코드 케이퍼빌리티와 같은 자리).
                     state = if (unpaired) UnitState.FAILED else UnitState.PENDING,
                     failureClass = if (unpaired) step.whenUnpaired else null,

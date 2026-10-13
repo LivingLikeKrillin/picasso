@@ -3100,6 +3100,14 @@ mimic/
 
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
 
+218. **임무 정의에 출발 관측 선언을 추가하여 신원 미확인 자재의 출발을 차단하고 운영 모호성을 제거했다.**
+
+    재할당과 안전 상태 연계 검토(그룹 2 B 단계)에서 소유자 기준 «운영 모호성 제거»에 따라 출발 관측 방식을 결정했다. 설비 신호가 없는 셀에서 라인이 멈추는 문제를 방지하기 위해 설비 침묵 시 그대로 통과시키는 기존 동작(`OPTIONAL`)을 기본값으로 유지하되, 신원 확인이 필요한 임무는 암묵에 의존하지 않고 명시적으로 선언하도록 했다. `REQUIRED` 선언 시 설비가 침묵하거나 신원 없이 재하만 보고하면 관문이 출발을 차단하고 «출발 미관측»(`SourceUnobserved`)을 반환한다. 미관측은 출발 결품과 달리 대체 자리를 계산하지 않으며 작업 지시 수정이 아닌 사람의 확인을 요구한다. 상위 시스템 확인, 인계 시점 점검, 수동 자재 확인 등의 근거는 우회 통로가 아니라 셀 포트의 신원 관측으로 수신되어 재시도 시 통과하도록 했다.
+
+    임무 정의 단위 노드에 선택 키 `sourceObservation`(`REQUIRED`·`OPTIONAL`)을 추가하고 파서가 유효값을 검증하도록 했다. 단위 노드가 `source`와 `expectedIdentity`를 모두 포함하면서 선언이 없으면 검증기가 `SOURCE_OBSERVATION_UNDECLARED`(`ENGINEER` 담당)로 활성화를 막으며, `DefinedCapability` 생성 시에도 동일하게 차단하여 검사 6개와 거부 종류 10개를 확립했다. 선언은 `ExecutionUnit.sourceObservation`(기본 `OPTIONAL`)에 실리며, 코드 케이퍼빌리티와 데이터판 픽스처는 `OPTIONAL`로 일치시켰다. 출발 미관측은 `Submission.Rejected.sourceUnobserved`와 `Unassigned.sourceUnobserved`로 표출되나, 조치 탐색 레지스터(`RemedyOutcome`)에는 추가하지 않아 내보내기 버전 6을 유지했다. 계약 proto, 계약 버전 0.9.0, 인계 번들, 임무 정의 `schemaVersion` 1은 변경하지 않았으며, 이미 활성화된 임무 버전은 그대로 동작하되 비활성 정의는 다음 활성화 시 선언을 요구한다.
+
+    시험은 총 15개를 추가하여 2,031개에서 2,046개로 증가했다(`OccupancyTest` 2개, 신규 `SourceObservationTest` 7개, `MissionValidatorTest` 3개, `MissionDefinitionParserTest` 1개, `DefinedCapabilityEquivalenceTest` 1개, `InMemoryMissionCatalogTest` 1개). 결함 주입 17건을 모두 지정된 시험 이름으로 검출함을 확인했다. 한계 레지스터에는 조치 탐색 레지스터 및 내보내기 누락을 다루는 소비자 대기 항목(§15.218)과, 신원 대조 없는 노드의 선언 미거부를 다루는 내부 항목(§15.218)의 두 행을 추가했다.
+
 217. **`Unassigned` 에 출발 결품 정보를 추가해 대체 자리 구조를 보존하고 관문 순수성을 유지했다.**
 
     미들웨어 `adopt` 는 순위 목록의 후보마다 배정 관문(`admits`)을 확인해 첫 통과를 채택하고 전부 떨어지면 `Unassigned` 를 낸다. 배정 관문은 출발 자리가 비었을 때 이미 `RemedyOutcome.SourceMissing` 을 계산해 `Admission.Refused.sourceMissing` 에 실었으나, `adopt` 는 사유 문장만 남기고 이 값을 버려 `Unassigned` 에는 `refusals` 만 남았다. 이로 인해 picasso-ops 실행 호스트는 `assign` 과 `adopt` 로 배정하면서 출발 결품을 REJECTED 가 아닌 UNASSIGNED 로 받고, 대체 자리를 사유 문장에서만 확인하며 구조화된 값으로 받지 못했다.
