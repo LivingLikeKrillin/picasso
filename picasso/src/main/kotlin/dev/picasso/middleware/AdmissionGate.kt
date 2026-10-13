@@ -32,15 +32,19 @@ internal class AdmissionGate(
      * 기록은 [RemedyDesk.record] 가 맡고, 채택을 시도한 쪽만 그것을 부른다.
      *
      * 고르지 않는 것도 같은 이유다. 순위는 배정 정책의 것이고, 여기서 고르기 시작하면 이 층이 배정기가 된다.
+     *
+     * [moving] 은 [Middleware.reassign] 만 준다 — **옮길 실행 자신**의 id 다. 그 실행은 아직 실행 표에 있어서,
+     * 빼지 않으면 자기가 잡은 자리와 자기 구역에 걸려 어느 후보로도 못 간다. **실행 id 로만 뺀다.** 기체로 빼면
+     * 떠나는 기체에 남는 다른 실행의 자리·구역까지 사라진다. 빼는 것은 묻는 범위이고 상태는 그대로다 — 순수 술어다.
      */
-    fun admits(order: JobOrder, robotId: String, planned: List<ExecutionUnit>): Admission {
+    fun admits(order: JobOrder, robotId: String, planned: List<ExecutionUnit>, moving: String? = null): Admission {
         inconsistent(order, planned.filter { it.unitId.startsWith("remedy-").not() })
             ?.let { return Admission.Refused(Submission.Rejected(it)) }
         chainRefusal(robotId, planned)?.let { return Admission.Refused(it) }
         // **이것만 답을 함께 든다.** 점유 관문은 거절하면서 «다른 자리» 를 계산하므로 그 값을 들려 보낸다.
-        occupancyViolation(planned)?.let { return it }
+        occupancyViolation(planned, moving)?.let { return it }
         unownedFloor(planned)?.let { return Admission.Refused(it) }
-        workspaceViolation(robotId, planned)?.let { return Admission.Refused(it) }
+        workspaceViolation(robotId, planned, moving)?.let { return Admission.Refused(it) }
         return Admission.Passed
     }
 
@@ -53,9 +57,10 @@ internal class AdmissionGate(
      * 차지하기 때문이다.
      *
      * **같은 기체는 보지 않는다.** 한 기체가 두 자리에 동시에 있을 수 없고, 그 배타는 발신자가 든다.
+     * [moving] 은 옮길 실행 자신이다([admits]).
      */
-    private fun workspaceViolation(robotId: String, planned: List<ExecutionUnit>): Submission.Rejected? {
-        val busy = liveZones(excluding = robotId)
+    private fun workspaceViolation(robotId: String, planned: List<ExecutionUnit>, moving: String?): Submission.Rejected? {
+        val busy = liveZones(excluding = robotId, moving = moving)
         for (unit in planned) {
             val zone = zoneOf(unit) ?: continue
             val holder = busy[zone] ?: continue
@@ -76,9 +81,12 @@ internal class AdmissionGate(
      */
     private fun zoneOf(unit: ExecutionUnit): String? = unit.destination?.let { workspace.zoneOf(it) }
 
-    /** 다른 기체들이 지금 쓰는 구역. 종착한 실행과 끝난 단위는 놓는다 — 자리 점유와 같은 규칙이다. */
-    private fun liveZones(excluding: String): Map<String, ZoneUse> = executions.values
-        .filter { it.robotId != excluding && !it.physicalState.isSettled }
+    /**
+     * 다른 기체들이 지금 쓰는 구역. 종착한 실행과 끝난 단위는 놓는다 — 자리 점유와 같은 규칙이다.
+     * [moving] 은 기체가 아니라 그 실행 하나만 뺀다.
+     */
+    private fun liveZones(excluding: String, moving: String? = null): Map<String, ZoneUse> = executions.values
+        .filter { it.robotId != excluding && !it.physicalState.isSettled && it.executionId != moving }
         .flatMap { execution ->
             execution.units.filter { it.state != UnitState.DONE }.mapNotNull { unit ->
                 val zone = zoneOf(unit) ?: return@mapNotNull null
@@ -152,12 +160,13 @@ internal class AdmissionGate(
      * **권위가 둘이라 순서가 있다.** 자리 경쟁은 이 층이 아는 사실(진행 중 실행)이라 단정하고, 결품은
      * 설비 관측이라 **말이 없으면 판정하지 않는다.** 없는 관측을 위반으로 세면 신호가 죽은 셀이 통째로 선다.
      */
-    private fun occupancyViolation(planned: List<ExecutionUnit>): Admission.Refused? {
-        val claimed = liveClaims()
+    private fun occupancyViolation(planned: List<ExecutionUnit>, moving: String?): Admission.Refused? {
+        val claimed = liveClaims(moving)
 
         for (unit in planned) {
             val where = unit.destination ?: continue
             // 같은 주문이 자기 자리에 걸릴 일은 없다 — 같은 `jobOrderId` 는 `Middleware.submit` 에서 `revise` 로 갈린다.
+            // 재할당은 예외다. 옮길 실행이 아직 표에 있으므로 [moving] 으로 그 실행의 자리를 뺀다.
             val holder = claimed[where] ?: continue
             // **자리 경쟁은 대장에 안 남는다**(§15.183). 이 층이 계산한 답이 없기 때문이다 — 잡고 있는
             // 쪽이 놓기를 기다리는 것 말고 제시할 것이 없다. 한계 대장에 열어 두었다.
@@ -205,9 +214,11 @@ internal class AdmissionGate(
      * 진행 중인 실행들이 잡고 있는 자리. **종착한 실행은 놓는다** — 끝난 주문이 자리를 영원히 물고 있으면
      * 그 자리는 다시 못 쓴다. 유효 기간을 시각으로 두지 않고 실행의 생애로 두는 이유는, 시각으로 두면
      * 만료된 예약이 아직 도는 실행의 목적지를 남에게 내주기 때문이다(§15.159).
+     *
+     * [moving] 은 옮길 실행 하나의 자리를 뺀다([admits]).
      */
-    private fun liveClaims(): Map<String, SlotClaim> = executions.values
-        .filter { !it.physicalState.isSettled }
+    private fun liveClaims(moving: String? = null): Map<String, SlotClaim> = executions.values
+        .filter { !it.physicalState.isSettled && it.executionId != moving }
         .flatMap { execution ->
             execution.units.filter { it.state != UnitState.DONE }.mapNotNull { unit ->
                 // ★**`destination` 은 두 뜻을 진다** — «놓을 자리» 와 «갈 자리». 점검 순회의 `navigate_to`

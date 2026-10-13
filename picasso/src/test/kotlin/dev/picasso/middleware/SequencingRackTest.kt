@@ -5,6 +5,7 @@ import dev.picasso.mimic.control.v1.ForceFaultRequest
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.harness.Harness
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
+import dev.picasso.mimic.control.v1.RemoveCapabilityRequest
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
@@ -244,6 +245,31 @@ class SequencingRackTest {
         }
     }
 
+    @Test
+    fun `부분 완료로 개정판을 기다리는 동안에도 그 기체의 능력 변경이 자취에 남는다`() {
+        // PARTIAL 은 종착이지만 개정판이 남은 슬롯을 다시 세운다(위 시험의 v18). 그 사이 기체에 생긴 일은 그 실행의
+        // 자취에 있어야 한다 — 없으면 개정판이 돌다 막혔을 때 읽는 쪽이 «언제부터 그 스킬이 없었나» 를 못 따라간다.
+        world().use { w ->
+            val v17 = order(sources = mapOf("A" to "SEQ-IN-02.BIN-A", "B" to "SEQ-IN-02.BIN-B")) // C 없음
+            w.cell.perfect(v17)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(v17, ROBOT)).execution
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState, "이 시험이 보려는 경우가 아니다")
+            assertTrue(exec.eventTrail.none { it.kind == "CAPABILITY_CHANGED" }, "전제 — 아직 능력 변경이 없다")
+
+            w.harness.oracle.removeCapability(
+                RemoveCapabilityRequest.newBuilder().setRobotId(ROBOT).setSkillType(PrepareSequencedRack.SKILL).build(),
+            )
+            w.mw.pump()
+
+            assertTrue(
+                exec.eventTrail.any { it.kind == "CAPABILITY_CHANGED" && PrepareSequencedRack.SKILL in it.detail },
+                exec.eventTrail.joinToString("\n") { "${it.kind}: ${it.detail}" },
+            )
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState, "능력 변경이 실행 상태를 바꿨다")
+        }
+    }
+
     // ── 취소 (보고서 14, 17장 4번)
 
     private fun cancellableProfile(): Path {
@@ -306,6 +332,30 @@ class SequencingRackTest {
             assertEquals(null, report.inProgressUnit)
             assertEquals(4, report.notStartedUnits.size)
             assertEquals("nothing_to_clean", report.cleanup)
+        }
+    }
+
+    @Test
+    fun `부분 완료한 실행도 취소를 받고 다음 펌프가 중단을 적는다`() {
+        // PARTIAL 은 개정판을 기다리는 자리다(C형 부족 뒤의 v18). 상류가 채우지 않기로 하면 그 실행을 닫을 길이
+        // 취소다. 취소가 거절되면 그 실행은 상류가 닫을 수 없는 부분 완료로 남는다.
+        world().use { w ->
+            val v17 = order(sources = mapOf("A" to "SEQ-IN-02.BIN-A", "B" to "SEQ-IN-02.BIN-B")) // C 없음
+            w.cell.perfect(v17)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(v17, ROBOT)).execution
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState, "이 시험이 보려는 경우가 아니다")
+
+            assertTrue(w.mw.cancel(exec.executionId), "부분 완료한 실행이 취소를 거절했다")
+            w.mw.pump()
+
+            assertEquals(PhysicalState.ABORTED, exec.physicalState, "취소를 받았는데 중단이 안 적혔다")
+            val report = assertNotNull(w.mw.lastCancel(exec.executionId))
+            assertEquals(listOf("RACK-204.S01", "RACK-204.S02", "RACK-204.S03"), report.completedUnits)
+            assertEquals(null, report.inProgressUnit)
+            assertEquals("nothing_to_clean", report.cleanup)
+            assertEquals(3, w.tasks().size, "취소가 단위를 새로 시작했다")
+            assertEquals(PhysicalState.ABORTED, w.mw.pending().last().physicalState)
         }
     }
 
