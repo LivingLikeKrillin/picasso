@@ -525,9 +525,22 @@ class Middleware(
      *
      * 언제 부를지는 배정 정책의 몫이고(ADR 41), 트리거는 **이미 사건 번들이 생기는 그 자리**다 —
      * 실패 판정·깨진 전제·잔여 파지. 이 층이 하는 일은 «옮겨도 되는가» 를 판정하는 것뿐이며,
-     * 막는 장치가 셋이다: 도는 단위, 최소 유지 시간, 이득의 문턱.
+     * 진동을 막는 장치가 셋이다: 도는 단위, 최소 유지 시간, 이득의 문턱. 그 앞에서 반쯤 한 물리 작업을 거른다(아래) —
+     * 그래서 잔여 파지가 트리거면 그 실행은 안 옮겨진다.
      *
      * **도는 단위가 있으면 안 옮긴다.** 물리적으로 움직이는 중인 일을 옮기면 한 물건에 소유자가 둘이 된다.
+     *
+     * **옮기는 것은 아직 물리적으로 손대지 않은 실행뿐이다.** 끝난 단위가 있거나, 로봇 단위가 한 번이라도 쥔 것이
+     * 관측됐으면(지금 든 채든, 쥐었다가 지금은 모르든) 안 옮긴다 — 반쯤 한 물리 작업(놓인 자재·든 물건·채운 슬롯)을
+     * 다른 기체가 이어받게 하는 인계는 이 함수가 보장하지 않는다. 플릿 경로의 파지는 플릿 AMR 이 용기를 든 것이라
+     * 이 판정에 넣지 않는다.
+     *
+     * 관문은 **옮길 실행 자신을 빼고** 묻는다([AdmissionGate.admits] 의 `moving`). 그 실행은 아직 표에 있어서, 빼지
+     * 않으면 자기 자리·자기 구역에 걸려 어느 후보도 통과하지 못한다. 빼는 것은 그 실행 하나이고 떠나는 기체의 다른
+     * 실행은 그대로 센다.
+     *
+     * 후보가 실재하는지·연결됐는지·그 스킬을 드는지는 보지 않는다 — 능력을 못 물은 기체의 조건은 지어내지 않고
+     * 접수 때 발신자가 판정한다(권위는 발신자다).
      */
     fun reassign(executionId: String, candidates: List<String>): Reassignment {
         val execution = executions[executionId]
@@ -535,19 +548,33 @@ class Middleware(
         val from = execution.robotId
         if (execution.physicalState.isSettled) return Reassignment.Kept(from, "종착한 실행이다 — 옮길 것이 없다")
         if (execution.active != null) return Reassignment.Kept(from, "도는 단위가 있다 — 움직이는 중인 일은 안 옮긴다")
+        execution.units.firstOrNull { it.state == UnitState.DONE }?.let {
+            return Reassignment.Kept(
+                from,
+                "끝난 단위가 있다(${it.unitId}) — 반쯤 한 물리 작업의 인계는 재할당이 보장하지 않는다",
+            )
+        }
+        execution.units.firstOrNull { it.route == Route.ROBOT && it.everHeld }?.let {
+            return Reassignment.Kept(
+                from,
+                "자재를 다룬 단위가 있다(${it.unitId}, 마지막 파지 ${it.hold.kind.name}) — " +
+                    "반쯤 한 물리 작업의 인계는 재할당이 보장하지 않는다",
+            )
+        }
 
         val held = Duration.between(execution.assignedAt, now())
         if (held < reassignPolicy.minHold) {
             return Reassignment.Kept(from, "최소 유지 시간 안이다 — ${held.seconds}초 지났고 ${reassignPolicy.minHold.seconds}초가 필요하다")
         }
 
-        // 남은 단위로만 관문을 건다 — 끝난 단위는 사실이고 다시 재단하지 않는다.
+        // 남은 단위로만 관문을 건다 — 끝난 단위는 사실이고 다시 재단하지 않는다. 위에서 끝난 단위가 있으면 돌려보냈으므로
+        // 지금은 전부이고, 그래서 자재 선언과 배정의 대조도 주문 전체로 맞는다.
         val remaining = execution.units.filter { it.state != UnitState.DONE }
         val mine = liveExecutionCount(from, excluding = executionId)
         var best: Pair<String, Int>? = null
         for (robotId in candidates) {
             if (robotId == from) continue
-            if (admits(execution.order, robotId, remaining) !is Admission.Passed) continue
+            if (gate.admits(execution.order, robotId, remaining, moving = executionId) !is Admission.Passed) continue
             val load = liveExecutionCount(robotId, excluding = executionId)
             if (best == null || load < best.second) best = robotId to load
         }
@@ -695,7 +722,7 @@ class Middleware(
     /** 하류에서 온 것을 읽고 상태를 한 걸음 민다. 몇 번 불러도 같은 결과다(멱등). */
     fun pump() {
         round = siteTimings.current()
-        val live = executions.values.filter { !(it.physicalState.isSettled && it.physicalState != PhysicalState.PARTIAL) }
+        val live = executions.values.filter { it.physicalState.pumps }
         live.map { it.robotId }.distinct().forEach { sync(it, live.filter { e -> e.robotId == it }) }
         executions.values.forEach { pump(it) }
     }
@@ -779,7 +806,7 @@ class Middleware(
     }
 
     private fun pumpRound(execution: Execution) {
-        if (execution.physicalState.isSettled && execution.physicalState != PhysicalState.PARTIAL) return
+        if (!execution.physicalState.pumps) return
 
         // **연결이 끊기면 도는 단위의 결과는 미확정이다.** 계약이 OFFLINE 과 CONNECTION_BROKEN 을 가른다(완료 기준 5);
         // HIBERNATING 은 침묵하지만 정상이다(§4.7). 되돌아오면 스냅샷으로 태스크 상태를 다시 세워 이어 간다 —
@@ -1739,7 +1766,7 @@ class Middleware(
     /** 취소를 건다. 실제 중단과 잔여 상태는 [pump] 가 하류를 읽고 [CancelReport] 로 확정한다. */
     fun cancel(executionId: String): Boolean {
         val execution = executions[executionId] ?: return false
-        if (execution.physicalState.isSettled && execution.physicalState != PhysicalState.PARTIAL) return false
+        if (!execution.physicalState.pumps) return false
         execution.cancelRequested = true
         execution.cancelRefusal = null
         execution.handle?.let { handle ->

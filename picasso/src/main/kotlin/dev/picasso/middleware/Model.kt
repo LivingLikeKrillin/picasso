@@ -28,6 +28,26 @@ enum class PhysicalState {
     val isSettled: Boolean
         get() = this == PHYSICALLY_DONE || this == UNVERIFIED || this == FAILED ||
             this == ABORTED || this == PARTIAL
+
+    /**
+     * **이 실행에 아직 처리가 더 붙을 수 있는가** — 하달·취소·개정판.
+     *
+     * [isSettled] 와 한 군데가 다르다. `PARTIAL` 은 종착이지만 개정판이 남은 단위를 다시 세울 수 있고([Middleware.cancel]
+     * 도 받는다), 그래서 구동이 그 실행을 계속 돌린다. 그 판정을 호출하는 자리마다 풀어 쓰면 한 곳만 고치는 날 어긋난다 —
+     * 그래서 이름을 하나 둔다.
+     */
+    val pumps: Boolean
+        get() = !isSettled || this == PARTIAL
+
+    /**
+     * **이 실행이 기체를 쥐고 있는가** — 배치하는 쪽의 배정 판단(그 기체에 새 일을 줄 것인가)이 읽는 자리다.
+     *
+     * 지금은 [pumps] 와 같은 식이다. `PARTIAL` 인 실행은 개정판으로 다시 돌 수 있으므로 그 기체는 아직 비지 않았다 —
+     * [isSettled] 만 읽으면 그 기체에 둘째 주문이 간다. 이름을 따로 두는 것은 **둘이 갈라질 수 있어서다** —
+     * `OPERATOR_HOLD` 처럼 하달은 멈췄지만 기체는 붙잡아 두는 상태를 더 가르게 되면 한쪽만 바뀐다.
+     */
+    val occupiesRobot: Boolean
+        get() = !isSettled || this == PARTIAL
 }
 
 enum class UpstreamAck { NOT_SENT, SENT_UNACKED, ACKED }
