@@ -71,12 +71,18 @@ enum class MissionRefusalKind(val owner: RefusalOwner, val nextAction: String) {
 
     /** 안전 검사 — 안전 신호를 기다린다. 안전 기능은 이 소프트웨어 계약을 거치지 않는다(ADR 32). */
     SAFETY_SIGNAL_WAIT(RefusalOwner.ENGINEER, "대기 노드를 안전 신호가 아닌 신호로 바꾼다"),
+
+    /**
+     * 출발 관측 검사 — 출발 자리의 신원을 대는 단위 노드가 `sourceObservation` 을 선언하지 않았다. 설비가 말이 없을 때
+     * 보낼지가 암묵으로 남는다.
+     */
+    SOURCE_OBSERVATION_UNDECLARED(RefusalOwner.ENGINEER, "단위 노드에 출발 관측을 REQUIRED 나 OPTIONAL 로 적는다"),
 }
 
 /**
  * 검증기 — 임무 정의가 활성화될 수 있는가. **라이브러리다** — 같은 규칙으로 화면이 저장 전에 막고 활성화가 막는다.
  *
- * 검사는 다섯이고(기한·신호·자원·스킬·안전) 그 앞에 노드 id 중복을 본다. **모든 거부를 모아 낸다** — 하나만 알리면
+ * 검사는 여섯이고(기한·신호·자원·스킬·안전·출발 관측) 그 앞에 노드 id 중복을 본다. **모든 거부를 모아 낸다** — 하나만 알리면
  * 고치고 다시 내고 또 거부되는 왕복이 생긴다.
  *
  * 함수 이름은 관문의 판정 이름과 겹치지 않게 둔다 — 자리 대조 시험이 이름으로 판정의 자리를 찾는다.
@@ -108,8 +114,16 @@ object MissionValidator {
             signalRefusals(definition, byName, at) +
             floorRefusals(definition, byName, floors, at) +
             skillRefusals(definition, siteSkills, at) +
-            safetyRefusals(definition, byName, at)
+            safetyRefusals(definition, byName, at) +
+            sourceObservationRefusals(definition, at)
     }
+
+    /**
+     * 이 단위 노드가 출발 관측 선언을 **요구하는가** — 출발 자리(`source`)와 거기서 읽을 신원(`expectedIdentity`)을
+     * 둘 다 댈 때다. 관문은 그런 단위의 출발 자리를 하달 전에 설비 관측으로 대조하고, 설비가 말이 없을 때 보낼지가 이
+     * 선언이다. 해석기([DefinedCapability])도 같은 함수로 본다 — 두 벌로 두면 한쪽만 기준이 바뀌는 날이 온다.
+     */
+    fun needsSourceObservation(step: UnitStep): Boolean = step.source != null && step.expectedIdentity != null
 
     /** 계약 카탈로그의 스킬 이름 전부 — 기술자의 `skill_type_name` 옵션에서 읽는다. */
     val contractSkills: Set<String> by lazy {
@@ -201,6 +215,15 @@ object MissionValidator {
         waits(definition).mapNotNull { wait ->
             if (byName[wait.signal]?.safety != true) return@mapNotNull null
             MissionRefusal(MissionRefusalKind.SAFETY_SIGNAL_WAIT, wait.id, "${wait.signal}: 안전 신호", "안전 신호가 아닌 신호", at)
+        }
+
+    /** 출발 관측 — 신원을 대는 출발 자리가 있는 단위 노드는 관측을 요구하는지 적는다. 기본을 정하지 않고 묻는다. */
+    private fun sourceObservationRefusals(definition: MissionDefinition, at: Instant): List<MissionRefusal> =
+        definition.steps.filterIsInstance<UnitStep>().mapNotNull { unit ->
+            if (!needsSourceObservation(unit) || unit.sourceObservation != null) return@mapNotNull null
+            MissionRefusal(
+                MissionRefusalKind.SOURCE_OBSERVATION_UNDECLARED, unit.id, "sourceObservation=없음", "REQUIRED 또는 OPTIONAL", at,
+            )
         }
 
     private val BOOLEAN_VALUES = listOf("true", "false")

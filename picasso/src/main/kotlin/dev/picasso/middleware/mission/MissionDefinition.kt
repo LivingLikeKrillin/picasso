@@ -1,6 +1,7 @@
 package dev.picasso.middleware.mission
 
 import dev.picasso.middleware.Evidence
+import dev.picasso.middleware.SourceObservation
 
 /**
  * 임무 정의 — WorkMaster 하나를 실행 단위로 펼치는 규칙을 **데이터로** 적은 것(ADR 50).
@@ -39,6 +40,8 @@ sealed interface MissionStep {
  * @param unitId 단위 id 의 출처. **반복 중인 설비의 id 만 허용한다**(파서가 막는다) — 작업 응답과 리비전이 단위 id 로
  *   접으므로 비거나 갈리면 안 된다.
  * @param parameters 파라미터 이름 → 값 출처. 값이 없으면(대체값도 없으면) 그 파라미터는 빠진다.
+ * @param sourceObservation 출발 자리의 관측을 요구하는가. 널이면 **선언하지 않은 것**이다 — [source] 와
+ *   [expectedIdentity] 가 둘 다 있는 노드는 선언이 없으면 검증기가 거부한다([MissionValidator]).
  */
 data class UnitStep(
     override val id: String,
@@ -51,6 +54,7 @@ data class UnitStep(
     val destination: ValueSource?,
     val pairWith: Pairing?,
     val whenUnpaired: String?,
+    val sourceObservation: SourceObservation? = null,
 ) : MissionStep
 
 /**

@@ -37,7 +37,52 @@ sealed interface SourceCheck {
 
     /** 비었거나 다른 것이 있다. [observed] 가 널이면 빈 자리이고, 아니면 거기 있는 다른 신원이다. */
     data class Missing(val observed: String?) : SourceCheck
+
+    /**
+     * 단위가 관측을 요구했는데([SourceObservation.REQUIRED]) 판정할 관측이 없다. **결품이 아니다** — 없다는 관측도 없다.
+     *
+     * @param occupied 설비가 말한 것. 널이면 말이 없었고, 참이면 «있다» 고만 하고 무엇인지는 말하지 않았다
+     */
+    data class Unobserved(val occupied: Boolean?) : SourceCheck
 }
+
+/**
+ * 출발 자리의 관측을 단위가 **요구하는가** — 임무 정의가 단위 노드마다 선언한다(`sourceObservation`).
+ *
+ * 기본을 뒤집지 않고 **암묵을 없앤다.** 말이 없는 셀에서 라인이 통째로 서면 이 관문은 곧 꺼지므로 기본은 그대로
+ * [OPTIONAL] 이다. 다만 신원을 대는 출발 자리가 있는 정의는 어느 쪽인지 적어야 활성화된다(`MissionValidator`).
+ * 코드 케이퍼빌리티는 검증기를 거치지 않으므로 [ExecutionUnit] 의 기본값 [OPTIONAL] 로 오늘의 거동을 유지한다.
+ */
+enum class SourceObservation {
+    /** 관측이 판정에 모자라면 보내지 않고 확인을 요구한다([SourceUnobserved]). */
+    REQUIRED,
+
+    /** 설비가 말이 없으면 판정하지 않고 보낸다 — 오늘의 거동이다. */
+    OPTIONAL,
+}
+
+/**
+ * 출발 자리를 **확인하지 못해** 보내지 않았다 — 관측을 요구한 단위([SourceObservation.REQUIRED])의 답이다.
+ *
+ * **결품([RemedyOutcome.SourceMissing])과 접지 않는다.** 결품은 «없다» 는 관측이고 다음 행동이 주문을 고치는 것(대체
+ * 자리)이다. 이것은 관측이 없다는 것이고 다음 행동이 **사람의 확인**이다 — 접으면 운영자가 재고를 의심하고 멀쩡한 자재를
+ * 두고 주문을 고친다. 그래서 대체 자리를 계산하지 않는다.
+ *
+ * **확인은 이 층의 덮어쓰기 칸으로 들어오지 않는다.** 상위 시스템의 확인, 인계 시점 점검, 기록된 수동 확인 중 무엇이든
+ * 셀 포트([CellSignals.observe])가 그 자리의 신원을 답하는 것으로 들어오고, 같은 작업 요청을 다시 내면 관문이 그 관측으로
+ * 판정한다. 일반 운영 해제로 이 답을 넘기는 길은 이 층에 없다.
+ *
+ * **조치 탐색 대장에 적지 않는다.** 대장의 답([RemedyOutcome])에 갈래를 더하면 내보내기 줄의 `outcome` 이 바뀐다.
+ *
+ * @param material 그 자리에 있어야 할 것. 단위가 자재를 지정하지 않으면 널이다
+ * @param source 확인하지 못한 출발 자리
+ * @param occupied 설비가 말한 것. 널이면 말이 없었고, 참이면 «있다» 고만 했다(무엇인지는 모른다)
+ */
+data class SourceUnobserved(
+    val material: String?,
+    val source: String,
+    val occupied: Boolean?,
+)
 
 /** 점유 판정의 순수한 부분. 관측을 받아 답만 내며, 어디에 물을지는 부르는 쪽이 정한다. */
 object CellOccupancy {
@@ -47,12 +92,20 @@ object CellOccupancy {
      *
      * **요구가 없으면 판정하지 않는다** — 자재를 지정하지 않은 단위에 «다른 것이 있다» 를 말할 근거가 없다.
      * 설비가 «있다» 고만 하고 무엇인지 말하지 않은 경우도 같다: 있다는 것은 관측이고, 무엇인지는 아니다.
+     *
+     * [observation] 이 [SourceObservation.REQUIRED] 면 말이 없는 것과 신원 없는 «있다» 가 통과가 아니라
+     * [SourceCheck.Unobserved] 다. 비었거나 다른 것이 있으면 선언과 무관하게 결품이다.
      */
-    fun sourceCheck(signal: SlotSignal?, material: String?): SourceCheck = when {
-        signal == null -> SourceCheck.Silent
+    fun sourceCheck(
+        signal: SlotSignal?,
+        material: String?,
+        observation: SourceObservation = SourceObservation.OPTIONAL,
+    ): SourceCheck = when {
+        // **관측을 요구한 단위만 침묵을 답으로 바꾼다.** 결품으로 세지 않는다 — 없다는 관측도 없다.
+        signal == null -> if (observation == SourceObservation.REQUIRED) SourceCheck.Unobserved(null) else SourceCheck.Silent
         !signal.occupied -> SourceCheck.Missing(null)
         material.isNullOrEmpty() -> SourceCheck.Ready
-        signal.identity == null -> SourceCheck.Ready
+        signal.identity == null -> if (observation == SourceObservation.REQUIRED) SourceCheck.Unobserved(true) else SourceCheck.Ready
         signal.identity != material -> SourceCheck.Missing(signal.identity)
         else -> SourceCheck.Ready
     }

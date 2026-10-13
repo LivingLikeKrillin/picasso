@@ -122,6 +122,36 @@ class MissionValidatorTest {
     }
 
     @Test
+    fun `출발 관측 검사 — 신원을 대는 출발 자리가 있는데 선언이 없으면 거부한다`() {
+        // 설비가 말이 없을 때 보낼지가 암묵으로 남는다 — 기본을 정하지 않고 묻는다.
+        val refusal = only(
+            MissionRefusalKind.SOURCE_OBSERVATION_UNDECLARED,
+            refusals(MissionFixtures.prepareSequencedRack(sourceObservation = null)),
+        )
+        assertEquals("place", refusal.nodeId)
+        assertEquals("sourceObservation=없음", refusal.observed)
+        assertEquals("REQUIRED 또는 OPTIONAL", refusal.expected)
+        assertEquals(RefusalOwner.ENGINEER, refusal.owner)
+    }
+
+    @Test
+    fun `출발 관측 검사 — REQUIRED 와 OPTIONAL 은 통과한다`() {
+        assertEquals(emptyList(), refusals(MissionFixtures.prepareSequencedRack(sourceObservation = "REQUIRED")))
+        assertEquals(emptyList(), refusals(MissionFixtures.prepareSequencedRack(sourceObservation = "OPTIONAL")))
+    }
+
+    @Test
+    fun `출발 관측 검사 — 출발 자리나 기대 신원이 없는 노드는 선언 없이 통과한다`() {
+        // 관문이 출발 자리의 신원을 대조하지 않는 노드에 선언을 요구하면 상관없는 정의가 활성화되지 않는다.
+        val undeclared = MissionFixtures.prepareSequencedRack(sourceObservation = null)
+        val noSource = undeclared.replace("\"source\": { \"from\": \"PAIRED_ID\" },\n", "")
+        val noIdentity = undeclared.replace("\"expectedIdentity\": { \"from\": \"ITEM_PROPERTY\", \"property\": \"material\" },\n", "")
+        assertTrue(noSource != undeclared && noIdentity != undeclared, "시험 문서가 안 바뀌었다")
+        assertEquals(emptyList(), refusals(noSource))
+        assertEquals(emptyList(), refusals(noIdentity))
+    }
+
+    @Test
     fun `노드 id 가 겹치면 거부한다`() {
         val text = MissionFixtures.withArrivalWait().replace("\"id\": \"place\"", "\"id\": \"${MissionFixtures.WAIT_NODE}\"")
         val refusal = only(MissionRefusalKind.DUPLICATE_NODE_ID, refusals(text))

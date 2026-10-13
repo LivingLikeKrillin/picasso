@@ -5,6 +5,7 @@ import com.google.protobuf.Struct
 import com.google.protobuf.Value
 import com.google.protobuf.util.JsonFormat
 import dev.picasso.middleware.Evidence
+import dev.picasso.middleware.SourceObservation
 
 /** 임무 정의를 읽은 결과 — 읽었거나, 읽을 수 없는 자리를 **모두** 든다. */
 sealed interface MissionParse {
@@ -44,13 +45,15 @@ sealed interface MissionParse {
  *       },
  *       "expectedIdentity": { "from": "ITEM_PROPERTY", "property": "material" },
  *       "source": { "from": "PAIRED_ID" },
+ *       "sourceObservation": "OPTIONAL",
  *       "destination": { "from": "ITEM_ID" } }
  *   ]
  * }
  * ```
  *
  * 최상위 다섯 칸은 모두 필수다. 단위 노드는 `id`·`skill`·`forEach`·`unitId`·`parameters` 가 필수이고 나머지는 선택이며,
- * `pairWith` 와 `whenUnpaired` 는 함께 온다. 대기 노드는 `id`·`signal`·`expect` 가 필수이고 `deadlineSeconds`·`onDeadline`
+ * `pairWith` 와 `whenUnpaired` 는 함께 온다. `sourceObservation` 은 `REQUIRED`·`OPTIONAL` 중 하나이고, 없어도 읽는다 —
+ * 신원을 대는 출발 자리에 선언이 없는 것은 검증기가 거부한다. 대기 노드는 `id`·`signal`·`expect` 가 필수이고 `deadlineSeconds`·`onDeadline`
  * 은 형만 본다(없음은 검증기가 거부한다).
  */
 object MissionDefinitionParser {
@@ -75,7 +78,7 @@ object MissionDefinitionParser {
     private val TOP = setOf("schemaVersion", "workMasterId", "maxEvidence", "preferredOptionals", "steps")
     private val UNIT = setOf(
         "kind", "id", "skill", "forEach", "unitId", "parameters",
-        "expectedIdentity", "source", "destination", "pairWith", "whenUnpaired",
+        "expectedIdentity", "source", "destination", "pairWith", "whenUnpaired", "sourceObservation",
     )
     private val WAIT = setOf("kind", "id", "signal", "expect", "deadlineSeconds", "onDeadline")
     private val PAIRING = setOf("equipmentUse", "property")
@@ -224,8 +227,16 @@ object MissionDefinitionParser {
             val expected = source(node, "expectedIdentity", path, required = false, paired = paired)
             val source = source(node, "source", path, required = false, paired = paired)
             val destination = source(node, "destination", path, required = false, paired = paired)
+            val observation = string(node, "sourceObservation", path, required = false)?.let { name ->
+                SourceObservation.entries.firstOrNull { it.name == name }
+                    ?: null.also {
+                        problem("$path.sourceObservation", "${SourceObservation.entries.joinToString("·")} 중 하나여야 한다($name)")
+                    }
+            }
             if (id == null || skill == null || forEach == null || unitId == null || parameters == null) return null
-            return UnitStep(id, skill, forEach, unitId, parameters, expected, source, destination, pairWith, whenUnpaired)
+            return UnitStep(
+                id, skill, forEach, unitId, parameters, expected, source, destination, pairWith, whenUnpaired, observation,
+            )
         }
 
         private fun pairing(fields: Map<String, Value>, path: String): Pairing? {

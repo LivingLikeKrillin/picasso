@@ -59,6 +59,34 @@ class OccupancyTest {
     }
 
     @Test
+    fun `출발 관측을 요구하면 말이 없는 것과 신원 없는 있음은 미관측이다`() {
+        // 결품이 아니다 — 없다는 관측도 없다. 기본(OPTIONAL)은 위 두 시험 그대로다.
+        val required = SourceObservation.REQUIRED
+        assertEquals(SourceCheck.Unobserved(null), CellOccupancy.sourceCheck(null, "ENGINE-COVER-A", required))
+        assertEquals(
+            SourceCheck.Unobserved(true),
+            CellOccupancy.sourceCheck(SlotSignal(occupied = true, identity = null), "ENGINE-COVER-A", required),
+        )
+    }
+
+    @Test
+    fun `출발 관측을 요구해도 빈 자리와 다른 신원은 결품이고 맞는 신원은 통과다`() {
+        val required = SourceObservation.REQUIRED
+        assertEquals(
+            SourceCheck.Missing(null),
+            CellOccupancy.sourceCheck(SlotSignal(occupied = false, identity = null), "ENGINE-COVER-A", required),
+        )
+        assertEquals(
+            SourceCheck.Missing("ENGINE-COVER-B"),
+            CellOccupancy.sourceCheck(SlotSignal(occupied = true, identity = "ENGINE-COVER-B"), "ENGINE-COVER-A", required),
+        )
+        assertEquals(
+            SourceCheck.Ready,
+            CellOccupancy.sourceCheck(SlotSignal(occupied = true, identity = "ENGINE-COVER-A"), "ENGINE-COVER-A", required),
+        )
+    }
+
+    @Test
     fun `셀이 답하지 않으면 모른다가 흐른다`() {
         // 빈 목록으로 접으면 «그 자재를 든 자리가 하나도 없다» 로 읽혀 운영자가 재고를 의심한다.
         assertNull(CellOccupancy.alternatives(null, emptySet(), exclude = "BIN-A"))

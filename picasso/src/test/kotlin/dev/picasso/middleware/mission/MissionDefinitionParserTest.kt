@@ -1,6 +1,7 @@
 package dev.picasso.middleware.mission
 
 import dev.picasso.middleware.Evidence
+import dev.picasso.middleware.SourceObservation
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -135,6 +136,20 @@ class MissionDefinitionParserTest {
 
         val unknown = MissionFixtures.PREPARE_SEQUENCED_RACK.replace("\"from\": \"PAIRED_ID\", \"otherwise\"", "\"from\": \"ORDER\", \"otherwise\"")
         assertTrue(problems(unknown).single().startsWith("$.steps[0].parameters.object_id.from: ITEM_ID·ITEM_PROPERTY·PAIRED_ID 중 하나"))
+    }
+
+    @Test
+    fun `출발 관측은 REQUIRED 나 OPTIONAL 만 읽고 없어도 읽는다`() {
+        val required = assertIs<UnitStep>(MissionFixtures.parsed(MissionFixtures.prepareSequencedRack("REQUIRED")).steps[0])
+        assertEquals(SourceObservation.REQUIRED, required.sourceObservation)
+        // 없음은 파서가 아니라 검증기가 거부한다 — 여기서 막으면 검증기의 출발 관측 검사를 빼는 결함이 가려진다.
+        val bare = assertIs<UnitStep>(MissionFixtures.parsed(MissionFixtures.prepareSequencedRack(null)).steps[0])
+        assertNull(bare.sourceObservation)
+
+        val maybe = problems(MissionFixtures.prepareSequencedRack("MAYBE"))
+        assertTrue(maybe.single().startsWith("$.steps[0].sourceObservation: REQUIRED·OPTIONAL 중 하나여야 한다"), "$maybe")
+        val flag = problems(MissionFixtures.PREPARE_SEQUENCED_RACK.replace("\"sourceObservation\": \"OPTIONAL\"", "\"sourceObservation\": true"))
+        assertTrue(flag.single().startsWith("$.steps[0].sourceObservation: 문자열이어야 한다"), "$flag")
     }
 
     @Test

@@ -7,6 +7,7 @@ import dev.picasso.middleware.ExecutionUnit
 import dev.picasso.middleware.JobOrder
 import dev.picasso.middleware.PrepareSequencedRack
 import dev.picasso.middleware.Route
+import dev.picasso.middleware.SourceObservation
 import dev.picasso.middleware.UnitState
 import dev.picasso.middleware.WaitSpec
 import java.time.Duration
@@ -65,6 +66,7 @@ class DefinedCapabilityEquivalenceTest {
         "상태" to { it.state },
         "실패 분류" to { it.failureClass },
         "대기 사양" to { it.wait },
+        "출발 관측" to { it.sourceObservation },
     )
 
     @Test
@@ -128,6 +130,21 @@ class DefinedCapabilityEquivalenceTest {
         // 겹치면 효과·사전 조건·선택 파라미터를 읽는 자리가 대기 단위를 그 스킬로 잘못 읽는다.
         assertTrue(MissionValidator.contractSkills.isNotEmpty())
         assertTrue(WaitSpec.SKILL_TYPE !in MissionValidator.contractSkills)
+    }
+
+    @Test
+    fun `선언한 출발 관측이 단위에 실리고 선언 없는 신원 대조는 해석기가 받지 않는다`() {
+        val required = DefinedCapability(MissionFixtures.parsed(MissionFixtures.prepareSequencedRack("REQUIRED")))
+        val planned = required.plan(shapes.getValue("제시 자리 있음"))
+        assertTrue(planned.isNotEmpty())
+        assertEquals(listOf(SourceObservation.REQUIRED), planned.map { it.sourceObservation }.distinct())
+        // 코드 케이퍼빌리티는 검증기를 거치지 않으므로 오늘의 거동(OPTIONAL)이다 — 동등성 시험의 «출발 관측» 칸이 그것을 댄다.
+        assertEquals(listOf(SourceObservation.OPTIONAL), code.plan(shapes.getValue("제시 자리 있음")).map { it.sourceObservation }.distinct())
+
+        // 기본값으로 메우면 검증기가 없앤 암묵이 이 길로 돌아온다.
+        assertFailsWith<IllegalArgumentException> {
+            DefinedCapability(MissionFixtures.parsed(MissionFixtures.prepareSequencedRack(null)))
+        }
     }
 
     @Test
