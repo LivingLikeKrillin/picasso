@@ -60,10 +60,10 @@ internal class AdmissionGate(
      * [moving] 은 옮길 실행 자신이다([admits]).
      */
     private fun workspaceViolation(robotId: String, planned: List<ExecutionUnit>, moving: String?): Submission.Rejected? {
-        val busy = liveZones(excluding = robotId, moving = moving)
         for (unit in planned) {
             val zone = zoneOf(unit) ?: continue
-            val holder = busy[zone] ?: continue
+            // 같은 기체는 단위가 묶인 기체다. 묶지 않은 단위는 이 주문을 받을 기체([robotId])다.
+            val holder = liveZones(excluding = unit.robotBinding ?: robotId, moving = moving)[zone] ?: continue
             val where = unit.destination
             return Submission.Rejected(
                 "작업 구역 $zone 에서 ${holder.robotId}(${holder.jobOrderId}) 가 일하고 있다 — " +
@@ -86,11 +86,12 @@ internal class AdmissionGate(
      * [moving] 은 기체가 아니라 그 실행 하나만 뺀다.
      */
     private fun liveZones(excluding: String, moving: String? = null): Map<String, ZoneUse> = executions.values
-        .filter { it.robotId != excluding && !it.physicalState.isSettled && it.executionId != moving }
+        .filter { !it.physicalState.isSettled && it.executionId != moving }
         .flatMap { execution ->
-            execution.units.filter { it.state != UnitState.DONE }.mapNotNull { unit ->
+            // 구역을 쓰는 것은 단위가 묶인 기체다 — 실행의 기체로 세면 다른 기체에 묶인 단위의 구역이 엉뚱한 기체의 것이 된다.
+            execution.units.filter { it.state != UnitState.DONE && execution.robotOf(it) != excluding }.mapNotNull { unit ->
                 val zone = zoneOf(unit) ?: return@mapNotNull null
-                ZoneUse(zone, execution.executionId, execution.order.jobOrderId, execution.robotId)
+                ZoneUse(zone, execution.executionId, execution.order.jobOrderId, execution.robotOf(unit))
             }
         }
         .associateBy { it.zone }
@@ -128,6 +129,17 @@ internal class AdmissionGate(
      * 능력을 못 물은 로봇도, 계약에 없는 주어([PreconditionCheck.Unknown.DEFER])도 같다: 모르는 조건을 지어내지 않는다.
      */
     fun chainRefusal(robotId: String, planned: List<ExecutionUnit>): Submission.Rejected? {
+        // **사슬은 기체마다다.** 손은 기체에 달렸으므로 단위가 묶인 기체의 파지로 그 기체의 단위들을 굴린다. 묶지 않은 단위는
+        // [robotId] 의 사슬이다. 다른 기체의 사슬에서 찾은 조치 열은 싣지 않는다 — 제안은 (주문을 받을 기체, 주문)으로 서므로
+        // 실으면 그 조치가 [robotId] 에서 돈다.
+        for ((robot, units) in planned.groupBy { it.robotBinding ?: robotId }) {
+            chainOf(robot, units)?.let { return if (robot == robotId) it else it.copy(remedy = null) }
+        }
+        return null
+    }
+
+    /** 기체 하나의 사슬 검사. [chainRefusal] 이 기체마다 부른다. */
+    private fun chainOf(robotId: String, planned: List<ExecutionUnit>): Submission.Rejected? {
         var hold = liveHold(robotId) ?: return null
         val declared = robots.capabilities(robotId)?.skillsList ?: return null
         val byType = declared.associateBy { it.skillType }
@@ -251,9 +263,10 @@ internal class AdmissionGate(
      * 있으면 빈손, 도는 단위가 없으면 모른다(널). 종착한 실행의 관측은 쓰지 않는다.
      */
     fun liveHold(robotId: String): HoldState? {
+        // 도는 단위가 묶인 기체로 가른다 — 실행의 기체로 가르면 다른 기체에 묶인 단위의 파지가 엉뚱한 기체의 손으로 읽힌다.
         val live = executions.values
-            .filter { it.robotId == robotId && !it.physicalState.isSettled }
-            .mapNotNull { it.active }
+            .filter { !it.physicalState.isSettled }
+            .mapNotNull { execution -> execution.active?.takeIf { execution.robotOf(it) == robotId } }
         return live.firstOrNull { it.hold.kind == HoldKind.HOLD_KIND_HOLDING }?.hold
             ?: live.firstOrNull { it.hold.kind == HoldKind.HOLD_KIND_EMPTY }?.hold
     }
