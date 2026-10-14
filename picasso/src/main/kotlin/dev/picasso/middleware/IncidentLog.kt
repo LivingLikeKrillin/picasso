@@ -80,10 +80,12 @@ internal class IncidentLog(
      * 기체의 문제인지" 를 가르지 못한다(설계안 §4.2 넷째 줄).
      *
      * @param timings 봉인하는 라운드의 현장 시간값. 널이면 케이퍼빌리티 값이다. 근거 시간 윈도우와 의도의 시간값이 이것에서 나온다.
+     * @param reopenedAt 번들의 `at` 이자 근거 윈도우의 기준. 널이면 지금이다. 넘기는 자리는 재기동이 보류를 다시 연 봉인 하나뿐이다
+     *   ([Middleware.resume]) — 다시 연 줄과 같은 시각이어야 그 줄로 다시 연 인시던트를 가른다. 실 시계([wallClock])는 따로 읽는다.
      */
-    fun sealIncidents(execution: Execution, timings: SiteTimings?) {
+    fun sealIncidents(execution: Execution, timings: SiteTimings?, reopenedAt: Instant? = null) {
         if (execution.pendingIncidents.isEmpty()) return
-        val at = now()
+        val at = reopenedAt ?: now()
         val wall = wallClock()
         val window = timings?.evidenceWindow ?: execution.capability.evidenceWindow
         val inWindow = execution.eventTrail.filter { within(it, at.minus(window.before), at.plus(window.after)) }

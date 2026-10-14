@@ -460,7 +460,8 @@ class Middleware(
      *    [RESUME_RECORD_MISMATCH] 로 시작하는 사유로 거부하고 실행을 만들지 않는다 — 일부만 옮기면 옮기지 못한 사실이 «없었다» 가
      *    된다. 기록 대조는 스냅숏보다 먼저 한다.
      * 8. **운영자 보류로 옮긴 단위마다 인시던트를 다시 연다.** 인시던트는 기록에 들지 않으므로 이 인스턴스에서 새로 열고, 실행
-     *    자취의 [RESUME_HOLD_REOPENED] 가 그 인시던트의 근거 윈도우에 실려 다시 연 것임을 가른다. 판단은 보통의 보류와 같이
+     *    자취의 [RESUME_HOLD_REOPENED] 가 그 인시던트의 근거 윈도우에 실려 다시 연 것임을 가른다. 그 줄의 시각과 인시던트의
+     *    `at` 은 시계를 한 번 읽은 같은 값이다(줄이 있는 것만으로는 가르지 못한다, [reopenHold]). 판단은 보통의 보류와 같이
      *    [resolve] 로 낸다. 같은 작업 지시로 다시 부르면 리비전 경로라 다시 열지 않는다.
      *
      * **기록 없이 넘어오지 않는 것**: 운영자 판단, 감수한 결함([Execution.acknowledgedFaults]), 승인 소모 기록, 근거 윈도우의 요청
@@ -493,9 +494,10 @@ class Middleware(
 
         val execution = create(order, robotId, mission, planned, approvedBy = null)
         rebuildFrom(execution, snapshots)
-        record?.let { restore(execution, it) }
+        val reopenedAt = record?.let { restore(execution, it) }
         // 8 이 다시 연 인시던트를 지금 봉한다. 지금의 현장 시간값으로 — 라운드의 값([round])은 [pump] 의 것이라 건드리지 않는다.
-        incidentLog.sealIncidents(execution, siteTimings.current())
+        // 봉인 시각은 다시 연 줄의 시각이다. 따로 읽으면 실제 시계에서 둘이 어긋나 줄 시각 = `at` 으로 가르지 못한다.
+        incidentLog.sealIncidents(execution, siteTimings.current(), reopenedAt)
         return Submission.Accepted(execution)
     }
 
@@ -515,8 +517,12 @@ class Middleware(
      *
      * 시도 번호는 스냅숏과 기록 가운데 큰 쪽이다. 기록이 크면 재작업 판단이 섰는데 아직 내지 않은 것이고, 스냅숏이 크면 기록이 그
      * 재작업보다 먼저 적힌 것이다 — 그때 그 단위의 시각과 판정은 앞 시도의 것이라 옮기지 않는다.
+     *
+     * 돌려주는 것은 운영자 보류를 다시 연 시각이다. 처음 다시 열 때 시계를 한 번 읽고 다시 연 보류 모두에 쓴다. 다시 연 것이
+     * 없으면 널이다.
      */
-    private fun restore(execution: Execution, record: JudgmentRecord) {
+    private fun restore(execution: Execution, record: JudgmentRecord): Instant? {
+        var reopenedAt: Instant? = null
         execution.acknowledgedFaults += record.acknowledgedFaults
         if (record.acknowledgedFaults.isNotEmpty()) {
             execution.trail(RESUME_RECORD, "acknowledged faults: ${record.acknowledgedFaults.joinToString()}")
@@ -561,8 +567,12 @@ class Middleware(
                 RESUME_RECORD,
                 "${unit.unitId}: verdict ${verdict.state.name} ${verdict.reached.name} ${verdict.verification.name} (attempt ${r.attempt}), 다시 판정하지 않는다",
             )
-            if (verdict.state == UnitState.OPERATOR_HOLD) reopenHold(execution, unit, r, verdict)
+            if (verdict.state == UnitState.OPERATOR_HOLD) {
+                val at = reopenedAt ?: now().also { reopenedAt = it }
+                reopenHold(execution, unit, r, verdict, at)
+            }
         }
+        return reopenedAt
     }
 
     /**
@@ -576,15 +586,19 @@ class Middleware(
      * 자취에 [RESUME_HOLD_REOPENED] 로 남기고, 그 줄이 번들의 근거 윈도우에 실려 «재기동이 다시 연 인시던트» 의 표시가 된다.
      * 이 인스턴스가 보류를 낸 시각이 아니므로 번들의 `at` 은 다시 연 시각이다 — 기록에는 보류가 선 시각이 따로 없다.
      *
+     * **줄 시각과 번들의 `at` 은 같은 한 번의 읽기다([at]).** 줄이 있는 것만으로는 가르지 못한다 — 다시 연 뒤 근거 윈도우 앞 폭
+     * 안에 새로 선 보류의 윈도우에도 그 줄이 실린다. 가르는 것은 그 줄의 시각이 번들 `at` 과 같은 것이고, 시계가 흘러도 그렇다.
+     *
      * 판단은 보통의 보류와 같다. [resolve] 가 보류를 풀고 판단 기록에 실으며, 판단은 이 인시던트에 붙는다.
      * 봉인은 [resume] 이 끝에서 한 번 한다 — 첫 [pump] 전에도 판단 화면이 이 인시던트를 읽는다.
      */
-    private fun reopenHold(execution: Execution, unit: ExecutionUnit, r: UnitRecord, verdict: UnitVerdict) {
+    private fun reopenHold(execution: Execution, unit: ExecutionUnit, r: UnitRecord, verdict: UnitVerdict, at: Instant) {
         execution.trail(
             RESUME_HOLD_REOPENED,
             "${unit.unitId}: 기록의 운영자 보류를 이 인스턴스의 인시던트로 다시 연다, robot=${execution.robotOf(unit)} " +
                 "attempt=${r.attempt} failureClass=${verdict.failureClass} requestedAt=${r.requestedAt} " +
                 "evidenceAt=${verdict.evidenceAt} note=${verdict.note}",
+            at,
         )
         execution.markIncident(unit)
     }
@@ -1086,8 +1100,9 @@ class Middleware(
         }
     }
 
-    private fun Execution.trail(kind: String, detail: String) {
-        eventTrail += ObservedEvent(views[robotId]?.cursor ?: 0, now().toString(), kind, detail, local = true)
+    /** [at] 은 이 줄의 시각이다. 기본은 지금이고, 같은 시각을 다른 사실과 나눠 써야 하는 자리만 넘긴다([reopenHold]). */
+    private fun Execution.trail(kind: String, detail: String, at: Instant = now()) {
+        eventTrail += ObservedEvent(views[robotId]?.cursor ?: 0, at.toString(), kind, detail, local = true)
     }
 
     private fun pump(execution: Execution) {

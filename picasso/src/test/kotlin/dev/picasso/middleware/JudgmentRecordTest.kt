@@ -476,6 +476,71 @@ class JudgmentRecordTest {
         }
     }
 
+    @Test
+    fun `시계가 읽을 때마다 흘러도 다시 연 인시던트마다 at 이 그 단위의 다시 연 줄 시각과 같다`() {
+        World().use { w ->
+            val base = held(w)
+            val unit = base.units.single()
+            // 보류 둘을 든 기록. 한 번 읽은 시각을 다시 연 보류 모두에 쓰는지 본다 — 단위마다 읽으면 둘째가 어긋난다.
+            val record = base.copy(units = listOf(unit, unit.copy(unitId = "s2")))
+            w.step = Duration.ofMillis(1)
+
+            val again = w.restart()
+            val resumed = again.resumeWith(order(required = Evidence.E2, slots = 2), record)
+            val trail = resumed.eventTrail
+            val lines = trail.filter { it.kind == Middleware.RESUME_HOLD_REOPENED }
+            val incidents = again.mw.incidents()
+            assertEquals(listOf("s1", "s2"), incidents.map { it.unitId })
+            assertEquals(2, lines.size)
+            incidents.forEach { incident ->
+                val line = lines.single { it.detail.startsWith("${incident.unitId}:") }
+                assertEquals(Instant.parse(line.occurredAt), incident.at, "${incident.unitId}: 다시 연 줄의 시각이 인시던트 at 과 다르다")
+            }
+
+            // 시험의 전제: 시계가 정말 흐른다 — 다시 연 줄 바로 앞의 옮김 줄은 그보다 이르고, 봉인 뒤에 읽은 시각은 그보다 늦다.
+            val before = trail[trail.indexOf(lines.first()) - 1]
+            assertEquals(Middleware.RESUME_RECORD, before.kind)
+            assertTrue(Instant.parse(before.occurredAt).isBefore(Instant.parse(lines.first().occurredAt)), "시계가 흐르지 않았다")
+            assertTrue(w.t.isAfter(incidents.first().at), "시계가 흐르지 않았다")
+        }
+    }
+
+    @Test
+    fun `다시 연 뒤 근거 윈도우 앞 폭 안에 새로 선 보류는 그 줄을 싣지만 at 이 줄 시각과 달라 다시 연 것으로 읽히지 않는다`() {
+        World().use { w ->
+            val record = held(w)
+            w.step = Duration.ofMillis(1)
+
+            val again = w.restart()
+            val resumed = again.resumeWith(order(required = Evidence.E2), record)
+            val reopened = again.mw.incidents().single()
+            val line = resumed.eventTrail.single { it.kind == Middleware.RESUME_HOLD_REOPENED }
+            val lineAt = Instant.parse(line.occurredAt)
+            assertEquals(lineAt, reopened.at)
+
+            // 재작업으로 새 시도를 내고, 그 시도도 하류 실패·설비 있음으로 새 보류에 선다.
+            assertEquals(
+                ResolveOutcome.Resolved,
+                again.mw.resolve(reopened.executionId, reopened.unitId, OperatorDecision.REWORK, OPERATOR),
+            )
+            again.mw.pump()
+            assertEquals("$ORDER#s1@r1", w.robot.starts.last())
+            w.robot.set("$ORDER#s1@r1", TaskState.TASK_STATE_FAILED)
+            again.mw.pump()
+            assertEquals(UnitState.OPERATOR_HOLD, resumed.units.single().state, "시험의 전제: 재작업도 하류 실패·설비 있음으로 보류에 선다")
+            val fresh = again.mw.incidents().last()
+            assertTrue(fresh.incidentId != reopened.incidentId, "시험의 전제: 새 보류의 인시던트가 따로 열린다")
+            assertTrue(Duration.between(lineAt, fresh.at) < Duration.ofSeconds(30), "시험의 전제: 근거 윈도우 앞 폭 안이다")
+
+            assertTrue(fresh.evidenceWindow.any { it.kind == Middleware.RESUME_HOLD_REOPENED && it.occurredAt == line.occurredAt }, "새 보류의 윈도우에도 그 줄이 실린다")
+            assertTrue(fresh.at != lineAt, "새 보류의 at 이 다시 연 줄 시각과 같다")
+            // 줄 시각 = at 으로 가른다. 줄이 있는 것만으로는 둘 다 참이다.
+            fun reopenedAt(b: IncidentBundle) =
+                b.evidenceWindow.any { it.kind == Middleware.RESUME_HOLD_REOPENED && Instant.parse(it.occurredAt) == b.at }
+            assertEquals(listOf(true, false), again.mw.incidents().map(::reopenedAt))
+        }
+    }
+
     /** 앞 인스턴스가 하류 실패·설비 있음으로 단위를 운영자 보류에 세운 뒤 받아 둔 기록. */
     private fun held(w: World): JudgmentRecord {
         val exec = w.submit(order(required = Evidence.E2))
@@ -493,11 +558,14 @@ class JudgmentRecordTest {
     /** 앞 인스턴스와, 같은 기체·셀 위에 다시 세우는 인스턴스. */
     private class World(lookup: ExecutionLookup = ExecutionLookup.CLIENT_REFERENCE) : AutoCloseable {
         var t: Instant = T0
+
+        /** 미들웨어가 시계를 읽을 때마다 [t] 를 이만큼 민다. 기본은 0 이라 고정 시계다 — 실제 시계처럼 흐르게 할 때만 준다. */
+        var step: Duration = Duration.ZERO
         val robot = Robot({ t }, lookup)
         val cell = CellMimic(now = { t })
         val old = middleware()
 
-        fun middleware() = Middleware(robot, cell, capabilities = listOf(Slots(), WaitThenSlot()), now = { t })
+        fun middleware() = Middleware(robot, cell, capabilities = listOf(Slots(), WaitThenSlot()), now = { t.also { t = t.plus(step) } })
 
         fun submit(order: JobOrder): Middleware.Execution = assertIs<Middleware.Submission.Accepted>(old.submit(order, ROBOT)).execution
 
