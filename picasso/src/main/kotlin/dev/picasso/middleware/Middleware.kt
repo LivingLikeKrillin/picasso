@@ -604,7 +604,7 @@ class Middleware(
     }
 
     /**
-     * 이 실행의 **판단 기록**(§15.213) — 담는 쪽이 영속하고 재기동 뒤 [resume] 에 넘길 사실. 모르는 실행이면 널이다.
+     * 이 실행의 **판단 기록**(§15.221) — 담는 쪽이 영속하고 재기동 뒤 [resume] 에 넘길 사실. 모르는 실행이면 널이다.
      *
      * 언제 받아 둘지는 담는 쪽이 정한다. 판정과 판단은 [pump]·[resolve]·[release]·승인 안에서 서므로 그 뒤마다 받아 두면 빠지는 것이
      * 없다. 다시 지은 뒤 아직 내지 않은 시도의 시각도 싣는다 — 다시 지은 직후 다시 죽어도 기한의 시작을 잃지 않는다.
@@ -1333,7 +1333,7 @@ class Middleware(
                 // 하류가 실어 준 결과 참조(E0 의 내용). 비어 있으면 비어 있는 채로 — 지어내지 않는다.
                 unit.result = last.partialResult.takeIf { it.isNotBlank() }
                 val prior = unit.unitId in execution.resumedPrior
-                // 판단 기록이 이 시도의 검증 대기 창을 넘겼으면 그 창에 대고 본다 — 완료 시각과 기한을 다시 정하지 않는다(§15.213).
+                // 판단 기록이 이 시도의 검증 대기 창을 넘겼으면 그 창에 대고 본다 — 완료 시각과 기한을 다시 정하지 않는다(§15.221).
                 val window = execution.restoredWindows.remove(unit.unitId)?.takeIf { it.first == unit.attempt }?.second
                 beginVerify(
                     execution, unit, reachedByDownstream = Evidence.E0, doneAt = window?.doneAt ?: stateTime(last), prior = prior,
@@ -1697,7 +1697,7 @@ class Middleware(
     private fun startUnit(execution: Execution, unit: ExecutionUnit) {
         // 재작업은 새 정체성이다 — 같은 task_id 는 계약이 같은(종착한) 핸들로 돌려준다.
         unit.taskId = "${execution.order.jobOrderId}#${unit.unitId}" + if (unit.attempt > 0) "@r${unit.attempt}" else ""
-        // 판단 기록이 이 시도의 요청 시각을 넘겼으면 그것이다(§15.213). 다시 지은 뒤 같은 시도를 다시 보내는 것이지 새 요청이 아니므로,
+        // 판단 기록이 이 시도의 요청 시각을 넘겼으면 그것이다(§15.221). 다시 지은 뒤 같은 시도를 다시 보내는 것이지 새 요청이 아니므로,
         // 미확정 유예·관측 창·설비 대기의 기한은 처음 보낸 시각부터 이어 잰다. 다른 시도(재작업)면 쓰지 않는다.
         unit.requestedAt = execution.restoredRequests.remove(unit.unitId)?.takeIf { it.first == unit.attempt }?.second ?: now()
         unit.lookups = 0
@@ -1929,7 +1929,7 @@ class Middleware(
         val execution = executions[executionId] ?: return ResolveOutcome.NotHeld
         val unit = execution.units.firstOrNull { it.unitId == unitId && it.state == UnitState.OPERATOR_HOLD }
             ?: return ResolveOutcome.NotHeld
-        // 판단 기록이 싣는다(§15.213). 판단이 선 시도를 단다 — 재작업이면 아래에서 시도가 하나 오른다.
+        // 판단 기록이 싣는다(§15.221). 판단이 선 시도를 단다 — 재작업이면 아래에서 시도가 하나 오른다.
         execution.decisions[unitId] = RecordedDecision(decision, approver, now(), unit.attempt)
         when (decision) {
             OperatorDecision.CONFIRM_DONE -> {
@@ -2083,7 +2083,7 @@ class Middleware(
         val submission = submit(go.order, go.robotId, go.prefix, approvedBy = go.approver)
         if (submission !is Submission.Accepted) return submission
         val consumed = desk.settle(go, submission.execution.executionId)
-        // 판단 기록이 싣는다(§15.213). 다시 지을 때 걸음이 계획 앞에 다시 서고 승인 장부에 소모로 다시 선다.
+        // 판단 기록이 싣는다(§15.221). 다시 지을 때 걸음이 계획 앞에 다시 서고 승인 장부에 소모로 다시 선다.
         submission.execution.approval = RecordedApproval(go.robotId, consumed.approver, consumed.at, consumed.wallClockAt, consumed.steps)
         return submission
     }
