@@ -21,7 +21,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * **판단 기록으로 다시 짓기**(§15.213). 앞 인스턴스가 낸 판단 기록을 담는 쪽이 영속했다가 재기동 뒤 [Middleware.resume] 에
+ * **판단 기록으로 다시 짓기**(§15.221). 앞 인스턴스가 낸 판단 기록을 담는 쪽이 영속했다가 재기동 뒤 [Middleware.resume] 에
  * 넘기면, 다시 지은 실행은 그 판정과 판단이 사라진 적 없는 것처럼 이어 간다.
  *
  * 재기동은 **미들웨어를 새로 세우는 것**이다. 기체와 셀은 그대로 두고 같은 더블 위에 두 번째 [Middleware] 를 띄운다. 기록은
