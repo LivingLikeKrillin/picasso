@@ -5,7 +5,11 @@ import com.sun.net.httpserver.HttpServer
 import dev.picasso.adapter.orbit.OrbitHttpLink
 import dev.picasso.client.PicassoClient
 import dev.picasso.contracts.v1.ParameterValue
+import dev.picasso.contracts.v1.StartTaskRequest
+import dev.picasso.contracts.v1.StartTaskResponse
+import dev.picasso.contracts.v1.TaskServiceGrpc
 import dev.picasso.contracts.v1.TaskState
+import dev.picasso.contracts.wire.RequestHeaders
 import dev.picasso.uplink.RecordingPublisher
 import dev.picasso.uplink.report.DiscoveryAck
 import dev.picasso.uplink.report.RobotDiscovery
@@ -16,6 +20,10 @@ import io.grpc.StatusRuntimeException
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -40,7 +48,11 @@ class OrbitLauncherTest {
     private lateinit var orbit: HttpServer
     private lateinit var orbitUrl: String
     private val routes = mutableMapOf<String, Pair<Int, String>>()
-    private val received = mutableListOf<String>()
+    /** 스텁의 처리 스레드가 적고 시험 스레드가 읽는다 — 펌프 스레드를 돌리는 시험이 있어 줄을 세운다. */
+    private val received: MutableList<String> = Collections.synchronizedList(mutableListOf())
+
+    /** 미션 목록 응답을 이만큼 늦춘다. 플릿 서버의 왕복 시간 자리 — 접수가 그만큼 걸린다. */
+    private var missionsDelayMillis = 0L
 
     /** 파견 뒤에 실행이 끝난 것으로 답할지. 벤더의 시간 축을 시험이 쥔다. */
     private var runEnded = false
@@ -67,6 +79,7 @@ class OrbitLauncherTest {
 
     private fun handle(exchange: HttpExchange) {
         received += "${exchange.requestMethod} ${exchange.requestURI.path}"
+        if (exchange.requestURI.path == "/api/v0/missions/" && missionsDelayMillis > 0) Thread.sleep(missionsDelayMillis)
         if (exchange.requestURI.path == "/") {
             exchange.responseHeaders.add("Set-Cookie", "x-csrf-token=csrf-1; Path=/")
         }
@@ -146,6 +159,79 @@ class OrbitLauncherTest {
                 while (!follower.completed && System.nanoTime() < deadline) Thread.sleep(20)
                 assertTrue(follower.completed, "종착 스트림이 안 닫혔다: ${follower.updates.map { it.state }}")
                 assertEquals(TaskState.TASK_STATE_SUCCEEDED, follower.updates.last().state)
+            } finally {
+                channel.shutdownNow()
+            }
+        }
+    }
+
+    @Test
+    fun `펌프 스레드가 도는 배치에서 동시에 들어온 StartTask 는 하나만 받고 플릿에 한 번만 파견한다`() {
+        // 운영 배치의 모양 그대로다 — 실 포트(RPC 마다 gRPC 스레드)와 런처의 펌프 스레드. 위 시험은 펌프를 끄고
+        // 한 소비자만 두드려 이 축을 안 지난다. 접수는 플릿 왕복(미션 목록·파견) 동안 «도는 태스크 없음» 인 채라,
+        // 줄을 안 세우면 둘이 함께 지나가 **같은 기체에 미션이 두 번 파견된다.**
+        missionsDelayMillis = 30
+        OrbitLauncher(options().copy(pumpMillis = 1)).start().getOrThrow().use { running ->
+            val channel: ManagedChannel = ManagedChannelBuilder.forAddress("127.0.0.1", running.port).usePlaintext().build()
+            try {
+                val tasks = TaskServiceGrpc.newBlockingStub(channel)
+                val gate = CountDownLatch(1)
+                val answers = Collections.synchronizedList(mutableListOf<Result<StartTaskResponse>>())
+                val callers = (1..4).map { i ->
+                    thread(name = "caller-$i") {
+                        gate.await()
+                        answers += runCatching {
+                            tasks.withDeadlineAfter(10, TimeUnit.SECONDS).startTask(
+                                StartTaskRequest.newBuilder()
+                                    .setHeader(RequestHeaders.build("picasso.v1.StartTaskRequest", "spot-a", "line-controller-$i"))
+                                    .setTaskId("t-$i").setRevision(1).setRobotId("spot-a").setSkillType("navigate_to")
+                                    .addParameters(ParameterValue.newBuilder().setKey("location").setStringValue("DOCK-3"))
+                                    .build(),
+                            )
+                        }
+                    }
+                }
+                gate.countDown()
+                callers.forEach { it.join(15_000) }
+
+                val failed = answers.filter { it.isFailure }.map { it.exceptionOrNull() }
+                assertTrue(failed.isEmpty(), "RPC 가 깨졌다: $failed")
+                val accepted = answers.mapNotNull { it.getOrNull() }.filter { it.hasHandle() }
+                assertEquals(1, accepted.size, "배타 검사를 둘 이상이 지났다: ${accepted.map { it.handle.taskId }}")
+                val dispatched = synchronized(received) { received.count { it == "POST /api/v0/calendar/mission/dispatch/spot-a" } }
+                assertEquals(1, dispatched, "같은 기체에 파견이 $dispatched 번 나갔다")
+            } finally {
+                channel.shutdownNow()
+            }
+        }
+    }
+
+    @Test
+    fun `런처의 펌프 스레드는 호스트의 잠금을 지난다`() {
+        // 위 시험은 접수끼리의 경합만 본다. 펌프 스레드가 잠금을 비켜 가도(기체의 펌프를 직접 부르면) 접수는 여전히
+        // 서로 줄을 서서 그 시험이 초록이다. 그래서 펌프 스레드 쪽을 따로 묻는다: 잠금을 쥔 동안에는 펌프가 플릿에
+        // 실행을 묻지 않아야 한다. 도는 태스크가 있으면 펌프마다 `GET /runs/` 가 나가므로 그 수가 곧 펌프의 발자국이다.
+        OrbitLauncher(options().copy(pumpMillis = 1)).start().getOrThrow().use { running ->
+            val channel: ManagedChannel = ManagedChannelBuilder.forAddress("127.0.0.1", running.port).usePlaintext().build()
+            try {
+                val handle = PicassoClient(channel, "line-controller").start(
+                    "spot-a", "t-1", revision = 1, skillType = "navigate_to",
+                    parameters = listOf(ParameterValue.newBuilder().setKey("location").setStringValue("DOCK-3").build()),
+                )
+                assertTrue(handle.hasHandle(), handle.rejection.toString())
+                fun polls() = synchronized(received) { received.count { it == "GET /api/v0/runs/" } }
+
+                // 펌프 스레드가 실제로 돌고 있는지부터 — 안 돌면 아래 대조가 무엇도 증명하지 않는다.
+                val deadline = System.nanoTime() + 5_000_000_000L
+                while (polls() < 3 && System.nanoTime() < deadline) Thread.sleep(5)
+                assertTrue(polls() >= 3, "펌프 스레드가 안 돈다: ${polls()}")
+
+                val (before, after) = running.host.exclusive {
+                    val before = polls()
+                    Thread.sleep(200)
+                    before to polls()
+                }
+                assertEquals(before, after, "잠금을 쥔 200ms 동안 펌프가 플릿에 ${after - before} 번 물었다 — 잠금을 비켜 간다")
             } finally {
                 channel.shutdownNow()
             }

@@ -57,6 +57,9 @@ import java.util.concurrent.atomic.AtomicLong
  * 스레드가 없다. 모든 RPC 가 [pump] 를 먼저 부르고(미믹의 `settle` 과 같은 이유 — 그러지 않으면 열린 `WatchTask` 가
  * 다른 RPC 가 만든 전이를 놓친다), 운영 배치에서는 스케줄러가 부른다. 시각은 [clock] 로만 읽는다.
  *
+ * **이 클래스는 잠그지 않는다.** RPC 스레드들과 스케줄러 스레드를 줄 세우는 것은 [AdapterHost] 의 잠금 하나다 —
+ * 그래서 배치는 [pump] 를 직접 부르지 않고 [AdapterHost.pump] 를 부른다.
+ *
  * ## 발행 (§3.5 · §4.7)
  *
  * 세 스트림이 미믹과 같은 토픽·같은 헤더 열로 나간다 — `event` 는 전이와 결함(적힐 때마다), `state` 는 현재값(프로파일의
