@@ -115,6 +115,14 @@ class Middleware(
      * 근거 기한(완료 시각 + 뒤 폭) 하나뿐이라, 바꾼 `inDoubtGrace` 는 이미 `IN_DOUBT` 인 단위에도 다음 라운드부터 미친다.
      */
     private val siteTimings: SiteTimingsSource = SiteTimingsSource.NONE,
+    /**
+     * 작업 허가의 출처(ADR 52) — 발행 관문([IssuingGate])의 둘째 입력. **널이면 붙이지 않은 것이고 관문이 아무것도 막지 않는다** —
+     * 오늘의 거동 그대로다. 붙이면 닫힌 쪽으로 판정한다. `PERMITTED` 가 아니면(모름 포함) 새 로봇 명령을 내지 않고 기다린다.
+     *
+     * 붙이지 않은 배치까지 닫힌 쪽으로 두지 않는 것은 그러면 허가 원천이 없는 현장이 통째로 서고, 그 관문은 곧 꺼지기 때문이다
+     * ([floors]·[workspace] 와 같은 이유).
+     */
+    permits: WorkPermitPort? = null,
 ) {
     // ⚠ 생성자 인자 `missions`(널 허용)가 이 속성을 가린다 — 다른 속성의 초기화식에서 `missions` 는 인자다. 거기서는 `this.missions` 로 쓴다.
     private val missions: MissionCatalog = run {
@@ -128,6 +136,12 @@ class Middleware(
 
     /** 배정 관문(설계안 §7). 실행 표를 같은 인스턴스로 넘긴다 — 관문은 이 층이 지금 든 것을 읽는다. */
     private val gate = AdmissionGate(robots, cell, floors, workspace, executions)
+
+    /**
+     * 발행 관문(ADR 51 결정 6, ADR 52). 배정 관문([gate])과 다르다 — 배정 관문은 작업 지시를 받을 때 한 번 묻고, 이것은 새 로봇
+     * 명령이 나가기 직전마다 묻는다. 허가는 받은 뒤에도 바뀌기 때문이다.
+     */
+    private val issuing = IssuingGate(permits, now)
 
     /** 제안과 승인의 장부(설계안 §6.4). 승인 뒤의 접수는 [commit] 에 남고, 승인의 기록([RemedyDesk.settle])은 접수가 된 뒤에만 한다. */
     private val desk = RemedyDesk(robots, entitlements, withholdEvery, now, wallClock, gate::liveHold)
@@ -210,6 +224,22 @@ class Middleware(
         /** 지금 다음 단위를 막고 있는 기체 수준 결함. 비어 있으면 막힌 것이 없다. */
         var blockedBy: List<Fault> = emptyList()
             internal set
+
+        /**
+         * 지금 이 실행의 새 로봇 명령을 막고 있는 작업 허가(ADR 52). 널이면 막힌 것이 없다.
+         *
+         * **[blockedBy] 와 칸이 다르다.** 결함은 사람이 [release] 로 감수할 수 있지만 허가는 감수할 값이 아니다 — 원천이 다시
+         * `PERMITTED` 를 낼 때만 걷힌다. 한 칸에 두면 해제 한 번이 허가 막음까지 걷는다. 막힌 단위는 실패가 아니고 기다린다 —
+         * 그래서 실행 상태([physicalState])도 운영자 보류로 바꾸지 않는다. 운영자가 판단할 것이 없다.
+         */
+        var permitBlock: PermitBlock? = null
+            internal set
+
+        /**
+         * 개정이 도는 로봇 단위에 보내지 못한 갱신의 **직전 리비전**(기체에서 지금 도는 리비전). 널이면 미룬 갱신이 없다.
+         * 허가가 돌아오면 [pump] 가 보낸다. 그 전에 옛 리비전으로 끝나면 보통의 지연 이벤트 길(새 판의 기대에 대고 설비로 확인)을 탄다.
+         */
+        internal var deferredUpdate: Int? = null
 
         /** 운영자가 [release] 로 감수한 결함의 열쇠 — 같은 결함은 다시 막지 않는다. 새 결함은 막는다. 감사 기록이다. */
         val acknowledgedFaults: MutableSet<String> = linkedSetOf()
@@ -663,36 +693,19 @@ class Middleware(
                         unit.expectedIdentity = fresh.expectedIdentity
                         unit.source = fresh.source
                         unit.destination = fresh.destination
-                        try {
-                            val response = robots.start(
-                                execution.robotId, unit.taskId, order.version, unit.skillType,
-                                withOptionals(execution, unit, fresh.parameters),
-                            )
-                            when {
-                                response.hasHandle() -> if (unit.state == UnitState.IN_DOUBT) {
-                                    execution.handle = response.handle
-                                    unit.state = UnitState.RUNNING
-                                    unit.annotate("IN_DOUBT resolved by revision ${order.version} update")
-                                }
-
-                                // **이미 종착한 태스크다** — 갱신이 닿기 전에 끝났다(계약의 래치, §4.4). 그 종착은 옛 버전의
-                                // 것이고 pump 가 **지연 이벤트**로 받는다(15.1). 여기서 실패로 적으면 물리 결과를 잃는다.
-                                response.rejection.code == RejectionCode.REJECTION_CODE_INVALID_TRANSITION ->
-                                    unit.annotate("revision ${order.version} update rejected: task already terminal under revision $previous")
-
-                                else -> {
-                                    unit.state = UnitState.FAILED
-                                    unit.failureClass = response.rejection.code.name
-                                }
-                            }
-                        } catch (_: RuntimeException) {
-                            // 갱신의 답을 못 받았다 — 적용됐는지 모른다. 도는 중이었더라도 이제는 미확정이다.
-                            unit.state = UnitState.IN_DOUBT
-                            unit.requestedAt = now()
-                            unit.lookups = 0
-                            unit.annotate("revision ${order.version} update unanswered")
-                            execution.physicalState = PhysicalState.IN_DOUBT
+                        // **갱신도 새 로봇 명령이다** — 같은 발행 관문을 지난다(ADR 51 결정 6). 막히면 단위의 리비전과 기대는
+                        // 이미 새 판의 것으로 두고 보내기만 미룬다. 그래야 옛 리비전으로 끝난 결과가 지연 이벤트로 읽혀 새 판의
+                        // 기대에 대고 확인된다 — 보내지 못한 갱신이 «옛 판대로 끝남» 을 새 판의 완료로 적게 하지 않는다.
+                        if (issuable(execution, unit, WithheldIssue.REVISION_UPDATE)) {
+                            // 앞 판의 갱신이 미뤄져 있었으면 이 갱신이 그것까지 싣는다 — 기체에서 도는 것은 그 앞 판이다.
+                            val running = execution.deferredUpdate ?: previous
+                            execution.deferredUpdate = null
+                            sendRevisionUpdate(execution, unit, running)
+                        } else if (unit.state == UnitState.RUNNING) {
+                            // 막힌 채 판이 또 오르면 기체에서 도는 것은 여전히 처음 리비전이다 — 그것을 지킨다.
+                            execution.deferredUpdate = execution.deferredUpdate ?: previous
                         }
+                        // `IN_DOUBT` 이면 따로 미룰 것이 없다. 다음 조회가 새 리비전으로 나가고, 그 조회도 같은 관문을 지난다.
                     }
                     // 플릿에 맡긴 운반은 도중에 바꾸지 않는다 — 플릿 계약에 갱신이 없다. 끝난 뒤 새 주문이다.
                     unit
@@ -711,6 +724,88 @@ class Middleware(
         }
         return Submission.Accepted(execution)
     }
+
+    /**
+     * 도는 로봇 단위에 개정의 갱신을 보낸다 — 같은 태스크 id, 단위의 지금 리비전([ExecutionUnit.revision]). [revise] 와 미룬 갱신을
+     * 허가가 돌아온 뒤 보내는 [pumpRound] 가 함께 쓴다. 부르기 전에 발행 관문을 지났어야 한다.
+     *
+     * @param previous 기체에서 지금 도는 리비전. 거절 사유에 «어느 판으로 끝났나» 로 남는다.
+     */
+    private fun sendRevisionUpdate(execution: Execution, unit: ExecutionUnit, previous: Int) {
+        val revision = unit.revision
+        try {
+            val response = robots.start(
+                execution.robotId, unit.taskId, revision, unit.skillType,
+                withOptionals(execution, unit, unit.parameters),
+            )
+            when {
+                response.hasHandle() -> if (unit.state == UnitState.IN_DOUBT) {
+                    execution.handle = response.handle
+                    unit.state = UnitState.RUNNING
+                    unit.annotate("IN_DOUBT resolved by revision $revision update")
+                }
+
+                // **이미 종착한 태스크다** — 갱신이 닿기 전에 끝났다(계약의 래치, §4.4). 그 종착은 옛 버전의
+                // 것이고 pump 가 **지연 이벤트**로 받는다(15.1). 여기서 실패로 적으면 물리 결과를 잃는다.
+                response.rejection.code == RejectionCode.REJECTION_CODE_INVALID_TRANSITION ->
+                    unit.annotate("revision $revision update rejected: task already terminal under revision $previous")
+
+                else -> {
+                    unit.state = UnitState.FAILED
+                    unit.failureClass = response.rejection.code.name
+                }
+            }
+        } catch (_: RuntimeException) {
+            // 갱신의 답을 못 받았다 — 적용됐는지 모른다. 도는 중이었더라도 이제는 미확정이다.
+            unit.state = UnitState.IN_DOUBT
+            unit.requestedAt = now()
+            unit.lookups = 0
+            unit.annotate("revision $revision update unanswered")
+            execution.physicalState = PhysicalState.IN_DOUBT
+        }
+    }
+
+    /**
+     * **발행 관문을 묻는다**(ADR 51 결정 6, ADR 52) — 이 실행의 기체에 [unit] 으로 향하는 새 로봇 명령([withheld])을 내도 되는가.
+     *
+     * 막히면 [Execution.permitBlock] 에 어느 기체가·무엇 때문에·무엇이 바뀌면 풀리는지를 두고 자취에 한 번 남긴다. 원천은 관측
+     * 시각을 계속 새로 찍으므로 그 시각은 «같은 막음» 의 열쇠에서 뺀다. 통과하면 앞의 막음을 걷고 무엇이 허가했는지를 남긴다.
+     *
+     * 사건을 열지 않는다. 실패가 아니라 기다림이고, 운영자가 판단할 것이 없다.
+     */
+    private fun issuable(execution: Execution, unit: ExecutionUnit, withheld: WithheldIssue): Boolean =
+        when (val verdict = issuing.check(setOf(execution.robotId))) {
+            is IssueVerdict.Issue -> {
+                execution.permitBlock?.let { lifted ->
+                    execution.permitBlock = null
+                    execution.trail(
+                        ISSUE_RESUMED,
+                        "${lifted.unitId} ${lifted.withheld.name}: " + verdict.basis.joinToString { p ->
+                            "${p.robotId}=${p.permit.name} " + p.reasons.joinToString { "by ${it.source} at ${it.observedAt}" }
+                        },
+                    )
+                }
+                true
+            }
+
+            is IssueVerdict.Withheld -> {
+                val previous = execution.permitBlock
+                val sameTarget = previous != null && previous.unitId == unit.unitId && previous.withheld == withheld
+                val block = PermitBlock(unit.unitId, withheld, verdict.robots, since = if (sameTarget) previous!!.since else now())
+                execution.permitBlock = block
+                if (previous?.signature != block.signature) {
+                    execution.trail(
+                        ISSUE_WITHHELD,
+                        "${block.unitId} ${withheld.name}: " + block.robots.joinToString { r ->
+                            "${r.robotId}=${r.permit.name} " + r.reasons.joinToString {
+                                "${it.cause.name} source=${it.source} subject=${it.subject} resume=${it.resumeBasis}"
+                            }
+                        },
+                    )
+                }
+                false
+            }
+        }
 
     // ── 구동
 
@@ -842,6 +937,17 @@ class Middleware(
             }
         }
 
+        // **미룬 개정의 갱신**(ADR 52). 허가가 돌아왔으면 지금 보낸다. 취소가 걸렸으면 보내지 않는다 — 멈추라는 말 뒤에 새 판을
+        // 보내면 기체가 그 판으로 다시 움직일 수 있다.
+        execution.active?.let { unit ->
+            val previous = execution.deferredUpdate ?: return@let
+            if (execution.cancelRequested || unit.state != UnitState.RUNNING) return@let
+            if (issuable(execution, unit, WithheldIssue.REVISION_UPDATE)) {
+                execution.deferredUpdate = null
+                sendRevisionUpdate(execution, unit, previous)
+            }
+        }
+
         val active = execution.active
         if (active != null) {
             val settled = when {
@@ -854,6 +960,13 @@ class Middleware(
                 }
             }
             if (!settled) return
+            // 미룬 갱신이 끝내 안 나갔다 — 단위는 옛 리비전으로 끝났고 그 결과는 지연 이벤트로 새 판의 기대에 대고 확인됐다.
+            // 그 사실을 자취에 남기고 이 단위에 걸린 막음을 걷는다. 다음 단위의 출발은 따로 관문을 묻는다.
+            execution.deferredUpdate?.let { previous ->
+                execution.trail(ISSUE_WITHHELD, "${active.unitId}: revision ${active.revision} update never sent; task ended under revision $previous")
+                execution.deferredUpdate = null
+            }
+            if (execution.permitBlock?.unitId == active.unitId) execution.permitBlock = null
             execution.active = null
             execution.handle = null
             execution.transport = null
@@ -894,6 +1007,16 @@ class Middleware(
         // 결함이 사라져야 다음 단위가 나간다. 못 물어봤으면(null) 막지 않고 그 사실만 남긴다 — 관측 실패로 현장을
         // 세우지는 않되, 없다고도 하지 않는다.
         val blocking = blockingFaults(execution, next)
+        // **작업 허가는 결함과 함께 묻고 따로 둔다**(ADR 52). 둘 다 서 있으면 둘 다 보여야 하고, 해제([release])는 결함만
+        // 감수한다. 그리고 ★**두 침묵은 다르다** — 위의 결함 관문은 못 물으면 통과시키고(관측 실패로 현장을 세우지 않는다),
+        // 이 관문은 모르면(UNKNOWN) 막는다. 허가를 모른 채 내는 것은 «막혀 있을지 모르는 셀에 새 일을 낸다» 이다.
+        // 로봇 경로만 묻는다 — 플릿 운반은 어느 기체가 갈지 플릿이 정하고, 설비 대기는 아무것도 보내지 않는다.
+        val permitted = if (next.route == Route.ROBOT) {
+            issuable(execution, next, WithheldIssue.START)
+        } else {
+            if (execution.permitBlock?.withheld == WithheldIssue.START) execution.permitBlock = null
+            true
+        }
         if (blocking.isNotEmpty()) {
             execution.blockedBy = blocking
             execution.physicalState = PhysicalState.OPERATOR_HOLD
@@ -905,6 +1028,8 @@ class Middleware(
             return
         }
         execution.blockedBy = emptyList()
+        // 막히면 단위는 `PENDING` 그대로 기다린다. 실패도 운영자 보류도 아니고, 허가가 돌아오는 라운드에 나간다.
+        if (!permitted) return
         startUnit(execution, next)
     }
 
@@ -912,7 +1037,9 @@ class Middleware(
         if (next.route != Route.ROBOT) return emptyList()
         val view = views[execution.robotId]
         if (view == null || !view.observable) {
-            next.annotate("robot faults not observable before start — proceeding without the gate")
+            // 한 번만 적는다 — 허가가 막는 동안 이 관문은 라운드마다 다시 불리고, 같은 메모가 쌓이면 응답의 미완 사유가 넘친다.
+            val note = "robot faults not observable before start — proceeding without the gate"
+            if (next.note?.contains(note) != true) next.annotate(note)
             return emptyList()
         }
         return view.faults.values.filter { !it.canAcceptNewTask && faultKey(it) !in execution.acknowledgedFaults }
@@ -925,6 +1052,9 @@ class Middleware(
     /**
      * 운영자의 해제 — *지금 막고 있는* 결함을 감수하고 다음 단위로 간다. 결함을 지우지 않는다(그것은 기체 쪽 일이고
      * 계약에 그 표면이 없다). 감수한 열쇠가 남으므로 같은 결함은 다시 막지 않고, **새 결함은 다시 막는다.**
+     *
+     * **작업 허가의 막음([Execution.permitBlock])은 건드리지 않는다**(ADR 52). 허가는 사람이 감수할 값이 아니라 원천이 다시
+     * `PERMITTED` 를 낼 때만 걷힌다. 결함 없이 허가만 막고 있으면 거짓을 돌려준다.
      */
     fun release(executionId: String): Boolean {
         val execution = executions[executionId] ?: return false
@@ -1074,6 +1204,13 @@ class Middleware(
     private fun resolveDoubt(execution: Execution, unit: ExecutionUnit): Boolean {
         val lookup = lookupOf(unit.route)
         if (lookup == ExecutionLookup.CLIENT_REFERENCE && unit.lookups < lookupRetries) {
+            // **로봇 경로의 조회는 같은 참조의 `StartTask` 재전송이다** — 원 요청이 안 닿았으면 새 접수가 되어 기체가 움직인다.
+            // 그래서 새 발행과 같은 관문을 지난다(ADR 52). 막히면 조회 횟수를 쓰지 않고 미확정인 채 기다린다 — 횟수를 쓰면
+            // 허가가 막은 동안에 운영자 판단으로 넘어가, «하류가 답하지 않았다» 가 아닌 것이 그렇게 적힌다.
+            if (unit.route == Route.ROBOT && !issuable(execution, unit, WithheldIssue.IN_DOUBT_LOOKUP)) {
+                execution.physicalState = PhysicalState.IN_DOUBT
+                return false
+            }
             unit.lookups += 1
             val found = try {
                 lookupDownstream(execution, unit)
@@ -1805,6 +1942,9 @@ class Middleware(
         cleanup: String,
         requested: Boolean = true,
     ) {
+        // 끝난 실행에는 낼 것이 없다 — 막음과 미룬 갱신을 걷는다. 막혔던 사실은 자취의 `ISSUE_WITHHELD` 에 남아 있다.
+        execution.permitBlock = null
+        execution.deferredUpdate = null
         if (!requested) {
             execution.physicalState = PhysicalState.ABORTED
             notify(execution)
@@ -1935,6 +2075,15 @@ class Middleware(
 
         /** [resume] 이 마지막 로봇 태스크 앞의 로봇 단위를 설비 근거 재확인 없이 닫기로 했다는 실행 자취의 종류. */
         const val RESUME_PRIOR_ROBOT = "RESUME_PRIOR_ROBOT"
+
+        /** 발행 관문이 새 로봇 명령을 막았다는 실행 자취의 종류(ADR 52). 같은 막음은 한 번만 남는다. */
+        const val ISSUE_WITHHELD = "ISSUE_WITHHELD"
+
+        /**
+         * 발행 관문이 더는 막지 않는다는 실행 자취의 종류. 무엇이 허가했는지(원천·관측 시각)를 싣는다. 결함 관문이 따로 막고 있으면
+         * 명령은 아직 안 나간다 — 이 줄은 «허가가 돌아왔다» 이지 «나갔다» 가 아니다.
+         */
+        const val ISSUE_RESUMED = "ISSUE_RESUMED"
 
         /** 재작업 태스크 id 의 접미사. `startUnit` 이 재작업한 단위에 `@rN` 으로 붙인다. */
         private val RETRY_SUFFIX = Regex("""@r([1-9]\d*)""")

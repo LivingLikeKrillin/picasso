@@ -140,6 +140,20 @@
 
 ---
 
+## 데이터 접합부: 작업 허가 (Work Permit)
+
+**인터페이스**: `WorkPermitPort.read(): List<PermitReading>` (기본은 붙이지 않음)
+
+구현은 picasso-ops 가 현장 안전 신호에서 제공합니다. 포트를 붙이지 않으면(`Middleware(permits = null)`) 미들웨어는 발행 관문을 닫지 않고 기존 동작을 유지합니다. 포트를 붙이면 새 로봇 명령을 낼 자리마다 새로 읽습니다.
+
+`read()` 는 pump 안에서 불리므로 미들웨어를 지키는 소비자(호스트)의 잠금 아래에서 돈다고 전제합니다(미들웨어 자체에 스레드가 없습니다). 그래서 막히지 않아야 하고, 이미 검사한 스냅숏을 돌려줍니다. 여기서 DB 를 읽지 않으며 포트가 예외를 던지면 전부 `UNKNOWN` 으로 처리합니다.
+
+- **데이터 공급 구현 전환 작업**:
+  - 현장 안전 신호에서 작업 허가 상태를 읽어 검사된 스냅숏을 넘겨주는 `WorkPermitPort` 구현체를 제공합니다. 기본값은 포트를 붙이지 않는 상태(`Middleware(permits = null)`)이며, 허가 원천이 없는 현장을 닫아 전체가 멈추지 않도록 기존 동작을 유지합니다.
+- **불변 유지 대상**: 닫힌 쪽 판정 규칙(`UNKNOWN` 은 막음), 범위는 기체 id 집합, 새 로봇 명령이 나가는 세 묻는 자리(`pumpRound` 의 `startUnit` 앞, `revise` 의 `robots.start` 앞, `resolveDoubt` 의 조회 앞).
+
+---
+
 ## 색인 — 자리와 인터페이스
 
 | 자리 | 인터페이스 | 어디 |
@@ -147,6 +161,7 @@
 | 설비 | `CellSignals` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 임무 정의 | `MissionCatalog` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 현장 시간값 | `SiteTimingsSource` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
+| 작업 허가 | `WorkPermitPort` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 플릿 | `AmrFleetPort` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 로봇(소비자) | `RobotPort` | `picasso/src/main/kotlin/dev/picasso/middleware/Ports.kt` |
 | 벤더 — Spot | `SpotLink` | `adapter-boston-dynamics-spot/src/main/kotlin/dev/picasso/adapter/spot/SpotLink.kt` |
@@ -164,4 +179,4 @@
 
 > **검증 보증:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
 
-> 마지막 대조: 2026-10-14 · sha256:8dfce2d91e16 · 열림: §15.34, C-3, §15.5, §15.156
+> 마지막 대조: 2026-10-14 · sha256:fd64b834c132 · 열림: §15.34, C-3, §15.5, §15.156

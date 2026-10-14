@@ -432,3 +432,72 @@ data class SiteTimings(
             )
     }
 }
+
+// ── 작업 허가 — 셀 안전 상태의 정보 투영(ADR 52). 안전 기능이 아니다.
+
+/**
+ * 작업 허가의 값 셋. **이 저장소의 어휘이며 계약 proto 에 들어가지 않는다**(ADR 9·36) — 받는 쪽은 발행 관문 하나이고 로봇은
+ * 이 값을 읽지 않는다.
+ *
+ * - [PERMITTED] 새 일을 내도 된다고 원천이 지금 말한다.
+ * - [INHIBITED] 원천이 막는다. 막는 주체를 [PermitScope.subject] 로 말한다.
+ * - [UNKNOWN] 모른다. **발행 관문은 이것을 막음으로 읽는다**(닫힌 쪽).
+ */
+enum class WorkPermit { PERMITTED, INHIBITED, UNKNOWN }
+
+/**
+ * **작업 허가의 출처**(ADR 52) — 현장의 안전 상태(셀 문, 광커튼, 셀 모드 같은)를 기체 집합마다 새 발행의 허가로 비춘 값을 준다.
+ *
+ * ⚠ **안전 기능이 아니다**(ADR 32). 비상정지·보호 정지·사람 감지는 계약 아래의 안전 계통이 하고, 이 포트는 그 상태를 정보로
+ * 옮길 뿐이다. 이 값이 늦거나 틀려도 안전 계통은 그대로 기체를 세운다 — 그래서 이 층은 이 값으로 **새 발행만** 막고 취소·관측은
+ * 막지 않는다.
+ *
+ * 소비자는 미들웨어의 발행 관문 하나다(ADR 9, ADR 51 결정 6). 구현은 담는 쪽(picasso-ops)이 현장 신호에서 짓는다.
+ *
+ * [read] 는 새 발행을 내기 직전마다 불린다. 미들웨어를 지키는 호스트의 잠금 아래에서 돌므로 막히지 않아야 하고, 이미 읽어 둔
+ * 스냅숏을 돌려준다([SiteTimingsSource.current] 와 같은 전제). **던지면 모든 기체가 [WorkPermit.UNKNOWN] 이고 막힌다.**
+ */
+fun interface WorkPermitPort {
+
+    /** 원천마다 지금의 판독. 원천이 하나면 원소도 하나다. */
+    fun read(): List<PermitReading>
+}
+
+/**
+ * 원천 하나의 판독.
+ *
+ * @param source 원천의 이름. 막음을 보일 때 «누가 막았나» 의 앞머리로 실린다.
+ * @param session 원천의 지금 세션. 원천이 다시 붙을 때마다 바뀐다. 이것과 다른 세션의 줄([PermitScope.session])은 앞 세션의
+ *   관측이라 [WorkPermit.UNKNOWN] 으로 읽힌다.
+ * @param governed 이 원천이 맡은 기체 전부 — **미리 정해 둔 넓은 범위**다. 원천이 어느 기체인지 말하지 못한 줄
+ *   ([PermitScope.robots] 가 널)은 이 기체 전부를 모름으로 만든다.
+ */
+data class PermitReading(
+    val source: String,
+    val session: String,
+    val governed: Set<String>,
+    val scopes: List<PermitScope>,
+)
+
+/**
+ * 판독의 줄 하나 — 기체 집합 하나와 그 허가.
+ *
+ * **범위의 열쇠는 기체 id 의 집합이다.** 구역이나 셀 객체가 아니다 — 이 층이 아는 이름은 기체 id 이고, 구역을 기체로 푸는 것은
+ * 원천(현장)의 일이다.
+ *
+ * @param robots 이 줄이 말하는 기체. 널이면 **원천이 어느 기체인지 모른다** — [PermitReading.governed] 전부가 모름이 된다.
+ * @param subject 막는 주체. 원천이 말하지 않았으면 널.
+ * @param resumeBasis 무엇이 바뀌면 풀리는가. 원천이 말하지 않았으면 널이고, 그때는 이 층이 까닭에서 정한 말을 보인다.
+ * @param observedAt 원천이 이 값을 관측한 시각.
+ * @param validFor 관측 시각부터 이 값이 지금의 값으로 읽히는 폭. 지나면 [WorkPermit.UNKNOWN] 이다.
+ * @param session 이 줄을 관측한 원천 세션.
+ */
+data class PermitScope(
+    val robots: Set<String>?,
+    val permit: WorkPermit,
+    val subject: String?,
+    val resumeBasis: String?,
+    val observedAt: Instant,
+    val validFor: Duration,
+    val session: String,
+)
