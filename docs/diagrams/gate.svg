@@ -11,7 +11,7 @@
   <text x="252" y="163" font-size="10.5" text-anchor="middle" fill="#57606a">기준선: 베이스 브랜치의 동일 프로파일 파일</text>
   <rect x="520" y="118" width="456" height="62" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
   <text x="748" y="144" font-size="13" font-weight="600" text-anchor="middle" fill="#1f2328">런타임 레지스트리 등록</text>
-  <text x="748" y="163" font-size="10.5" text-anchor="middle" fill="#57606a">기준선: 동일 profile_id의 직전 ACTIVE 개정판</text>
+  <text x="748" y="163" font-size="10.5" text-anchor="middle" fill="#57606a">기준선: 동일 profile_id의 직전 ACTIVE 리비전</text>
   <polyline points="252,180 252,206 748,206 748,180" fill="none" stroke="#57606a" stroke-width="1.6"/>
   <polyline points="500,206 500,226" fill="none" stroke="#57606a" stroke-width="1.6" marker-end="url(#am)"/>
   <rect x="24" y="226" width="952" height="64" rx="6" fill="#ddf4ff" stroke="#0969da"/>
@@ -29,13 +29,13 @@
   <text x="254" y="434" font-size="11" fill="#57606a">값 범위 역전(min &gt; max) · 미등록 error_type 검출</text>
   <rect x="24" y="450" width="952" height="34" rx="6" fill="#ffffff" stroke="#e6e9ee"/>
   <text x="42" y="472" font-size="11.5" font-weight="600" fill="#1f2328">④ proto 교차 검증</text>
-  <text x="254" y="472" font-size="11" fill="#57606a">능력 카탈로그와 프로파일 간 양방향 선언 정합성 검증</text>
+  <text x="254" y="472" font-size="11" fill="#57606a">케이퍼빌리티 카탈로그와 프로파일 간 양방향 선언 정합성 검증</text>
   <rect x="24" y="488" width="952" height="34" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
   <text x="42" y="510" font-size="11.5" font-weight="600" fill="#1f2328">⑤ contracts 의존성 격리</text>
   <text x="254" y="510" font-size="11" fill="#57606a">코어 계약 모듈(contracts)의 외부 의존성 제로 보장</text>
   <rect x="24" y="526" width="952" height="34" rx="6" fill="#ffffff" stroke="#e6e9ee"/>
-  <text x="42" y="548" font-size="11.5" font-weight="600" fill="#1f2328">⑥ 능력 어휘 파괴 검사</text>
-  <text x="254" y="548" font-size="11" fill="#57606a">영향도 분석 없는 임의의 능력(LogicalCapability) 축소 차단</text>
+  <text x="42" y="548" font-size="11.5" font-weight="600" fill="#1f2328">⑥ 케이퍼빌리티 어휘 파괴 검사</text>
+  <text x="254" y="548" font-size="11" fill="#57606a">영향도 분석 없는 임의의 케이퍼빌리티(LogicalCapability) 축소 차단</text>
   <rect x="24" y="564" width="952" height="34" rx="6" fill="#fbfcfd" stroke="#e6e9ee"/>
   <text x="42" y="586" font-size="11.5" font-weight="600" fill="#1f2328">⑦ 기종 분기 금지</text>
   <text x="254" y="586" font-size="11" fill="#57606a">공용 코어 소스 및 주석 내 벤더/기종 심볼 침투 원천 차단</text>
@@ -43,6 +43,6 @@
   <text x="42" y="624" font-size="11.5" font-weight="600" fill="#1f2328">⑧ 프로파일 전용 변경</text>
   <text x="254" y="624" font-size="11" fill="#57606a">프로파일 단독 변경 PR 내 소스 코드 혼입 차단</text>
   <rect x="24" y="648" width="952" height="56" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
-  <text x="44" y="671" font-size="12.5" font-weight="600" fill="#1f2328">⑨ 음성 검증(Negative Testing) — 게이트 차단 유효성 자동 검증</text>
+  <text x="44" y="671" font-size="12.5" font-weight="600" fill="#1f2328">⑨ 네거티브 검증(Negative Testing) — 게이트 차단 유효성 자동 검증</text>
   <text x="44" y="690" font-size="11" fill="#1a7f37">위성 테스트케이스가 정상적으로 빌드를 실패시키지 못할 경우 테스트 자체 실패 처리 (False Negative 방지)</text>
 </svg>

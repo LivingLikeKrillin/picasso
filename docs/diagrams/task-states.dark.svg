@@ -4,14 +4,14 @@
     <marker id="aw" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#d29922"/></marker>
   </defs>
   <rect x="6" y="6" width="988" height="708" rx="14" fill="#0d1117" stroke="#30363d"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">태스크 상태 머신과 종착 상태 래칭(Latch Invariant)</text>
-  <text x="32" y="72" font-size="12.5" fill="#8b949e">종착 상태에 진입한 태스크는 비가역적으로 고정되며, 비종착 상태로의 역전이가 엄격히 금지됩니다.</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">태스크 상태 머신과 종료 상태 래칭(Latch Invariant)</text>
+  <text x="32" y="72" font-size="12.5" fill="#8b949e">종료 상태에 진입한 태스크는 비가역적으로 고정되며, 비종착 상태로의 역전이가 엄격히 금지됩니다.</text>
   <text x="32" y="93" font-size="12.5" fill="#8b949e">상태 영역 간 전이는 기체 어댑터에서 보고된 이벤트 및 실행 결과에 의해 결정됩니다.</text>
   <text x="32" y="114" font-size="12.5" fill="#8b949e">상위 제어 명령(StartTask · PauseTask · RetryTask · CancelTask)은 비종착 영역 내부 전이만을 유발합니다.</text>
   <rect x="24" y="150" width="416" height="448" rx="10" fill="#161b22" stroke="#21262d"/>
   <text x="40" y="174" font-size="11" font-weight="700" letter-spacing="1" fill="#8b949e">비종착 상태군 (Non-terminal States: 6종) — 가역적 전이 영역</text>
   <rect x="592" y="150" width="384" height="448" rx="10" fill="#0f2f1a" stroke="#3fb950"/>
-  <text x="608" y="174" font-size="11" font-weight="700" letter-spacing="1" fill="#3fb950">종착 상태군 (Terminal States: 4종) — 불변 래칭 영역</text>
+  <text x="608" y="174" font-size="11" font-weight="700" letter-spacing="1" fill="#3fb950">종료 상태군 (Terminal States: 4종) — 불변 래칭 영역</text>
   <rect x="40" y="194" width="384" height="52" rx="6" fill="#1c2128" stroke="#30363d"/>
   <text x="56" y="216" font-size="12.5" font-weight="600" fill="#c9d1d9">ACCEPTED</text>
   <text x="56" y="234" font-size="10.5" fill="#8b949e">태스크 등록 완료 (실행 대기)</text>

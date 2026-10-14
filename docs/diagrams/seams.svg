@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1112" viewBox="0 0 1000 1112" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
   <rect x="6" y="6" width="988" height="1100" rx="14" fill="#ffffff" stroke="#d0d7de"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">물리 하드웨어 및 현장 연동을 위한 9대 교체 경계면 (Integration Seams)</text>
-  <text x="32" y="72" font-size="12.5" fill="#57606a">각 경계면은 단일 인터페이스 계약으로 정의되며, 해당 인터페이스 구현만으로 연동이 완결됩니다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#57606a">9개 경계면은 상호 독립적으로 격리되어 특정 설비/기종 전환 시 타 컴포넌트 영향이 차단됩니다.</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#1f2328">물리 하드웨어 및 현장 연동을 위한 9대 접합부 (Integration Seams)</text>
+  <text x="32" y="72" font-size="12.5" fill="#57606a">각 접합부는 단일 인터페이스 계약으로 정의되며, 해당 인터페이스 구현만으로 연동이 완결됩니다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#57606a">9개 접합부는 상호 독립적으로 격리되어 특정 설비/기종 전환 시 타 컴포넌트 영향이 차단됩니다.</text>
   <rect x="24" y="118" width="952" height="54" rx="6" fill="#eaf3ea" stroke="#1a7f37"/>
   <text x="44" y="141" font-size="12.5" font-weight="600" fill="#1f2328">미들웨어 코어 — picasso · contracts · adapter-host · capability · uplink · profile-model</text>
-  <text x="44" y="160" font-size="11" fill="#1a7f37">상기 6개 코어 컴포넌트는 물리 장비 종속성이 없으며, 현장 연동 작업은 경계면 외부 구현체로 완결됩니다.</text>
+  <text x="44" y="160" font-size="11" fill="#1a7f37">상기 6개 코어 컴포넌트는 물리 장비 종속성이 없으며, 현장 연동 작업은 접합부 외부 구현체로 완결됩니다.</text>
   <rect x="24" y="184" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
   <text x="44" y="207" font-size="13" font-weight="600" fill="#1f2328">1 · 상위 도메인 시스템 (MES · WMS · SCADA)</text>
   <text x="956" y="207" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">인바운드 (Inbound)</text>
@@ -14,7 +14,7 @@
   <text x="44" y="247" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">연동 요구사항</text>
   <text x="112" y="247" font-size="11" fill="#1f2328">상위 통신 프로토콜(OPC UA · REST · 메시지 큐)을 중계하는 인바운드 ACL 어댑터 구현</text>
   <text x="44" y="265" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">불변 영역</text>
-  <text x="112" y="265" font-size="11" fill="#1a7f37">picasso 코어 전체 — 능력 오케스트레이션 · 상태 엔진 · 포트 계층</text>
+  <text x="112" y="265" font-size="11" fill="#1a7f37">picasso 코어 전체 — 케이퍼빌리티 오케스트레이션 · 상태 엔진 · 포트 계층</text>
   <rect x="24" y="278" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
   <text x="44" y="301" font-size="13" font-weight="600" fill="#1f2328">2 · 설비 제어 신호 (PLC · WCS)</text>
   <text x="956" y="301" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">인바운드 (Inbound)</text>
@@ -57,13 +57,13 @@
   <text x="44" y="696" font-size="10.5" fill="#57606a">SpotLink · DigitLink · G1Link · OrbitLink — 기종별 전용 모듈 경계 내에 캡슐화</text>
   <text x="956" y="696" font-size="10" text-anchor="end" fill="#8b95a1">adapter-&lt;기종&gt; · SpotLink.kt 외 셋</text>
   <text x="44" y="717" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">연동 요구사항</text>
-  <text x="112" y="717" font-size="11" fill="#1f2328">벤더 전용 SDK/프로토콜을 연동하여 링크 인터페이스 구현 (Orbit은 HTTP 실물 연동 내장)</text>
+  <text x="112" y="717" font-size="11" fill="#1f2328">벤더 전용 SDK/프로토콜을 연동하여 링크 인터페이스 구현 (Orbit은 HTTP 실제 하드웨어 연동 내장)</text>
   <text x="44" y="735" font-size="10" font-weight="700" letter-spacing="0.5" fill="#1a7f37">불변 영역</text>
   <text x="112" y="735" font-size="11" fill="#1a7f37">표준 계약 · adapter-host · 미들웨어 코어 · 타 기종 어댑터 모듈 전체</text>
   <rect x="24" y="748" width="952" height="88" rx="6" fill="#f6f8fa" stroke="#d0d7de"/>
   <text x="44" y="771" font-size="13" font-weight="600" fill="#1f2328">7 · 원격 측정 및 상태 발행 (MQTT Uplink)</text>
   <text x="956" y="771" font-size="10" font-weight="700" text-anchor="end" letter-spacing="1" fill="#8b95a1">아웃바운드 (Outbound)</text>
-  <text x="44" y="790" font-size="10.5" fill="#57606a">Publisher.publish(Publication) — 목적지: NoOp · 메모리 기록 · Eclipse Paho 실물 브로커</text>
+  <text x="44" y="790" font-size="10.5" fill="#57606a">Publisher.publish(Publication) — 목적지: NoOp · 메모리 기록 · Eclipse Paho 실제 브로커</text>
   <text x="956" y="790" font-size="10" text-anchor="end" fill="#8b95a1">uplink · Publisher.kt</text>
   <text x="44" y="811" font-size="10" font-weight="700" letter-spacing="0.5" fill="#8b95a1">연동 요구사항</text>
   <text x="112" y="811" font-size="11" fill="#1f2328">Paho 클라이언트 구현체 내장 — 대상 브로커 연결 주소 및 접속 정보 설정</text>

@@ -3,9 +3,9 @@
     <marker id="am" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#8b949e"/></marker>
   </defs>
   <rect x="6" y="6" width="988" height="608" rx="14" fill="#0d1117" stroke="#30363d"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">상위 작업 주문(JobOrder)의 원자적 실행 단위(ExecutionUnit) 분해 구조</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">상위 작업 지시(JobOrder)의 원자적 실행 단위(ExecutionUnit) 분해 구조</text>
   <text x="32" y="72" font-size="12.5" fill="#8b949e">상위 시스템은 목적 결과만 지정하며, 대상 기체·스킬 매핑·작업 분할은 미들웨어가 결정합니다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#8b949e">분할 규칙 및 성립 조건은 독립된 LogicalCapability 단위로 정의되며, 능력 확장에 대해 공통 엔진은 불변을 유지합니다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#8b949e">분할 규칙 및 성립 조건은 독립된 LogicalCapability 단위로 정의되며, 케이퍼빌리티 확장에 대해 공통 엔진은 불변을 유지합니다.</text>
   <rect x="24" y="118" width="952" height="64" rx="6" fill="#121d2f" stroke="#58a6ff"/>
   <text x="44" y="143" font-size="12.5" font-weight="600" fill="#c9d1d9">JobOrder — 상위 도메인 시스템(MES · WMS · SCADA) 발주 명세</text>
   <text x="44" y="164" font-size="11" fill="#58a6ff">jobOrderId · workMasterId · version · requiredEvidence · equipmentRequirements[equipmentUse, properties] · parameters</text>
@@ -92,10 +92,10 @@
   <text x="692" y="462" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">보증 수준</text>
   <text x="756" y="462" font-size="10.5" fill="#c9d1d9">E0 (자율 보고 — 독립 물리 센서 미연동)</text>
   <text x="692" y="480" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">선택 인자</text>
-  <text x="756" y="480" font-size="10.5" fill="#c9d1d9">mode (작업 주문 명시 시 적용)</text>
+  <text x="756" y="480" font-size="10.5" fill="#c9d1d9">mode (작업 지시 명시 시 적용)</text>
   <text x="692" y="498" font-size="9.5" font-weight="700" letter-spacing="0.5" fill="#d29922">오류 분류</text>
   <text x="756" y="498" font-size="10.5" fill="#c9d1d9">NO_LOCATION_FOR_TARGET</text>
   <rect x="24" y="544" width="952" height="54" rx="6" fill="#161b22" stroke="#21262d"/>
-  <text x="44" y="566" font-size="11" fill="#8b949e">요구 증거 등급이 해당 능력의 최대 지원 등급을 초과하면 접수 단계에서 거부 (예: InspectAsset에 E2 요구 시 거부)</text>
-  <text x="44" y="585" font-size="11" fill="#8b949e">시간 윈도우 δ(30s · 15s) · IN_DOUBT 유예(60s) · 정체 감지 창(5분)은 능력별 파라미터이며 현장 환경에 따라 구성 — LogicalCapability.kt</text>
+  <text x="44" y="566" font-size="11" fill="#8b949e">요구 증거 등급이 해당 케이퍼빌리티의 최대 지원 등급을 초과하면 작업 수락 단계에서 거부 (예: InspectAsset에 E2 요구 시 거부)</text>
+  <text x="44" y="585" font-size="11" fill="#8b949e">시간 윈도우 δ(30s · 15s) · IN_DOUBT 유예(60s) · 정체 감지 창(5분)은 케이퍼빌리티별 파라미터이며 현장 환경에 따라 구성 — LogicalCapability.kt</text>
 </svg>
