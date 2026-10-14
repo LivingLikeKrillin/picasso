@@ -22,7 +22,7 @@
   <text x="40" y="284" font-size="11" font-weight="700" letter-spacing="1" fill="#58a6ff">② 코어 계약 및 거버넌스 레지스트리 (Core Contracts &amp; Registry)</text>
   <rect x="40" y="298" width="454" height="50" rx="4" fill="#0d1117" stroke="#58a6ff"/>
   <text x="267" y="319" font-size="12.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">표준 계약 (Protobuf)</text>
-  <text x="267" y="337" font-size="10.5" text-anchor="middle" fill="#8b949e">스킬 명세 · 수명주기 상태 · 메타데이터 헤더 (불변 코어 축)</text>
+  <text x="267" y="337" font-size="10.5" text-anchor="middle" fill="#8b949e">스킬 명세 · 수명주기 상태 · 메타데이터 헤더 (불변 코어 차원)</text>
   <rect x="506" y="298" width="454" height="50" rx="4" fill="#0d1117" stroke="#58a6ff"/>
   <text x="733" y="319" font-size="12.5" font-weight="600" text-anchor="middle" fill="#c9d1d9">거버넌스 레지스트리</text>
   <text x="733" y="337" font-size="10.5" text-anchor="middle" fill="#8b949e">기종 프로파일 · 어댑터 바인딩 · 소비자 접근 제어 원장</text>

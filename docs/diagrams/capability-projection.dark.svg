@@ -1,13 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="757" viewBox="0 0 1000 757" font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans KR,Segoe UI,-apple-system,Helvetica,Arial,sans-serif">
   <rect x="6" y="6" width="988" height="745" rx="14" fill="#0d1117" stroke="#30363d"/>
-  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">프로파일과 Capability 투영 경계 (Projection Boundary)</text>
+  <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">프로파일과 Capability 프로젝션 경계 (Projection Boundary)</text>
   <text x="32" y="72" font-size="12.5" fill="#8b949e">프로파일 문서 전체가 외부에 노출되지 않으며, 소비자의 실행 판정에 필요한 필드만 Capability로 정제 투영됩니다.</text>
   <text x="32" y="93" font-size="12.5" fill="#8b949e">프로파일 최상위 13개 필드 중 8개가 gRPC Capability 메시지로 투영되고, 5개는 내부 메타 설정으로 유지됩니다.</text>
   <rect x="24" y="118" width="952" height="56" rx="6" fill="#121d2f" stroke="#58a6ff"/>
-  <text x="44" y="141" font-size="12.5" font-weight="600" fill="#c9d1d9">투영 기준: 소비자의 런타임 제어 및 적합성 판단에 필수적인가</text>
-  <text x="44" y="160" font-size="11" fill="#58a6ff">해당 원칙이 Capability 투영 함수의 설계 규격이며, 에뮬레이터/어댑터는 계약에 부합하는 필드만을 직렬화합니다.</text>
+  <text x="44" y="141" font-size="12.5" font-weight="600" fill="#c9d1d9">프로젝션 기준: 소비자의 런타임 제어 및 적합성 판단에 필수적인가</text>
+  <text x="44" y="160" font-size="11" fill="#58a6ff">해당 원칙이 Capability 프로젝션 함수의 설계 규격이며, 에뮬레이터/어댑터는 계약에 부합하는 필드만을 직렬화합니다.</text>
   <rect x="24" y="214" width="462" height="445" rx="10" fill="#0f2f1a" stroke="#3fb950"/>
-  <text x="40" y="238" font-size="11" font-weight="700" letter-spacing="1" fill="#3fb950">Capability 투영 필드 (8종)</text>
+  <text x="40" y="238" font-size="11" font-weight="700" letter-spacing="1" fill="#3fb950">Capability 프로젝션 필드 (8종)</text>
   <text x="40" y="254" font-size="10" fill="#8b949e">소비자 호환성 판정 및 사전 검증에 사용</text>
   <rect x="36" y="266" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="50" y="285" font-size="11" font-weight="600" fill="#c9d1d9">vendor · model · profile_revision</text>
@@ -38,7 +38,7 @@
   <text x="530" y="254" font-size="10" fill="#8b949e">엔진 내부 동작 및 에뮬레이션 전용 설정</text>
   <rect x="526" y="266" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="540" y="285" font-size="11" font-weight="600" fill="#c9d1d9">schema_version</text>
-  <text x="540" y="301" font-size="10" fill="#8b949e">프로파일 문서 자체의 메타데이터 (기체 능력과 무관)</text>
+  <text x="540" y="301" font-size="10" fill="#8b949e">프로파일 문서 자체의 메타데이터 (기체 케이퍼빌리티와 무관)</text>
   <rect x="526" y="315" width="438" height="44" rx="4" fill="#0d1117" stroke="#30363d"/>
   <text x="540" y="334" font-size="11" font-weight="600" fill="#c9d1d9">derived_from</text>
   <text x="540" y="350" font-size="10" fill="#8b949e">벤더 원문 문서 출처 및 작성자 감사용 추적 정보</text>
@@ -53,5 +53,5 @@
   <text x="540" y="497" font-size="10" fill="#8b949e">발신자(에뮬레이터/어댑터) 내부 버퍼 리소스 설정</text>
   <rect x="24" y="679" width="952" height="56" rx="6" fill="#161b22" stroke="#21262d"/>
   <text x="44" y="702" font-size="11" fill="#8b949e">동일한 경계가 이중으로 보호됩니다. 런타임 gRPC 메시지 스키마에서 내부 필드가 배제되며,</text>
-  <text x="44" y="721" font-size="11" fill="#8b949e">CI 파이프라인(게이트 6번)이 투영 목록을 기반으로 능력 축소 및 호환성 파괴를 정적 검증합니다.</text>
+  <text x="44" y="721" font-size="11" fill="#8b949e">CI 파이프라인(게이트 6번)이 프로젝션 목록을 기반으로 케이퍼빌리티 축소 및 호환성 파괴를 정적 검증합니다.</text>
 </svg>

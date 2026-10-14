@@ -25,7 +25,7 @@
   <!-- hidden-edges: 20 -->
   <g font-family="'Helvetica Neue', Helvetica, Arial, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', sans-serif" fill="#e6e6e6">
     <text x="20" y="36" font-size="17" font-weight="700">모듈 의존 관계</text>
-    <text x="20" y="56" font-size="12" fill="#9a9a9a">모듈 16 개 사이의 출하 의존 관계</text>
+    <text x="20" y="56" font-size="12" fill="#9a9a9a">모듈 16 개 사이의 프로덕션 의존 관계</text>
 
     <!-- role zones -->
     <rect x="24" y="188" width="144" height="224" fill="none" stroke="#4a4a4a"/>
@@ -33,7 +33,7 @@
     <rect x="184" y="84" width="304" height="192" fill="none" stroke="#4a4a4a"/>
     <text x="196" y="100" font-size="11" fill="#9a9a9a">런타임 및 통합 시험 모듈</text>
     <rect x="184" y="324" width="304" height="112" fill="none" stroke="#4a4a4a"/>
-    <text x="196" y="428" font-size="11" fill="#9a9a9a">능력 협상 및 원격측정 모듈</text>
+    <text x="196" y="428" font-size="11" fill="#9a9a9a">케이퍼빌리티 협상 및 원격측정 모듈</text>
     <rect x="504" y="84" width="144" height="328" fill="none" stroke="#4a4a4a"/>
     <text x="516" y="100" font-size="11" fill="#9a9a9a">기종 어댑터 모듈</text>
     <rect x="664" y="188" width="144" height="224" fill="none" stroke="#4a4a4a"/>
@@ -66,7 +66,7 @@
     <text x="42" y="391" font-size="11" fill="#9a9a9a">참조 클라이언트</text>
     <rect x="192" y="352" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
     <text x="202" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">capability</text>
-    <text x="202" y="391" font-size="11" fill="#9a9a9a">능력 투영과 협상</text>
+    <text x="202" y="391" font-size="11" fill="#9a9a9a">프로젝션과 협상</text>
     <rect x="352" y="352" width="128" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
     <text x="362" y="375" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">uplink</text>
     <text x="362" y="391" font-size="11" fill="#9a9a9a">원격측정 및 보고</text>
@@ -112,7 +112,7 @@
     <!-- key -->
     <g font-size="10.5" fill="#9a9a9a">
       <path d="M20,536 H44" fill="none" stroke="#e6e6e6" stroke-width="1.2"/>
-      <text x="50" y="540" font-size="11">출하 의존 관계</text>
+      <text x="50" y="540" font-size="11">프로덕션 의존 관계</text>
       <rect x="160" y="530" width="14" height="10" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
       <text x="180" y="540" font-size="11">저장소 모듈</text>
       <rect x="268" y="530" width="14" height="10" fill="#2b3f6b" stroke="#8fa2cc"/>

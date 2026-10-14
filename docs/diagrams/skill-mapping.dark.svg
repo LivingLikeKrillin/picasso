@@ -5,10 +5,10 @@
   </defs>
   <rect x="6" y="6" width="988" height="744" rx="14" fill="#0d1117" stroke="#30363d"/>
   <text x="32" y="46" font-size="18" font-weight="600" fill="#c9d1d9">표준 계약 스킬과 벤더 API 표면 간 세분화 매핑 구조</text>
-  <text x="32" y="72" font-size="12.5" fill="#8b949e">스킬 매핑은 일체형 호출이 아닌 세부 벤더 표면(Surface) 단위로 분리 바인딩되며, 실행 제어와 상태 질의로 구분됩니다.</text>
-  <text x="32" y="93" font-size="12.5" fill="#8b949e">특정 벤더 표면이 미지원되더라도 해당 표면을 참조하는 스킬만 선별 거절되며, 기타 스킬은 정상 동작합니다.</text>
+  <text x="32" y="72" font-size="12.5" fill="#8b949e">스킬 매핑은 일체형 호출이 아닌 세부 벤더 인터페이스(Surface) 단위로 분리 바인딩되며, 실행 제어와 상태 질의로 구분됩니다.</text>
+  <text x="32" y="93" font-size="12.5" fill="#8b949e">특정 벤더 인터페이스가 미지원되더라도 해당 API 표면을 참조하는 스킬만 선별 거절되며, 기타 스킬은 정상 동작합니다.</text>
   <rect x="24" y="118" width="468" height="66" rx="6" fill="#121d2f" stroke="#58a6ff"/>
-  <text x="42" y="142" font-size="12" font-weight="600" fill="#c9d1d9">① 기종별 지원 능력 및 파라미터 규격 선언 (JSON Profile)</text>
+  <text x="42" y="142" font-size="12" font-weight="600" fill="#c9d1d9">① 기종별 지원 케이퍼빌리티 및 파라미터 규격 선언 (JSON Profile)</text>
   <text x="42" y="160" font-size="10.5" fill="#58a6ff">skill_type · major.minor · parameters[key, value_type, optional, unit]</text>
   <text x="42" y="175" font-size="10.5" fill="#58a6ff">pause_support · cancel_support · protocol_limits — profile/profiles/*.json</text>
   <rect x="508" y="118" width="468" height="66" rx="6" fill="#121d2f" stroke="#58a6ff"/>
@@ -55,8 +55,8 @@
   <text x="524" y="567" font-size="9.5" fill="#8b949e">bosdyn.api.DataAcquisitionService</text>
   <text x="960" y="567" font-size="10" text-anchor="end" fill="#d29922">미지원 시: 점검 데이터 수집 불가</text>
   <rect x="24" y="602" width="952" height="62" rx="6" fill="#0f2f1a" stroke="#3fb950"/>
-  <text x="44" y="626" font-size="12.5" font-weight="600" fill="#c9d1d9">필수 벤더 표면 부재 시 해당 스킬 실행 거부 — Refusal.VENDOR_SURFACE_ABSENT</text>
-  <text x="44" y="647" font-size="11" fill="#3fb950">예: 기본 명령 계층만 장착된 Spot은 navigate_to를 거절하나 move_relative는 정상 수락하며, 상세 거절 사유를 명시</text>
+  <text x="44" y="626" font-size="12.5" font-weight="600" fill="#c9d1d9">필수 벤더 인터페이스 부재 시 해당 스킬 실행 거부 — Refusal.VENDOR_SURFACE_ABSENT</text>
+  <text x="44" y="647" font-size="11" fill="#3fb950">예: 기본 명령 계층만 장착된 Spot은 navigate_to를 거절하나 move_relative는 정상 수락하며, 상세 거부 사유를 명시</text>
   <rect x="24" y="680" width="952" height="54" rx="6" fill="#161b22" stroke="#21262d"/>
   <text x="44" y="702" font-size="11" fill="#8b949e">Unitree G1은 미션 계층이 없고 DDS 스포츠 서비스로 직접 제어 — 기종 간 차이는 스킬 단위가 아닌 프로토콜 계층 구조의 상이함에 기인</text>
   <text x="44" y="721" font-size="11" fill="#8b949e">다이어그램 내 벤더 심볼은 SpotLink.kt의 @VendorSurface 어노테이션과 1:1 대응하며, CI 게이트 검증을 통해 실재성이 엄격히 보장됨</text>
