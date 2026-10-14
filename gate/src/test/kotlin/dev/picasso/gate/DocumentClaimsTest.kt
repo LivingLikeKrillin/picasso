@@ -355,6 +355,18 @@ class DocumentClaimsTest {
     }
 
     @Test
+    fun `작업 허가 어휘가 계약 proto 로 안 샌다`() {
+        // 작업 허가(PERMITTED · INHIBITED · UNKNOWN)는 이 저장소의 어휘이고 받는 쪽은 미들웨어의 발행 관문 하나다(ADR 52).
+        // 계약에 실리면 로봇이 읽을 값이 생기고, 그 순간 셀 안전 상태의 정보 투영이 계약을 지나는 안전 신호처럼 읽힌다(ADR 32).
+        // 소비자 없는 칸(ADR 9)이기도 하다. `UNKNOWN` 은 계약의 다른 열거에도 쓰일 수 있는 낱말이라 바늘에서 뺀다.
+        val needle = Regex("""\bPERMITTED\b|\bINHIBITED\b|work_?permit""", RegexOption.IGNORE_CASE)
+        val protos = Repo.list("contracts/proto/picasso/v1", ".proto")
+        assertTrue(protos.size >= 3, "계약 proto 를 못 읽었다: ${protos.size}")
+        val leaked = protos.filter { needle.containsMatchIn(Repo.read(it)) }.map { it.fileName.toString() }
+        assertEquals(emptyList(), leaked, "작업 허가 어휘가 계약 proto 로 샜다 — ADR 52 의 «계약 밖 포트» 가 무너진다")
+    }
+
+    @Test
     fun `설정 표면 목록이 바꾸는 문을 빠짐없이 적는다`() {
         // `commissioning.md` §4 는 *"설정 표면 전부"* 라고 말한다. **전부가 아니면 그 문장이 거짓이고**,
         // 문서에 없는 문으로 현장 설정을 바꿀 수 있다는 뜻이 된다.
