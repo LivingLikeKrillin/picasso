@@ -3101,6 +3101,14 @@ mimic/
 
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
 
+220. **어댑터 호스트에 단일 재진입 잠금을 도입하여 동시 RPC와 펌프 스레드 간 상태 경합을 직렬화하고 같은 기체에 태스크가 중복 접수되는 결함을 수정했다.**
+
+    `adapter-host`의 `HostedRobot` 상태 기록(태스크 장부 `book`, 현재 태스크 `current`, 재생 버퍼 `buffer`, 결함 표 `faults`)과 `HostTaskService.watchers` 청취자 레지스터에 잠금이 없었다. `AdapterHost`가 서비스 셋을 그대로 `ServerBuilder`에 등록한 구조로 인해, 실 포트(`ServerBuilder.forPort`, 기본 실행기) 환경에서 각 gRPC 스레드로 유입되는 RPC와 `OrbitLauncher`의 데몬 스레드 `orbit-pump`가 `pumpMillis` 주기로 호출하는 `AdapterHost.pump()`가 동일한 기록을 동시에 수정했다. main 브랜치(`4d6d768`)에서 5회 반복 검증한 결과 3개 시험 모두 실패했다(15/15 실패). 동시에 들어온 `StartTask` 8개가 배타 검사인 `current`를 모두 통과하여 거부되지 않고 전부 핸들을 발급받아 어댑터 `accept`가 8회 불렸고, 1ms 펌프 주기의 Orbit 런처 배치에서는 동시에 들어온 4개의 `StartTask`가 모두 수락되어 플릿 스텁에 동일 기체 미션 중복 파견(`POST /calendar/mission/dispatch/spot-a`)이 나갔다. 또한 펌프 스레드와 4개 RPC 스레드가 1.5초간 겹쳤을 때 재생 버퍼 및 장부 순회 중 변경으로 인한 `java.util.ConcurrentModificationException`이 발생하며 18~47건의 `UNKNOWN: Application error processing RPC` 오류가 발생했다.
+
+    이를 수정하기 위해 `AdapterHost`에 단일 재진입 잠금(`synchronized`)을 두고, 서비스 셋을 `ServerInterceptors.intercept(…, Serialized(lock))`로 감싸 호출 시작과 모든 콜백이 잠금 아래에서 실행되도록 변경했다. `pump()` 호출과 기동(`start()`) 시의 `ONLINE` 발행, 종료(`shutdown()`) 시의 `OFFLINE` 발행도 동일한 잠금 아래에 배치했으며, 외부에서 기록을 다룰 수 있도록 `exclusive {}` 블록을 열어 `MimicServer`와 동일한 형태를 갖췄다. 플릿 뒤 기체들이 남쪽 링크 하나를 공유하므로(§15.106) 기체 단위로 잠그면 링크 동시 호출이 다시 발생하므로 호스트 단위 잠금을 적용했다. 5개 런처 위치를 점검한 결과 운영 런처는 Orbit 하나뿐이며, Spot·Digit·G1은 `src/main`에 런처(`cli`), `main`, `ServerBuilder`가 없고 Spot은 시험에서만 in-process `directExecutor`로 `adapter-host`를 사용하며 Digit·G1은 의존성이 없고 하네스 또한 in-process `directExecutor`를 사용함을 확인했다. 따라서 `adapter-host`에 잠금을 두어 향후 추가될 런처도 동시성 제어를 받도록 했다. 이 잠금은 향후 ADR 51 결정 5에 따른 발신자 세대 버전 대조와 벤더 송신이 한 덩어리로 실행되는 기반이 된다. 미믹과 `adapter-host`의 `Serialized` 인터셉터는 모듈 간 의존성이 없어 두 벌로 유지하며 공용 모듈화 여부는 결정을 보류했다.
+
+    회귀 방지를 위해 `AdapterHostConcurrencyTest`(동시에 들어온 `StartTask` 단일 수락 및 남쪽 1회 지시 검증, 펌프 스레드와 RPC 경합 시 발행 순번 연속 증가 및 결함 기록 검증) 2건과 `OrbitLauncherTest`(펌프 스레드 배치 환경의 동시 `StartTask` 단일 수락 및 플릿 1회 파견 검증, 런처 펌프 스레드의 호스트 잠금 통과 검증) 2건을 추가했다. 결함 주입 10건 중 7건은 지정된 시험에서 정상 검출되었고, 기동 시 `ONLINE` 발행과 종료 시 `OFFLINE` 발행의 잠금 제거 2건은 해당 구간의 동시 트래픽 부재로 현재 시험에서 미검출로 남겼으며, 호출 시작(`startCall`)의 잠금 제거 1건은 단항 및 서버 스트림 본문이 `onHalfClose`에서 실행되어 검출되지 않는 등가 변이임을 확인했다. 전체 시험 수는 2,066개에서 2,070개로 갱신했다. 아울러 호스트 잠금 아래 남쪽 동기 호출로 인한 대기 지연 문제와 코드 읽기로 확인된 취소된 `WatchTask` 스트림 예외 전파 문제를 `docs/limits.md`의 내부 오픈 항목으로 등록했다.
+
 219. **작업 허가 포트와 발행 관문을 추가해 새 로봇 명령 발행을 허가 상태에 따라 제어하도록 변경했다.**
 
     안전 계통의 상태를 기체 집합별 정보 투영으로 읽어 새 로봇 명령의 발행 여부를 판정할 필요가 있었다. 안전 기능 자체는 계약 아래 안전 계통이 담당하므로 picasso가 이를 대체하지 않으며, 작업 허가는 이미 나간 명령을 세우지 않는 정보 투영으로서 ADR 51 결정 6에서 규정한 발행 관문의 둘째 입력으로 도입되었다.

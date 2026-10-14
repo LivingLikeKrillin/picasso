@@ -122,6 +122,10 @@ class OrbitLauncher(
      *
      * **데몬이다.** 이 스레드가 프로세스를 살려 두면 안 된다 — 프로세스를 살려 두는 것은 서버이고, 그것이
      * 내려가면 여기도 같이 끝나야 한다.
+     *
+     * **[AdapterHost.pump] 를 부른다, 기체의 펌프를 직접 부르지 않는다.** RPC 는 gRPC 스레드에서 오고 이 스레드는
+     * 따로 돌므로, 둘을 줄 세우는 호스트의 잠금을 지나야 한다. 비켜 가면 동시에 온 접수 둘이 함께 지나 같은 기체에
+     * 파견이 두 번 나간다(`OrbitLauncherTest`).
      */
     private fun pumpThread(host: AdapterHost): Thread? {
         if (options.pumpMillis <= 0) return null
