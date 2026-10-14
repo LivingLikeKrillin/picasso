@@ -459,6 +459,9 @@ class Middleware(
      *    [RESUME_RECORD_SUPERSEDED] 로 남긴다. 기록의 작업 지시 id 나 버전이 넘긴 작업 지시와 다르거나 계획에 없는 단위가 있으면
      *    [RESUME_RECORD_MISMATCH] 로 시작하는 사유로 거부하고 실행을 만들지 않는다 — 일부만 옮기면 옮기지 못한 사실이 «없었다» 가
      *    된다. 기록 대조는 스냅숏보다 먼저 한다.
+     * 8. **운영자 보류로 옮긴 단위마다 인시던트를 다시 연다.** 인시던트는 기록에 들지 않으므로 이 인스턴스에서 새로 열고, 실행
+     *    자취의 [RESUME_HOLD_REOPENED] 가 그 인시던트의 근거 윈도우에 실려 다시 연 것임을 가른다. 판단은 보통의 보류와 같이
+     *    [resolve] 로 낸다. 같은 작업 지시로 다시 부르면 리비전 경로라 다시 열지 않는다.
      *
      * **기록 없이 넘어오지 않는 것**: 운영자 판단, 감수한 결함([Execution.acknowledgedFaults]), 승인 소모 기록, 근거 윈도우의 요청
      * 시각, 설비 대기의 기한 시작 시각, 앞선 로봇 단위에 이전 인스턴스가 낸 근거 확인 결과. 모두 이 인스턴스에서 새로 서거나(6 은
@@ -491,6 +494,8 @@ class Middleware(
         val execution = create(order, robotId, mission, planned, approvedBy = null)
         rebuildFrom(execution, snapshots)
         record?.let { restore(execution, it) }
+        // 8 이 다시 연 인시던트를 지금 봉한다. 지금의 현장 시간값으로 — 라운드의 값([round])은 [pump] 의 것이라 건드리지 않는다.
+        incidentLog.sealIncidents(execution, siteTimings.current())
         return Submission.Accepted(execution)
     }
 
@@ -556,7 +561,32 @@ class Middleware(
                 RESUME_RECORD,
                 "${unit.unitId}: verdict ${verdict.state.name} ${verdict.reached.name} ${verdict.verification.name} (attempt ${r.attempt}), 다시 판정하지 않는다",
             )
+            if (verdict.state == UnitState.OPERATOR_HOLD) reopenHold(execution, unit, r, verdict)
         }
+    }
+
+    /**
+     * [resume] 의 8 — 기록의 운영자 보류를 **이 인스턴스의 인시던트로 다시 연다.**
+     *
+     * 인시던트 번들은 판단 기록에 들지 않는다. 그래서 보류로 옮긴 단위는 사람이 판단할 자리인데 이 인스턴스에 열린 인시던트가
+     * 없고, 담는 쪽의 판단 화면은 열린 인시던트에서 판단을 받으므로 사람이 그 보류를 풀 길을 잃는다.
+     *
+     * **관측을 지어내지 않는다.** 번들은 지금 단위가 든 것(기록에서 옮긴 실패 분류·근거 등급·대조 결과)만 싣고, 결함 원문·파지
+     * 관측은 이 인스턴스가 아직 보지 않았으므로 비어 있다. 기록에만 있는 사실(기체, 시도, 요청 시각, 근거 시각, 보류 사유)은 실행
+     * 자취에 [RESUME_HOLD_REOPENED] 로 남기고, 그 줄이 번들의 근거 윈도우에 실려 «재기동이 다시 연 인시던트» 의 표시가 된다.
+     * 이 인스턴스가 보류를 낸 시각이 아니므로 번들의 `at` 은 다시 연 시각이다 — 기록에는 보류가 선 시각이 따로 없다.
+     *
+     * 판단은 보통의 보류와 같다. [resolve] 가 보류를 풀고 판단 기록에 실으며, 판단은 이 인시던트에 붙는다.
+     * 봉인은 [resume] 이 끝에서 한 번 한다 — 첫 [pump] 전에도 판단 화면이 이 인시던트를 읽는다.
+     */
+    private fun reopenHold(execution: Execution, unit: ExecutionUnit, r: UnitRecord, verdict: UnitVerdict) {
+        execution.trail(
+            RESUME_HOLD_REOPENED,
+            "${unit.unitId}: 기록의 운영자 보류를 이 인스턴스의 인시던트로 다시 연다, robot=${execution.robotOf(unit)} " +
+                "attempt=${r.attempt} failureClass=${verdict.failureClass} requestedAt=${r.requestedAt} " +
+                "evidenceAt=${verdict.evidenceAt} note=${verdict.note}",
+        )
+        execution.markIncident(unit)
     }
 
     /**
@@ -2257,6 +2287,12 @@ class Middleware(
 
         /** [resume] 이 스냅숏보다 앞선 시도의 기록이라 그 단위의 시각과 판정을 옮기지 않았다는 실행 자취의 종류. */
         const val RESUME_RECORD_SUPERSEDED = "RESUME_RECORD_SUPERSEDED"
+
+        /**
+         * [resume] 이 기록의 운영자 보류를 이 인스턴스의 인시던트로 다시 열었다는 실행 자취의 종류. 그 인시던트의 근거 윈도우에
+         * 실려 «재기동이 다시 연 인시던트» 를 가르는 표시다. 세부에 기록의 기체·시도·요청 시각·근거 시각·보류 사유가 든다.
+         */
+        const val RESUME_HOLD_REOPENED = "RESUME_HOLD_REOPENED"
 
         /** 발행 관문이 새 로봇 명령을 막았다는 실행 자취의 종류(ADR 52). 같은 막음은 한 번만 남는다. */
         const val ISSUE_WITHHELD = "ISSUE_WITHHELD"

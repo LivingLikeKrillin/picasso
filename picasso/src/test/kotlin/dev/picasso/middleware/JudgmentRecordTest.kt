@@ -330,6 +330,7 @@ class JudgmentRecordTest {
             assertEquals("$ORDER#s1@r1", unit.taskId)
             assertEquals(created, w.robot.created)
             assertTrue(resumed.eventTrail.any { it.kind == Middleware.RESUME_RECORD_SUPERSEDED && it.detail.startsWith("s1:") })
+            assertEquals(emptyList(), again.mw.incidents(), "앞 시도의 보류로 인시던트를 다시 열었다")
         }
     }
 
@@ -364,6 +365,127 @@ class JudgmentRecordTest {
             val resumed = again.resumeWith(order(workMaster = WaitThenSlot.WORK_MASTER), record, WaitThenSlot())
             assertEquals(T0, again.mw.judgmentRecord(resumed.executionId)!!.units.first().requestedAt, "다시 지은 직후의 기록이 기한의 시작을 잃었다")
         }
+    }
+
+    // ── 운영자 보류의 인시던트
+
+    @Test
+    fun `기록의 운영자 보류로 다시 지은 단위는 다시 열었다고 적은 인시던트 하나를 이 인스턴스에 연다`() {
+        World().use { w ->
+            val record = held(w)
+            val unit = record.units.single()
+            val verdict = assertNotNull(unit.verdict)
+
+            val again = w.restart()
+            val resumed = again.resumeWith(order(required = Evidence.E2), record)
+            // 첫 pump 전이다 — 담는 쪽의 판단 화면은 기동 직후에도 이 인시던트를 읽는다.
+            val incident = again.mw.incidents().single()
+            assertEquals(Triple(resumed.executionId, "s1", ROBOT), Triple(incident.executionId, incident.unitId, incident.robotId))
+            assertTrue(incident.unresolved)
+            assertEquals(null, incident.resolution)
+            assertEquals(verdict.failureClass, incident.failureClass)
+            assertEquals(Verification.MATCHED, incident.verification)
+            assertEquals(null, incident.fault, "기록에 없는 결함 원문을 지어냈다")
+            val marker = incident.evidenceWindow.single { it.kind == Middleware.RESUME_HOLD_REOPENED }
+            assertTrue(marker.local)
+            listOf("s1:", "robot=$ROBOT", "attempt=0", "failureClass=${verdict.failureClass}", "requestedAt=${unit.requestedAt}", "note=${verdict.note}")
+                .forEach { assertTrue(it in marker.detail, "다시 연 표시에 $it 가 없다: ${marker.detail}") }
+
+            repeat(2) { again.mw.pump() }
+            assertEquals(1, again.mw.incidents().size, "pump 가 같은 보류의 인시던트를 또 열었다")
+            assertEquals(PhysicalState.OPERATOR_HOLD, resumed.physicalState)
+
+            // 대조: 기록 없이 다시 지으면 다시 관측한 실패로 보통의 인시던트를 연다 — 다시 연 표시가 없다.
+            val bare = w.restart()
+            bare.resumeWith(order(required = Evidence.E2), null)
+            assertEquals(emptyList(), bare.mw.incidents())
+            repeat(2) { bare.mw.pump() }
+            assertTrue(bare.mw.incidents().single().evidenceWindow.none { it.kind == Middleware.RESUME_HOLD_REOPENED })
+        }
+    }
+
+    @Test
+    fun `다시 연 인시던트에 낸 판단이 보류를 풀고 그 인시던트와 판단 기록에 실린다`() {
+        World().use { w ->
+            val record = held(w)
+
+            val again = w.restart()
+            val resumed = again.resumeWith(order(required = Evidence.E2), record)
+            val incident = again.mw.incidents().single()
+            assertEquals(
+                ResolveOutcome.Resolved,
+                again.mw.resolve(incident.executionId, incident.unitId, OperatorDecision.CONFIRM_DONE, OPERATOR),
+            )
+            val unit = resumed.units.single()
+            assertEquals(UnitState.DONE to Evidence.E2, unit.state to unit.reached)
+            val resolution = assertNotNull(again.mw.incident(incident.incidentId)!!.resolution, "판단이 다시 연 인시던트에 안 붙었다")
+            assertEquals(OperatorDecision.CONFIRM_DONE to OPERATOR, resolution.decision to resolution.decidedBy)
+            val recorded = again.mw.judgmentRecord(resumed.executionId)!!.units.single()
+            assertEquals(OperatorDecision.CONFIRM_DONE to 0, recorded.decision?.let { it.decision to it.attempt })
+            assertEquals(UnitState.DONE, recorded.verdict?.state)
+            repeat(2) { again.mw.pump() }
+            assertEquals(PhysicalState.PHYSICALLY_DONE, resumed.physicalState)
+
+            // 재작업도 보통의 보류와 같다 — 새 시도로 나간다.
+            val created = w.robot.created
+            val third = w.restart()
+            val reworked = third.resumeWith(order(required = Evidence.E2), record)
+            val reopened = third.mw.incidents().single()
+            assertEquals(
+                ResolveOutcome.Resolved,
+                third.mw.resolve(reopened.executionId, reopened.unitId, OperatorDecision.REWORK, OPERATOR),
+            )
+            third.mw.pump()
+            assertEquals("$ORDER#s1@r1", w.robot.starts.last())
+            assertEquals(created + 1, w.robot.created)
+            assertEquals(OperatorDecision.REWORK, third.mw.incident(reopened.incidentId)!!.resolution?.decision)
+            val rework = third.mw.judgmentRecord(reworked.executionId)!!.units.single()
+            assertEquals(OperatorDecision.REWORK to 0, rework.decision?.let { it.decision to it.attempt })
+            assertEquals(1, rework.attempt)
+        }
+    }
+
+    @Test
+    fun `운영자 보류가 아닌 판정으로 다시 지은 단위는 인시던트를 열지 않는다`() {
+        World().use { w ->
+            val record = held(w)
+            val unit = record.units.single()
+            (UnitVerdict.STATES - UnitState.OPERATOR_HOLD).forEach { state ->
+                val settled = record.copy(units = listOf(unit.copy(verdict = unit.verdict!!.copy(state = state))))
+                val again = w.restart()
+                val resumed = again.resumeWith(order(required = Evidence.E2), settled)
+                assertEquals(state, resumed.units.single().state)
+                assertEquals(emptyList(), again.mw.incidents(), "$state 로 옮긴 단위의 인시던트를 열었다")
+                assertTrue(resumed.eventTrail.none { it.kind == Middleware.RESUME_HOLD_REOPENED }, "$state")
+            }
+        }
+    }
+
+    @Test
+    fun `이미 다시 지은 실행에 resume 을 다시 불러도 인시던트를 겹쳐 열지 않는다`() {
+        World().use { w ->
+            val record = held(w)
+            val again = w.restart()
+            val resumed = again.resumeWith(order(required = Evidence.E2), record)
+            val mission = ActiveMission(Slots(), null)
+            assertIs<Middleware.Submission.Idempotent>(again.mw.resume(order(required = Evidence.E2), ROBOT, mission, record))
+            again.mw.pump()
+            assertIs<Middleware.Submission.Idempotent>(again.mw.resume(order(required = Evidence.E2), ROBOT, mission, record))
+            assertEquals(listOf(resumed.executionId), again.mw.incidents().map { it.executionId })
+            assertEquals(1, resumed.eventTrail.count { it.kind == Middleware.RESUME_HOLD_REOPENED })
+        }
+    }
+
+    /** 앞 인스턴스가 하류 실패·설비 있음으로 단위를 운영자 보류에 세운 뒤 받아 둔 기록. */
+    private fun held(w: World): JudgmentRecord {
+        val exec = w.submit(order(required = Evidence.E2))
+        w.old.pump()
+        w.robot.set("$ORDER#s1", TaskState.TASK_STATE_FAILED)
+        w.cell.program(slot(1), PART)
+        w.old.pump()
+        assertEquals(UnitState.OPERATOR_HOLD, exec.units.single().state, "시험의 전제: 하류는 실패, 설비에는 있다")
+        assertEquals(1, w.old.incidents().size, "시험의 전제: 앞 인스턴스에 보류의 인시던트가 있다")
+        return persisted(w.old.judgmentRecord(exec.executionId))
     }
 
     // ── 더블
