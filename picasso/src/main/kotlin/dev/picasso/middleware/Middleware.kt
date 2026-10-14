@@ -281,6 +281,32 @@ class Middleware(
 
         val completedUnits: List<String> get() = units.filter { it.state == UnitState.DONE }.map { it.unitId }
         val version: Int get() = order.version
+
+        /**
+         * 이 단위를 맡은 기체 — 단위의 묶음([ExecutionUnit.robotBinding]), 없으면 이 실행의 기체([robotId]).
+         *
+         * **단위의 기체를 읽는 자리는 전부 이것을 부른다.** [robotId] 를 바로 읽으면 오늘은 같은 값이라 아무 시험도 안 깨지고,
+         * 단위를 다른 기체에 묶는 날 그 자리만 옛 기체로 명령을 낸다.
+         */
+        fun robotOf(unit: ExecutionUnit): String = unit.robotBinding ?: robotId
+
+        /** 이 실행이 쓰는 기체 전부 — 실행의 기체와 단위가 묶인 기체. 동기화와 부담 셈이 읽는다. */
+        val robots: Set<String> get() = linkedSetOf(robotId).apply { units.forEach { add(robotOf(it)) } }
+
+        /** 이 실행을 세운 승인의 소모. 승인된 조치로 서지 않았으면 널이다. 판단 기록([judgmentRecord])이 싣는다. */
+        internal var approval: RecordedApproval? = null
+
+        /** 운영자 판단 — 단위마다 마지막 하나. 판단 기록이 싣는다. */
+        internal val decisions: MutableMap<String, RecordedDecision> = linkedMapOf()
+
+        /**
+         * 판단 기록이 넘긴 요청 시각 — 단위마다 (시도, 시각). `startUnit` 이 **그 시도를** 낼 때 한 번 쓰고 지운다. 다른 시도면
+         * 쓰지 않는다 — 재작업은 새 요청이고 그 시각은 지금이다.
+         */
+        internal val restoredRequests: MutableMap<String, Pair<Int, Instant>> = mutableMapOf()
+
+        /** 판단 기록이 넘긴 검증 대기의 창 — 단위마다 (시도, 창). 그 시도의 완료를 다시 관측할 때 한 번 쓰고 지운다. */
+        internal val restoredWindows: MutableMap<String, Pair<Int, VerifyWindow>> = mutableMapOf()
     }
 
     sealed interface Submission {
@@ -402,8 +428,8 @@ class Middleware(
      * 없으면 차례는 이렇다.
      *
      * 1. **넘겨받은 정의의 WorkMaster 를 작업 지시와 대조한다.** 다르면 거부한다.
-     * 2. **기체 스냅숏을 한 번 읽는다.** 못 읽으면(`null`) 실행을 만들지 않고 [RESUME_SNAPSHOT_UNREADABLE] 로 시작하는 사유로
-     *    거부한다. 스냅숏 없이 지으면 첫 pump 가 `@rN` 없는 태스크 id 로 가서 이미 끝난 첫 태스크에 붙고, 도는 재작업 태스크는
+     * 2. **단위가 묶인 기체마다 스냅숏을 한 번 읽는다.** 하나라도 못 읽으면(`null`) 실행을 만들지 않고 [RESUME_SNAPSHOT_UNREADABLE]
+     *    로 시작하는 사유로 거부한다(사유에 못 읽은 기체가 실린다). 스냅숏 없이 지으면 첫 pump 가 `@rN` 없는 태스크 id 로 가서 이미 끝난 첫 태스크에 붙고, 도는 재작업 태스크는
      *    고아가 된다.
      * 3. **넘겨받은 정의로 계획한다.** 카탈로그의 지금 활성 버전은 읽지 않는다. 근거 등급 검사만 거치고 **배정 관문을 걸지
      *    않으며 조치 탐색 기록도 남기지 않는다.** 명령이 이미 나간 실행이라 관문이 다시 판정할 대상이 아니고, 관문은 이미 집어 간
@@ -423,11 +449,26 @@ class Middleware(
      * [RESUME_ATTEMPT]·[RESUME_SIGNAL_PASSED]·[RESUME_PRIOR_ROBOT] 으로 남긴다. 단위 메모는 작업 응답의 미완 단위 값으로 나가기
      * 때문이다.
      *
-     * **넘어오지 않는 것**: 운영자 판단, 감수한 결함([Execution.acknowledgedFaults]), 승인 소모 기록, 근거 윈도우의 요청 시각,
-     * 설비 대기의 기한 시작 시각, 앞선 로봇 단위에 이전 인스턴스가 낸 근거 확인 결과. 모두 이 인스턴스에서 새로 서거나(6 은 E0
-     * 으로) 비어 있다. 계약과 내보내기 형식은 그대로다.
+     * **판단 기록([record])을 넘기면** 4·5·6 뒤에 그 사실을 그대로 옮긴다(7). 넘기지 않으면 아래의 것이 넘어오지 않는다.
+     *
+     * 7. **판단 기록을 옮긴다.** 감수한 결함, 승인 소모(조치 열의 걸음은 계획 앞에 다시 서고 승인 장부에 소모로 다시 선다),
+     *    단위마다의 시도 번호, 요청 시각(근거 윈도우와 미확정 유예의 기준, 설비 대기의 기한 시작), 검증 대기의 창, 이미 내린
+     *    판정, 운영자 판단이다. **다시 판정하지 않는다** — 판정이 있는 단위는 다시 돌리지 않고, 앞선 로봇 단위라도 기록의 근거
+     *    등급을 그대로 쓴다. 시각은 그 시도를 다시 낼 때 쓰므로 기한은 재기동 시각이 아니라 처음 시작한 시각부터 이어 간다.
+     *    스냅숏이 기록보다 큰 시도를 보이는 단위는 기록이 그 재작업보다 먼저 적힌 것이라 그 단위의 시각과 판정을 옮기지 않고
+     *    [RESUME_RECORD_SUPERSEDED] 로 남긴다. 기록의 작업 지시 id 나 버전이 넘긴 작업 지시와 다르거나 계획에 없는 단위가 있으면
+     *    [RESUME_RECORD_MISMATCH] 로 시작하는 사유로 거부하고 실행을 만들지 않는다 — 일부만 옮기면 옮기지 못한 사실이 «없었다» 가
+     *    된다. 기록 대조는 스냅숏보다 먼저 한다.
+     *
+     * **기록 없이 넘어오지 않는 것**: 운영자 판단, 감수한 결함([Execution.acknowledgedFaults]), 승인 소모 기록, 근거 윈도우의 요청
+     * 시각, 설비 대기의 기한 시작 시각, 앞선 로봇 단위에 이전 인스턴스가 낸 근거 확인 결과. 모두 이 인스턴스에서 새로 서거나(6 은
+     * E0 으로) 비어 있다. 계약과 내보내기 형식은 그대로다.
+     *
+     * **스냅숏은 단위가 묶인 기체마다 읽는다**([Execution.robotOf]). 오늘은 단위가 전부 실행의 기체라 한 번이다. 기체가 N 이면 N 번
+     * 읽고 하나만 못 읽어도 다시 짓기를 미룬다(ADR 51 «대가») — 그 기체의 단위는 재작업 횟수를 정할 근거가 없고, 못 읽은 기체를
+     * 빼고 지으면 그 단위가 이미 끝난 태스크에 붙는다.
      */
-    fun resume(order: JobOrder, robotId: String, mission: ActiveMission): Submission {
+    fun resume(order: JobOrder, robotId: String, mission: ActiveMission, record: JudgmentRecord? = null): Submission {
         val existing = executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }
         if (existing != null) return revise(existing, order)
 
@@ -436,24 +477,134 @@ class Middleware(
                 "넘겨받은 임무 정의의 WorkMaster 가 작업 지시와 다르다: 정의=${mission.capability.workMasterId}, 작업 지시=${order.workMasterId}",
             )
         }
-        val snapshot = robots.snapshot(robotId)
-            ?: return Submission.Rejected("$RESUME_SNAPSHOT_UNREADABLE: robot=$robotId, 재작업 횟수와 지난 설비 대기를 정할 근거가 없다")
+        // 승인된 조치 열은 계획 앞에 선다(`commit` 과 같은 모양). 기록이 그 걸음을 들고 오지 않으면 다시 지을 길이 없다.
+        val planned = record?.approval?.steps.orEmpty().map { remedyUnit(it.unitId, it.skillType, it.parameters) } +
+            mission.capability.plan(order)
+        record?.let { recordRefusal(order, it, planned) }?.let { return it }
+        val snapshots = linkedMapOf<String, RobotSnapshot>()
+        for (robot in planned.map { it.robotBinding ?: robotId }.distinct()) {
+            snapshots[robot] = robots.snapshot(robot)
+                ?: return Submission.Rejected("$RESUME_SNAPSHOT_UNREADABLE: robot=$robot, 재작업 횟수와 지난 설비 대기를 정할 근거가 없다")
+        }
         evidenceRefusal(order, mission.capability)?.let { return it }
 
-        val planned = mission.capability.plan(order)
         val execution = create(order, robotId, mission, planned, approvedBy = null)
-        rebuildFrom(execution, snapshot)
+        rebuildFrom(execution, snapshots)
+        record?.let { restore(execution, it) }
         return Submission.Accepted(execution)
     }
 
+    /** 판단 기록이 넘긴 작업 지시와 맞는가. 맞지 않으면 거부의 사유, 맞으면 널. */
+    private fun recordRefusal(order: JobOrder, record: JudgmentRecord, planned: List<ExecutionUnit>): Submission.Rejected? {
+        val why = when {
+            record.jobOrderId != order.jobOrderId -> "작업 지시가 다르다: 기록=${record.jobOrderId}, 작업 지시=${order.jobOrderId}"
+            record.orderVersion != order.version -> "버전이 다르다: 기록=${record.orderVersion}, 작업 지시=${order.version}"
+            else -> (record.units.map { it.unitId } - planned.map { it.unitId }.toSet()).takeIf { it.isNotEmpty() }
+                ?.let { "계획에 없는 단위가 있다: $it" }
+        } ?: return null
+        return Submission.Rejected("$RESUME_RECORD_MISMATCH: $why")
+    }
+
+    /**
+     * [resume] 의 7 — 판단 기록을 옮긴다. 판정은 그대로 쓰고 다시 내리지 않는다. 옮긴 것은 실행 자취에 [RESUME_RECORD] 로 남긴다.
+     *
+     * 시도 번호는 스냅숏과 기록 가운데 큰 쪽이다. 기록이 크면 재작업 판단이 섰는데 아직 내지 않은 것이고, 스냅숏이 크면 기록이 그
+     * 재작업보다 먼저 적힌 것이다 — 그때 그 단위의 시각과 판정은 앞 시도의 것이라 옮기지 않는다.
+     */
+    private fun restore(execution: Execution, record: JudgmentRecord) {
+        execution.acknowledgedFaults += record.acknowledgedFaults
+        if (record.acknowledgedFaults.isNotEmpty()) {
+            execution.trail(RESUME_RECORD, "acknowledged faults: ${record.acknowledgedFaults.joinToString()}")
+        }
+        record.approval?.let { approval ->
+            execution.approval = approval
+            execution.approvedBy = approval.approver
+            // **소모로 다시 세운다.** 실행 id 는 이 인스턴스의 것으로 단다 — 앞 인스턴스의 id 는 여기서 가리키는 것이 없다(ADR 48).
+            desk.restore(
+                approval.robotId,
+                execution.order.jobOrderId,
+                ConsumedApproval(approval.approver, approval.at, approval.wallClockAt, execution.executionId, approval.steps),
+            )
+            execution.trail(RESUME_RECORD, "approval consumed by ${approval.approver.id}(${approval.approver.kind}) at ${approval.at}")
+        }
+        val byId = execution.units.associateBy { it.unitId }
+        record.units.forEach { r ->
+            val unit = byId.getValue(r.unitId)
+            r.decision?.let { execution.decisions[unit.unitId] = it }
+            if (r.attempt < unit.attempt) {
+                execution.trail(
+                    RESUME_RECORD_SUPERSEDED,
+                    "${unit.unitId}: 스냅숏의 시도 ${unit.attempt} 가 기록의 시도 ${r.attempt} 보다 크다, 기록의 시각과 판정을 옮기지 않는다",
+                )
+                return@forEach
+            }
+            unit.attempt = r.attempt
+            r.requestedAt?.let { execution.restoredRequests[unit.unitId] = r.attempt to it }
+            r.verifyWindow?.let { execution.restoredWindows[unit.unitId] = r.attempt to it }
+            val verdict = r.verdict ?: return@forEach
+            unit.state = verdict.state
+            unit.reached = verdict.reached
+            unit.verification = verdict.verification
+            unit.evidenceAt = verdict.evidenceAt
+            unit.failureClass = verdict.failureClass
+            unit.note = verdict.note
+            unit.result = verdict.result
+            unit.taskId = r.taskId
+            unit.requestedAt = r.requestedAt
+            execution.resumedPrior -= unit.unitId
+            execution.trail(
+                RESUME_RECORD,
+                "${unit.unitId}: verdict ${verdict.state.name} ${verdict.reached.name} ${verdict.verification.name} (attempt ${r.attempt}), 다시 판정하지 않는다",
+            )
+        }
+    }
+
+    /**
+     * 이 실행의 **판단 기록**(§15.213) — 담는 쪽이 영속하고 재기동 뒤 [resume] 에 넘길 사실. 모르는 실행이면 널이다.
+     *
+     * 언제 받아 둘지는 담는 쪽이 정한다. 판정과 판단은 [pump]·[resolve]·[release]·승인 안에서 서므로 그 뒤마다 받아 두면 빠지는 것이
+     * 없다. 다시 지은 뒤 아직 내지 않은 시도의 시각도 싣는다 — 다시 지은 직후 다시 죽어도 기한의 시작을 잃지 않는다.
+     */
+    fun judgmentRecord(executionId: String): JudgmentRecord? {
+        val execution = executions[executionId] ?: return null
+        return JudgmentRecord(
+            jobOrderId = execution.order.jobOrderId,
+            orderVersion = execution.order.version,
+            acknowledgedFaults = execution.acknowledgedFaults.toList(),
+            approval = execution.approval,
+            units = execution.units.map { unit ->
+                val issued = unit.taskId.isNotEmpty()
+                val pendingRequest = execution.restoredRequests[unit.unitId]?.takeIf { it.first == unit.attempt }?.second
+                val pendingWindow = execution.restoredWindows[unit.unitId]?.takeIf { it.first == unit.attempt }?.second
+                UnitRecord(
+                    unitId = unit.unitId,
+                    attempt = unit.attempt,
+                    taskId = unit.taskId,
+                    requestedAt = (if (issued) unit.requestedAt else null) ?: pendingRequest,
+                    verifyWindow = if (unit.state == UnitState.VERIFYING) {
+                        VerifyWindow(unit.downstreamDoneAt!!, unit.evidenceDeadline!!)
+                    } else {
+                        pendingWindow
+                    },
+                    verdict = unit.takeIf { it.state in UnitVerdict.STATES }?.let {
+                        UnitVerdict(it.state, it.reached, it.verification, it.evidenceAt, it.failureClass, it.note, it.result)
+                    },
+                    decision = execution.decisions[unit.unitId],
+                )
+            },
+        )
+    }
+
     /** [resume] 의 4·5·6. 스냅숏의 태스크 id 로 재작업 횟수, 지난 설비 대기, 앞선 로봇 단위를 정하고 자취에 남긴다. */
-    private fun rebuildFrom(execution: Execution, snapshot: RobotSnapshot) {
+    private fun rebuildFrom(execution: Execution, snapshots: Map<String, RobotSnapshot>) {
         val jobOrderId = execution.order.jobOrderId
         var lastHeld = -1
         execution.units.forEachIndexed { index, unit ->
             if (unit.route != Route.ROBOT) return@forEachIndexed
             val base = "$jobOrderId#${unit.unitId}"
-            val found = snapshot.tasks.keys.mapNotNull { taskId -> attemptOf(taskId, base)?.let { taskId to it } }
+            // 단위가 묶인 기체의 스냅숏이다. 실행의 기체로 읽으면 다른 기체에 묶인 단위의 재작업 횟수를 못 찾는다.
+            val tasks = snapshots.getValue(execution.robotOf(unit)).tasks
+            val found = tasks.keys.mapNotNull { taskId -> attemptOf(taskId, base)?.let { taskId to it } }
             val top = found.maxByOrNull { it.second } ?: return@forEachIndexed
             unit.attempt = top.second
             lastHeld = index
@@ -554,7 +705,8 @@ class Middleware(
      */
     private fun liveExecutionCount(robotId: String, excluding: String? = null): Int =
         executions.values.count {
-            it.robotId == robotId && !it.physicalState.isSettled && it.executionId != excluding
+            // 단위가 묶인 기체도 센다 — 그 기체는 이 실행의 단위를 맡았다.
+            robotId in it.robots && !it.physicalState.isSettled && it.executionId != excluding
         }
 
     /** 지금 든 채인가. [AdmissionGate.liveHold] 의 답을 비용이 읽는 모양으로 줄인 것이다. */
@@ -627,6 +779,7 @@ class Middleware(
             return Reassignment.Kept(from, "이득이 문턱 이하다 — ${saved} 이고 문턱은 ${reassignPolicy.margin} 이다")
         }
 
+        // 묶지 않은 단위는 실행의 기체를 따라 함께 옮긴다. 다른 기체에 묶인 단위는 그대로다 — 그 묶음은 이 실행의 기체와 따로 정한 것이다.
         execution.robotId = target.first
         execution.assignedAt = now()
         execution.trail("REASSIGNED", "$from -> ${target.first} (부담 차 $saved)")
@@ -735,7 +888,7 @@ class Middleware(
         val revision = unit.revision
         try {
             val response = robots.start(
-                execution.robotId, unit.taskId, revision, unit.skillType,
+                execution.robotOf(unit), unit.taskId, revision, unit.skillType,
                 withOptionals(execution, unit, unit.parameters),
             )
             when {
@@ -774,7 +927,7 @@ class Middleware(
      * 사건을 열지 않는다. 실패가 아니라 기다림이고, 운영자가 판단할 것이 없다.
      */
     private fun issuable(execution: Execution, unit: ExecutionUnit, withheld: WithheldIssue): Boolean =
-        when (val verdict = issuing.check(setOf(execution.robotId))) {
+        when (val verdict = issuing.check(setOf(execution.robotOf(unit)))) {
             is IssueVerdict.Issue -> {
                 execution.permitBlock?.let { lifted ->
                     execution.permitBlock = null
@@ -829,7 +982,8 @@ class Middleware(
     fun pump() {
         round = siteTimings.current()
         val live = executions.values.filter { it.physicalState.pumps }
-        live.map { it.robotId }.distinct().forEach { sync(it, live.filter { e -> e.robotId == it }) }
+        // 단위가 묶인 기체까지 동기화한다 — 안 하면 그 기체의 결함·연결은 «못 봤다» 로 남아 관문이 그 단위를 막지 않는다.
+        live.flatMap { it.robots }.distinct().forEach { robot -> sync(robot, live.filter { robot in it.robots }) }
         executions.values.forEach { pump(it) }
     }
 
@@ -917,8 +1071,8 @@ class Middleware(
         // **연결이 끊기면 도는 단위의 결과는 미확정이다.** 계약이 OFFLINE 과 CONNECTION_BROKEN 을 가른다(완료 기준 5);
         // HIBERNATING 은 침묵하지만 정상이다(§4.7). 되돌아오면 스냅샷으로 태스크 상태를 다시 세워 이어 간다 —
         // 재실행이 아니다. 어느 쪽도 상류에 한 번씩 알린다(16장 — 결과가 아직 확인되지 않았다는 사실).
-        val view = views[execution.robotId]
         val runningRobotUnit = execution.active?.takeIf { it.route == Route.ROBOT && it.state == UnitState.RUNNING }
+        val view = runningRobotUnit?.let { views[execution.robotOf(it)] }
         if (view != null && view.observable && runningRobotUnit != null) {
             val down = view.connection == ConnectionState.CONNECTION_STATE_CONNECTION_BROKEN ||
                 view.connection == ConnectionState.CONNECTION_STATE_OFFLINE
@@ -1035,7 +1189,7 @@ class Middleware(
 
     private fun blockingFaults(execution: Execution, next: ExecutionUnit): List<Fault> {
         if (next.route != Route.ROBOT) return emptyList()
-        val view = views[execution.robotId]
+        val view = views[execution.robotOf(next)]
         if (view == null || !view.observable) {
             // 한 번만 적는다 — 허가가 막는 동안 이 관문은 라운드마다 다시 불리고, 같은 메모가 쌓이면 응답의 미완 사유가 넘친다.
             val note = "robot faults not observable before start — proceeding without the gate"
@@ -1111,7 +1265,7 @@ class Middleware(
     }
 
     private fun pumpRobotUnit(execution: Execution, unit: ExecutionUnit): Boolean {
-        val updates = robots.watch(execution.robotId, execution.handle!!)
+        val updates = robots.watch(execution.robotOf(unit), execution.handle!!)
         // **결과 이벤트는 (실행, 버전)으로 맞춘다**(15.1). 이 단위의 지금 버전보다 낮은 버전의 종착은 지연 이벤트로
         // **보존**하고, 이 버전의 갱신만 상태로 옮긴다.
         val (late, current) = updates.partition { it.revision < unit.revision }
@@ -1134,7 +1288,12 @@ class Middleware(
                 // 하류가 실어 준 결과 참조(E0 의 내용). 비어 있으면 비어 있는 채로 — 지어내지 않는다.
                 unit.result = last.partialResult.takeIf { it.isNotBlank() }
                 val prior = unit.unitId in execution.resumedPrior
-                beginVerify(execution, unit, reachedByDownstream = Evidence.E0, doneAt = stateTime(last), prior = prior)
+                // 판단 기록이 이 시도의 검증 대기 창을 넘겼으면 그 창에 대고 본다 — 완료 시각과 기한을 다시 정하지 않는다(§15.213).
+                val window = execution.restoredWindows.remove(unit.unitId)?.takeIf { it.first == unit.attempt }?.second
+                beginVerify(
+                    execution, unit, reachedByDownstream = Evidence.E0, doneAt = window?.doneAt ?: stateTime(last), prior = prior,
+                    deadline = window?.deadline,
+                )
                 if (unit.state == UnitState.VERIFYING) return false // active 로 남아 시간창을 기다린다
             }
 
@@ -1223,7 +1382,7 @@ class Middleware(
                 execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
                 if (execution.cancelRequested) {
                     execution.handle?.let { handle ->
-                        val response = robots.cancel(execution.robotId, handle)
+                        val response = robots.cancel(execution.robotOf(unit), handle)
                         if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
                     }
                     execution.transport?.let { fleet.cancel(it) }
@@ -1266,7 +1425,7 @@ class Middleware(
     private fun lookupDownstream(execution: Execution, unit: ExecutionUnit): Boolean = when (unit.route) {
         Route.ROBOT -> {
             val response = robots.start(
-                execution.robotId, unit.taskId, unit.revision, unit.skillType,
+                execution.robotOf(unit), unit.taskId, unit.revision, unit.skillType,
                 withOptionals(execution, unit, unit.parameters),
             )
             if (response.hasHandle()) {
@@ -1473,13 +1632,14 @@ class Middleware(
         val wanted = execution.capability.preferredOptionals
         if (wanted.isEmpty()) return base
 
-        val declared = robots.capabilities(execution.robotId)
+        val robot = execution.robotOf(unit)
+        val declared = robots.capabilities(robot)
             ?.skillsList?.firstOrNull { it.skillType == unit.skillType }
             ?.parametersList?.map { it.key }?.toSet()
 
         val kept = if (declared == null) emptyMap() else wanted.filterKeys { it in declared }
         (wanted.keys - kept.keys).forEach { key ->
-            if (!droppedOptionals.add(execution.robotId to key)) return@forEach
+            if (!droppedOptionals.add(robot to key)) return@forEach
             val why = if (declared == null) "능력을 못 물어봤다" else "이 기종이 선언하지 않는다"
             execution.trail("OPTIONAL_NOT_SENT", "$key: $why — 요구하지 않고 보낸다")
         }
@@ -1492,7 +1652,9 @@ class Middleware(
     private fun startUnit(execution: Execution, unit: ExecutionUnit) {
         // 재작업은 새 정체성이다 — 같은 task_id 는 계약이 같은(종착한) 핸들로 돌려준다.
         unit.taskId = "${execution.order.jobOrderId}#${unit.unitId}" + if (unit.attempt > 0) "@r${unit.attempt}" else ""
-        unit.requestedAt = now()
+        // 판단 기록이 이 시도의 요청 시각을 넘겼으면 그것이다(§15.213). 다시 지은 뒤 같은 시도를 다시 보내는 것이지 새 요청이 아니므로,
+        // 미확정 유예·관측 창·설비 대기의 기한은 처음 보낸 시각부터 이어 잰다. 다른 시도(재작업)면 쓰지 않는다.
+        unit.requestedAt = execution.restoredRequests.remove(unit.unitId)?.takeIf { it.first == unit.attempt }?.second ?: now()
         unit.lookups = 0
         execution.active = unit
         val accepted = try {
@@ -1593,6 +1755,8 @@ class Middleware(
         doneAt: Instant,
         strict: Boolean = false,
         prior: Boolean = false,
+        /** 판단 기록이 넘긴 근거 기한. 널이면 지금 정한다. */
+        deadline: Instant? = null,
     ) {
         unit.reached = reachedByDownstream
         unit.downstreamDoneAt = doneAt
@@ -1605,7 +1769,7 @@ class Middleware(
         }
         unit.state = UnitState.VERIFYING
         // **이 순간의 뒤 폭으로 정해 저장한다.** 나중에 뒤 폭이 바뀌어도 다시 계산하지 않는다.
-        unit.evidenceDeadline = doneAt.plus(windowOf(execution).after)
+        unit.evidenceDeadline = deadline ?: doneAt.plus(windowOf(execution).after)
         checkEvidence(execution, unit)
     }
 
@@ -1720,6 +1884,8 @@ class Middleware(
         val execution = executions[executionId] ?: return ResolveOutcome.NotHeld
         val unit = execution.units.firstOrNull { it.unitId == unitId && it.state == UnitState.OPERATOR_HOLD }
             ?: return ResolveOutcome.NotHeld
+        // 판단 기록이 싣는다(§15.213). 판단이 선 시도를 단다 — 재작업이면 아래에서 시도가 하나 오른다.
+        execution.decisions[unitId] = RecordedDecision(decision, approver, now(), unit.attempt)
         when (decision) {
             OperatorDecision.CONFIRM_DONE -> {
                 // 설비 근거가 있었으면 E2 다. 없이 사람이 확인한 것은 근거 등급을 올리지 않는다 — 그 사실이 note 에 남는다.
@@ -1871,7 +2037,9 @@ class Middleware(
             ?.let { return Submission.Idempotent(it) }
         val submission = submit(go.order, go.robotId, go.prefix, approvedBy = go.approver)
         if (submission !is Submission.Accepted) return submission
-        desk.settle(go, submission.execution.executionId)
+        val consumed = desk.settle(go, submission.execution.executionId)
+        // 판단 기록이 싣는다(§15.213). 다시 지을 때 걸음이 계획 앞에 다시 서고 승인 장부에 소모로 다시 선다.
+        submission.execution.approval = RecordedApproval(go.robotId, consumed.approver, consumed.at, consumed.wallClockAt, consumed.steps)
         return submission
     }
 
@@ -1918,7 +2086,8 @@ class Middleware(
         execution.cancelRequested = true
         execution.cancelRefusal = null
         execution.handle?.let { handle ->
-            val response = robots.cancel(execution.robotId, handle)
+            // 핸들은 도는 단위의 것이다 — 그 단위가 묶인 기체로 보낸다.
+            val response = robots.cancel(execution.active?.let(execution::robotOf) ?: execution.robotId, handle)
             // **거절을 감추지 않는다.** 그 스킬이 취소를 안 들면(CANCEL_UNSUPPORTED) 진행 중 단위는 끝까지 가고 다음
             // 경계에서 멈춘다 — 그 사실이 취소 응답에 드러나야 상류가 중단점을 안다(16장).
             if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
@@ -1997,7 +2166,8 @@ class Middleware(
             inDoubtUnits = units.filter { it.state == UnitState.IN_DOUBT }.map { it.unitId },
             results = units.filter { it.state == UnitState.DONE && !it.result.isNullOrBlank() }.associate { it.unitId to it.result!! },
             blockedBy = execution.blockedBy.map { canonicalClassOf(it) },
-            connection = (views[execution.robotId]?.takeIf { it.observable }?.connection ?: ConnectionState.CONNECTION_STATE_UNSPECIFIED).name,
+            // 기체 연결은 도는 단위가 묶인 기체의 것이다. 도는 단위가 없으면 실행의 기체다.
+            connection = (views[execution.active?.let(execution::robotOf) ?: execution.robotId]?.takeIf { it.observable }?.connection ?: ConnectionState.CONNECTION_STATE_UNSPECIFIED).name,
             autoResolvesInDoubt = units.all { lookupOf(it.route) == ExecutionLookup.CLIENT_REFERENCE },
         )
         outbox += response
@@ -2075,6 +2245,18 @@ class Middleware(
 
         /** [resume] 이 마지막 로봇 태스크 앞의 로봇 단위를 설비 근거 재확인 없이 닫기로 했다는 실행 자취의 종류. */
         const val RESUME_PRIOR_ROBOT = "RESUME_PRIOR_ROBOT"
+
+        /**
+         * [resume] 이 판단 기록을 받지 않을 때의 사유 앞머리 — 기록의 작업 지시 id·버전이 넘긴 작업 지시와 다르거나 계획에 없는 단위가
+         * 있다. [RESUME_SNAPSHOT_UNREADABLE] 과 달리 다시 시도해도 같다. 담는 쪽이 넘긴 기록이 이 실행의 것이 아니다.
+         */
+        const val RESUME_RECORD_MISMATCH = "판단 기록이 이 작업 지시의 것이 아니어서 다시 짓지 않는다"
+
+        /** [resume] 이 판단 기록의 사실(감수한 결함, 승인 소모, 단위의 판정)을 옮겼다는 실행 자취의 종류. */
+        const val RESUME_RECORD = "RESUME_RECORD"
+
+        /** [resume] 이 스냅숏보다 앞선 시도의 기록이라 그 단위의 시각과 판정을 옮기지 않았다는 실행 자취의 종류. */
+        const val RESUME_RECORD_SUPERSEDED = "RESUME_RECORD_SUPERSEDED"
 
         /** 발행 관문이 새 로봇 명령을 막았다는 실행 자취의 종류(ADR 52). 같은 막음은 한 번만 남는다. */
         const val ISSUE_WITHHELD = "ISSUE_WITHHELD"

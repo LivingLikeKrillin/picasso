@@ -93,7 +93,8 @@ internal class IncidentLog(
                 incidentId = "incident-${++incidentSeq}",
                 jobOrderId = execution.order.jobOrderId,
                 executionId = execution.executionId,
-                robotId = execution.robotId,
+                // 사건은 단위의 것이다 — 그 단위가 묶인 기체를 싣는다.
+                robotId = execution.robotOf(unit),
                 unitId = unit.unitId,
                 at = at,
                 wallClockAt = wall,
@@ -144,7 +145,7 @@ internal class IncidentLog(
                     progressObservable = unit.progressObservable,
                     progressStalled = unit.progressStalled,
                 ),
-                profileRevision = robots.capabilities(execution.robotId)?.profileRevision ?: 0,
+                profileRevision = robots.capabilities(execution.robotOf(unit))?.profileRevision ?: 0,
                 contractSemver = ContractIdentity.semver,
                 approvedBy = execution.approvedBy,
             )

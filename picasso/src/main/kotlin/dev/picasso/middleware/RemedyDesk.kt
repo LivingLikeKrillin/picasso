@@ -294,17 +294,7 @@ internal class RemedyDesk(
             }
         }
 
-        val prefix = steps.mapIndexed { at, step ->
-            ExecutionUnit(
-                unitId = "remedy-${at + 1}-${step.skillType}",
-                route = Route.ROBOT,
-                skillType = step.skillType,
-                parameters = parameters[at],
-                expectedIdentity = null,
-                source = null,
-                destination = null,
-            )
-        }
+        val prefix = steps.mapIndexed { at, step -> remedyUnit("remedy-${at + 1}-${step.skillType}", step.skillType, parameters[at]) }
         return Judgment.Go(key, robotId, standing.order, steps, prefix, approver)
     }
 
@@ -349,19 +339,47 @@ internal class RemedyDesk(
      *
      * @param executionId 그 접수로 선 실행. 소모 기록이 든다.
      */
-    fun settle(go: Judgment.Go, executionId: String) {
+    fun settle(go: Judgment.Go, executionId: String): ConsumedApproval {
         proposals.remove(go.key)
-        consumed[go.key] = ConsumedApproval(
+        val record = ConsumedApproval(
             approver = go.approver,
             at = now(),
             wallClockAt = wallClock(),
             executionId = executionId,
             steps = go.prefix.map { ApprovedStep(it.skillType, it.parameters, it.unitId) },
         )
+        consumed[go.key] = record
         // **승인자 종류로 가르지 않는다**(ADR 43 §4). 이 수가 재는 것은 «같은 조치가 몇 번 반복됐나» 이고
         // 근본 원인은 누가 눌렀는지 모른다. 가르면 사람 다섯 번과 에이전트 다섯 번이 열이 아니라
         // 다섯과 다섯이 되어 한도에 안 걸린다 — 지표가 자기 집계 방식에 진다.
         val signature = "${go.robotId}|" + go.steps.joinToString(">") { it.skillType }
         approvals[signature] = (approvals[signature] ?: 0) + 1
+        return record
+    }
+
+    /**
+     * 재기동 뒤 다시 지은 실행의 소모를 **다시 세운다**(§15.213, [Middleware.resume]). 판단 기록이 넘긴 사실이고 다시 판정하지 않는다.
+     *
+     * 서 있던 제안은 지운다. 소모된 제안이 승인 장부에 서 있으면 같은 승인이 두 번 쓰인다. 승인 횟수([repeatedRemedies])는 세지
+     * 않는다 — 앞 인스턴스에서 이미 센 승인이고, 그 수는 판단 기록이 싣지 않는 지표다.
+     */
+    fun restore(robotId: String, jobOrderId: String, record: ConsumedApproval) {
+        val key = proposalKey(robotId, jobOrderId)
+        proposals.remove(key)
+        consumed[key] = record
     }
 }
+
+/**
+ * 승인된 조치 열의 걸음 하나를 실행 단위로 세운다. 승인([RemedyDesk.judge])과 다시 짓기([Middleware.resume])가 같은 모양을 쓴다 —
+ * 두 벌이면 다시 지은 걸음이 처음 승인한 걸음과 다른 단위가 되는 날이 온다.
+ */
+internal fun remedyUnit(unitId: String, skillType: String, parameters: Map<String, String>) = ExecutionUnit(
+    unitId = unitId,
+    route = Route.ROBOT,
+    skillType = skillType,
+    parameters = parameters,
+    expectedIdentity = null,
+    source = null,
+    destination = null,
+)
