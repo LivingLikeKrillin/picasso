@@ -24,7 +24,7 @@ import java.time.format.DateTimeParseException
  *
  * ## 구동
  *
- * 스레드가 없다. [submit]·[cancel]·[resolve]·[ack] 가 밖에서 오고, 하류의 전이는 [pump] 를
+ * 스레드가 없다. [submit]·[cancel]·[resolve]·[ack]·[forget] 이 밖에서 오고, 하류의 전이는 [pump] 를
  * 부를 때 읽는다. 시험이 가상 시계를 밀고 `pump()` 를 부르는 결정적 구동에 맞춘
  * 것이며(§12.1), 운영 배치에서는 스케줄러가 `pump()` 를 돌린다. 시각은 [now] 로만
  * 읽는다 — 시간창 δ 가 시각을 비교하기 때문이다.
@@ -132,6 +132,22 @@ class Middleware(
         missions ?: MissionCatalog.of(capabilities ?: MissionCatalog.codeCapabilities())
     }
     private val executions = linkedMapOf<String, Execution>()
+
+    /**
+     * 실행 id 의 셈. **표의 크기로 세지 않는다** — [forget] 이 표에서 빼므로 크기로 세면 놓은 실행의 id 가 새 실행에 다시 붙고,
+     * 그 id 를 든 사건 번들·소모 기록·통보가 새 실행을 가리키게 된다.
+     */
+    private var executionSeq = 0
+
+    /**
+     * 놓은 작업 지시 — 작업 지시 id 마다 그 실행의 id·판·종착 상태 하나([forget]). 같은 작업 지시 id 가 다시 오면 이것으로 거부한다.
+     *
+     * 실행을 통째로 들지 않고 이 셋만 든다. 지우지 않으므로 놓은 작업 지시 수만큼 는다 — 지우면 같은 id 의 재전송이 새 실행으로 선다.
+     */
+    private val forgotten = mutableMapOf<String, ForgottenOrder>()
+
+    private data class ForgottenOrder(val executionId: String, val version: Int, val state: PhysicalState)
+
     private val views = mutableMapOf<String, RobotView>()
 
     /** 배정 관문(설계안 §7). 실행 표를 같은 인스턴스로 넘긴다 — 관문은 이 층이 지금 든 것을 읽는다. */
@@ -370,6 +386,7 @@ class Middleware(
         /** [adopt] 가 관문에 대려고 이미 읽은 쌍. 널이면 지금 카탈로그를 읽는다 — 한 작업 수락이 카탈로그를 두 번 읽지 않게 한다. */
         mission: ActiveMission? = null,
     ): Submission {
+        forgottenRefusal(order.jobOrderId)?.let { return it }
         // **이미 있는 실행이면 카탈로그를 안 본다.** 리비전은 그 실행이 쥔 케이퍼빌리티로 계획한다 — 여기서 카탈로그를
         // 읽으면 활성 버전이 바뀐 뒤의 리비전이 새 버전의 단위를 옛 실행에 들인다.
         val existing = executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }
@@ -398,7 +415,7 @@ class Middleware(
         approvedBy: Approver?,
     ): Execution {
         val execution = Execution(
-            executionId = "exec-${executions.size + 1}",
+            executionId = "exec-${++executionSeq}",
             order = order,
             robotId = robotId,
             capability = active.capability,
@@ -424,6 +441,7 @@ class Middleware(
      * 같은 `task_id`·`revision` 에만 서므로, 낮은 버전을 넘기면 기체가 기존 태스크에 붙여 주지 않는다.
      *
      * 같은 작업 지시 id 의 실행이 이미 있으면 [submit] 과 같이 리비전 경로로 간다. 같은 버전이면 [Submission.Idempotent] 다.
+     * 이 인스턴스가 그 작업 지시를 [forget] 으로 놓았으면 [submit] 과 같이 [FORGOTTEN_JOB_ORDER] 로 거부한다.
      *
      * 없으면 차례는 이렇다.
      *
@@ -473,6 +491,7 @@ class Middleware(
      * 빼고 지으면 그 단위가 이미 끝난 태스크에 붙는다.
      */
     fun resume(order: JobOrder, robotId: String, mission: ActiveMission, record: JudgmentRecord? = null): Submission {
+        forgottenRefusal(order.jobOrderId)?.let { return it }
         val existing = executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }
         if (existing != null) return revise(existing, order)
 
@@ -711,6 +730,8 @@ class Middleware(
      * 전부 떨어지면 [Unassigned] 다. **재계산을 요청하지 않는다** — 요청하면 이 층이 중재자가 된다.
      */
     fun adopt(order: JobOrder, ranked: List<String>): Submission {
+        // 놓은 작업 지시는 관문에 대기 전에 거부한다. 후보가 전부 떨어지면 «배정할 기체가 없다» 로 읽힌다.
+        forgottenRefusal(order.jobOrderId)?.let { return it }
         // **카탈로그를 한 번 읽고 그 쌍을 작업 수락까지 넘긴다.** 관문에 댄 계획과 실행이 쥘 계획이 같은 버전이어야
         // 한다 — 그 사이에 활성화가 끼면 관문이 본 적 없는 단위가 나간다.
         val mission = missions.active(order.workMasterId)
@@ -2053,7 +2074,11 @@ class Middleware(
                     submission.execution.executionId,
                     judgment.prefix.map { ApprovedStep(it.skillType, it.parameters, it.unitId) },
                 )
-                is Submission.Rejected -> ApprovalOutcome.Refused(ApprovalRefusal.REFUSED_BY_GATE, submission.reason)
+                // 놓은 작업 지시면 관문이 아니라 그 작업 지시가 이미 실행으로 섰다가 끝난 것이다 — 조치 열이 안 나간 것과 같은 답이다.
+                is Submission.Rejected -> ApprovalOutcome.Refused(
+                    if (judgment.order.jobOrderId in forgotten) ApprovalRefusal.REMEDY_NOT_APPLIED else ApprovalRefusal.REFUSED_BY_GATE,
+                    submission.reason,
+                )
                 // **접힌 접수는 승인이 아니다.** 그 주문이 이미 실행으로 서 있으면 조치 열은 안 나간다
                 // (§15.175, ADR 46). 성공으로 내면 «승인했는데 아무 일도 안 일어났다» 가 초록으로 보인다.
                 is Submission.Idempotent -> ApprovalOutcome.Refused(
@@ -2080,6 +2105,7 @@ class Middleware(
         // 닿는 길이다. 판과 무관하게 여기서 접는다.
         executions.values.firstOrNull { it.order.jobOrderId == go.order.jobOrderId }
             ?.let { return Submission.Idempotent(it) }
+        // 놓은 작업 지시는 아래 접수가 거부한다([forgottenRefusal]). 거부라서 제안을 지우지 않고 소모로도 남기지 않는다.
         val submission = submit(go.order, go.robotId, go.prefix, approvedBy = go.approver)
         if (submission !is Submission.Accepted) return submission
         val consumed = desk.settle(go, submission.execution.executionId)
@@ -2227,6 +2253,64 @@ class Middleware(
         return true
     }
 
+    // ── 놓기 — 끝난 실행을 이 층의 메모리에서 뺀다
+
+    /**
+     * 담는 쪽이 **끝난 실행을 놓는다.** 실행 표([executions])와 아웃박스([responses])에서 그 실행과 그 통보를 빼고, 작업 지시 id 하나만
+     * 남긴다. 부르지 않으면 실행은 이 인스턴스가 사는 동안 남는다 — 언제 놓을지는 그 실행의 사실을 다 옮겨 적었는지 아는 담는 쪽이 정한다.
+     *
+     * 놓는 것은 둘이 다 섰을 때뿐이다.
+     *
+     * 1. **구동이 더는 돌리지 않는다**([PhysicalState.pumps]가 거짓). `PARTIAL` 은 종착이지만 구동이 계속 돌리고 개정과 취소를 받으므로
+     *    놓지 않는다 — 개정으로 다시 돌거나 [cancel] 로 `ABORTED` 가 된 뒤 놓는다. 도는 실행을 놓으면 [pump] 가 그것을 조용히 멈춘다.
+     * 2. **그 실행의 통보가 전부 상류에 확인됐다.** 확인되지 않은 통보와 함께 빼면 [pending] 에서 사라져 아무도 다시 나르지 않는다.
+     *
+     * 놓은 뒤에는 이렇다.
+     *
+     * - **같은 작업 지시 id 는 판과 무관하게 받지 않는다.** [submit]·[adopt]·[resume] 이 [FORGOTTEN_JOB_ORDER] 로 시작하는 사유로 거부하고
+     *   (사유에 그 실행의 id·판·종착 상태가 실린다), 승인은 조치가 안 나간 것으로 거절한다(`REMEDY_NOT_APPLIED`). 같은 id 를 다시 받으면
+     *   같은 태스크 id 로 새 실행이 서서 이미 끝난 태스크에 붙거나 같은 일이 두 번 돈다. 그래서 `FAILED`·`UNVERIFIED` 실행을 놓으면 더
+     *   높은 판의 개정도 받지 않는다 — 다시 할 일은 새 작업 지시 id 로 낸다.
+     * - **실행 id 는 다시 쓰지 않는다**([executionSeq]).
+     * - **남는 것**: 사건 번들([incidents]), 조치 탐색 대장, 서 있는 제안과 승인 소모 기록(ADR 46), 같은 조치의 승인 횟수. 이것들은 실행이
+     *   아니라 이 층의 다른 장부이고 그 적재는 따로 추적한다. 사건 번들을 빼면 검토 지표와 내보내기가 바뀌고, 소모 기록을 빼면 다시 온
+     *   승인이 `CONSUMED` 대신 `NO_PROPOSAL` 을 받는다.
+     * - **사라지는 것**: [execution]·[judgmentRecord]·[lastCancel] 이 널을 내고 [resolve]·[release]·[cancel]·[reassign] 이 모르는 실행으로
+     *   답한다. 놓기 전에 받아 둘 것은 받아 둔다. 아웃박스가 그 인스턴스의 전체 이력이 아니게 되므로, 통보를 [responses] 로 통째로 다시
+     *   쓰는 담는 쪽은 놓기 전에 이어 붙이는 쪽으로 바꿔야 한다.
+     *
+     * 놓은 작업 지시 id 는 이 인스턴스의 메모리에만 있다. 다시 뜬 인스턴스는 모르므로 그 사이의 재전송은 담는 쪽의 기록이 막는다.
+     */
+    fun forget(executionId: String): ForgetOutcome {
+        val execution = executions[executionId] ?: return ForgetOutcome.Unknown
+        val state = execution.physicalState
+        if (state.pumps) {
+            return ForgetOutcome.Refused(
+                if (state.isSettled) {
+                    "$state 는 종착이지만 구동이 아직 돌린다 — 개정으로 다시 돌거나 취소로 끝낸 뒤 놓는다: $executionId"
+                } else {
+                    "끝나지 않은 실행이다($state): $executionId"
+                },
+            )
+        }
+        val unacked = outbox.filter { it.executionId == executionId && it.ack != UpstreamAck.ACKED }
+        if (unacked.isNotEmpty()) {
+            return ForgetOutcome.Refused("상류가 확인하지 않은 통보가 있다: ${unacked.joinToString { it.jobResponseId }} — 나르고 ack 한 뒤 놓는다")
+        }
+        executions.remove(executionId)
+        outbox.removeAll { it.executionId == executionId }
+        forgotten[execution.order.jobOrderId] = ForgottenOrder(executionId, execution.version, state)
+        return ForgetOutcome.Forgotten
+    }
+
+    /** 놓은 작업 지시면 거부, 아니면 널. */
+    private fun forgottenRefusal(jobOrderId: String): Submission.Rejected? {
+        val gone = forgotten[jobOrderId] ?: return null
+        return Submission.Rejected(
+            "$FORGOTTEN_JOB_ORDER: $jobOrderId · ${gone.executionId} · 판 ${gone.version} · ${gone.state} — 다시 할 일은 새 작업 지시 id 로 낸다",
+        )
+    }
+
     /** 사정을 덧붙인다 — 앞의 것을 지우지 않는다. 지연 이벤트·미확정 같은 사정은 종착 사유와 함께 남아야 한다. */
     private fun ExecutionUnit.annotate(message: String) {
         note = if (note.isNullOrBlank()) message else "$note; $message"
@@ -2281,6 +2365,12 @@ class Middleware(
          * 나눈다. 뒤에 기체 id 가 붙는다.
          */
         const val RESUME_SNAPSHOT_UNREADABLE = "기체 스냅숏을 못 읽어 다시 짓지 않는다"
+
+        /**
+         * 이 인스턴스가 [forget] 으로 놓은 작업 지시 id 가 다시 왔을 때 거부 사유의 앞머리. 담는 쪽은 이것으로 «이미 끝나 놓은 일» 과 그 밖의
+         * 거부를 나눈다. 뒤에 작업 지시 id·실행 id·판·종착 상태가 붙는다. [RESUME_SNAPSHOT_UNREADABLE] 과 달리 다시 시도해도 같다.
+         */
+        const val FORGOTTEN_JOB_ORDER = "이미 끝나 놓은 작업 지시라 다시 받지 않는다"
 
         /** [resume] 이 로봇 단위의 재작업 횟수를 스냅숏 태스크 id 에서 맞췄다는 실행 자취의 종류. */
         const val RESUME_ATTEMPT = "RESUME_ATTEMPT"
