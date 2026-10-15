@@ -128,6 +128,21 @@ sealed interface ResolveOutcome {
 }
 
 /**
+ * 실행을 놓는 요청([Middleware.forget])의 답. **왜 안 놓았는지를 접지 않는다** — 아직 도는 실행과 상류가 확인하지 않은
+ * 통보는 다음 행동이 다르다(앞엣것은 종착이나 취소를 기다리고, 뒤엣것은 나르고 `ack` 한다).
+ */
+sealed interface ForgetOutcome {
+    /** 놓았다 — 실행과 그 통보가 이 층에서 빠졌고, 같은 작업 지시 id 는 이제 받지 않는다. */
+    data object Forgotten : ForgetOutcome
+
+    /** 모르는 실행이다 — 선 적이 없거나 이미 놓았다. 아무것도 안 바뀌었다. */
+    data object Unknown : ForgetOutcome
+
+    /** 놓지 않았다. 아무것도 안 바뀌었다. */
+    data class Refused(val reason: String) : ForgetOutcome
+}
+
+/**
  * 지연 이벤트(보고서 15.1) — 단위의 지금 버전보다 **낮은 버전**을 단 하류 종착. 폐기하지 않고 여기 보존한다(감사·사후 분석).
  * v17 을 돌리다 v18 로 바꿨는데 뒤늦게 온 v17 의 완료로 v18 을 닫지 않는다 — 그 완료가 무엇을 뜻하는지는 설비가 v18 의
  * 기대에 대고 다시 본다.

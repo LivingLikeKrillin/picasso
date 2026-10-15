@@ -26,7 +26,7 @@
 ### 1. 상위 시스템 연계 (MES·WMS·SCADA → picasso)
 
 상위 시스템과의 연계 지점은 별도 인터페이스가 아닌 `Middleware` 클래스의 **공개 API**로 제공됩니다:
-- 주요 메서드: `submit(JobOrder, robotId)`, `pump()`, `pending()`, `ack(jobResponseId)`, `resolve(...)`, `cancel(...)`, `release(...)`, `resume(JobOrder, robotId, ActiveMission, JudgmentRecord?)`, `judgmentRecord(executionId)`
+- 주요 메서드: `submit(JobOrder, robotId)`, `pump()`, `pending()`, `ack(jobResponseId)`, `resolve(...)`, `cancel(...)`, `release(...)`, `resume(JobOrder, robotId, ActiveMission, JudgmentRecord?)`, `judgmentRecord(executionId)`, `forget(executionId)`
 
 - **실제 하드웨어 전환 작업**:
   - 상위 통신 프로토콜(OPC UA, REST, Kafka, MQTT 등)을 수신하는 **인바운드 ACL(Anti-Corruption Layer)**을 구현하여 본 공개 API를 호출합니다.
@@ -179,4 +179,4 @@
 
 > **검증 보증:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
 
-> 마지막 대조: 2026-10-14 · sha256:bbbca3bf5e4d · 열림: §15.34, C-3, §15.5, §15.156
+> 마지막 대조: 2026-10-15 · sha256:2579ac0df83f · 열림: §15.34, C-3, §15.5, §15.156

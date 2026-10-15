@@ -113,6 +113,18 @@ class EntitlementTest {
             return mw.proposal(ROBOT, jobOrderId)
         }
 
+        /**
+         * 구동이 더는 돌리지 않게 끝낸다. 운영자 보류나 `PARTIAL` 에 서면 취소로 끝낸다 — 놓기([Middleware.forget])의 시험이 어떻게
+         * 끝났는지가 아니라 끝났다는 것만 쓴다.
+         */
+        fun ended(exec: Middleware.Execution) {
+            drive(rounds = 400) { exec.active == null && (exec.physicalState.isSettled || exec.physicalState == PhysicalState.OPERATOR_HOLD) }
+            if (exec.physicalState.pumps) {
+                assertTrue(mw.cancel(exec.executionId))
+                drive { exec.physicalState == PhysicalState.ABORTED }
+            }
+        }
+
         override fun close() = harness.close()
     }
 
@@ -416,6 +428,44 @@ class EntitlementTest {
             assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol(), OTHER))
 
             assertEquals(ApprovalRefusal.REMEDY_NOT_APPLIED, refusal(w.mw.attemptApproval(attempt())))
+        }
+    }
+
+    @Test
+    fun `그 주문이 다른 기체에서 끝나 놓였으면 승인으로 안 센다`() {
+        // ★놓은 뒤에는 표에 실행이 없어 멱등으로 접히지 않는다. 그 자리를 관문 거절로 내면 «조건이 풀리면 다시 누른다» 로 읽혀
+        //   이미 끝난 주문에 조치를 다시 실으려 한다.
+        World(Declared(mapOf(AGENT.id to full())), pair = true).use { w ->
+            w.standingProposal()
+            val other = assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol(), OTHER)).execution
+            w.ended(other)
+            w.mw.pending().forEach { w.mw.ack(it.jobResponseId) }
+            assertEquals(ForgetOutcome.Forgotten, w.mw.forget(other.executionId))
+
+            val answer = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(ApprovalRefusal.REMEDY_NOT_APPLIED, answer.refusal)
+            assertTrue(answer.reason.startsWith(Middleware.FORGOTTEN_JOB_ORDER), answer.reason)
+            val person = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR))
+            assertTrue(person.reason.startsWith(Middleware.FORGOTTEN_JOB_ORDER), person.reason)
+            assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "조치가 안 나갔는데 제안을 소모했다")
+            assertTrue(w.mw.executions().none { it.order.jobOrderId == "PATROL-1" }, "놓은 주문이 승인으로 다시 섰다")
+        }
+    }
+
+    @Test
+    fun `승인으로 선 실행을 놓아도 다시 온 승인은 그 소모 기록을 받는다`() {
+        // ★소모 기록은 실행이 아니라 승인 장부의 것이다(ADR 46). 실행과 함께 빼면 다시 온 승인이 «선 적이 없다» 를 받는다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            w.standingProposal()
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+            val exec = assertNotNull(w.mw.execution(approved.executionId))
+            w.ended(exec)
+            w.mw.pending().forEach { w.mw.ack(it.jobResponseId) }
+            assertEquals(ForgetOutcome.Forgotten, w.mw.forget(exec.executionId))
+
+            val again = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(ApprovalRefusal.CONSUMED, again.refusal)
+            assertEquals(approved.executionId, assertNotNull(again.consumed).executionId)
         }
     }
 
