@@ -78,7 +78,8 @@ class SourceObservationTest {
             assertNull(unobserved.occupied)
             assertEquals(emptyMap(), unassigned.sourceMissing, "확인 요구가 결품으로 접혔다")
             assertTrue(ROBOT in unassigned.refusals)
-            assertEquals(emptyList(), w.mw.remedySearches(), "물어보기만 한 것이 대장에 쌓였다")
+            // 미배정도 작업 수락의 거절과 같이 적는다(§15.164). 확인 요구는 그 거절에서도 대장에 줄이 없다.
+            assertEquals(emptyList(), w.mw.remedySearches(), "확인 요구가 대장에 섰다")
         }
     }
 

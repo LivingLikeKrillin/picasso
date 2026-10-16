@@ -151,6 +151,7 @@ class EntitlementTest {
                 w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), AGENT),
             )
             assertTrue("값을 실어 승인하지 못한다" in answer.reason, answer.reason)
+            assertEquals(ApprovalRefusal.VALUES_NOT_ACCEPTED, answer.approvalRefusal)
             assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "거절이 제안을 소모했다")
         }
     }
@@ -405,6 +406,9 @@ class EntitlementTest {
             assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "관문 거절이 제안을 소모했다")
             // 재시도도 서 있는 제안으로 판정된다 — 관문 거절은 소모가 아니다(ADR 46).
             assertEquals(ApprovalRefusal.REFUSED_BY_GATE, refusal(w.mw.attemptApproval(attempt())))
+            // 사람의 문도 같은 종류를 싣는다 — 사유 산문으로만 내면 부르는 쪽이 문자열로 갈라야 한다.
+            val human = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR))
+            assertEquals(ApprovalRefusal.REFUSED_BY_GATE, human.approvalRefusal, human.reason)
         }
     }
 
@@ -447,6 +451,7 @@ class EntitlementTest {
             assertTrue(answer.reason.startsWith(Middleware.FORGOTTEN_JOB_ORDER), answer.reason)
             val person = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR))
             assertTrue(person.reason.startsWith(Middleware.FORGOTTEN_JOB_ORDER), person.reason)
+            assertEquals(ApprovalRefusal.REMEDY_NOT_APPLIED, person.approvalRefusal, "두 문이 놓은 작업 지시를 다른 종류로 냈다")
             assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "조치가 안 나갔는데 제안을 소모했다")
             assertTrue(w.mw.executions().none { it.order.jobOrderId == "PATROL-1" }, "놓은 주문이 승인으로 다시 섰다")
         }
@@ -520,6 +525,23 @@ class EntitlementTest {
             )
             assertTrue(AGENT.id in again.reason, again.reason)
             assertTrue(approved.executionId in again.reason, again.reason)
+            // 종류와 소모 기록도 밖의 문과 같은 값으로 싣는다(ADR 46 의 짝).
+            assertEquals(ApprovalRefusal.CONSUMED, again.approvalRefusal)
+            val consumed = assertNotNull(again.consumedApproval, "CONSUMED 가 소모 기록 없이 났다")
+            assertEquals(AGENT, consumed.approver)
+            assertEquals(approved.executionId, consumed.executionId)
+        }
+    }
+
+    @Test
+    fun `소모가 아닌 사람의 문 거절은 종류만 싣고 소모 기록은 없다`() {
+        // 선 적이 없는 열쇠다. 소모 기록을 실으면 «누가 이미 눌렀다» 로 읽힌다.
+        World().use { w ->
+            val answer = assertIs<Middleware.Submission.Rejected>(
+                w.mw.approveRemedy(ROBOT, "PATROL-1", listOf(PLACE), OPERATOR),
+            )
+            assertEquals(ApprovalRefusal.NO_PROPOSAL, answer.approvalRefusal, answer.reason)
+            assertNull(answer.consumedApproval)
         }
     }
 
@@ -599,6 +621,7 @@ class EntitlementTest {
             )
             val outer = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
             assertEquals(outer.reason, human.reason, "두 문이 접힘을 다른 말로 냈다")
+            assertEquals(outer.refusal, human.approvalRefusal, "두 문이 접힘을 다른 종류로 냈다")
             assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "나가지 않은 승인이 제안을 소모했다")
             assertEquals(OTHER, other.robotId, "다른 기체에 선 실행이 승인의 기체로 옮겨졌다")
             assertEquals(1, other.version, "다른 기체에 선 실행이 승인의 판으로 바뀌었다")

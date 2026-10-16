@@ -8,6 +8,7 @@ import java.nio.file.Path
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -150,6 +151,26 @@ class InspectAssetTest {
             assertEquals(6, w.tasks().size)
             assertEquals(setOf("LOCALIZATION_LOST[]"), exec.acknowledgedFaults, "감수한 결함이 기록에 남는다")
             assertTrue(w.mw.pending().last().blockedBy.isEmpty())
+        }
+    }
+
+    @Test
+    fun `감수하면 막음이 걷힌 작업 응답이 곧바로 하나 나가고 다시 감수해도 더 나가지 않는다`() {
+        // 안 알리면 마지막 작업 응답이 실행이 다음에 알릴 때까지 `OPERATOR_HOLD` 와 감수한 결함을 든다 — 상류는 감수가 안 먹은 줄 안다.
+        World().use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { w.state(taskOf("PUMP-01")) == "RUNNING" }
+            w.forceFault("LOCALIZATION_LOST", taskOf("PUMP-01"))
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+            val before = w.mw.responses().size
+
+            assertTrue(w.mw.release(exec.executionId))
+            val sent = w.mw.responses().drop(before)
+            assertEquals(1, sent.size, "감수가 작업 응답을 안 냈다: $sent")
+            assertEquals(PhysicalState.RUNNING to emptyList(), sent.single().physicalState to sent.single().blockedBy)
+
+            assertFalse(w.mw.release(exec.executionId), "막는 결함이 없는데 감수가 섰다")
+            assertEquals(before + 1, w.mw.responses().size, "바뀐 것 없는 감수가 작업 응답을 또 냈다")
         }
     }
 

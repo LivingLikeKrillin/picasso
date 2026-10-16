@@ -134,7 +134,8 @@ internal class RemedyDesk(
      * 탐색 한 번을 대장에 적는다.
      *
      * **묻기만 한 것은 안 적는다.** 부르는 자리가 [record] 뿐인 것이 그 규율이다 — 관문([AdmissionGate.admits])은 순수
-     * 술어라 후보 셋에 물어봐도 아무것도 안 쌓이고, 쌓는 것은 실제로 그 기체에 내려 본 쪽이다(§15.161).
+     * 술어라 후보 셋에 물어봐도 아무것도 안 쌓이고, 쌓는 것은 실제로 그 기체에 내려 본 쪽이다(§15.161). [Middleware.submit] 과
+     * 순위 목록을 끝까지 시도해 전부 떨어진 [Middleware.adopt] 가 그쪽이다(§15.164).
      * 그래서 이 대장은 «무엇을 물어봤나» 가 아니라 **«무엇을 시도했고 무엇을 답받았나»** 다.
      */
     private fun note(robotId: String, jobOrderId: String, outcome: RemedyOutcome) {

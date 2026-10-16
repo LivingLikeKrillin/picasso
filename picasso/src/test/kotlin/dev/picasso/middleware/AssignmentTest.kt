@@ -148,6 +148,67 @@ class AssignmentTest {
         }
     }
 
+    // ── 미배정의 기록(§15.164)
+
+    @Test
+    fun `전부 떨어지면 후보마다 제안이 서고 순위 차례대로 대장에 남는다`() {
+        // ★배정으로만 내는 호스트는 미배정이 아무것도 안 적으면 승인할 제안을 영영 못 본다. 관문은 그대로 순수하다 —
+        //   적는 것은 순위 목록을 끝까지 시도한 채택이고, 열쇠는 작업 수락과 같은 (기체, 작업 지시)다.
+        World().use { w ->
+            w.makeHolding(A)
+            w.makeHolding(B)
+            assertIs<Unassigned>(w.mw.adopt(patrol("PATROL-1"), listOf(B, A)))
+
+            val log = w.mw.remedySearches().filter { it.jobOrderId == "PATROL-1" }
+            assertEquals(listOf(B, A), log.map { it.robotId }, "순위 차례대로 적히지 않았다: $log")
+            assertTrue(log.all { it.outcome is RemedyOutcome.Found }, "대장: $log")
+            assertIs<Remedy.Found>(w.mw.proposal(A, "PATROL-1"))
+            assertIs<Remedy.Found>(w.mw.proposal(B, "PATROL-1"))
+        }
+    }
+
+    @Test
+    fun `하나라도 통과하면 앞에서 떨어진 후보는 적지 않는다`() {
+        // 채택된 작업 지시의 제안은 승인해도 조치 열이 못 나간다(ADR 46). 적으면 승인할 수 없는 제안이 장부에 선다.
+        World().use { w ->
+            w.makeHolding(A)
+            assertIs<Middleware.Submission.Accepted>(w.mw.adopt(patrol("PATROL-1"), listOf(A, B)))
+
+            assertNull(w.mw.proposal(A, "PATROL-1"), "채택된 작업 지시에 제안이 섰다")
+            assertEquals(emptyList(), w.mw.remedySearches().filter { it.jobOrderId == "PATROL-1" })
+        }
+    }
+
+    @Test
+    fun `작업 수락이 관문 앞에서 거부할 작업 지시는 미배정이어도 적지 않는다`() {
+        // 승인하면 작업 수락이 근거 등급으로 거부하는 제안이다. 한 기체에 낸 작업 수락도 관문 앞에서 돌아가 안 적는다.
+        World().use { w ->
+            w.makeHolding(A)
+            assertIs<Unassigned>(w.mw.adopt(patrol("PATROL-1").copy(requiredEvidence = Evidence.E1), listOf(A)))
+
+            assertNull(w.mw.proposal(A, "PATROL-1"), "승인할 수 없는 제안이 섰다")
+            assertEquals(emptyList(), w.mw.remedySearches().filter { it.jobOrderId == "PATROL-1" })
+        }
+    }
+
+    @Test
+    fun `미배정에서 선 제안의 승인은 작업 수락의 제안과 같이 소모되고 세어진다`() {
+        // 같은 작업 지시의 다른 후보 제안은 남고, 누르면 조치 열이 못 나간 것으로 답한다 — 그 작업 지시는 이미 실행으로 섰다(ADR 46).
+        World().use { w ->
+            w.makeHolding(A)
+            w.makeHolding(B)
+            assertIs<Unassigned>(w.mw.adopt(patrol("PATROL-1"), listOf(A, B)))
+
+            val accepted = assertIs<Middleware.Submission.Accepted>(w.mw.approveRemedy(A, "PATROL-1", listOf(PLACE), OPERATOR))
+            assertEquals(A, accepted.execution.robotId)
+            val again = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(A, "PATROL-1", listOf(PLACE), OPERATOR))
+            assertEquals(ApprovalRefusal.CONSUMED, again.approvalRefusal, again.reason)
+            val sibling = assertIs<Middleware.Submission.Rejected>(w.mw.approveRemedy(B, "PATROL-1", listOf(PLACE), OPERATOR))
+            assertEquals(ApprovalRefusal.REMEDY_NOT_APPLIED, sibling.approvalRefusal, sibling.reason)
+            assertEquals(listOf(RepeatedRemedy(A, listOf(PrepareSequencedRack.SKILL), 1)), w.mw.repeatedRemedies(atLeast = 1))
+        }
+    }
+
     // ── 비용 함수
 
     @Test
@@ -193,6 +254,14 @@ class AssignmentTest {
         const val BIN = "SEQ-IN-02.BIN-A"
 
         private val PRECOND: Path = Path.of("..", "profile", "fixtures", "precondition.json").normalize()
+
+        private val OPERATOR = Approver("op-1", ApproverKind.PERSON)
+
+        /** 사람이 조치 걸음(`pick_place`)에 싣는 값. */
+        private val PLACE = mapOf(
+            PrepareSequencedRack.P_OBJECT to MATERIAL,
+            PrepareSequencedRack.P_DESTINATION to "DROP-01",
+        )
 
         private fun rack(jobOrderId: String, to: String, from: String) = JobOrder(
             jobOrderId = jobOrderId,

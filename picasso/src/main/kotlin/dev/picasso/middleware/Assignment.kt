@@ -62,12 +62,14 @@ data class AssignmentCost(val perLiveExecution: Int = 1, val whenHolding: Int = 
  * 고리가 생긴다. 후보마다의 사유를 함께 내는 이유는, 그것이 없으면 배정기가 **무엇을 고쳐야 하는지**
  * 모른 채 같은 목록을 다시 보내기 때문이다.
  *
- * @param sourceMissing 출발 결품으로 떨어진 후보마다 관문이 **이미 계산한** 답(§15.164 의 절반). 다른 사유로
+ * **이 답이 서면 후보마다의 거절은 이미 대장과 제안 장부에 적혀 있다**([Middleware.adopt], §15.164). 능력 사슬의 탐색 결과(조치 열)는
+ * 이 답에 싣지 않는다 — 후보마다 [Middleware.proposal]·[Middleware.withheldProposal]·[Middleware.remedySearches] 로 읽는다.
+ *
+ * @param sourceMissing 출발 결품으로 떨어진 후보마다 관문이 **이미 계산한** 답. 다른 사유로
  *   떨어진 후보는 여기 없다. 산문의 사유만 내면 대체 자리가 문장 안에 갇혀, 읽는 쪽이 한국어를 뜯어야 한다.
- *   **대장에는 적지 않는다** — 후보를 묻기만 한 것이 쌓이면 묻는 것이 곧 결정이 된다(§15.161). 능력 사슬의
- *   탐색 결과(조치 열)는 여전히 이 답에 없다
+ *   대장에도 `SOURCE_MISSING` 줄로 적힌다
  * @param sourceUnobserved 출발 자리를 확인하지 못해 떨어진 후보마다 관문의 답([SourceUnobserved]). [sourceMissing] 과
- *   **접지 않는다** — 결품은 주문을 고칠 일이고 이것은 사람이 확인할 일이다. 이것도 대장에 적지 않는다
+ *   **접지 않는다** — 결품은 주문을 고칠 일이고 이것은 사람이 확인할 일이다. 대장에는 줄이 없다 — [Middleware.submit] 의 거절과 같다
  */
 data class Unassigned(
     val refusals: Map<String, String>,
