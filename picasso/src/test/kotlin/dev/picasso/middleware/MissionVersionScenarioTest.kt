@@ -235,6 +235,46 @@ class MissionVersionScenarioTest {
         }
     }
 
+    // ── 단위 id 겹침(§15.227)
+
+    /** 첫 슬롯의 id 를 대기 노드 id 로 바꾼 작업 지시. 대기 단위의 id 는 노드 id, 슬롯 단위의 id 는 설비 id 라 둘이 겹친다. */
+    private fun JobOrder.withSlotNamedAsWaitNode(): JobOrder = copy(
+        equipmentRequirements = equipmentRequirements.map {
+            if (it.id.endsWith(".S01")) it.copy(id = MissionFixtures.WAIT_NODE) else it
+        },
+    )
+
+    @Test
+    fun `작업 지시의 설비 id 가 대기 노드 id 와 같으면 받지 않는다`() {
+        // ★검증기는 설비 id 를 모른다. 받으면 리비전·인시던트·작업 응답이 단위 id 로 접어 한쪽이 가려진다.
+        World().use { w ->
+            w.activate(MissionFixtures.withArrivalWait())
+            val refused = assertIs<Middleware.Submission.Rejected>(
+                w.mw.submit(w.order("308").withSlotNamedAsWaitNode(), ROBOT_A),
+            )
+            assertTrue(refused.reason.startsWith(Middleware.DUPLICATE_UNIT_ID), refused.reason)
+            assertTrue(MissionFixtures.WAIT_NODE in refused.reason, refused.reason)
+            assertTrue(w.mw.executions().isEmpty(), "겹친 단위 id 로 실행이 섰다")
+        }
+    }
+
+    @Test
+    fun `리비전이 대기 노드 id 와 같은 설비 id 를 들이면 받지 않고 실행은 그대로다`() {
+        // 리비전은 새 계획을 단위 id 로 접는다 — 겹치면 대기 단위가 슬롯 단위로 바뀌어 대기가 사라진다.
+        World().use { w ->
+            w.activate(MissionFixtures.withArrivalWait())
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(w.order("309"), ROBOT_A)).execution
+            val planned = exec.units.map { it.unitId to it.route }
+
+            val refused = assertIs<Middleware.Submission.Rejected>(
+                w.mw.submit(w.order("309", version = 2).withSlotNamedAsWaitNode(), ROBOT_A),
+            )
+            assertTrue(refused.reason.startsWith(Middleware.DUPLICATE_UNIT_ID), refused.reason)
+            assertEquals(1, exec.version)
+            assertEquals(planned, exec.units.map { it.unitId to it.route }, "거부된 리비전이 단위를 바꿨다")
+        }
+    }
+
     private companion object {
         const val ROBOT_A = "hum-02"
         const val ROBOT_B = "hum-03"

@@ -24,7 +24,7 @@
 
 **셀 신호 포트에 `signal(name): NamedSignal?` 을 더한다.** 기본 구현은 null 이라 기존 구현체는 깨지지 않는다. 어느 주소가 어느 신호인지는 드라이버의 일이다.
 
-**검증기는 라이브러리다.** 화면과 활성화가 같은 규칙으로 막는다. 노드 id 중복과 기한·신호·자원·스킬·안전·출발 관측 여섯 검사다. 거부는 운영 관리 화면 설계 제안 §8.4 의 6칸(부족한 조건은 종류로, 관측값·기대값, 마지막 확인 시각은 활성화 시도 시각, 근거 버전은 해당 없음, 해결 담당, 바로 갈 작업)에 노드 id 를 더한 것이다. 종류는 `UNREADABLE`·`DUPLICATE_NODE_ID`·`DEADLINE_INVALID`·`SIGNAL_NOT_IN_SPEC`·`SIGNAL_VALUE_INVALID`·`FLOOR_UNOWNED`·`SKILL_NOT_IN_CONTRACT`·`SKILL_NOT_ON_SITE`·`SAFETY_SIGNAL_WAIT`·`SOURCE_OBSERVATION_UNDECLARED` 열이고, 해결 담당은 바닥 소유만 화면 밖(`OUTSIDE_CONSOLE`), 출발 관측 미선언은 엔지니어(`ENGINEER`)다.
+**검증기는 라이브러리다.** 화면과 활성화가 같은 규칙으로 막는다. 노드 id 중복과 기한·신호·자원·스킬·안전·출발 관측 여섯 검사다. 거부는 운영 관리 화면 설계 제안 §8.4 의 6칸(부족한 조건은 종류로, 관측값·기대값, 마지막 확인 시각은 활성화 시도 시각, 근거 버전은 해당 없음, 해결 담당, 바로 갈 작업)에 노드 id 를 더한 것이다. 종류는 `UNREADABLE`·`DUPLICATE_NODE_ID`·`DEADLINE_INVALID`·`SIGNAL_NOT_IN_SPEC`·`SIGNAL_VALUE_INVALID`·`FLOOR_UNOWNED`·`SKILL_NOT_IN_CONTRACT`·`SKILL_NOT_ON_SITE`·`SAFETY_SIGNAL_WAIT`·`SOURCE_OBSERVATION_UNDECLARED`·`SOURCE_OBSERVATION_UNUSED` 열하나이고, 해결 담당은 바닥 소유만 화면 밖(`OUTSIDE_CONSOLE`), 출발 관측의 두 종류(미선언, 쓰이지 않는 선언)는 엔지니어(`ENGINEER`)다.
 
 **포트 `MissionCatalog` 와 메모리 구현을 둔다.** 포트는 middleware 패키지에, `InMemoryMissionCatalog` 는 mission 패키지에 있어 의존은 한 방향이다. 활성화는 검증을 통과하면 그 WorkMaster 의 다음 버전(1부터)이 되고 거부면 활성 버전이 그대로이며 거부된 시도는 번호를 쓰지 않는다. 검증기 입력(신호 사양·바닥 소유·현장 기체 스킬)은 활성화 호출의 인자다. 구현은 `synchronized` 로 스레드 안전하다. `Middleware` 생성자 맨 뒤에 `missions` 를 두었다. 기본은 코드 케이퍼빌리티 셋이고 버전이 없다. `capabilities` 와 함께 주면 생성이 실패한다.
 
@@ -56,7 +56,7 @@
 - 엔진이 바뀌었다. `Route` 의 셋째 값, 진행·리비전·미확정 해소·작업 응답의 경로 분기, 중단 반환 가드다. `InspectAsset` 때의 «엔진 무수정» 은 단위의 종류가 늘면 성립하지 않는다(scenarios·README·architecture 의 문장을 고쳤다).
 - 조회 버전이 6 이 되어 인계 번들 네 세트를 다시 산출했고 모든 인시던트 줄의 `digest` 가 바뀌었다. 읽는 쪽이 `digest` 를 멱등성 키로 들면 같은 인시던트가 새로 들어온다. 알림이 필요하다.
 - 저장과 이력은 메모리 구현뿐이다. picasso-ops 가 S3 에서 붙인다.
-- 작업 지시의 설비 id 가 대기 노드 id 와 같으면 단위 id 가 겹친다. 검증기는 정의만 보므로 못 잡는다(한계 §15.209 · id 겹침). 파라미터 이름 오타도 검증기가 못 잡는다(실행 때 `PARAMETER_INVALID`).
+- 작업 지시의 설비 id 가 대기 노드 id 와 같으면 단위 id 가 겹친다. 검증기는 정의만 보므로 여전히 못 잡는다. 대신 작업 수락(`submit`)과 리비전(`revise`)이 계획의 단위 id 가 겹치면 `DUPLICATE_UNIT_ID` 로 거부한다(§15.227). 작업 지시가 와야 설비 id 를 알기 때문에 그 자리에서 막는다. 이 겹침은 정의를 활성화할 때가 아니라 작업 지시를 받을 때 드러난다. 파라미터 이름 오타도 검증기가 못 잡는다(실행 때 `PARAMETER_INVALID`).
 - 설비 대기를 사람이 `CONFIRM_DONE` 하면 근거가 E0 로 남아 작업 응답의 근거 등급이 E0 로 내려간다.
 - 기한 뒤 `ABORTED` 의 작업 응답은 `operatorRequired=false` 다. 정해 둔 중단이라 사람의 판단을 기다리지 않는다.
 - ADR 47 은 «실으면 조회 버전이 6 으로 오르고» 라고 적었으나 6 은 이번에 `route` 의 `SIGNAL` 이 썼다. 결정자를 실을 때는 7 이 된다. ADR 47 본문은 그때의 기록이라 고치지 않는다.
@@ -83,4 +83,4 @@
 
 이 표는 게이트가 이름으로 대조하지 않는다. 이름은 시험과 손으로 맞춘다.
 
-> 마지막 대조: 2026-10-14 · sha256:4ae6c8e25762 · 열림: §15.209 · 정의 둘, §15.209 · 분기, §15.209 · 스키마 파일, §15.209 · 이벤트형 신호, §15.209 · 임무 버전 내보내기, §15.209 · id 겹침, §15.209 · 주소
+> 마지막 대조: 2026-10-17 · sha256:bcf375559bcd · 열림: §15.209 · 정의 둘, §15.209 · 분기, §15.209 · 스키마 파일, §15.209 · 이벤트형 신호, §15.209 · 임무 버전 내보내기, §15.209 · 주소

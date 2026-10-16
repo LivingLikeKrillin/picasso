@@ -152,6 +152,23 @@ class MissionValidatorTest {
     }
 
     @Test
+    fun `출발 관측 검사 — 출발 자리나 기대 신원이 없는 노드의 선언은 거부한다`() {
+        // ★출발 자리가 없으면 관문이 선언을 안 읽고, 기대 신원이 없으면 REQUIRED 가 신원 대조 없이 침묵만 막는다.
+        //   어느 쪽이든 적은 뜻과 도는 뜻이 달라 조용히 받으면 안 된다.
+        val required = MissionFixtures.prepareSequencedRack(sourceObservation = "REQUIRED")
+        val noSource = required.replace("\"source\": { \"from\": \"PAIRED_ID\" },\n", "")
+        val optional = MissionFixtures.prepareSequencedRack(sourceObservation = "OPTIONAL")
+        val noIdentity = optional.replace("\"expectedIdentity\": { \"from\": \"ITEM_PROPERTY\", \"property\": \"material\" },\n", "")
+        assertTrue(noSource != required && noIdentity != optional, "시험 문서가 안 바뀌었다")
+
+        val unread = only(MissionRefusalKind.SOURCE_OBSERVATION_UNUSED, refusals(noSource))
+        assertEquals("place", unread.nodeId)
+        assertEquals("sourceObservation=REQUIRED", unread.observed)
+        assertEquals(RefusalOwner.ENGINEER, unread.owner)
+        assertEquals("sourceObservation=OPTIONAL", only(MissionRefusalKind.SOURCE_OBSERVATION_UNUSED, refusals(noIdentity)).observed)
+    }
+
+    @Test
     fun `노드 id 가 겹치면 거부한다`() {
         val text = MissionFixtures.withArrivalWait().replace("\"id\": \"place\"", "\"id\": \"${MissionFixtures.WAIT_NODE}\"")
         val refusal = only(MissionRefusalKind.DUPLICATE_NODE_ID, refusals(text))

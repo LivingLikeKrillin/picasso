@@ -77,6 +77,13 @@ enum class MissionRefusalKind(val owner: RefusalOwner, val nextAction: String) {
      * 보낼지가 암묵으로 남는다.
      */
     SOURCE_OBSERVATION_UNDECLARED(RefusalOwner.ENGINEER, "단위 노드에 출발 관측을 REQUIRED 나 OPTIONAL 로 적는다"),
+
+    /**
+     * 출발 관측 검사 — 출발 자리의 신원을 대지 않는 단위 노드가 `sourceObservation` 을 선언했다(§15.227). 출발 자리가 없으면
+     * 관문이 그 선언을 읽지 않고, 기대 신원이 없으면 `REQUIRED` 가 신원 대조 없이 설비의 침묵만 막는다. 어느 쪽이든 적은 뜻과
+     * 도는 뜻이 다르다.
+     */
+    SOURCE_OBSERVATION_UNUSED(RefusalOwner.ENGINEER, "출발 관측 선언을 지우거나 출발 자리와 기대 신원을 함께 적는다"),
 }
 
 /**
@@ -91,7 +98,8 @@ enum class MissionRefusalKind(val owner: RefusalOwner, val nextAction: String) {
  *
  * - **파라미터 이름.** 오타는 실행 때 하위가 `PARAMETER_INVALID` 로 거부한다
  * - **작업 지시에서 오는 자리**(슬롯·제시 자리). 정의에 고정으로 적힌 것이 아니라 실행 때 관문이 본다
- * - **작업 지시의 설비 id 와 대기 노드 id 의 겹침.** 설비 id 는 작업 지시가 오기 전에는 모른다
+ * - **작업 지시의 설비 id 와 대기 노드 id 의 겹침.** 설비 id 는 작업 지시가 오기 전에는 모른다. 작업 수락과 리비전이
+ *   계획의 단위 id 겹침으로 막는다(`Middleware.DUPLICATE_UNIT_ID`)
  */
 object MissionValidator {
 
@@ -217,13 +225,25 @@ object MissionValidator {
             MissionRefusal(MissionRefusalKind.SAFETY_SIGNAL_WAIT, wait.id, "${wait.signal}: 안전 신호", "안전 신호가 아닌 신호", at)
         }
 
-    /** 출발 관측 — 신원을 대는 출발 자리가 있는 단위 노드는 관측을 요구하는지 적는다. 기본을 정하지 않고 묻는다. */
+    /**
+     * 출발 관측 — 신원을 대는 출발 자리가 있는 단위 노드는 관측을 요구하는지 적는다. 기본을 정하지 않고 묻는다. 그 밖의 단위
+     * 노드는 적지 않는다 — 적으면 쓰이지 않거나 신원 없이 침묵만 막는 선언이 조용히 선다(§15.227).
+     *
+     * 해석기([DefinedCapability])는 적지 않아야 할 선언을 막지 않는다. 이미 활성화된 버전을 다시 지을 때 넘어지지 않게 한다.
+     */
     private fun sourceObservationRefusals(definition: MissionDefinition, at: Instant): List<MissionRefusal> =
         definition.steps.filterIsInstance<UnitStep>().mapNotNull { unit ->
-            if (!needsSourceObservation(unit) || unit.sourceObservation != null) return@mapNotNull null
-            MissionRefusal(
-                MissionRefusalKind.SOURCE_OBSERVATION_UNDECLARED, unit.id, "sourceObservation=없음", "REQUIRED 또는 OPTIONAL", at,
-            )
+            val declared = unit.sourceObservation
+            when {
+                needsSourceObservation(unit) && declared == null -> MissionRefusal(
+                    MissionRefusalKind.SOURCE_OBSERVATION_UNDECLARED, unit.id, "sourceObservation=없음", "REQUIRED 또는 OPTIONAL", at,
+                )
+                !needsSourceObservation(unit) && declared != null -> MissionRefusal(
+                    MissionRefusalKind.SOURCE_OBSERVATION_UNUSED, unit.id, "sourceObservation=${declared.name}",
+                    "선언 없음(출발 자리와 기대 신원이 둘 다 있는 노드만 선언한다)", at,
+                )
+                else -> null
+            }
         }
 
     private val BOOLEAN_VALUES = listOf("true", "false")
