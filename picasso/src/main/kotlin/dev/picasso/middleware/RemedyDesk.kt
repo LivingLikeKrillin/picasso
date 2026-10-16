@@ -11,7 +11,8 @@ import java.time.Instant
  *
  * **장부와 판정만 든다.** 승인이 서면 실제로 내리는 것(접수)은 [Middleware] 가 하고, 승인의 기록([settle])은
  * 접수가 된 뒤에만 한다. 관문이 거절하면 [settle] 을 안 부르므로 서 있던 제안을 지우지 않는다. 관문의 거절은
- * 접수가 [record] 에 넘기고, 조치 열·못 찾은 사유·출발 결품 판정이 실려 있으면 여기 적힌다.
+ * 접수가 [record] 에 넘기고, 조치 열·못 찾은 사유·출발 결품 판정이 실려 있으면 여기 적힌다. 승인 시점의 거절은
+ * 서 있던 제안을 바꾸지도 않는다([record] 의 `approval`).
  */
 internal class RemedyDesk(
     private val robots: RobotPort,
@@ -70,6 +71,8 @@ internal class RemedyDesk(
         sourceMissing: RemedyOutcome.SourceMissing? = null,
         /** 개정(`revise`)의 거절인가. 그러면 조치 열을 찾아도 제안을 세우지 않는다(ADR 46). */
         revision: Boolean = false,
+        /** 승인한 조치 열을 붙인 접수의 거절인가. 그러면 조치 열을 찾아도 서 있는 제안을 바꾸지 않는다. */
+        approval: Boolean = false,
     ): Submission.Rejected {
         val jobOrderId = order.jobOrderId
         val remedy = rejection.remedy
@@ -96,6 +99,17 @@ internal class RemedyDesk(
             note(robotId, jobOrderId, RemedyOutcome.Found(remedy.steps))
             return rejection.copy(
                 reason = "${rejection.reason} — 개정은 조치 열을 싣지 못해 제안을 세우지 않았다",
+                remedy = null,
+            )
+        }
+
+        // **승인 시점의 거절은 서 있는 제안을 바꾸지 않는다.** 조치 열을 붙인 계획이 사슬 검사에 걸리면 탐색은 그 조치 열의 걸음을 위한
+        // 조치 열을 찾는다. 그것을 세우면 사람이 본 적 없는 조치 열이 승인을 기다리고 본 제안은 사라져, 조건이 풀려도 같은 제안이 못 선다.
+        // 가림 차례도 세지 않는다. 탐색의 답은 적는다.
+        if (approval) {
+            note(robotId, jobOrderId, RemedyOutcome.Found(remedy.steps))
+            return rejection.copy(
+                reason = "${rejection.reason} — 승인 시점의 거절이라 서 있는 제안을 바꾸지 않았다",
                 remedy = null,
             )
         }

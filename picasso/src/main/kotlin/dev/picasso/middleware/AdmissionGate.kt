@@ -179,8 +179,8 @@ internal class AdmissionGate(
 
         for (unit in planned) {
             val where = unit.destination ?: continue
-            // `Middleware.submit` 은 이미 도는 `jobOrderId` 를 `revise` 로 갈라 이 관문을 안 지나지만, [Middleware.adopt] 와
-            // [Middleware.admits] 는 접수 앞에서 관문을 먼저 물어 같은 주문의 실행이 제 자리에 걸린다.
+            // [Middleware.submit] 과 [Middleware.adopt] 는 이미 도는 `jobOrderId` 를 `revise` 로 갈라 이 관문을 안 지난다.
+            // 공개 창구 [Middleware.admits] 는 새 작업 지시로 물으므로 같은 주문의 실행이 있으면 제 자리에 걸린다.
             // 재할당은 옮길 실행이 아직 표에 있으므로 [moving] 으로 그 실행의 자리를 뺀다.
             val holder = claimed[where] ?: continue
             // **자리 경쟁은 대장에 안 남는다**(§15.183). 이 층이 계산한 답이 없기 때문이다 — 잡고 있는
