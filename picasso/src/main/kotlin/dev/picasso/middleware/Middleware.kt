@@ -399,7 +399,10 @@ class Middleware(
 
         val planned = prefix + capability.plan(order)
         when (val admission = admits(order, robotId, planned)) {
-            is Admission.Refused -> return desk.record(robotId, order, admission.rejection, admission.sourceMissing)
+            // 승인한 조치 열을 붙인 접수의 거절은 서 있는 제안을 바꾸지 않는다([commit]).
+            is Admission.Refused -> return desk.record(
+                robotId, order, admission.rejection, admission.sourceMissing, approval = approvedBy != null,
+            )
             Admission.Passed -> Unit
         }
 
@@ -716,6 +719,10 @@ class Middleware(
      *
      * 이름을 여기 두는 이유: `orchestration.md` §2 와 ADR 42 가 `Middleware.admits` 로 대고,
      * 게이트는 §2 표의 점 기호마다 주인과 멤버가 한 파일에 선언돼 있는지 본다.
+     *
+     * **새 작업 지시로 묻는다.** 그 작업 지시의 실행이 이미 서 있어도 빼지 않고 세므로, 그 실행이 잡은 자리·구역에 걸려 거절로 답할 수 있다.
+     * 이미 선 작업 지시는 [submit]·[adopt] 가 이 관문 앞에서 리비전 경로로 가른다. 빼고 물으면 지금 기체가 아닌 후보에 통과를 내는데, 그
+     * 작업 지시는 그 후보로 가지 않는다.
      */
     fun admits(order: JobOrder, robotId: String, planned: List<ExecutionUnit>): Admission =
         gate.admits(order, robotId, planned)
@@ -728,10 +735,16 @@ class Middleware(
      * 다르기 때문에 생긴다. 낡은 제안은 여기서 걸린다.
      *
      * 전부 떨어지면 [Unassigned] 다. **재계산을 요청하지 않는다** — 요청하면 이 층이 중재자가 된다.
+     *
+     * **이미 실행이 선 작업 지시는 관문에 대지 않는다.** [submit] 과 같이 리비전 경로로 간다 — 같은 버전이면 [Submission.Idempotent],
+     * 낮으면 거부, 높으면 그 실행의 개정이다. 순위 목록은 읽지 않으며 개정된 실행은 지금 기체에 남는다. 관문에 먼저 대면 그 실행이 제 자리와
+     * 제 구역에 걸려 «배정할 기체가 없다» 로 읽힌다.
      */
     fun adopt(order: JobOrder, ranked: List<String>): Submission {
         // 놓은 작업 지시는 관문에 대기 전에 거부한다. 후보가 전부 떨어지면 «배정할 기체가 없다» 로 읽힌다.
         forgottenRefusal(order.jobOrderId)?.let { return it }
+        // 이미 선 실행은 카탈로그도 안 본다 — [submit] 과 같은 이유다.
+        executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }?.let { return revise(it, order) }
         // **카탈로그를 한 번 읽고 그 쌍을 작업 수락까지 넘긴다.** 관문에 댄 계획과 실행이 쥘 계획이 같은 버전이어야
         // 한다 — 그 사이에 활성화가 끼면 관문이 본 적 없는 단위가 나간다.
         val mission = missions.active(order.workMasterId)
@@ -2097,6 +2110,8 @@ class Middleware(
      *
      * **관문이 거절하면 제안을 안 지운다.** 자리 경쟁으로 못 들어간 것은 자격의 문제가 아니고, 그 순간
      * 제안을 소모하면 사람이 나중에 누를 것까지 함께 사라진다 — 조건이 풀리면 같은 제안이 그대로 선다.
+     * **바꾸지도 않는다.** 조치 열을 붙인 계획이 사슬 검사에 걸려 탐색이 다른 조치 열을 찾아도 그것은 제안으로 서지 않는다
+     * ([RemedyDesk.record] 의 `approval`).
      */
     private fun commit(go: Judgment.Go): Submission {
         // **그 주문이 이미 실행으로 서 있으면 조치 열을 실을 길이 없다**(ADR 46). 판이 같으면 접수가 멱등으로 접히고,

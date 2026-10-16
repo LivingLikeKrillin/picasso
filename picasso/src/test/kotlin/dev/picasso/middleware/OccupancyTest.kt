@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -269,6 +270,35 @@ class OccupancyTest {
         }
     }
 
+    @Test
+    fun `이미 도는 작업 지시를 다시 채택하면 그 실행을 멱등으로 돌려준다`() {
+        // `submit` 과 같은 답이다. 관문에 먼저 대면 그 실행이 제 자리에 걸려 «배정할 기체가 없다» 로 읽힌다.
+        World().use { w ->
+            w.cell.program(RACK, MATERIAL)
+            w.cell.program(BIN_A, MATERIAL)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack("SEQ-1", BIN_A), ROBOT)).execution
+
+            val again = assertIs<Middleware.Submission.Idempotent>(w.mw.adopt(rack("SEQ-1", BIN_A), listOf(ROBOT)))
+            assertSame(exec, again.execution)
+            assertEquals(1, w.mw.executions().size)
+        }
+    }
+
+    @Test
+    fun `이미 도는 작업 지시의 높은 판을 채택하면 그 실행이 개정된다`() {
+        // 순위 목록에 지금 기체가 없어도 개정은 그 실행에 붙는다 — `submit` 의 리비전 경로와 같다.
+        World().use { w ->
+            w.cell.program(RACK, MATERIAL)
+            w.cell.program(BIN_A, MATERIAL)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rack("SEQ-1", BIN_A), ROBOT)).execution
+
+            val revised = assertIs<Middleware.Submission.Accepted>(w.mw.adopt(rack("SEQ-1", BIN_A, version = 2), emptyList()))
+            assertSame(exec, revised.execution)
+            assertEquals(2, exec.version)
+            assertEquals(1, w.mw.executions().size)
+        }
+    }
+
     companion object {
         const val ROBOT = "hum-02"
         const val MATERIAL = "ENGINE-COVER-A"
@@ -279,10 +309,10 @@ class OccupancyTest {
         private val PRECOND: Path = Path.of("..", "profile", "fixtures", "precondition.json").normalize()
 
         /** 한 자재를 한 자리에서 집어 선반에 놓는 주문. */
-        private fun rack(jobOrderId: String, from: String) = JobOrder(
+        private fun rack(jobOrderId: String, from: String, version: Int = 1) = JobOrder(
             jobOrderId = jobOrderId,
             workMasterId = PrepareSequencedRack.WORK_MASTER,
-            version = 1,
+            version = version,
             requiredEvidence = Evidence.E2,
             materialRequirements = listOf(MaterialRequirement(MATERIAL, 1)),
             equipmentRequirements = listOf(
