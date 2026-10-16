@@ -398,6 +398,7 @@ class Middleware(
         evidenceRefusal(order, capability)?.let { return it }
 
         val planned = prefix + capability.plan(order)
+        duplicateUnitIdRefusal(planned)?.let { return it }
         when (val admission = admits(order, robotId, planned)) {
             // 승인한 조치 열을 붙인 접수의 거절은 서 있는 제안을 바꾸지 않는다([commit]).
             is Admission.Refused -> return desk.record(
@@ -715,6 +716,22 @@ class Middleware(
         }
 
     /**
+     * 계획의 단위 id 가 겹치면 거부, 아니면 널(§15.227).
+     *
+     * 리비전은 단위 id 로 접고 인시던트는 단위 id 로 찾으며 작업 응답은 단위 id 로 완료·미완료를 적는다 — 겹치면 한쪽이 가려진다.
+     * 대기 단위의 id 는 임무 정의의 노드 id 이고 반복 단위의 id 는 작업 지시의 설비 id 라, 둘이 같은지는 작업 지시가 와야 안다.
+     * 그래서 검증기가 아니라 작업 수락([submit])과 리비전([revise])이 본다. **id 를 바꿔 피하지 않는다** — 태스크 id
+     * `jobOrderId#unitId` 가 단위 id 를 싣고, 겹치지 않는 작업 지시의 id 는 그대로여야 한다.
+     */
+    private fun duplicateUnitIdRefusal(planned: List<ExecutionUnit>): Submission.Rejected? {
+        val repeated = planned.groupingBy { it.unitId }.eachCount().filterValues { it > 1 }.keys
+        if (repeated.isEmpty()) return null
+        return Submission.Rejected(
+            "$DUPLICATE_UNIT_ID: ${repeated.joinToString()} — 작업 지시의 설비 id 가 다른 단위의 id(임무 정의의 노드 id 등)와 같다",
+        )
+    }
+
+    /**
      * **배정 관문**(설계안 §7)의 공개 창구. 판정은 [AdmissionGate.admits] 가 한다.
      *
      * 이름을 여기 두는 이유: `orchestration.md` §2 와 ADR 42 가 `Middleware.admits` 로 대고,
@@ -884,6 +901,7 @@ class Middleware(
         // 개정판도 사슬 검사를 받는다 — 단, 이 개정이 실제로 교체·추가할 단위만(리뷰 C3). 이미 끝났거나 도는 단위를
         // 다시 재단하면 끝난 일을 되돌리라는 말이 된다.
         val fresh = execution.capability.plan(order)
+        duplicateUnitIdRefusal(fresh)?.let { return it }
         val toPlan = fresh.filter { f ->
             val current = execution.units.firstOrNull { it.unitId == f.unitId }
             current == null || current.state == UnitState.PENDING ||
@@ -2386,6 +2404,12 @@ class Middleware(
          * 거부를 나눈다. 뒤에 작업 지시 id·실행 id·판·종착 상태가 붙는다. [RESUME_SNAPSHOT_UNREADABLE] 과 달리 다시 시도해도 같다.
          */
         const val FORGOTTEN_JOB_ORDER = "이미 끝나 놓은 작업 지시라 다시 받지 않는다"
+
+        /**
+         * 작업 지시로 펼친 계획의 단위 id 가 겹쳐 받지 않을 때 거부 사유의 앞머리(§15.227). [submit] 과 리비전이 낸다. 뒤에 겹친
+         * id 가 붙는다. [FORGOTTEN_JOB_ORDER] 와 같이 같은 작업 지시로 다시 내도 같다 — 설비 id 를 고친 작업 지시가 와야 받는다.
+         */
+        const val DUPLICATE_UNIT_ID = "계획의 단위 id 가 겹쳐 받지 않는다"
 
         /** [resume] 이 로봇 단위의 재작업 횟수를 스냅숏 태스크 id 에서 맞췄다는 실행 자취의 종류. */
         const val RESUME_ATTEMPT = "RESUME_ATTEMPT"
