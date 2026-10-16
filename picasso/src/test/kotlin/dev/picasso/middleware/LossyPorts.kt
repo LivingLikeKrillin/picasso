@@ -62,6 +62,33 @@ class EvictingRobotPort(private val delegate: RobotPort, private var evictions: 
 }
 
 /**
+ * 하위가 **다시 뜬** 것처럼 답하는 포트(§15.215 · 옛 커서). [restart] 뒤로 세션이 바뀌고 이벤트 번호가 0 부터 다시 선다.
+ * 재생은 새 프로세스처럼 요청 번호 이상만 거르므로, 앞 세션의 커서로 물으면 그 번호에 닿을 때까지 빈 답이다 — 축출로
+ * 답하지 않는다. 발신자 둘(`adapter-host`·미믹)이 그렇게 답한다.
+ */
+class RestartingRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    private var session = "before-restart"
+
+    /** 다시 뜬 때의 하위 번호. 그 뒤의 번호는 이만큼 빼서 새 프로세스가 0 부터 센 것으로 보인다. */
+    private var base = 0L
+
+    fun restart(robotId: String) {
+        base = delegate.snapshot(robotId)?.sequence ?: error("하위를 못 본다")
+        session = "after-restart"
+    }
+
+    override fun snapshot(robotId: String): RobotSnapshot? =
+        delegate.snapshot(robotId)?.let { it.copy(sequence = it.sequence - base, session = session) }
+
+    override fun replay(robotId: String, from: Long): Replay? = when (val replay = delegate.replay(robotId, from + base)) {
+        is Replay.Events -> Replay.Events(
+            replay.events.map { e -> e.toBuilder().setHeader(e.header.toBuilder().setSequence(e.header.sequence - base)).build() },
+        )
+        else -> replay
+    }
+}
+
+/**
  * 플릿 쪽의 같은 더블 — 그리고 **조회 능력을 선언**한다. 조사한 실물 하류 셋이 전부 클라이언트 참조 키를 안 받으므로
  * (보고서 13.2), [ExecutionLookup.NONE] 인 플릿이 현실에 가깝다. 그때 `IN_DOUBT` 는 자동으로 안 풀리고 운영자에게 간다.
  */

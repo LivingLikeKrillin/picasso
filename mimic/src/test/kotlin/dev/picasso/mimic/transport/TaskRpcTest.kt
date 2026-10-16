@@ -135,6 +135,17 @@ class TaskRpcTest {
     }
 
     @Test
+    fun `같은 키는 스킬이 달라도 같은 핸들이고, 낮은 revision 은 스킬이 달라도 OUTDATED_REVISION 이다`() {
+        // §15.215 · 같은 키 다른 스킬 — 멱등 키는 `(task_id, revision)` 이고 스킬은 키가 아니라 실은 것이다. 스킬 비교는
+        // 갱신이 실제로 적용될 높은 revision 에서만 한다. 실물 호스트와 같은 차례다.
+        start(revision = 3)
+        val same = start(revision = 3, skillType = "pick_place", parameters = listOf(string("object_id", "x")))
+        assertEquals(3, same.handle.revision, "같은 키의 재전송을 거절했다: ${same.rejection}")
+        val lower = start(revision = 2, skillType = "pick_place")
+        assertEquals(RejectionCode.REJECTION_CODE_OUTDATED_REVISION, lower.rejection.code, "낮은 revision 을 스킬로 먼저 갈랐다: ${lower.rejection}")
+    }
+
+    @Test
     fun `멱등 재수신은 파라미터도 안 덮는다`() {
         start(revision = 3, parameters = listOf(string("location", "dock-3")))
         start(revision = 3, parameters = listOf(string("location", "dock-9")))

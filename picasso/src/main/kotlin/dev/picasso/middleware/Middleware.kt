@@ -176,6 +176,9 @@ class Middleware(
     class RobotView internal constructor() {
         var cursor: Long? = null
             internal set
+        /** [cursor] 가 속한 세션 — 마지막으로 읽은 스냅샷의 `session_id`. 못 읽었으면 널이다. */
+        var session: String? = null
+            internal set
         var faults: Map<String, Fault> = emptyMap()
             internal set
         var connection: ConnectionState = ConnectionState.CONNECTION_STATE_ONLINE
@@ -1098,12 +1101,22 @@ class Middleware(
         view.faults = snapshot.faults.associateBy { faultKey(it) }
         view.connection = snapshot.connection
         view.tasks = snapshot.tasks
+        val previousSession = view.session
+        if (snapshot.session.isNotEmpty()) view.session = snapshot.session
 
         val cursor = view.cursor
         if (cursor == null) {
             view.cursor = snapshot.sequence
             view.resyncs += 1
             live.forEach { it.trail("RESYNC", "snapshot: next sequence=${snapshot.sequence}, faults=${snapshot.faults.size}, connection=${snapshot.connection.name}") }
+            return
+        }
+        // **세션이 바뀌었으면 커서를 잴 수 없다.** 번호는 세션 안의 것이고 다시 뜬 하위는 번호를 처음부터 센다. 앞 세션의
+        // 커서로 재생을 물으면 발신자는 축출이 아니라 빈 답을 주고, 그 번호에 닿을 때까지 새 세션의 이벤트를 건너뛴다(§15.215).
+        if (snapshot.session.isNotEmpty() && previousSession != null && previousSession != snapshot.session) {
+            view.cursor = snapshot.sequence
+            view.resyncs += 1
+            live.forEach { it.trail("RESYNC", "session changed at cursor=$cursor ($previousSession -> ${snapshot.session}); rebuilt from snapshot sequence=${snapshot.sequence}") }
             return
         }
         when (val replay = robots.replay(robotId, cursor)) {
@@ -1219,6 +1232,8 @@ class Middleware(
             }
             if (execution.permitBlock?.unitId == active.unitId) execution.permitBlock = null
             execution.active = null
+            // 닫힌 단위의 태스크는 다시 안 읽는다 — 포트가 들던 갱신 목록을 놓게 한다(§15.210).
+            execution.handle?.let { robots.release(execution.robotOf(active), it) }
             execution.handle = null
             execution.transport = null
             if (execution.cancelRequested) {

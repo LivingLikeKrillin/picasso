@@ -270,7 +270,11 @@ class TaskHost(
         skillType: String,
         parameters: List<ParameterValue>,
     ): StartOutcome {
-        if (skillType != task.skillType) {
+        // **키가 먼저다.** 멱등 키는 `(task_id, revision)` 이고 스킬은 키가 아니라 실은 것이다 — 같은 revision 은 무엇을
+        // 실었든 같은 핸들이고(파라미터를 안 덮는 것과 같은 이유) 낮은 revision 은 지난 것이다. 스킬 비교는 갱신이 실제로
+        // 적용될 높은 revision 에서만 한다. 실물 호스트가 같은 차례이고, 앞에 두면 같은 재전송에 미믹은 거절하고 실물은
+        // 핸들을 준다(§15.215).
+        if (skillType != task.skillType && revision > task.machine.revision) {
             return StartOutcome.Rejected(
                 RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
                 "같은 task_id를 다른 스킬로 다시 보냈다: ${task.skillType} → $skillType",

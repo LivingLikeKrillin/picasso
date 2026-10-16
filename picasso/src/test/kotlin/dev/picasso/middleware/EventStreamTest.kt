@@ -154,6 +154,42 @@ class EventStreamTest {
     }
 
     @Test
+    fun `하위가 다시 떠 세션이 바뀌면 옛 커서를 버리고 스냅샷부터 다시 세운다`() {
+        // §15.215 · 옛 커서 — 새 프로세스의 번호는 앞 세션의 커서와 잴 수 없다. 옛 커서로 재생을 물으면 빈 답이 이어지고
+        // 새 세션의 앞 이벤트를 건너뛴다. 스냅샷의 세션이 바뀌면 커서를 그 스냅샷의 번호로 다시 세운다(계약 §4.8 의 소비자 패턴).
+        lateinit var restarting: RestartingRobotPort
+        World(port = { RestartingRobotPort(it).also { p -> restarting = p } }).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { w.state(task) == "RUNNING" }
+            restarting.restart(ROBOT)
+
+            w.drive { exec.settled() }
+
+            assertEquals(2, w.mw.view(ROBOT)!!.resyncs, "첫 세움 + 세션이 바뀐 뒤 한 번: ${exec.eventTrail.filter { it.kind == "RESYNC" }}")
+            assertTrue(
+                exec.eventTrail.any { it.kind == "TASK_TRANSITION" && it.detail.contains("->TASK_STATE_SUCCEEDED") },
+                "새 세션의 전이를 건너뛰었다: ${exec.eventTrail}",
+            )
+        }
+    }
+
+    @Test
+    fun `끝난 단위의 태스크는 포트의 갱신 표에서 내린다`() {
+        // §15.210 — 태스크별 누적 목록과 팔로워는 단위가 닫힌 뒤 읽는 쪽이 없다. 안 내리면 프로세스 수명 동안 쌓인다.
+        lateinit var port: ClientRobotPort
+        World(port = { it.also { p -> port = p as ClientRobotPort } }).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { w.state(task) == "RUNNING" }
+            assertEquals(setOf(task), port.following, "전제가 무너졌다 — 도는 태스크를 따라가지 않는다")
+
+            w.drive { exec.settled() }
+
+            assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
+            assertEquals(emptySet(), port.following, "닫힌 단위의 태스크가 표에 남았다")
+        }
+    }
+
+    @Test
     fun `기체를 못 보면 문도 자취도 없이 간다 — 그러나 못 봤다는 것은 남는다`() {
         World(port = { FaultBlindRobotPort(it) }).use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution

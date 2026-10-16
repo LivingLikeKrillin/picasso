@@ -165,6 +165,27 @@ class HostParityTest {
         assertTrue(answers[0][0].startsWith("갱신=true|2|"), "전제가 무너졌다 — 미믹이 갱신을 안 받는다: ${answers[0]}")
     }
 
+    @Test
+    fun `같은 키에 다른 스킬이 와도 둘이 같은 답을 낸다`() {
+        // §15.215 · 같은 키 다른 스킬 — 호스트는 revision 을 먼저 보고 미믹은 스킬을 먼저 봐서, 같은 재전송에 하나는 핸들을
+        // 주고 하나는 거절했다. 같은 revision 과 낮은 revision 둘 다 맞댄다 — 높은 revision 의 스킬 교체는 위 시험이 본다.
+        val params = listOf(ParameterValue.newBuilder().setKey("object_id").setStringValue("SEQ-IN-02.BIN-A").build(),
+            ParameterValue.newBuilder().setKey("destination").setStringValue("RACK-204.S01").build())
+        val nav = listOf(ParameterValue.newBuilder().setKey("location").setStringValue("RACK-204.S01").build())
+
+        val answers = listOf(mimic.client(CLIENT), hostClient).map { client ->
+            client.start(ROBOT, "t-1", revision = 1, skillType = "pick_place", parameters = params)
+            client.start(ROBOT, "t-1", revision = 2, skillType = "pick_place", parameters = params)
+            val same = client.start(ROBOT, "t-1", revision = 2, skillType = "navigate_to", parameters = nav)
+            val lower = client.start(ROBOT, "t-1", revision = 1, skillType = "navigate_to", parameters = nav)
+            listOf(
+                "같은키=${same.hasHandle()}|${same.handle.revision}|${same.rejection.code.name}",
+                "낮음=${lower.hasHandle()}|${lower.rejection.code.name}",
+            )
+        }
+        assertEquals(answers[0], answers[1], "같은 키·다른 스킬에 미믹과 호스트의 답이 갈렸다")
+    }
+
     private companion object {
         const val ROBOT = "r1"
         const val CLIENT = "line-controller"

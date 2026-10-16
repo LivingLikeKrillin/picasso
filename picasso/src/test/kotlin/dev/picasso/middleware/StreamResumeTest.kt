@@ -86,6 +86,21 @@ class StreamResumeTest {
     }
 
     @Test
+    fun `기체가 모르는 태스크면 다시 붙지 않는다`() {
+        // §15.210 — `NOT_FOUND` 는 같은 요청으로 다시 열어도 같은 답이다. 기한 초과와 가르지 않으면 watch 마다 스트림을 연다.
+        Harness(mapOf(ROBOT to profile)).use { harness ->
+            val port = ClientRobotPort(harness.client())
+            val unknown = TaskHandle.newBuilder().setTaskId("nobody").setRevision(1).setRobotId(ROBOT).build()
+            port.watch(ROBOT, unknown)
+            val before = harness.watchRequests()
+
+            repeat(3) { port.watch(ROBOT, unknown) }
+
+            assertEquals(before, harness.watchRequests(), "NOT_FOUND 로 닫힌 스트림을 또 열었다")
+        }
+    }
+
+    @Test
     fun `여러 스레드가 동시에 넣어도 팔로워는 하나도 잃지 않는다`() {
         val follower = TaskFollower()
         val threads = 8
