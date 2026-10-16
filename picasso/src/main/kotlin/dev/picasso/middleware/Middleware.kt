@@ -57,8 +57,8 @@ class Middleware(
      */
     private val lookupRetries: Int = 3,
     /**
-     * 실 시계 — 사건 번들의 **현장 대조**용이다. [now] 와 나누는 이유는 [now] 가 시험에서 가상 시계이기
-     * 때문이다. 둘을 접으면 재현 판정과 현장 대조 중 하나를 잃는다(설계안 §4.2).
+     * 실 시계 — 사건 번들의 **현장 대조**·검토 시각, 탐색 대장([RemedySearchRecord])과 승인 소모 기록의 실 시각용이다.
+     * [now] 와 나누는 이유는 [now] 가 시험에서 가상 시계이기 때문이다. 둘을 접으면 재현 판정과 현장 대조 중 하나를 잃는다(설계안 §4.2).
      */
     wallClock: () -> Instant = { Instant.now() },
     /**
@@ -1286,7 +1286,6 @@ class Middleware(
         return true
     }
 
-    /** @return 단위가 이 펌프에서 종착(또는 검증 대기로 이행)해 active 에서 내려와도 되는가. */
     /**
      * 진행률을 읽고 **정체를 보이게 한다**(계약 0.8.0 의 `progress_basis` 를 읽는 자리).
      *
@@ -1330,6 +1329,7 @@ class Middleware(
         notify(execution)
     }
 
+    /** @return 단위가 이 펌프에서 종착(또는 검증 대기로 이행)해 active 에서 내려와도 되는가. */
     private fun pumpRobotUnit(execution: Execution, unit: ExecutionUnit): Boolean {
         val updates = robots.watch(execution.robotOf(unit), execution.handle!!)
         // **결과 이벤트는 (실행, 버전)으로 맞춘다**(15.1). 이 단위의 지금 버전보다 낮은 버전의 종착은 지연 이벤트로
@@ -1754,7 +1754,7 @@ class Middleware(
      * 있는 것을 판정으로 바꾼다.** 미결이 «손에 없다»·«아직 들고 있다» 가 되면 다음 행동이 갈린다(§5.3).
      *
      * **플릿의 운반은 보지 않는다** — 카탈로그에 없는 단위의 효과를 지어내지 않는다. 그리고 관측이 없거나
-     * 볼 수 없으면 [HoldEffects.mismatch] 가 판정하지 않는다(§5.2).
+     * 볼 수 없으면 [HoldEffects.compare] 가 판정하지 않는다(§5.2).
      */
     private fun judgeEffectMismatch(execution: Execution, unit: ExecutionUnit, completed: Boolean) {
         if (unit.route != Route.ROBOT) return
