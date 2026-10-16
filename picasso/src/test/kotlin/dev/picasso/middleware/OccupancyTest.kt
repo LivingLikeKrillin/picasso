@@ -6,6 +6,7 @@ import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -239,7 +240,7 @@ class OccupancyTest {
     @Test
     fun `미배정이어도 후보마다 출발 결품의 답이 구조로 남는다`() {
         // 호스트는 `adopt` 로 배정한다. 전부 떨어지면 `Unassigned` 이고, 그 안에 대체 자리가 사유 문장에만
-        // 있으면 읽는 쪽이 문장을 뜯어야 한다(§15.164). 대장에는 여전히 안 쌓인다 — 물어보기만 했다.
+        // 있으면 읽는 쪽이 문장을 뜯어야 한다. 대장에도 작업 수락의 거절과 같은 줄이 선다(§15.164).
         World().use { w ->
             w.cell.program(RACK, MATERIAL)
             w.cell.empty(BIN_A)
@@ -252,7 +253,9 @@ class OccupancyTest {
             assertNull(missing.observed)
             assertEquals(listOf(BIN_B), missing.alternatives)
             assertTrue(BIN_A in unassigned.refusals.getValue(ROBOT))
-            assertEquals(emptyList(), w.mw.remedySearches(), "물어보기만 한 것이 대장에 쌓였다")
+            val noted = assertNotNull(w.mw.remedySearches().singleOrNull(), "대장: ${w.mw.remedySearches()}")
+            assertEquals(ROBOT to "SEQ-1", noted.robotId to noted.jobOrderId)
+            assertEquals(missing, noted.outcome, "대장의 결품 답이 미배정의 답과 다르다")
         }
     }
 

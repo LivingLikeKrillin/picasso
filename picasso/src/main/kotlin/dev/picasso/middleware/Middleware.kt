@@ -356,6 +356,16 @@ class Middleware(
              * 결품이 아니므로 [alternativeLocations] 는 널이고, 다음 행동은 주문을 고치는 것이 아니라 사람의 확인이다.
              */
             val sourceUnobserved: SourceUnobserved? = null,
+            /**
+             * 사람의 문([approveRemedy])이 낸 거절의 **종류**. 밖의 문([attemptApproval])의 [ApprovalOutcome.Refused.refusal] 과 같은
+             * 판정에서 같은 값이 온다 — 사유 산문만 내면 부르는 쪽이 문자열로 갈라야 한다(ADR 44·46). 승인이 아닌 접수의 거절이면 널이다.
+             */
+            val approvalRefusal: ApprovalRefusal? = null,
+            /**
+             * [approvalRefusal] 이 [ApprovalRefusal.CONSUMED] 일 때의 소모 기록(ADR 46). 그때만 있고 그때는 반드시 있다 — 판정
+             * ([RemedyDesk.Judgment.No])이 짝을 검사한 그대로 옮긴다.
+             */
+            val consumedApproval: ConsumedApproval? = null,
         ) : Submission
     }
 
@@ -756,6 +766,9 @@ class Middleware(
      *
      * 전부 떨어지면 [Unassigned] 다. **재계산을 요청하지 않는다** — 요청하면 이 층이 중재자가 된다.
      *
+     * **전부 떨어졌을 때만 후보마다의 거절을 조치 탐색 대장과 제안 장부에 적는다**(§15.164) — [submit] 이 한 기체에서 막혔을 때와 같은
+     * 기록이고 열쇠도 (기체, 작업 지시)다. 관문([admits])은 그대로 순수하다. 적는 것은 순위 목록을 끝까지 시도한 이 함수다.
+     *
      * **이미 실행이 선 작업 지시는 관문에 대지 않는다.** [submit] 과 같이 리비전 경로로 간다 — 같은 버전이면 [Submission.Idempotent],
      * 낮으면 거부, 높으면 그 실행의 개정이다. 순위 목록은 읽지 않으며 개정된 실행은 지금 기체에 남는다. 관문에 먼저 대면 그 실행이 제 자리와
      * 제 구역에 걸려 «배정할 기체가 없다» 로 읽힌다.
@@ -773,6 +786,7 @@ class Middleware(
         val refusals = linkedMapOf<String, String>()
         val missing = linkedMapOf<String, RemedyOutcome.SourceMissing>()
         val unobserved = linkedMapOf<String, SourceUnobserved>()
+        val tried = linkedMapOf<String, Admission.Refused>()
         for (robotId in ranked) {
             when (val admission = admits(order, robotId, planned)) {
                 Admission.Passed -> return submit(order, robotId, prefix = emptyList(), mission = mission)
@@ -780,8 +794,17 @@ class Middleware(
                     refusals[robotId] = admission.rejection.reason
                     admission.sourceMissing?.let { missing[robotId] = it }
                     admission.rejection.sourceUnobserved?.let { unobserved[robotId] = it }
+                    tried[robotId] = admission
                 }
             }
+        }
+        // **전부 떨어졌으면 후보마다 시도한 것으로 적는다**(§15.164). [submit] 이 한 기체에 내려 막혔을 때와 같은 [RemedyDesk.record] 이고
+        // 열쇠도 같은 (기체, 작업 지시)다 — 조치 열을 찾은 후보마다 제안이 서고, 두 문이 그 열쇠로 승인한다. 순위 목록의 차례대로 적는다.
+        // 하나라도 통과하면 위에서 돌아가므로 앞에서 떨어진 후보는 적지 않는다 — 채택된 작업 지시의 제안은 승인해도 조치 열이 못 나간다(ADR 46).
+        // [submit] 이 관문 앞에서 거부했을 작업 지시(근거 등급 초과·단위 id 중복)도 적지 않는다 — 그 제안을 승인하면 같은 거부를 받는다.
+        // 답의 모양은 그대로다. 가린 제안은 [withheldProposal] 로 본다.
+        if (evidenceRefusal(order, mission.capability) == null && duplicateUnitIdRefusal(planned) == null) {
+            tried.forEach { (robotId, admission) -> desk.record(robotId, order, admission.rejection, admission.sourceMissing) }
         }
         return Unassigned(refusals, missing, unobserved)
     }
@@ -1321,6 +1344,8 @@ class Middleware(
      *
      * **작업 허가의 막음([Execution.permitBlock])은 건드리지 않는다**(ADR 52). 허가는 사람이 감수할 값이 아니라 원천이 다시
      * `PERMITTED` 를 낼 때만 걷힌다. 결함 없이 허가만 막고 있으면 거짓을 돌려준다.
+     *
+     * 참을 돌려줄 때 작업 응답 하나를 낸다(`RUNNING`, 빈 `blockedBy`). 거짓이면 내지 않는다.
      */
     fun release(executionId: String): Boolean {
         val execution = executions[executionId] ?: return false
@@ -1329,6 +1354,9 @@ class Middleware(
         execution.blockedBy = emptyList()
         execution.notedBlock = null
         execution.physicalState = PhysicalState.RUNNING
+        // **막음이 걷힌 것을 곧바로 알린다.** 안 알리면 마지막 작업 응답이 실행이 다음에 알릴 때까지 `OPERATOR_HOLD` 와 감수한
+        // 결함의 `blockedBy` 를 든다. 막는 결함이 없으면 위에서 거짓으로 돌아가므로 다시 불러도 응답이 더 나가지 않는다.
+        notify(execution)
         return true
     }
 
@@ -2070,6 +2098,8 @@ class Middleware(
      * 자원 소유 대장이 비워 두면 안 된다고 적은 자리가 바로 거기다.
      *
      * @param parameters 걸음마다 하나씩, 걸음 순서대로.
+     * @return 거절이면 [Submission.Rejected.approvalRefusal] 가 종류를, `CONSUMED` 면 [Submission.Rejected.consumedApproval] 가 소모
+     *   기록을 싣는다. 에이전트가 이 문으로 오면 [ApprovalRefusal.VALUES_NOT_ACCEPTED] 다.
      */
     fun approveRemedy(
         robotId: String,
@@ -2078,14 +2108,26 @@ class Middleware(
         approver: Approver,
     ): Submission {
         if (approver.kind == ApproverKind.AGENT) {
-            return Submission.Rejected("에이전트는 값을 실어 승인하지 못한다 — 값은 선언과 관측에서 온다: ${approver.id}")
+            return Submission.Rejected(
+                "에이전트는 값을 실어 승인하지 못한다 — 값은 선언과 관측에서 온다: ${approver.id}",
+                approvalRefusal = ApprovalRefusal.VALUES_NOT_ACCEPTED,
+            )
         }
+        // 거절마다 종류를 싣는다 — 밖의 문과 같은 판정, 같은 값이다. 사유 산문은 그대로다.
         return when (val judgment = desk.judge(robotId, jobOrderId, approver, given = parameters, saw = null)) {
-            is Judgment.No -> Submission.Rejected(judgment.reason)
+            is Judgment.No -> Submission.Rejected(
+                judgment.reason,
+                approvalRefusal = judgment.refusal,
+                consumedApproval = judgment.consumed,
+            )
             is Judgment.Go -> when (val submission = commit(judgment)) {
                 // **접힌 접수는 승인이 아니다** — 밖의 문과 같은 사유로 거절한다(ADR 46). 멱등으로 돌려주면 받는 쪽이
                 // «이미 받았다» 로 읽고, 조치 열이 안 나간 것이 성공의 모양으로 보인다.
-                is Submission.Idempotent -> Submission.Rejected(notApplied(submission.execution))
+                is Submission.Idempotent -> Submission.Rejected(
+                    notApplied(submission.execution),
+                    approvalRefusal = ApprovalRefusal.REMEDY_NOT_APPLIED,
+                )
+                is Submission.Rejected -> submission.copy(approvalRefusal = commitRefusal(judgment))
                 else -> submission
             }
         }
@@ -2120,11 +2162,7 @@ class Middleware(
                     submission.execution.executionId,
                     judgment.prefix.map { ApprovedStep(it.skillType, it.parameters, it.unitId) },
                 )
-                // 놓은 작업 지시면 관문이 아니라 그 작업 지시가 이미 실행으로 섰다가 끝난 것이다 — 조치 열이 안 나간 것과 같은 답이다.
-                is Submission.Rejected -> ApprovalOutcome.Refused(
-                    if (judgment.order.jobOrderId in forgotten) ApprovalRefusal.REMEDY_NOT_APPLIED else ApprovalRefusal.REFUSED_BY_GATE,
-                    submission.reason,
-                )
+                is Submission.Rejected -> ApprovalOutcome.Refused(commitRefusal(judgment), submission.reason)
                 // **접힌 접수는 승인이 아니다.** 그 주문이 이미 실행으로 서 있으면 조치 열은 안 나간다
                 // (§15.175, ADR 46). 성공으로 내면 «승인했는데 아무 일도 안 일어났다» 가 초록으로 보인다.
                 is Submission.Idempotent -> ApprovalOutcome.Refused(
@@ -2161,6 +2199,14 @@ class Middleware(
         submission.execution.approval = RecordedApproval(go.robotId, consumed.approver, consumed.at, consumed.wallClockAt, consumed.steps)
         return submission
     }
+
+    /**
+     * 판정이 선 뒤 접수가 거절한 승인의 종류 — 두 문이 같은 값을 낸다.
+     *
+     * 놓은 작업 지시면 관문이 아니라 그 작업 지시가 이미 실행으로 섰다가 끝난 것이다 — 조치 열이 안 나간 것과 같은 답이다.
+     */
+    private fun commitRefusal(go: Judgment.Go): ApprovalRefusal =
+        if (go.order.jobOrderId in forgotten) ApprovalRefusal.REMEDY_NOT_APPLIED else ApprovalRefusal.REFUSED_BY_GATE
 
     /** 접힌 승인의 사유 — 두 문이 같은 말을 한다(ADR 46). */
     private fun notApplied(execution: Execution): String =

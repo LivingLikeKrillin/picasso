@@ -144,16 +144,19 @@ class RemedyLedgerTest {
     }
 
     @Test
-    fun `관문에 물어보기만 한 것은 대장에 안 쌓인다`() {
-        // ★관문은 순수 술어라 후보 셋에 물어봐도 아무것도 안 쌓인다(§15.161). 쌓는 것은 실제로 그
-        //   기체에 내려 본 쪽이고, 그래서 이 대장은 «물어봤다» 가 아니라 «시도했고 답받았다» 다.
-        //   대가는 미배정으로 끝난 순위 목록의 탐색 결과가 남지 않는다는 것이다(§15.164).
+    fun `미배정으로 끝난 채택도 시도한 것으로 대장에 남는다`() {
+        // ★관문은 순수 술어라 후보 셋에 물어봐도 아무것도 안 쌓인다(§15.161). 쌓는 것은 실제로 내려 본 쪽이고,
+        //   순위 목록을 끝까지 시도해 전부 떨어진 채택이 그쪽이다(§15.164). 안 적으면 배정으로만 내는 호스트에는
+        //   «찾았다» 와 «안 찾아봤다» 가 같은 침묵이다.
         World(PRECOND).use { w ->
             val exec = w.holding()
             assertIs<Unassigned>(w.mw.adopt(patrol("PATROL-1"), listOf(ROBOT)))
             w.settle(exec)
 
-            assertEquals(emptyList(), w.mw.remedySearches(), "묻기만 한 것이 시도로 쌓였다")
+            val record = assertNotNull(w.mw.remedySearches().singleOrNull(), "대장: ${w.mw.remedySearches()}")
+            assertEquals(ROBOT, record.robotId)
+            assertEquals("PATROL-1", record.jobOrderId)
+            assertIs<RemedyOutcome.Found>(record.outcome)
         }
     }
 
