@@ -56,6 +56,8 @@ import io.grpc.Status
 import io.grpc.StatusRuntimeException
 import io.grpc.inprocess.InProcessChannelBuilder
 import io.grpc.inprocess.InProcessServerBuilder
+import io.grpc.stub.ClientCallStreamObserver
+import io.grpc.stub.ClientResponseObserver
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
@@ -417,6 +419,36 @@ class AdapterHostTest {
 
             val paused = w.tasks.pauseTask(PauseTaskRequest.newBuilder().setHeader(w.header("picasso.v1.PauseTaskRequest")).setHandle(handle).build())
             assertEquals(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, paused.rejection.code, "종착은 래치된다")
+        }
+    }
+
+    /** 스트림을 열고 받은 것을 모은다. [leave] 는 소비자가 떠나는 것 — 클라이언트 쪽에서 호출을 취소한다. */
+    private class Following : ClientResponseObserver<WatchTaskRequest, WatchTaskResponse> {
+        private lateinit var call: ClientCallStreamObserver<WatchTaskRequest>
+        val received = mutableListOf<WatchTaskResponse>()
+        override fun beforeStart(requestStream: ClientCallStreamObserver<WatchTaskRequest>) { call = requestStream }
+        override fun onNext(value: WatchTaskResponse) { received += value }
+        override fun onError(t: Throwable) = Unit
+        override fun onCompleted() = Unit
+        fun leave() = call.cancel("소비자가 떠난다", null)
+    }
+
+    @Test
+    fun `떠난 WatchTask 스트림에는 밀지 않고, 그 일로 다른 RPC 가 깨지지 않는다`() {
+        // §15.220 — 취소된 스트림이 표에 남으면 다음 전이를 미는 `onNext` 가 `CANCELLED` 를 던지고, 그 예외가 펌프를 지난
+        // 무관한 RPC 의 실패로 나간다. 떠난 쪽을 앞에 두어 같은 태스크의 남은 스트림이 그 뒤에서 갱신을 놓치는지도 본다.
+        World().use { w ->
+            val handle = w.start().handle
+            val request = WatchTaskRequest.newBuilder().setHeader(w.header("picasso.v1.WatchTaskRequest")).setHandle(handle).build()
+            val async = TaskServiceGrpc.newStub(w.channel)
+            val left = Following().also { async.watchTask(request, it) }
+            val stayed = Following().also { async.watchTask(request, it) }
+            left.leave()
+
+            w.adapter.next = TaskState.TASK_STATE_SUCCEEDED
+            val snapshot = runCatching { w.snapshot() }
+            assertNull(snapshot.exceptionOrNull(), "떠난 스트림 때문에 무관한 RPC 가 깨졌다")
+            assertEquals(TaskState.TASK_STATE_SUCCEEDED, stayed.received.lastOrNull()?.state, "남은 스트림이 종착을 못 받았다: ${stayed.received.map { it.state }}")
         }
     }
 

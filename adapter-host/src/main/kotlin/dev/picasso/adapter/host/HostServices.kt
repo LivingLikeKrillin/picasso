@@ -43,6 +43,7 @@ import dev.picasso.uplink.report.HandshakeReport
 import dev.picasso.uplink.report.HandshakeReporter
 import io.grpc.Status
 import io.grpc.StatusRuntimeException
+import io.grpc.stub.ServerCallStreamObserver
 import io.grpc.stub.StreamObserver
 
 /** 단항 RPC 하나를 응답한다 — 새어 나온 `StatusRuntimeException` 을 `UNKNOWN` 으로 접히지 않게(미믹과 같은 이유). */
@@ -93,7 +94,10 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
 
     private val routing = Routing(robots)
 
-    private class Watcher(val observer: StreamObserver<WatchTaskResponse>, var nextIndex: Long)
+    private class Watcher(val observer: StreamObserver<WatchTaskResponse>, var nextIndex: Long) {
+        /** 소비자가 스트림을 **취소했는가**. 취소된 쪽은 표에서 빠지기 전이라도 밀지 않는다. */
+        val departed: Boolean get() = observer is ServerCallStreamObserver<*> && observer.isCancelled
+    }
 
     private val watchers = mutableMapOf<String, MutableList<Watcher>>()
 
@@ -103,8 +107,20 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
         robots.values.forEach { hosted -> hosted.onUpdate += { task, _ -> push(hosted, task) } }
     }
 
+    /**
+     * 열린 스트림에 아직 안 보낸 것을 민다. 종착이면 닫는다.
+     *
+     * **떠난 소비자를 먼저 지운다.** 이 함수는 갱신을 적은 쪽의 호출 안에서 돈다 — 펌프를 지난 아무 RPC 나 그 갱신을
+     * 적는다. 취소된 스트림에 밀면 gRPC 가 `CANCELLED` 로 던지고, 그 예외가 그 무관한 RPC 의 실패로 나가며 같은 태스크의
+     * 남은 스트림은 그 갱신을 못 받는다(§15.220). 미믹의 `TaskServiceImpl.publish` 가 같은 이유로 같은 모양이다.
+     */
     private fun push(robot: HostedRobot, task: HostedRobot.HostedTask) {
         val open = watchers[task.taskId] ?: return
+        open.removeAll { it.departed }
+        if (open.isEmpty()) {
+            watchers.remove(task.taskId)
+            return
+        }
         open.forEach { watcher ->
             task.updates.drop(watcher.nextIndex.toInt()).forEach { watcher.observer.onNext(responseOf(robot, task, it)) }
             watcher.nextIndex = task.updates.size.toLong()
@@ -129,7 +145,20 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
         builder.build()
     }
 
+    /** 떠난 스트림 하나를 표에서 뺀다. 같은 태스크의 다른 스트림은 그대로 둔다. */
+    private fun forget(taskId: String, watcher: Watcher) {
+        val open = watchers[taskId] ?: return
+        open.remove(watcher)
+        if (open.isEmpty()) watchers.remove(taskId)
+    }
+
     override fun watchTask(request: WatchTaskRequest, observer: StreamObserver<WatchTaskResponse>) {
+        // **취소 처리기를 먼저 단다.** 처리기가 있으면 취소된 스트림의 `onNext` 가 던지지 않고 버려진다. 처리기는 호출의
+        // 취소 콜백에서 돌고, 그 콜백은 `AdapterHost` 가 호스트 잠금 아래로 줄 세우므로 표를 고치는 다른 손과 겹치지 않는다.
+        var registered: Pair<String, Watcher>? = null
+        (observer as? ServerCallStreamObserver<WatchTaskResponse>)?.setOnCancelHandler {
+            registered?.let { (taskId, watcher) -> forget(taskId, watcher) }
+        }
         // **괄호가 있어야 한다.** `a to b ?: c` 는 `(a to b) ?: c` 로 읽혀 쌍이 널이 아니므로 엘비스가 안 걸린다 —
         // 그러면 태스크가 널인 채로 흘러간다(실측으로 컴파일러가 잡았다).
         val (robot, task) = try {
@@ -151,7 +180,9 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
             observer.onCompleted()
             return
         }
-        watchers.getOrPut(task.taskId) { mutableListOf() }.add(Watcher(observer, task.updates.size.toLong()))
+        val watcher = Watcher(observer, task.updates.size.toLong())
+        watchers.getOrPut(task.taskId) { mutableListOf() }.add(watcher)
+        registered = task.taskId to watcher
     }
 
     override fun pauseTask(request: PauseTaskRequest, observer: StreamObserver<PauseTaskResponse>) = reply(observer) {

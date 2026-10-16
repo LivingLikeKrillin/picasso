@@ -353,6 +353,11 @@ data class RobotSnapshot(
     val faults: List<Fault>,
     val connection: ConnectionState,
     val tasks: Map<String, TaskState>,
+    /**
+     * 응답 헤더의 `session_id`. [sequence] 는 이 세션 안의 번호다 — 세션이 바뀌면 앞 세션의 커서는 이 번호와 잴 수 없다.
+     * 빈 문자열은 못 읽었다는 뜻이고 그때는 비교하지 않는다.
+     */
+    val session: String = "",
 )
 
 /** `ReplayEvents(from)` 의 답 — 이벤트들이거나, 버퍼를 벗어났으니 스냅샷부터 다시 세우라는 말. */

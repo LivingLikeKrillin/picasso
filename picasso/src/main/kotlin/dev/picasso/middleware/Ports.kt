@@ -11,6 +11,7 @@ import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.ValueType
 import dev.picasso.contracts.v1.WatchTaskResponse
+import io.grpc.Status
 import java.time.Duration
 import java.time.Instant
 
@@ -38,6 +39,12 @@ interface RobotPort {
 
     fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse
     fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse>
+
+    /**
+     * 이 태스크를 더 안 읽는다 — 단위가 닫혔다. [watch] 가 들던 것을 버려도 된다는 말이다. 들 것이 없는 포트는 할 일이 없다.
+     */
+    fun release(robotId: String, handle: TaskHandle) = Unit
+
     fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse
 
     /**
@@ -71,6 +78,9 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
     }
 
     private val followed = mutableMapOf<String, Followed>()
+
+    /** 지금 표에 든 태스크 id. 시험이 [release] 가 표를 비우는지 보는 문이다. */
+    internal val following: Set<String> get() = followed.keys.toSet()
 
     override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse =
         client.start(
@@ -109,11 +119,14 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
      * 스트림은 기한(`PicassoClient` 의 `deadlineSeconds`)이 지나거나 연결이 끊기면 닫힌다. 그때 마지막 갱신이
      * 종료가 아니면 **그 다음 갱신 번호부터 다시 붙는다** — 계약의 `from_update_index` 다. 다시 붙지 않으면
      * 기한보다 긴 스킬의 종료를 영영 못 본다. 이어 붙인 목록은 갱신 번호가 늘기만 한다.
+     *
+     * **실패 종류를 가른다.** 계약이 `WatchTask` 의 실패로 정한 `NOT_FOUND`(기체가 모르는 태스크)와 `OUT_OF_RANGE`(아직 없는
+     * 색인)는 같은 요청으로 다시 열어도 같은 답이므로 다시 붙지 않는다(§15.210). 그 둘이 아니면 — 기한 초과·단절 — 다시 붙는다.
      */
     override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> {
         val f = followed.getOrPut(handle.taskId) { Followed(client.follow(robotId, handle, from = 0)) }
         take(f)
-        if (f.follower.ended && f.updates.lastOrNull()?.state !in TERMINAL) {
+        if (f.follower.ended && f.updates.lastOrNull()?.state !in TERMINAL && !f.follower.closedForGood) {
             val next = f.updates.lastOrNull()?.let { it.header.updateIndex + 1 } ?: 0L
             f.follower = client.follow(robotId, handle, from = next)
             f.taken = 0
@@ -129,6 +142,15 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
         f.taken = fresh.size
     }
 
+    /** 다시 열어도 같은 실패로 닫힐 스트림인가. */
+    private val TaskFollower.closedForGood: Boolean
+        get() = error?.let { Status.fromThrowable(it).code in PERMANENT } ?: false
+
+    /** 그 태스크의 누적 목록과 팔로워를 버린다. 다시 [watch] 하면 처음부터 다시 따라간다. */
+    override fun release(robotId: String, handle: TaskHandle) {
+        followed.remove(handle.taskId)
+    }
+
     override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = client.cancel(robotId, handle)
 
     override fun snapshot(robotId: String): RobotSnapshot? = try {
@@ -138,6 +160,7 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
             faults = s.faultsList,
             connection = s.connectionState,
             tasks = s.tasksList.associate { it.taskId to it.state },
+            session = s.header.sessionId,
         )
     } catch (_: RuntimeException) {
         null
@@ -162,6 +185,9 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
             TaskState.TASK_STATE_CANCELLED,
             TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED,
         )
+
+        /** 계약이 `WatchTask` 의 실패로 정한 둘(`docs/contract.md` §7.1). 같은 요청에는 같은 답이다. */
+        val PERMANENT = setOf(Status.Code.NOT_FOUND, Status.Code.OUT_OF_RANGE)
     }
 }
 
