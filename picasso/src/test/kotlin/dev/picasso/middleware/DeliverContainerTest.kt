@@ -225,6 +225,22 @@ class DeliverContainerTest {
         }
     }
 
+    @Test
+    fun `플릿이 스스로 취소하면 실행을 중단으로 끝내지 않고 운영자 보류로 세운다`() {
+        // 이 층은 취소를 걸지 않았다. 현장에서 플릿 쪽으로 멈춘 운반을 중단으로 접으면 아무도 판단하지 않은 채 실행이 끝난다.
+        World().use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { exec.units.single().state == UnitState.RUNNING }
+
+            assertTrue(w.fleet.cancel(assertNotNull(exec.transport)))
+            w.drive { exec.units.single().state != UnitState.RUNNING }
+
+            assertEquals(UnitState.OPERATOR_HOLD, exec.units.single().state)
+            assertEquals(PhysicalState.OPERATOR_HOLD, exec.physicalState)
+            assertTrue(w.mw.pending().last().operatorRequired)
+        }
+    }
+
     private companion object {
         const val ROBOT = "idle-robot"
         const val CONTAINER = "HU-1042"

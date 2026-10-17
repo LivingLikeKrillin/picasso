@@ -541,6 +541,25 @@ class JudgmentRecordTest {
         }
     }
 
+    @Test
+    fun `보류 둘로 다시 지은 실행에서 하나를 판단하면 실행은 보류 그대로이고 작업 응답이 더 나가지 않는다`() {
+        World().use { w ->
+            val base = held(w)
+            val unit = base.units.single()
+            val record = base.copy(units = listOf(unit, unit.copy(unitId = "s2")))
+            val again = w.restart()
+            val resumed = again.resumeWith(order(required = Evidence.E2, slots = 2), record)
+            again.mw.pump()
+            assertEquals(PhysicalState.OPERATOR_HOLD, resumed.physicalState, "시험의 전제: 다시 지은 실행이 보류다")
+            val before = again.mw.responses().size
+
+            assertEquals(ResolveOutcome.Resolved, again.mw.resolve(resumed.executionId, "s1", OperatorDecision.CONFIRM_DONE, OPERATOR))
+            assertEquals(PhysicalState.OPERATOR_HOLD, resumed.physicalState, "다른 단위가 보류인데 실행의 보류가 걷혔다")
+            again.mw.pump()
+            assertEquals(before, again.mw.responses().size, "보류가 그대로인데 작업 응답이 나갔다: ${again.mw.responses().drop(before)}")
+        }
+    }
+
     /** 앞 인스턴스가 하류 실패·설비 있음으로 단위를 운영자 보류에 세운 뒤 받아 둔 기록. */
     private fun held(w: World): JudgmentRecord {
         val exec = w.submit(order(required = Evidence.E2))
