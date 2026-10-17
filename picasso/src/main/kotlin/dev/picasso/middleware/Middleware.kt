@@ -291,6 +291,16 @@ class Middleware(
          */
         internal val resumedPrior: MutableSet<String> = mutableSetOf()
 
+        /**
+         * [resume] 이 스냅숏에서 태스크를 본 로봇 단위와 그때의 시도. **이 인스턴스가 아직 붙지 않은 태스크**다 — 첫 pump 가
+         * [startUnit] 으로 붙거나, 그 전에 취소가 걸리면 [attachForCancel] 이 붙는다. 붙으면 뺀다. 시도가 다르면(기록이 재작업을
+         * 넘겼다) 그 시도의 태스크는 기체에 없으므로 대상이 아니다.
+         */
+        internal val unattached: MutableMap<String, Int> = mutableMapOf()
+
+        /** [attachForCancel] 이 기다리는 까닭을 자취에 남긴 마지막 값. 같은 까닭을 라운드마다 되풀이하지 않는다. */
+        internal var notedUnattached: String? = null
+
         /** 지연 이벤트(15.1) — 옛 버전의 종착. 폐기하지 않는다. */
         val lateEvents: MutableList<LateEvent> = mutableListOf()
         private val seenLate = mutableSetOf<Triple<String, Int, String>>()
@@ -509,6 +519,10 @@ class Middleware(
      * **스냅숏은 단위가 묶인 기체마다 읽는다**([Execution.robotOf]). 오늘은 단위가 전부 실행의 기체라 한 번이다. 기체가 N 이면 N 번
      * 읽고 하나만 못 읽어도 다시 짓기를 미룬다(ADR 51 «대가») — 그 기체의 단위는 재작업 횟수를 정할 근거가 없고, 못 읽은 기체를
      * 빼고 지으면 그 단위가 이미 끝난 태스크에 붙는다.
+     *
+     * **첫 pump 전에 건 취소**는 붙지 않은 태스크에 `StartTask` 없이 붙어 멈추고 그 종료를 본 뒤 정착한다([attachForCancel]). 그래서
+     * 담는 쪽은 다시 지은 직후 취소를 걸어도 된다. 첫 pump 가 붙은 뒤로 미루면 그 사이 취소로 끝난 태스크를 이 인스턴스가 요청 없는
+     * 취소로 읽는다([holdUnrequestedCancel]).
      */
     fun resume(order: JobOrder, robotId: String, mission: ActiveMission, record: JudgmentRecord? = null): Submission {
         forgottenRefusal(order.jobOrderId)?.let { return it }
@@ -690,6 +704,7 @@ class Middleware(
             val found = tasks.keys.mapNotNull { taskId -> attemptOf(taskId, base)?.let { taskId to it } }
             val top = found.maxByOrNull { it.second } ?: return@forEachIndexed
             unit.attempt = top.second
+            execution.unattached[unit.unitId] = top.second
             lastHeld = index
             execution.trail(RESUME_ATTEMPT, "${unit.unitId}: attempt=${top.second} (스냅숏 태스크 ${top.first})")
         }
@@ -1280,6 +1295,9 @@ class Middleware(
         }
 
         if (execution.cancelRequested) {
+            // 다시 지은 실행이 아직 붙지 않은 태스크가 기체에 있으면 그것부터 멈춘다. 붙지 않은 채 정착하면 기체가 그 태스크를 하는
+            // 동안 실행이 기체를 내준다.
+            if (attachForCancel(execution)) return
             abort(execution, inProgress = null, hold = null, cleanup = "nothing_to_clean")
             return
         }
@@ -1855,13 +1873,23 @@ class Middleware(
     /** 이미 적은 (기체, 선택 키). 같은 사실을 되풀이하면 운영자가 곧 무시한다. */
     private val droppedOptionals = mutableSetOf<Pair<String, String>>()
 
+    /** 이 단위의 지금 시도가 쓰는 태스크 id. 재작업은 새 정체성이다 — 같은 task_id 는 계약이 같은(종착한) 핸들로 돌려준다. */
+    private fun taskIdOf(execution: Execution, unit: ExecutionUnit): String =
+        "${execution.order.jobOrderId}#${unit.unitId}" + if (unit.attempt > 0) "@r${unit.attempt}" else ""
+
+    /**
+     * 판단 기록이 이 시도의 요청 시각을 넘겼으면 그것이다(§15.221). 다시 지은 뒤 같은 시도를 다시 보내는 것이지 새 요청이 아니므로,
+     * 미확정 유예·관측 창·설비 대기의 기한은 처음 보낸 시각부터 이어 잰다. 다른 시도(재작업)면 쓰지 않는다.
+     */
+    private fun requestedAtOf(execution: Execution, unit: ExecutionUnit): Instant =
+        execution.restoredRequests.remove(unit.unitId)?.takeIf { it.first == unit.attempt }?.second ?: now()
+
     private fun startUnit(execution: Execution, unit: ExecutionUnit) {
-        // 재작업은 새 정체성이다 — 같은 task_id 는 계약이 같은(종착한) 핸들로 돌려준다.
-        unit.taskId = "${execution.order.jobOrderId}#${unit.unitId}" + if (unit.attempt > 0) "@r${unit.attempt}" else ""
-        // 판단 기록이 이 시도의 요청 시각을 넘겼으면 그것이다(§15.221). 다시 지은 뒤 같은 시도를 다시 보내는 것이지 새 요청이 아니므로,
-        // 미확정 유예·관측 창·설비 대기의 기한은 처음 보낸 시각부터 이어 잰다. 다른 시도(재작업)면 쓰지 않는다.
-        unit.requestedAt = execution.restoredRequests.remove(unit.unitId)?.takeIf { it.first == unit.attempt }?.second ?: now()
+        unit.taskId = taskIdOf(execution, unit)
+        unit.requestedAt = requestedAtOf(execution, unit)
         unit.lookups = 0
+        // 같은 태스크 id 로 보내면 기체에 있던 태스크에 붙는다 — 이제 이 인스턴스가 든 태스크다.
+        execution.unattached.remove(unit.unitId)
         execution.active = unit
         val accepted = try {
             lookupDownstream(execution, unit)
@@ -1883,6 +1911,94 @@ class Middleware(
         unit.state = UnitState.RUNNING
         execution.physicalState = PhysicalState.RUNNING
     }
+
+    /**
+     * **붙기 전에 걸린 취소**(§15.231) — 다시 지은 실행([resume])에 취소가 걸렸는데 도는 단위가 없다. 기체에 이 실행의 태스크가 아직
+     * 붙지 않은 채([Execution.unattached]) 있으면 그것에 붙어 멈추고, 정착은 그 태스크의 종료를 본 [pumpRobotUnit] 이 한다.
+     *
+     * 규칙 다섯이다.
+     *
+     * 1. **`StartTask` 로 붙지 않는다.** 스냅숏에서 이 단위의 지금 시도의 태스크 id 를 찾고, 핸들(태스크 id·리비전·기체)을 그 값으로
+     *    짓는다. 같은 참조의 재전송은 그 사이 태스크가 끝났고 하위가 끝난 태스크를 안 들면 새 접수가 되어 기체가 움직인다 — 멈추려고
+     *    붙는 자리에서 일을 새로 낸다.
+     * 2. **기체가 아직 하는 태스크면 취소를 보낸다.** 계약의 종착(성공·실패·취소 둘)이 아니면 하는 중이다 — 사람을 기다리는 태스크도
+     *    기체가 붙들고 있으므로 취소를 보낸다. 하위가 취소를 거절하면 [cancel] 과 같이 그 사유를 취소 응답에 싣고 단위는 끝까지 간다.
+     *    답이 없으면 붙지 않고 다음 라운드에 스냅숏부터 다시 본다.
+     * 3. **이미 끝난 태스크면 보내지 않고 붙기만 한다.** 그 종료로 단위를 판정하는 것은 보통의 정착 규칙이다 — 취소로 끝났으면 요청한
+     *    취소의 중단, 성공이면 완료(중단점은 그 뒤), 실패면 실패.
+     * 4. **스냅숏을 못 읽으면 정착하지 않는다.** 실행은 `CANCELING` 인 채 다음 라운드에 다시 본다. 못 읽은 것은 태스크가 없다는 관측이
+     *    아니다 — 그것을 «지울 것 없음» 으로 읽으면 기체가 일하는 동안 실행이 기체를 내준다. 기한을 두지 않는다. 기다리는 까닭은
+     *    자취에 [CANCEL_UNATTACHED_WAIT] 로 한 번 남긴다.
+     * 5. **스냅숏에 그 태스크가 없으면 대상이 아니다.** 붙을 것이 하나도 없으면 거짓을 돌려주고 부르는 쪽이 지금처럼 «지울 것 없음» 으로
+     *    정착한다.
+     *
+     * 하는 중인 태스크가 있으면 그것을, 아니면 끝난 것 가운데 계획의 마지막 것을 고른다. 실행은 단위를 차례로 돌므로 하는 중인 것은
+     * 많아야 하나다.
+     *
+     * **발행 관문([issuable])을 묻지 않는다.** 여기서 나가는 것은 스냅숏 읽기·취소·관측뿐이고 새 로봇 명령이 없다. 작업 허가는 새
+     * 발행만 막고 취소·관측은 막지 않는다([WorkPermitPort], ADR 52). 취소는 기체를 멈추는 쪽이라, 막으면 허가가 없는 동안 실행이 붙지
+     * 않은 채 서 있거나 기체를 내주고 둘 다 기체는 그 일을 계속 한다.
+     *
+     * @return 붙었거나 기다린다 — 이번 라운드에 정착하지 않는다. 거짓이면 기체에 붙을 이 실행의 태스크가 없다.
+     */
+    private fun attachForCancel(execution: Execution): Boolean {
+        val candidates = execution.units.filter {
+            it.route == Route.ROBOT && it.state == UnitState.PENDING && execution.unattached[it.unitId] == it.attempt
+        }
+        if (candidates.isEmpty()) return false
+
+        fun wait(why: String): Boolean {
+            execution.physicalState = PhysicalState.CANCELING
+            if (execution.notedUnattached != why) {
+                execution.notedUnattached = why
+                execution.trail(CANCEL_UNATTACHED_WAIT, why)
+            }
+            return true
+        }
+
+        val onRobot = mutableListOf<Pair<ExecutionUnit, TaskState>>()
+        for (unit in candidates) {
+            val robot = execution.robotOf(unit)
+            val view = views[robot]
+            if (view == null || !view.observable) return wait("robot=$robot 스냅숏을 못 읽었다 — ${unit.unitId} 의 태스크를 볼 때까지 정착하지 않는다")
+            val state = view.tasks[taskIdOf(execution, unit)]
+            if (state == null) execution.unattached.remove(unit.unitId) else onRobot += unit to state
+        }
+        val (unit, state) = onRobot.firstOrNull { !it.second.endedOnRobot() } ?: onRobot.lastOrNull() ?: return false
+
+        val robot = execution.robotOf(unit)
+        val taskId = taskIdOf(execution, unit)
+        val handle = TaskHandle.newBuilder().setTaskId(taskId).setRevision(unit.revision).setRobotId(robot).build()
+        val sent = !state.endedOnRobot()
+        if (sent) {
+            val response = try {
+                robots.cancel(robot, handle)
+            } catch (_: RuntimeException) {
+                return wait("$taskId 의 취소에 답이 없다 — 다음 라운드에 스냅숏부터 다시 본다")
+            }
+            if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
+        }
+        unit.taskId = taskId
+        unit.requestedAt = requestedAtOf(execution, unit)
+        unit.lookups = 0
+        unit.state = UnitState.RUNNING
+        execution.unattached.remove(unit.unitId)
+        execution.notedUnattached = null
+        execution.active = unit
+        execution.handle = handle
+        execution.physicalState = PhysicalState.CANCELING
+        execution.trail(
+            CANCEL_ATTACHED,
+            "${unit.unitId}: 스냅숏의 $taskId=${state.name} 에 StartTask 없이 붙었다, " +
+                if (sent) "취소를 보냈다" else "이미 끝나 그 종료로 판정한다",
+        )
+        return true
+    }
+
+    /** 계약의 종착 — 기체가 더는 그 태스크를 하지 않는다. [isTerminal] 과 달리 사람을 기다리는 태스크는 아직 기체가 붙들고 있다. */
+    private fun TaskState.endedOnRobot(): Boolean = this == TaskState.TASK_STATE_SUCCEEDED ||
+        this == TaskState.TASK_STATE_FAILED || this == TaskState.TASK_STATE_CANCELLED ||
+        this == TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
 
     /** 이 단위가 이번 라운드에 닫혔다. 봉하는 것은 [IncidentLog.sealIncidents] 다. */
     private fun Execution.markIncident(unit: ExecutionUnit) {
@@ -2316,7 +2432,10 @@ class Middleware(
 
     // ── 취소 (보고서 14)
 
-    /** 취소를 건다. 실제 중단과 잔여 상태는 [pump] 가 하류를 읽고 [CancelReport] 로 확정한다. */
+    /**
+     * 취소를 건다. 실제 중단과 잔여 상태는 [pump] 가 하류를 읽고 [CancelReport] 로 확정한다. 다시 지은 실행이 아직 붙지 않았으면
+     * 기체의 태스크에 붙어 취소를 보내는 것도 [pump] 다([attachForCancel]).
+     */
     fun cancel(executionId: String): Boolean {
         val execution = executions[executionId] ?: return false
         if (!execution.physicalState.pumps) return false
@@ -2600,6 +2719,12 @@ class Middleware(
          * 실려 «재기동이 다시 연 인시던트» 를 가르는 표시다. 세부에 기록의 기체·시도·요청 시각·근거 시각·보류 사유가 든다.
          */
         const val RESUME_HOLD_REOPENED = "RESUME_HOLD_REOPENED"
+
+        /** 붙기 전에 걸린 취소가 기체의 태스크에 `StartTask` 없이 붙었다는 실행 자취의 종류(§15.231). 취소를 보냈는지가 세부에 든다. */
+        const val CANCEL_ATTACHED = "CANCEL_ATTACHED"
+
+        /** 붙기 전에 걸린 취소가 기체를 못 봐 정착하지 않고 기다린다는 실행 자취의 종류(§15.231). 같은 까닭은 한 번만 남는다. */
+        const val CANCEL_UNATTACHED_WAIT = "CANCEL_UNATTACHED_WAIT"
 
         /** 발행 관문이 새 로봇 명령을 막았다는 실행 자취의 종류(ADR 52). 같은 막음은 한 번만 남는다. */
         const val ISSUE_WITHHELD = "ISSUE_WITHHELD"
