@@ -199,7 +199,7 @@ object ScenarioHost {
     }
 
     private fun announce(host: ApprovalHost, exportDir: Path, declarations: Path, entitlements: FileEntitlements, instanceId: String) {
-        println("[host] 승인 창구: http://127.0.0.1:${host.port}${ApprovalHost.PATH}  (POST · 루프백 전용)")
+        println("[host] 승인 호스트: http://127.0.0.1:${host.port}${ApprovalHost.PATH}  (POST · 루프백 전용)")
         println("[host] 선언 목록: ${declarations.toAbsolutePath().normalize()}  승인자=${entitlements.approvers()}")
         println("[host] 두 대장: ${exportDir.toAbsolutePath().normalize()}")
         println("[host]   ★되돌려 댈 것은 인계본이 아니라 이 한 벌이다 — 창구와 같은 제안을 든다.")

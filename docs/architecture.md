@@ -105,10 +105,10 @@ TaskHandle
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="diagrams/task-states.dark.svg">
-  <img alt="태스크 상태 전이 다이어그램. 좌측 비종착 상태 6개에서 우측 종료 상태 4개로 단방향 전이만 발생하며, 역방향 전이는 일절 발생하지 않습니다." src="diagrams/task-states.svg">
+  <img alt="태스크 상태 전이 다이어그램. 좌측 비종료 상태 6개에서 우측 종료 상태 4개로 단방향 전이만 발생하며, 역방향 전이는 일절 발생하지 않습니다." src="diagrams/task-states.svg">
 </picture>
 
-- **종료 상태 불변 원칙**: 일단 종료 상태(Terminal State)에 진입한 태스크는 어떤 후속 이벤트나 명령에 의해서도 비종착 상태로 역전이될 수 없습니다.
+- **종료 상태 불변 원칙**: 일단 종료 상태(Terminal State)에 진입한 태스크는 어떤 후속 이벤트나 명령에 의해서도 비종료 상태로 역전이될 수 없습니다.
 - **복구 실패 종료**: 작업 취소 후 물리적 롤백에 실패하더라도 상태는 `CANCELLED_RECOVERY_FAILED`라는 확정적 종료 상태로 래치(Latch)되며, 이후 처리는 운영자 개입 절차로 이관됩니다.
 
 ---
@@ -185,4 +185,4 @@ uplink                         → contracts
 5. [`commissioning.md`](commissioning.md) — 현장 시운전 절차 및 운영 설정 REST API 명세
 6. [공식 설계 문서](superpowers/specs/2026-09-05-picasso-design.md) — 시스템 전체 설계 정본 스펙
 
-> 마지막 대조: 2026-10-08 · sha256:1447e0042e80 · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126
+> 마지막 대조: 2026-10-18 · sha256:2e40d17be5ed · 열림: 시나리오 §8, §15.34, §15.5, ADR 32 · 시나리오 5, §1.3 B-1, §15.126
