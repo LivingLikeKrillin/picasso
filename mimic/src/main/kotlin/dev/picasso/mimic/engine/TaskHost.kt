@@ -602,7 +602,7 @@ class TaskHost(
         // 아무 뜻도 안 갖는다 — 아직 래치되지 않았기 때문이다.
         if (!task.machine.state.isTerminal) {
             return ViolationOutcome.Rejected(
-                "종착이 아니라 래치 위반이 성립하지 않는다: ${task.machine.state}",
+                "종료가 아니라 래치 위반이 성립하지 않는다: ${task.machine.state}",
             )
         }
 
@@ -715,7 +715,7 @@ class TaskHost(
             .setCanContinueCurrentTask(false)
             .setCanAcceptNewTask(false)
             .setErrorHint(
-                "종착한 태스크를 로봇이 계속 수행 중이다. 계약과 실물이 어긋나 있으니 " +
+                "종료한 태스크를 로봇이 계속 수행 중이다. 계약과 실물이 어긋나 있으니 " +
                     "현장에서 로봇을 정지시키고 어댑터의 래치 처리를 확인하십시오.",
             )
             .addReferences(

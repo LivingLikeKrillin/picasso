@@ -84,7 +84,7 @@ class GateLedgerWiringTest {
 
         assertEquals(RevisionStatus.DRAFT, stored.status, "$stored")
         assertTrue(
-            stored.reasons.any { "비종착 태스크 1" in it },
+            stored.reasons.any { "비종료 태스크 1" in it },
             "드레인 미완이 사유로 안 남았다: ${stored.reasons}",
         )
     }

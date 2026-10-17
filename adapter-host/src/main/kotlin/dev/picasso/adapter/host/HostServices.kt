@@ -229,7 +229,7 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
         val task = robot.task(handle.taskId)
             ?: throw Status.NOT_FOUND.withDescription("모르는 태스크다: ${handle.taskId}").asRuntimeException()
         if (task.terminal) {
-            return null to rejection(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, "${task.taskId} 은 이미 ${task.last.state} 다 — 종착은 되돌아가지 않는다(§4.4)")
+            return null to rejection(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, "${task.taskId} 은 이미 ${task.last.state} 다 — 종료는 되돌아가지 않는다(§4.4)")
         }
         return when (val applied = apply(task)) {
             Applied.Ok -> {

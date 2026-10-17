@@ -118,7 +118,7 @@ class RevisionSuites(
             checked += "CONTRACT.task:${skill.skillType}"
             harness(document).use { h ->
                 val run = runTask(h, skill, expected)
-                verdict(run, skill, doc)?.let { failures += SuiteFailure("CONTRACT.task:${skill.skillType}", "종착(성공 또는 선언된 실패)", it) }
+                verdict(run, skill, doc)?.let { failures += SuiteFailure("CONTRACT.task:${skill.skillType}", "종료(성공 또는 선언된 실패)", it) }
             }
         }
         return SuiteOutcome(Suite.CONTRACT, checked, failures)

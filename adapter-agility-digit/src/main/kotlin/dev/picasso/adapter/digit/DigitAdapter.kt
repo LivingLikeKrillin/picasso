@@ -276,7 +276,7 @@ class DigitAdapter(
         if (current.state.isTerminal) {
             return Applied.Refused(
                 Refusal.TERMINAL_LATCHED,
-                "${current.id} 은 이미 ${current.state} 다 — 종착은 되돌아가지 않는다(§4.4)",
+                "${current.id} 은 이미 ${current.state} 다 — 종료는 되돌아가지 않는다(§4.4)",
             )
         }
         if (link.privilege != PrivilegeState.HELD) {
@@ -398,7 +398,7 @@ class DigitAdapter(
                 .setErrorType("TERMINAL_STATE_VIOLATED")
                 .setCanContinueCurrentTask(false)
                 .setCanAcceptNewTask(false)
-                .setErrorHint("종착한 태스크에 running 이 다시 왔습니다. 벤더 매뉴얼이 예고한 전이입니다.")
+                .setErrorHint("종료한 태스크에 running 이 다시 왔습니다. 벤더 매뉴얼이 예고한 전이입니다.")
                 .build()
         }
 

@@ -210,7 +210,7 @@ class HostedRobot(
                 )
                 existing.terminal -> StartOutcome.Rejected(
                     RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                    "${existing.taskId} 은 이미 ${existing.last.state} 다 — 종착은 되돌아가지 않는다(§4.4)",
+                    "${existing.taskId} 은 이미 ${existing.last.state} 다 — 종료는 되돌아가지 않는다(§4.4)",
                 )
                 else -> update(existing, revision, skillType, parameters)
             }
@@ -272,7 +272,7 @@ class HostedRobot(
         if (state !in UPDATABLE_STATES && state !in DEFERRED_UPDATE_STATES) {
             return StartOutcome.Rejected(
                 RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                "$state 에서는 파라미터를 바꿀 자리가 없다 — 정리 중이거나 종착이다(§4.4)",
+                "$state 에서는 파라미터를 바꿀 자리가 없다 — 정리 중이거나 종료이다(§4.4)",
             )
         }
         validate(skillType, parameters)?.let { return it }
@@ -565,7 +565,7 @@ class HostedRobot(
     private fun basisOf(state: TaskState): ProgressBasis {
         val builder = ProgressBasis.newBuilder()
         if (state == TaskState.TASK_STATE_SUCCEEDED) {
-            return builder.setKind(ProgressKind.PROGRESS_KIND_MEASURED).setBasis("성공 종착").build()
+            return builder.setKind(ProgressKind.PROGRESS_KIND_MEASURED).setBasis("성공 종료").build()
         }
         return when (val observed = adapter.progress()) {
             is ProgressObservation.Fraction ->

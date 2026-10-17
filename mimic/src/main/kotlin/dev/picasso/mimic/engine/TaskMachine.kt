@@ -274,7 +274,7 @@ class TaskMachine(
         if (state.isTerminal) {
             return TaskTransition.Rejected(
                 RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                "$state 는 종착이다: $via",
+                "$state 는 종료이다: $via",
             )
         }
         beforeEmit()
