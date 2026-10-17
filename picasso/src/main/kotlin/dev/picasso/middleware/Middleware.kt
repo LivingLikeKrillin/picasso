@@ -878,7 +878,7 @@ class Middleware(
         val execution = executions[executionId]
             ?: return Reassignment.Kept("", "모르는 실행이다: $executionId")
         val from = execution.robotId
-        if (execution.physicalState.isSettled) return Reassignment.Kept(from, "종착한 실행이다 — 옮길 것이 없다")
+        if (execution.physicalState.isSettled) return Reassignment.Kept(from, "종료한 실행이다 — 옮길 것이 없다")
         if (execution.active != null) return Reassignment.Kept(from, "도는 단위가 있다 — 움직이는 중인 일은 안 옮긴다")
         execution.units.firstOrNull { it.state == UnitState.DONE }?.let {
             return Reassignment.Kept(
@@ -910,7 +910,7 @@ class Middleware(
             val load = liveExecutionCount(robotId, excluding = executionId)
             if (best == null || load < best.second) best = robotId to load
         }
-        val target = best ?: return Reassignment.Kept(from, "관문을 통과하는 후보가 없다")
+        val target = best ?: return Reassignment.Kept(from, "게이트를 통과하는 후보가 없다")
 
         // **더 싸야 옮긴다.** 같으면 그대로 둔다 — 동점에서 움직이는 것이 진동의 시작이다.
         val saved = mine - target.second
@@ -939,7 +939,7 @@ class Middleware(
             return Submission.Rejected("이미 지난 버전이다: 받은 값=${order.version}, 현재=${execution.order.version}")
         }
         if (execution.physicalState == PhysicalState.ABORTED || execution.physicalState == PhysicalState.PHYSICALLY_DONE) {
-            return Submission.Rejected("종착한 실행에는 새 버전이 붙지 않는다 — 재작업은 새 주문이다(보고서 14.1)")
+            return Submission.Rejected("종료한 실행에는 새 버전이 붙지 않는다 — 재작업은 새 주문이다(보고서 14.1)")
         }
 
         // 개정판도 사슬 검사를 받는다 — 단, 이 개정이 실제로 교체·추가할 단위만(리뷰 C3). 이미 끝났거나 도는 단위를
@@ -1960,7 +1960,7 @@ class Middleware(
         for (unit in candidates) {
             val robot = execution.robotOf(unit)
             val view = views[robot]
-            if (view == null || !view.observable) return wait("robot=$robot 스냅숏을 못 읽었다 — ${unit.unitId} 의 태스크를 볼 때까지 정착하지 않는다")
+            if (view == null || !view.observable) return wait("robot=$robot 스냅숏을 못 읽었다 — ${unit.unitId} 의 태스크를 볼 때까지 종결하지 않는다")
             val state = view.tasks[taskIdOf(execution, unit)]
             if (state == null) execution.unattached.remove(unit.unitId) else onRobot += unit to state
         }
@@ -2602,7 +2602,7 @@ class Middleware(
         if (state.pumps) {
             return ForgetOutcome.Refused(
                 if (state.isSettled) {
-                    "$state 는 종착이지만 구동이 아직 돌린다 — 개정으로 다시 돌거나 취소로 끝낸 뒤 놓는다: $executionId"
+                    "$state 는 종료이지만 구동이 아직 돌린다 — 개정으로 재실행하거나 취소로 끝낸 뒤 이빅션한다: $executionId"
                 } else {
                     "끝나지 않은 실행이다($state): $executionId"
                 },
@@ -2610,7 +2610,7 @@ class Middleware(
         }
         val unacked = outbox.filter { it.executionId == executionId && it.ack != UpstreamAck.ACKED }
         if (unacked.isNotEmpty()) {
-            return ForgetOutcome.Refused("상류가 확인하지 않은 통보가 있다: ${unacked.joinToString { it.jobResponseId }} — 나르고 ack 한 뒤 놓는다")
+            return ForgetOutcome.Refused("상위가 확인하지 않은 통보가 있다: ${unacked.joinToString { it.jobResponseId }} — 나르고 ack 한 뒤 이빅션한다")
         }
         executions.remove(executionId)
         outbox.removeAll { it.executionId == executionId }
@@ -2679,13 +2679,13 @@ class Middleware(
          * [resume] 이 기체 스냅숏을 못 읽어 거부할 때 사유의 앞머리. 담는 쪽은 이것으로 «나중에 다시 시도» 와 그 밖의 거부를
          * 나눈다. 뒤에 기체 id 가 붙는다.
          */
-        const val RESUME_SNAPSHOT_UNREADABLE = "기체 스냅숏을 못 읽어 다시 짓지 않는다"
+        const val RESUME_SNAPSHOT_UNREADABLE = "기체 스냅숏을 못 읽어 리빌드하지 않는다"
 
         /**
          * 이 인스턴스가 [forget] 으로 놓은 작업 지시 id 가 다시 왔을 때 거부 사유의 앞머리. 담는 쪽은 이것으로 «이미 끝나 놓은 일» 과 그 밖의
          * 거부를 나눈다. 뒤에 작업 지시 id·실행 id·판·종착 상태가 붙는다. [RESUME_SNAPSHOT_UNREADABLE] 과 달리 다시 시도해도 같다.
          */
-        const val FORGOTTEN_JOB_ORDER = "이미 끝나 놓은 작업 지시라 다시 받지 않는다"
+        const val FORGOTTEN_JOB_ORDER = "이미 끝나 이빅션한 작업 지시라 다시 받지 않는다"
 
         /**
          * 작업 지시로 펼친 계획의 단위 id 가 겹쳐 받지 않을 때 거부 사유의 앞머리(§15.227). [submit] 과 리비전이 낸다. 뒤에 겹친
@@ -2706,7 +2706,7 @@ class Middleware(
          * [resume] 이 판단 기록을 받지 않을 때의 사유 앞머리 — 기록의 작업 지시 id·버전이 넘긴 작업 지시와 다르거나 계획에 없는 단위가
          * 있다. [RESUME_SNAPSHOT_UNREADABLE] 과 달리 다시 시도해도 같다. 담는 쪽이 넘긴 기록이 이 실행의 것이 아니다.
          */
-        const val RESUME_RECORD_MISMATCH = "판단 기록이 이 작업 지시의 것이 아니어서 다시 짓지 않는다"
+        const val RESUME_RECORD_MISMATCH = "판단 기록이 이 작업 지시의 것이 아니어서 리빌드하지 않는다"
 
         /** [resume] 이 판단 기록의 사실(감수한 결함, 승인 소모, 단위의 판정)을 옮겼다는 실행 자취의 종류. */
         const val RESUME_RECORD = "RESUME_RECORD"

@@ -270,7 +270,7 @@ class ReassignmentTest {
             assertTrue(exec.physicalState.isSettled, "이 시험이 보려는 경우가 아니다: ${exec.physicalState}")
 
             val kept = assertIs<Reassignment.Kept>(w.mw.reassign(exec.executionId, listOf(B)))
-            assertTrue("종착" in kept.reason, kept.reason)
+            assertTrue("종료" in kept.reason, kept.reason)
             assertEquals(A, exec.robotId)
         }
     }

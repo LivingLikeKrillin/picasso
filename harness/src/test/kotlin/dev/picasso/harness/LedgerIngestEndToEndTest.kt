@@ -138,7 +138,7 @@ class LedgerIngestEndToEndTest {
             // ── 3. 둘 다 남았으므로 거부되고, **사유가 둘 다 실린다.**
             assertTrue(
                 findings().any {
-                    "축소가 거부됐다" in it && "active 소비자 1" in it && "비종착 태스크 1" in it
+                    "축소가 거부됐다" in it && "active 소비자 1" in it && "비종료 태스크 1" in it
                 },
                 "두 사유가 함께 안 실렸다: ${findings()}",
             )

@@ -676,7 +676,7 @@ class SpotAdapter(
         if (current.state.isTerminal) {
             return Applied.Refused(
                 Refusal.TERMINAL_LATCHED,
-                "${current.id} 은 이미 ${current.state} 다 — 종착은 되돌아가지 않는다(§4.4)",
+                "${current.id} 은 이미 ${current.state} 다 — 종료는 되돌아가지 않는다(§4.4)",
             )
         }
 

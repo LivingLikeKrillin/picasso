@@ -107,7 +107,7 @@ data class UnitVerdict(
     val result: String?,
 ) {
     init {
-        require(state in STATES) { "정착하지 않은 상태는 판정이 아니다: $state" }
+        require(state in STATES) { "종결하지 않은 상태는 판정이 아니다: $state" }
     }
 
     companion object {
@@ -239,7 +239,7 @@ object JudgmentRecordWire {
         verifyWindow = f.objOrNull("verifyWindow", WINDOW)?.let { VerifyWindow(it.instant("doneAt"), it.instant("deadline")) },
         verdict = f.objOrNull("verdict", VERDICT)?.let { v ->
             val state = v.enum("state", UnitState.entries)
-            if (state !in UnitVerdict.STATES) throw IllegalArgumentException("${v.path}.state: 정착하지 않은 상태는 판정이 아니다: $state")
+            if (state !in UnitVerdict.STATES) throw IllegalArgumentException("${v.path}.state: 종결하지 않은 상태는 판정이 아니다: $state")
             UnitVerdict(
                 state = state,
                 reached = v.enum("reached", Evidence.entries),

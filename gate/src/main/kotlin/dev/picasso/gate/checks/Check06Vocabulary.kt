@@ -340,7 +340,7 @@ class Check06Vocabulary : GateCheck {
 
         val unknown = listOfNotNull(
             (consumers as? LedgerAnswer.NotObservable)?.let { "소비자 수: ${it.reason}" },
-            (inflight as? LedgerAnswer.NotObservable)?.let { "비종착 태스크 수: ${it.reason}" },
+            (inflight as? LedgerAnswer.NotObservable)?.let { "비종료 태스크 수: ${it.reason}" },
         )
         if (unknown.isNotEmpty()) {
             // **0이 아니다.** 브로커 구독이 끊겼을 뿐 소비자는 살아 있을 수 있다.
@@ -364,7 +364,7 @@ class Check06Vocabulary : GateCheck {
                 Finding(
                     id, Severity.WARNING,
                     "축소가 승인됐다 — $what. §9.3 진입 조건 충족: active 소비자 0, " +
-                        "비종착 태스크 0 (관측 시각 ${observedConsumers.asOf})",
+                        "비종료 태스크 0 (관측 시각 ${observedConsumers.asOf})",
                     location,
                 ),
             )
@@ -374,7 +374,7 @@ class Check06Vocabulary : GateCheck {
             Finding(
                 id, Severity.ERROR,
                 "축소가 거부됐다 — $what. §9.3의 진입 조건이 충족되지 않았다: " +
-                    "active 소비자 ${observedConsumers.count}, 비종착 태스크 ${observedInflight.count}",
+                    "active 소비자 ${observedConsumers.count}, 비종료 태스크 ${observedInflight.count}",
                 location,
             ),
         )
