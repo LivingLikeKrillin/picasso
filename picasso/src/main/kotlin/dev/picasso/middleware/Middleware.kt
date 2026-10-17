@@ -240,6 +240,9 @@ class Middleware(
         internal var notedDoubt: String? = null
         internal var notedBlock: String? = null
 
+        /** 이 실행의 마지막 작업 응답. 막음·보류·미확정이 풀렸는지를 이것과 대 본다([noteAttention]). */
+        internal var lastNotified: JobResponse? = null
+
         /** 지금 다음 단위를 막고 있는 기체 수준 결함. 비어 있으면 막힌 것이 없다. */
         var blockedBy: List<Fault> = emptyList()
             internal set
@@ -997,6 +1000,8 @@ class Middleware(
         ) {
             execution.physicalState = PhysicalState.RUNNING
         }
+        // 도는 단위에 보낸 갱신이 미확정을 내거나 풀었으면 지금 알린다 — 새 판과 새 단위 열이 선 뒤라 응답이 이 판의 것이다.
+        noteAttention(execution)
         return Submission.Accepted(execution)
     }
 
@@ -1017,6 +1022,9 @@ class Middleware(
                 response.hasHandle() -> if (unit.state == UnitState.IN_DOUBT) {
                     execution.handle = response.handle
                     unit.state = UnitState.RUNNING
+                    // 실행 상태도 함께 되돌린다 — 안 되돌리면 이 판의 작업 응답이 미확정 단위 없이 `IN_DOUBT` 를 든다.
+                    execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+                    execution.notedDoubt = null
                     unit.annotate("IN_DOUBT resolved by revision $revision update")
                 }
 
@@ -1194,7 +1202,9 @@ class Middleware(
     }
 
     private fun pump(execution: Execution) {
+        val pumped = execution.physicalState.pumps
         pumpRound(execution)
+        if (pumped) noteAttention(execution)
         incidentLog.sealIncidents(execution, round)
     }
 
@@ -1294,7 +1304,7 @@ class Middleware(
         // **기체가 새 태스크를 못 받는다고 말하면 보내지 않는다.** 계약은 막지 않는다 — 결함은 인터록이 아니고
         // "판단은 밖으로"(§4.6·§15.87)이며, 그 밖이 여기다. 자동으로 넘어가지 않는다: 사람이 [release] 로 감수하거나
         // 결함이 사라져야 다음 단위가 나간다. 못 물어봤으면(null) 막지 않고 그 사실만 남긴다 — 관측 실패로 현장을
-        // 세우지는 않되, 없다고도 하지 않는다.
+        // 세우지는 않되, 없다고도 하지 않는다. 이미 막고 있었으면 못 물어본 동안 그 막음을 그대로 둔다([blockingFaults]).
         val blocking = blockingFaults(execution, next)
         // **작업 허가는 결함과 함께 묻고 따로 둔다**(ADR 52). 둘 다 서 있으면 둘 다 보여야 하고, 해제([release])는 결함만
         // 감수한다. 그리고 ★**두 침묵은 다르다** — 위의 결함 관문은 못 물으면 통과시키고(관측 실패로 현장을 세우지 않는다),
@@ -1316,16 +1326,32 @@ class Middleware(
             }
             return
         }
-        execution.blockedBy = emptyList()
+        if (execution.blockedBy.isNotEmpty()) {
+            // **결함이 사라졌다** — 사람의 감수([release]) 없이 막음이 걷힌다. 실행 상태를 되돌리고 표시를 걷는다. 표시를 남기면 같은
+            // 결함이 다음 경계에서 다시 설 때 알리지 않는다. 걷힌 것을 알리는 것은 라운드 끝의 대조다([noteAttention]) — 여기서 알리면
+            // 아래 출발이 미확정을 알릴 때 한 라운드에 둘이 나간다.
+            execution.blockedBy = emptyList()
+            execution.notedBlock = null
+            execution.physicalState = PhysicalState.RUNNING
+        }
         // 막히면 단위는 `PENDING` 그대로 기다린다. 실패도 운영자 보류도 아니고, 허가가 돌아오는 라운드에 나간다.
         if (!permitted) return
         startUnit(execution, next)
     }
 
+    /**
+     * [next] 를 막는 결함 — 기체가 새 태스크를 못 받는다고 말하고 운영자가 감수하지 않은 것.
+     *
+     * **못 물어봤을 때 두 갈래다.** «관측 실패로 현장을 세우지 않는다» 는 **새로 막지 않는다** 는 말이다 — 처음부터 못 봤으면 지금처럼
+     * 통과시키고 그 사실을 단위에 남긴다. 그러나 **이미 막고 있었으면**([Execution.blockedBy]) 그 막음을 그대로 돌려준다. 스냅숏을 한 번
+     * 못 읽은 것은 결함이 사라졌다는 관측이 아니다 — 그것을 통과로 읽으면 사람이 세운 기체에 다음 단위가 나간다. 막음은 다시 읽은
+     * 스냅숏에 결함이 없거나 사람이 [release] 로 감수할 때 걷힌다.
+     */
     private fun blockingFaults(execution: Execution, next: ExecutionUnit): List<Fault> {
         if (next.route != Route.ROBOT) return emptyList()
         val view = views[execution.robotOf(next)]
         if (view == null || !view.observable) {
+            if (execution.blockedBy.isNotEmpty()) return execution.blockedBy
             // 한 번만 적는다 — 허가가 막는 동안 이 관문은 라운드마다 다시 불리고, 같은 메모가 쌓이면 응답의 미완 사유가 넘친다.
             val note = "robot faults not observable before start — proceeding without the gate"
             if (next.note?.contains(note) != true) next.annotate(note)
@@ -1437,7 +1463,12 @@ class Middleware(
                 if (unit.state == UnitState.VERIFYING) return false // active 로 남아 시간창을 기다린다
             }
 
-            TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> unit.state = UnitState.ABORTED
+            TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED ->
+                if (execution.cancelRequested) {
+                    unit.state = UnitState.ABORTED
+                } else {
+                    holdUnrequestedCancel(execution, unit, downstreamDetail(last), last.fault.takeIf { last.hasFault() })
+                }
 
             else -> {
                 // 계약이 실은 **정준 분류**로만 분기한다(어댑터가 벤더 코드에서 옮긴 것, 미믹은 프로파일
@@ -1478,7 +1509,12 @@ class Middleware(
                 beginVerify(execution, unit, reachedByDownstream = Evidence.E0, doneAt = stateTime(update), strict = true)
                 if (unit.state == UnitState.VERIFYING) return false
             }
-            TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED -> unit.state = UnitState.ABORTED
+            TaskState.TASK_STATE_CANCELLED, TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED ->
+                if (execution.cancelRequested) {
+                    unit.state = UnitState.ABORTED
+                } else {
+                    holdUnrequestedCancel(execution, unit, downstreamDetail(update), update.fault.takeIf { update.hasFault() })
+                }
             else -> failWithEvidenceCheck(
                 execution, unit, canonicalClass(update),
                 detail = downstreamDetail(update), at = stateTime(update),
@@ -1518,6 +1554,8 @@ class Middleware(
             }
             if (found) {
                 unit.state = UnitState.RUNNING
+                // 풀린 것은 라운드 끝의 대조가 알린다([noteAttention]). 표시를 걷어야 재작업한 같은 단위가 다시 미확정이 될 때 알린다.
+                execution.notedDoubt = null
                 unit.annotate("IN_DOUBT resolved by client-reference lookup after ${unit.lookups} lookup(s)")
                 execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
                 if (execution.cancelRequested) {
@@ -1529,7 +1567,10 @@ class Middleware(
                 }
                 return false
             }
-            if (unit.state == UnitState.FAILED) return true // 하류가 이 요청을 거절했다 — 미실행이 확인된 것이고 그 사유는 우리 어휘다
+            if (unit.state == UnitState.FAILED) { // 하류가 이 요청을 거절했다 — 미실행이 확인된 것이고 그 사유는 우리 어휘다
+                execution.notedDoubt = null
+                return true
+            }
             execution.physicalState = PhysicalState.IN_DOUBT
             return false
         }
@@ -1557,6 +1598,7 @@ class Middleware(
             unit.annotate("IN_DOUBT: response lost; no evidence at ${unit.destination} within grace; $why — no automatic re-execution")
         }
         unit.state = UnitState.OPERATOR_HOLD
+        execution.notedDoubt = null
         execution.markIncident(unit)
         return true
     }
@@ -1732,7 +1774,12 @@ class Middleware(
                 execution.markIncident(unit)
             }
 
-            TransportState.CANCELLED -> unit.state = UnitState.ABORTED
+            TransportState.CANCELLED ->
+                if (execution.cancelRequested) {
+                    unit.state = UnitState.ABORTED
+                } else {
+                    holdUnrequestedCancel(execution, unit, "fleet=${TransportState.CANCELLED.name} ${status.detail.orEmpty()}".trim())
+                }
 
             // 플릿 계약은 분류를 안 싣는다 — 프로젝트용 계약의 남은 자리이며 여기서는 UNCLASSIFIED 다.
             TransportState.FAILED -> failWithEvidenceCheck(
@@ -1746,6 +1793,25 @@ class Middleware(
             )
         }
         return true
+    }
+
+    /**
+     * **하위가 스스로 낸 취소** — 이 층이 [cancel] 을 걸지 않았는데 하위가 단위를 취소로 끝냈다. 현장의 사람이 기체·플릿 쪽에서
+     * 멈췄거나, 이 층이 취소를 건 뒤 다시 떠서([resume]) 그 요청을 모르는 경우다(취소 요청 표시는 판단 기록에 없다). 둘을 가르지
+     * 않는다 — 다시 뜬 쪽은 누가 멈췄는지 모르고, 모르면 진행하지 않는다.
+     *
+     * **다음 단위로 가지 않는다.** 단위를 운영자 보류로 세우고 인시던트를 연다. 중단(`ABORTED`)으로 적으면 실행이 취소를 안 받았으므로
+     * 구동이 다음 단위를 찾아 내고, 사람이 세운 기체가 다시 움직인다. 닫는 길은 보통의 보류와 같다 — [resolve] 의 재작업·확인, 또는
+     * [cancel] 로 실행을 끝낸다. 알리는 것은 보류의 자리([pumpRound])다.
+     *
+     * **분류를 지어내지 않는다.** 하위가 결함을 실었으면 그 정준 분류, 아니면 비워 두고 하위가 말한 것을 메모에 남긴다.
+     */
+    private fun holdUnrequestedCancel(execution: Execution, unit: ExecutionUnit, detail: String, fault: Fault? = null) {
+        unit.failureClass = fault?.let { canonicalClassOf(it) }
+        unit.fault = fault
+        unit.annotate("$detail without a cancel request from this layer — not proceeding; operator decides")
+        unit.state = UnitState.OPERATOR_HOLD
+        execution.markIncident(unit)
     }
 
     private fun holdOf(status: TransportStatus, unit: ExecutionUnit): HoldState =
@@ -2016,6 +2082,8 @@ class Middleware(
      * **사람만 판단한다**(ADR 47). 확인은 설비 근거 없이도 단위를 완료로 올리고 재작업은 실물을 다시 돌린다 — 둘 다
      * 자동으로 하지 않기로 한 것을 사람이 하는 자리라, 에이전트가 누르면 그 결정이 자동화로 되돌아간다.
      * **누가 판단했는지 없이는 판단이 안 된다** — 기본값을 두면 그 기본값이 무기명 판단 경로가 된다(ADR 43 과 같은 이유).
+     *
+     * 판단으로 실행의 보류가 걷히면 작업 응답 하나를 낸다(다른 단위가 아직 보류이면 실행은 보류 그대로이고 내지 않는다).
      */
     fun resolve(executionId: String, unitId: String, decision: OperatorDecision, approver: Approver): ResolveOutcome {
         if (approver.kind == ApproverKind.AGENT) {
@@ -2042,8 +2110,12 @@ class Middleware(
                 unit.note = "operator ordered rework"
             }
         }
-        execution.notedHold = null
-        execution.physicalState = PhysicalState.RUNNING
+        // 다른 단위가 아직 보류이면 실행은 보류 그대로이고 그 단위를 이미 알린 것으로 둔다. 아니면 보류가 걷힌다.
+        val stillHeld = execution.units.firstOrNull { it.state == UnitState.OPERATOR_HOLD }
+        execution.notedHold = stillHeld?.unitId
+        execution.physicalState = if (stillHeld != null) PhysicalState.OPERATOR_HOLD else PhysicalState.RUNNING
+        // **보류가 걷힌 것을 곧바로 알린다**([release] 와 같은 이유). 안 알리면 마지막 작업 응답이 다음 통지까지 `OPERATOR_HOLD` 를 든다.
+        noteAttention(execution)
 
         // ★**사람의 걸음을 사건에 남긴다.** 안 남기면 사건과 그 뒤의 탐색 사이가 비어 보이고, 읽는
         //   쪽은 그 사이를 «자동으로 회복했다» 로 메운다(§15.188). 아직 판단이 안 실린 **가장 최근의**
@@ -2336,7 +2408,37 @@ class Middleware(
             autoResolvesInDoubt = units.all { lookupOf(it.route) == ExecutionLookup.CLIENT_REFERENCE },
         )
         outbox += response
+        execution.lastNotified = response
         execution.upstreamAck = UpstreamAck.SENT_UNACKED
+    }
+
+    /** 상위가 «사람이 볼 것이 있는가» 로 읽는 칸 — 보류·미확정인 실행 상태, 막는 결함의 분류, 미확정 단위. */
+    private data class Attention(val state: PhysicalState?, val blockedBy: List<String>, val inDoubt: List<String>) {
+        companion object {
+            fun of(state: PhysicalState, blockedBy: List<String>, inDoubt: List<String>) = Attention(
+                state.takeIf { it == PhysicalState.IN_DOUBT || it == PhysicalState.OPERATOR_HOLD }, blockedBy, inDoubt,
+            )
+        }
+    }
+
+    /**
+     * **막음·보류·미확정이 마지막 작업 응답과 달라졌으면 알린다 — 풀릴 때도.**
+     *
+     * 서는 쪽은 자리마다 한 번씩 알린다(`notedBlock`·`notedHold`·`notedDoubt`). 풀리는 쪽은 자리가 여럿이고(결함이 사라짐, 운영자
+     * 판단, 조회가 미확정을 풂, 개정 갱신의 답) 자리마다 알리면 한 라운드에 둘이 나가거나 하나가 빠진다. 그래서 라운드 끝([pump])과
+     * 밖에서 오는 판단([resolve]·개정) 끝에서 한 번 대 본다. 같으면 내지 않는다 — 앞 자리가 이미 알렸으면 여기서 다시 내지 않는다.
+     *
+     * 대는 것은 [Attention] 뿐이다. 단위가 끝나 완료 목록이 늘어난 것 같은 진행은 여기서 알리지 않는다 — 그것은 정착([settleExecution])의 일이다.
+     */
+    private fun noteAttention(execution: Execution) {
+        val current = Attention.of(
+            execution.physicalState,
+            execution.blockedBy.map { canonicalClassOf(it) },
+            execution.units.filter { it.state == UnitState.IN_DOUBT }.map { it.unitId },
+        )
+        val last = execution.lastNotified?.let { Attention.of(it.physicalState, it.blockedBy, it.inDoubtUnits) }
+            ?: Attention(null, emptyList(), emptyList())
+        if (current != last) notify(execution)
     }
 
     /** 상류가 결과를 확정했다 — 두 축 중 둘째가 닫힌다. */
