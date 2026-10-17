@@ -118,11 +118,11 @@ CLI 옵션과 프로파일 입력은 [mimic](mimic/README.md), [client](client/R
 
 ## 검증 현황 및 한계 관리
 
-계약 개정판은 **0.9.0**입니다. 게이트 검사 열이 있고 CI와 `registry`가 같은 검증 구현을 사용합니다. README의 모듈 목록과 주요 수치는 `DocumentClaimsTest`가, 문서 본문과 대조 스탬프는 `CompletionCriterionTest`가 확인합니다. 자동 대조가 모든 기술 주장의 참을 보장하는 것은 아니므로 [검증 범위](docs/verification.md)와 한계 대장을 함께 읽어야 합니다.
+계약 개정판은 **0.9.0**입니다. 게이트 검사 열이 있고 CI와 `registry`가 같은 검증 구현을 사용합니다. README의 모듈 목록과 주요 수치는 `DocumentClaimsTest`가, 문서 본문과 대조 스탬프는 `CompletionCriterionTest`가 확인합니다. 자동 대조가 모든 기술 주장의 참을 보장하는 것은 아니므로 [검증 범위](docs/verification.md)와 한계 레지스터를 함께 읽어야 합니다.
 
 실물 어댑터가 넷 있다: 기체용 셋과 플릿용 하나입니다. **어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다**는 한계(C-3)가 있습니다. 실물 넷이 계약에 얼마나 닿나 조사한 결과는 [어휘 거리 측정](profile/distance/)에 있습니다. 벤더 표면 조사와 대역 시험은 실제 SDK 연결·현장 성능·산업 안전 검증을 대신하지 않습니다.
 
-한계 대장에 등록된 미결 항목은 **84개**입니다. 내부 38개 · 소비자 대기 20개 · 외부 26개이며 의도적 제외 13개는 이 합계에 넣지 않습니다. [미결 한계 항목 84개](docs/limits.md)의 해결 조건을 추적합니다. 경로 계획·교통 제어·안전 인증의 제공 여부도 이 범위 안에서 해석해야 합니다.
+한계 레지스터에 등록된 미결 항목은 **84개**입니다. 내부 38개 · 소비자 대기 20개 · 외부 26개이며 의도적 제외 13개는 이 합계에 넣지 않습니다. [미결 한계 항목 84개](docs/limits.md)의 해결 조건을 추적합니다. 경로 계획·교통 제어·안전 인증의 제공 여부도 이 범위 안에서 해석해야 합니다.
 
 ## 문서 체계 가이드
 
@@ -130,7 +130,7 @@ CLI 옵션과 프로파일 입력은 [mimic](mimic/README.md), [client](client/R
 |---|---|---|
 | **검증 신뢰도** | [`docs/verification.md`](docs/verification.md) | 구간별 실제 하드웨어 기체, 실 네트워크, 모의 대역(Mock) 적용 범위 및 검증 수준 정의 |
 | **아키텍처** | [`docs/architecture.md`](docs/architecture.md) | 4단계 어휘 모델(ADR 36), 데이터 흐름, 상태 전이 모델 및 의존성 규칙 |
-| **오케스트레이션과 자원 소유** | [`docs/orchestration.md`](docs/orchestration.md) | 배정·실행 보증·경로 세 계층의 구분, 자원별 소유자와 관문 레지스터, 배선도 |
+| **오케스트레이션과 자원 소유** | [`docs/orchestration.md`](docs/orchestration.md) | 배정·실행 보증·경로 세 계층의 구분, 자원별 소유자와 게이트 레지스터, 배선도 |
 | **인터페이스 계약** | [`docs/contract.md`](docs/contract.md) | 계약 진입 게이트 규칙, 지원 범위 한계, 계약 보장 항목 및 1:1 테스트 매핑 |
 | **인터페이스 접합부** | [`docs/seams.md`](docs/seams.md) | 9대 접합부(Seam) 명세, 대상 인터페이스 및 실제 하드웨어 전환 가이드 |
 | **어댑터 개발** | [`tools/adapter-template/`](tools/adapter-template/README.md) | 신규 기종 어댑터 구현을 위한 7개 필수 구성 요소 및 템플릿 가이드 |
@@ -152,4 +152,4 @@ CLI 옵션과 프로파일 입력은 [mimic](mimic/README.md), [client](client/R
 
 [Apache License 2.0](LICENSE). 벤더 독점 SDK는 포함하지 않습니다. 어댑터의 벤더 API 인용은 심볼명과 해시 매니페스트로 관리합니다.
 
-> 마지막 대조: 2026-10-17 · sha256:16f852a300d3 · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-18 · sha256:c3c21f5c0de7 · 열림: C-3, §15.81

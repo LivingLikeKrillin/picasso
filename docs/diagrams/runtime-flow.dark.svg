@@ -33,13 +33,13 @@
     <text x="48" y="202" font-size="11" font-weight="700" fill="#8fa2cc">저장소 내부</text>
     <rect x="48" y="224" width="184" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
     <text x="60" y="247" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">submit</text>
-    <text x="60" y="263" font-size="11" fill="#9a9a9a">사슬 검사 기반 작업 지시 수락</text>
+    <text x="60" y="263" font-size="11" fill="#9a9a9a">연쇄 검사 기반 작업 지시 수락</text>
     <rect x="328" y="224" width="184" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
     <text x="340" y="247" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">RemedyDesk</text>
     <text x="340" y="263" font-size="11" fill="#9a9a9a">조치 탐색 및 제안 관리</text>
     <rect x="608" y="224" width="184" height="52" fill="#232a3a" stroke="#8fa2cc" stroke-width="1.5"/>
     <text x="620" y="247" font-size="12.5" font-weight="700" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">ApprovalHost</text>
-    <text x="620" y="263" font-size="11" fill="#9a9a9a">루프백 HTTP 승인 창구</text>
+    <text x="620" y="263" font-size="11" fill="#9a9a9a">루프백 HTTP 승인 호스트</text>
     <rect x="48" y="320" width="464" height="52" fill="#2b3f6b" stroke="#8fa2cc" stroke-width="1.5"/>
     <rect x="52" y="324" width="456" height="44" fill="none" stroke="#fff" stroke-width="0.75" stroke-opacity="0.6"/>
     <text x="64" y="343" font-size="12.5" font-weight="700" fill="#fff" font-family="Menlo, Consolas, 'DejaVu Sans Mono', monospace">Middleware.pump</text>

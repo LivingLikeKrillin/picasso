@@ -16,7 +16,7 @@ const r = (x,y,w,h,fill,stroke,rx=6) =>
 const edge = (pts, stroke, marker) =>
   `  <polyline points="${pts.map(p=>p.join(',')).join(' ')}" fill="none" stroke="${stroke}" stroke-width="1.6" marker-end="url(#${marker})"/>`;
 
-// 왼쪽 = 비종착 여섯, 오른쪽 = 종착 넷. 칸 폭은 두 지대가 같다.
+// 왼쪽 = 비종료 여섯, 오른쪽 = 종착 넷. 칸 폭은 두 지대가 같다.
 // ★거터가 라벨을 담는다. 좁게 두면 칩이 옆 지대의 칸 위로 넘어가고, 검증기가 그것을 잡는다.
 const LANE_GAP = 152;
 const LW = Math.round((W - 2 * M - LANE_GAP) * 0.52);
@@ -54,12 +54,12 @@ o.push(`    <marker id="aw" markerWidth="9" markerHeight="9" refX="7" refY="3" o
 o.push('  </defs>');
 o.push(r(6, 6, W - 12, H - 12, '#ffffff', border, 14));
 o.push(t(32, 46, '태스크 상태 머신과 종착 상태 래칭(Latch Invariant)', { size: 18, weight: 600, fill: ink }));
-o.push(t(32, 72, '종착 상태에 진입한 태스크는 비가역적으로 고정되며, 비종착 상태로의 역전이가 엄격히 금지됩니다.', { size: 12.5 }));
+o.push(t(32, 72, '종착 상태에 진입한 태스크는 비가역적으로 고정되며, 비종료 상태로의 역전이가 엄격히 금지됩니다.', { size: 12.5 }));
 o.push(t(32, 93, '상태 영역 간 전이는 기체 어댑터에서 보고된 이벤트 및 실행 결과에 의해 결정됩니다.', { size: 12.5 }));
-o.push(t(32, 114, '상위 제어 명령(StartTask · PauseTask · RetryTask · CancelTask)은 비종착 영역 내부 전이만을 유발합니다.', { size: 12.5 }));
+o.push(t(32, 114, '상위 제어 명령(StartTask · PauseTask · RetryTask · CancelTask)은 비종료 영역 내부 전이만을 유발합니다.', { size: 12.5 }));
 
 o.push(r(LX, LANE_Y, LW, LANE_H, laneFill, laneStroke, 10));
-o.push(t(LX + 16, LANE_Y + 24, '비종착 상태군 (Non-terminal States: 6종) — 가역적 전이 영역', { size: 11, weight: 700, fill: faint, ls: 1 }));
+o.push(t(LX + 16, LANE_Y + 24, '비종료 상태군 (Non-terminal States: 6종) — 가역적 전이 영역', { size: 11, weight: 700, fill: faint, ls: 1 }));
 o.push(r(RX, LANE_Y, RW, LANE_H, okFill, ok, 10));
 o.push(t(RX + 16, LANE_Y + 24, '종착 상태군 (Terminal States: 4종) — 불변 래칭 영역', { size: 11, weight: 700, fill: ok, ls: 1 }));
 
@@ -91,7 +91,7 @@ cross.forEach(([from, to, label]) => {
 
 o.push(r(M, NOTE_Y, W - 2 * M, NOTE_H, laneFill, laneStroke));
 o.push(t(M + 20, NOTE_Y + 23, 'RetryTask 명령은 RETRIABLE 및 NEEDS_INTERVENTION 상태에서만 허용되며, 타 상태에서 호출 시 INVALID_TRANSITION 에러 반환', { size: 11 }));
-o.push(t(M + 20, NOTE_Y + 42, 'CancelTask 명령은 6개 비종착 상태 전체에서 유효하며, 물리 안전 원복 시퀀스를 위해 반드시 CANCELLING 단계를 거침', { size: 11 }));
+o.push(t(M + 20, NOTE_Y + 42, 'CancelTask 명령은 6개 비종료 상태 전체에서 유효하며, 물리 안전 원복 시퀀스를 위해 반드시 CANCELLING 단계를 거침', { size: 11 }));
 o.push(t(M + 20, NOTE_Y + 61, 'CANCELLED_RECOVERY_FAILED는 물리적 복구 실패 시에도 상태 머신의 종착성을 보장하며, 현장 수동 해제 절차로 이관됨', { size: 11, fill: warn }));
 o.push('</svg>');
 
