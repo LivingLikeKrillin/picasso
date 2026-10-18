@@ -128,7 +128,7 @@ class OrbitAdapter(
             // **플릿의 거절은 정준 분류로 못 옮긴다** — 이유가 문자열 하나로 오고 값 집합이 없다.
             is DispatchResult.Refused -> Acceptance.Refused(
                 Refusal.VENDOR_REJECTED,
-                "플릿이 파견을 거절했다: ${outcome.detail}",
+                "플릿이 파견을 거부했다: ${outcome.detail}",
                 FailureClass.FAILURE_CLASS_UNCLASSIFIED,
                 outcome.detail,
             )
@@ -162,7 +162,7 @@ class OrbitAdapter(
                 "ORBIT_RUN_EVENTS_UNREADABLE",
                 FailureClass.FAILURE_CLASS_UNCLASSIFIED,
                 it.message ?: "",
-                "실행은 끝났는데 사건을 못 읽어 성패를 모른다",
+                "실행은 끝났는데 실행 이벤트를 못 읽어 성패를 모른다",
                 canAcceptNewTask = true,
             )
             return current.state

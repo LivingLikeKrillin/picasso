@@ -35,7 +35,7 @@ class TestRequestController(private val requests: TestRequestService) {
         is TestRequested.Created -> ResponseEntity.status(HttpStatus.CREATED).body(mapOf("request_id" to outcome.requestId))
         is TestRequested.Existing -> ResponseEntity.ok(mapOf("request_id" to outcome.requestId))
         TestRequested.UnknownRevision ->
-            ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to "없는 개정판이다: $profileRevisionId"))
+            ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to "없는 리비전이다: $profileRevisionId"))
         is TestRequested.NotTestable -> ResponseEntity.status(HttpStatus.CONFLICT).body(
             mapOf("error" to "시험할 수 없는 상태다", "status" to outcome.status),
         )

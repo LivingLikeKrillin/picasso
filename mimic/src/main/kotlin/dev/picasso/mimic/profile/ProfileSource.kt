@@ -42,7 +42,7 @@ class FileProfileSource(private val schemaPath: Path) : ProfileSource {
 
     private val schema: JsonSchema by lazy {
         val text = runCatching { Files.readString(schemaPath) }.getOrElse {
-            throw ProfileRejected("능력 프로파일 스키마를 읽을 수 없다: $schemaPath (${it.message})")
+            throw ProfileRejected("케이퍼빌리티 프로파일 스키마를 읽을 수 없다: $schemaPath (${it.message})")
         }
         JsonSchemaFactory
             .getInstance(SpecVersion.VersionFlag.V202012)

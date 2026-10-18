@@ -138,7 +138,7 @@ sealed interface ApprovalOutcome {
     ) : ApprovalOutcome {
         init {
             require((refusal == ApprovalRefusal.CONSUMED) == (consumed != null)) {
-                "소모 기록은 CONSUMED 거절에만, 그리고 반드시 실린다: $refusal · ${consumed != null}"
+                "소모 기록은 CONSUMED 거부에만, 그리고 반드시 실린다: $refusal · ${consumed != null}"
             }
         }
     }

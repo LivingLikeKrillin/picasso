@@ -419,7 +419,7 @@ class Middleware(
         if (existing != null) return revise(existing, order)
 
         val active = mission ?: missions.active(order.workMasterId)
-            ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
+            ?: return Submission.Rejected("모르는 논리적 케이퍼빌리티다: ${order.workMasterId}")
         val capability = active.capability
         evidenceRefusal(order, capability)?.let { return it }
 
@@ -799,7 +799,7 @@ class Middleware(
         // **카탈로그를 한 번 읽고 그 쌍을 작업 수락까지 넘긴다.** 관문에 댄 계획과 실행이 쥘 계획이 같은 버전이어야
         // 한다 — 그 사이에 활성화가 끼면 관문이 본 적 없는 단위가 나간다.
         val mission = missions.active(order.workMasterId)
-            ?: return Submission.Rejected("모르는 논리적 능력이다: ${order.workMasterId}")
+            ?: return Submission.Rejected("모르는 논리적 케이퍼빌리티다: ${order.workMasterId}")
         val planned = mission.capability.plan(order)
         val refusals = linkedMapOf<String, String>()
         val missing = linkedMapOf<String, RemedyOutcome.SourceMissing>()
@@ -1893,7 +1893,7 @@ class Middleware(
         val kept = if (declared == null) emptyMap() else wanted.filterKeys { it in declared }
         (wanted.keys - kept.keys).forEach { key ->
             if (!droppedOptionals.add(robot to key)) return@forEach
-            val why = if (declared == null) "능력을 못 물어봤다" else "이 기종이 선언하지 않는다"
+            val why = if (declared == null) "케이퍼빌리티를 못 물어봤다" else "이 기종이 선언하지 않는다"
             execution.trail("OPTIONAL_NOT_SENT", "$key: $why — 요구하지 않고 보낸다")
         }
         return base + kept

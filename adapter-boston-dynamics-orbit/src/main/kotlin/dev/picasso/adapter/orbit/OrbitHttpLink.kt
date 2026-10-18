@@ -169,7 +169,7 @@ class OrbitHttpLink private constructor(
             base("$API/$path/$suffix").header("Accept", JSON).GET().build(),
         )
         if (response.statusCode() / 100 != 2) {
-            error("Orbit 이 거절했다: HTTP ${response.statusCode()} ${response.body().take(ERROR_SNIPPET)}")
+            error("Orbit 이 거부했다: HTTP ${response.statusCode()} ${response.body().take(ERROR_SNIPPET)}")
         }
         val tree = mapper.readTree(response.body())
         // 봉투가 둘이다 — 배열 그대로이거나 `resources` 안에 있다.

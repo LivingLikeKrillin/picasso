@@ -107,7 +107,7 @@ class TaskIngestService(private val db: Db) {
                 ?: return@transaction TaskIngestOutcome(
                     0,
                     listOf(
-                        "모르는 개정판이다: ${header.profileRef.profileId}" +
+                        "모르는 리비전이다: ${header.profileRef.profileId}" +
                             "#${header.profileRef.revision}",
                     ),
                 )
@@ -134,7 +134,7 @@ class TaskIngestService(private val db: Db) {
         if (skillTypeId == null) {
             // **그 행만 건너뛴다.** 메시지 전체를 버리면 스킬 하나가 낯설다는
             // 이유로 같은 로봇의 다른 태스크가 드레인에서 통째로 사라진다.
-            skipped += "개정판 $revisionId 이 선언하지 않은 스킬이다: $skillType"
+            skipped += "리비전 $revisionId 이 선언하지 않은 스킬이다: $skillType"
             return false
         }
         if (taskId.isBlank()) {

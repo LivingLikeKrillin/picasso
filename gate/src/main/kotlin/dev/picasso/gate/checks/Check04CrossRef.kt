@@ -38,7 +38,7 @@ class Check04CrossRef : GateCheck {
                 if (def == null) {
                     findings += Finding(
                         id, Severity.ERROR,
-                        "계약에 없는 능력을 선언했다: ${s.skillType}@${s.major}. " +
+                        "계약에 없는 케이퍼빌리티를 선언했다: ${s.skillType}@${s.major}. " +
                             "계약이 아는 것: ${index.skillTypes().sorted().joinToString(", ")}",
                         doc.locationOf("/skills/$i"),
                     )

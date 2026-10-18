@@ -223,7 +223,7 @@ class HostedRobot(
         current?.takeIf { !it.terminal }?.let {
             return StartOutcome.Rejected(
                 RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                "이미 도는 태스크가 있다: ${it.taskId} — 실물은 배타적 제어 모델이다(§4.9)",
+                "이미 도는 태스크가 있다: ${it.taskId} — 실제 하드웨어는 배타적 제어 모델이다(§4.9)",
             )
         }
 

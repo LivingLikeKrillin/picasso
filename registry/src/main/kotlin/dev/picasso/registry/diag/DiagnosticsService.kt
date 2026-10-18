@@ -493,7 +493,7 @@ class DiagnosticsService(
         ).use { s ->
             s.setLong(1, profileRevisionId)
             s.executeQuery().use { rs ->
-                require(rs.next()) { "없는 개정판이다: $profileRevisionId" }
+                require(rs.next()) { "없는 리비전이다: $profileRevisionId" }
                 rs.getInt(1) to rs.getString(2)
             }
         }

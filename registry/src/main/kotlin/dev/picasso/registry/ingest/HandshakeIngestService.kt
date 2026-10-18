@@ -63,11 +63,11 @@ class HandshakeIngestService(
         val rejections = response.rejectionsList
         if (response.accepted && rejections.isNotEmpty()) {
             return HandshakeIngestOutcome.Refused(
-                "성공인데 거절이 ${rejections.size}건 실려 있다",
+                "성공인데 거부가 ${rejections.size}건 실려 있다",
             )
         }
         if (!response.accepted && rejections.isEmpty()) {
-            return HandshakeIngestOutcome.Refused("실패인데 거절 사유가 없다")
+            return HandshakeIngestOutcome.Refused("실패인데 거부 사유가 없다")
         }
 
         val requirements = request.requirement.requirementsList

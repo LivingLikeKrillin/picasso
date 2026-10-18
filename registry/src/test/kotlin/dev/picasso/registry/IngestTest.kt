@@ -279,7 +279,7 @@ class IngestTest {
         val outcome = tasks.record(unknown)
 
         assertEquals(0, outcome.recorded)
-        assertTrue(outcome.skipped.single().contains("모르는 개정판"), "${outcome.skipped}")
+        assertTrue(outcome.skipped.single().contains("모르는 리비전"), "${outcome.skipped}")
     }
 
     @Test

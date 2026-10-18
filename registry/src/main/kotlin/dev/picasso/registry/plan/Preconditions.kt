@@ -305,10 +305,10 @@ class Preconditions(
             CheckType.SUCCESSOR_ACTIVE,
             ok,
             when {
-                status == null -> "후계 개정판 $successor 이 없다"
-                status != "ACTIVE" -> "후계 개정판이 활성이 아니다: $status"
-                bound == 0 -> "후계 개정판에 붙은 기체가 없다 — 지우면 아무도 못 쓴다"
-                else -> "후계 개정판이 활성이고 기체 $bound 대가 붙어 있다"
+                status == null -> "후계 리비전 $successor 이 없다"
+                status != "ACTIVE" -> "후계 리비전이 활성이 아니다: $status"
+                bound == 0 -> "후계 리비전에 붙은 기체가 없다 — 지우면 아무도 못 쓴다"
+                else -> "후계 리비전이 활성이고 기체 $bound 대가 붙어 있다"
             },
         )
     }

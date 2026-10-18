@@ -44,7 +44,7 @@ class DefinedCapability(val definition: MissionDefinition) : LogicalCapability {
         // **선언 없는 신원 대조를 기본값으로 메우지 않는다.** 메우면 검증기가 없앤 암묵이 이 길로 돌아온다.
         definition.steps.filterIsInstance<UnitStep>().forEach { step ->
             require(!MissionValidator.needsSourceObservation(step) || step.sourceObservation != null) {
-                "검증을 거치지 않은 정의다: ${step.id} 가 출발 자리의 신원을 대는데 출발 관측 선언이 없다"
+                "검증을 거치지 않은 정의다: ${step.id} 가 출발 자리의 식별 정보를 대는데 출발 관측 선언이 없다"
             }
             require(!MissionValidator.needsDestinationObservation(step) || step.destinationObservation != null) {
                 "검증을 거치지 않은 정의다: ${step.id} 가 목적지에 둘 것의 식별 정보를 대는데 목적지 관측 선언이 없다"

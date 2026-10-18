@@ -35,16 +35,16 @@ class BindingOperationsController(private val bindings: BindingService) {
                 .body(mapOf("robot_binding_id" to outcome.bindingId, "unbound_binding_id" to outcome.unbound))
             is Binding.AlreadyBound -> ResponseEntity.ok(mapOf("robot_binding_id" to outcome.bindingId, "already" to true))
             Binding.UnknownRobot -> notFound("UNKNOWN_ROBOT", "모르는 기체다: $robotId")
-            Binding.UnknownRevision -> notFound("UNKNOWN_REVISION", "없는 개정판이다: $revision")
+            Binding.UnknownRevision -> notFound("UNKNOWN_REVISION", "없는 리비전이다: $revision")
             Binding.UnknownBuild -> notFound("UNKNOWN_BUILD", "없는 어댑터 빌드다: $build")
             Binding.RobotRetired -> conflict(mapOf("reason" to "ROBOT_RETIRED", "error" to "퇴역한 기체다 — 묶으려면 복귀시킨다"))
             is Binding.RevisionNotActive -> conflict(
-                mapOf("reason" to "REVISION_NOT_ACTIVE", "error" to "활성 개정판이 아니다", "status" to outcome.status.name),
+                mapOf("reason" to "REVISION_NOT_ACTIVE", "error" to "활성 리비전이 아니다", "status" to outcome.status.name),
             )
             is Binding.ContractTooOld -> conflict(
                 mapOf(
                     "reason" to "CONTRACT_TOO_OLD",
-                    "error" to "빌드의 계약 semver 가 개정판의 스킬보다 낮다",
+                    "error" to "빌드의 계약 semver 가 리비전의 스킬보다 낮다",
                     "contract_semver" to outcome.contractSemver,
                     "too_new" to outcome.tooNew.map { (skill, since) -> mapOf("skill_type" to skill, "introduced_in_semver" to since) },
                 ),

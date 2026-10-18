@@ -81,7 +81,7 @@ class Check11OutboundScope : GateCheck {
                 listOf(
                     Finding(
                         id, Severity.ERROR,
-                        "출하 소스에서 아웃바운드를 여는 자리를 하나도 못 찾았다 — 탐색 방법이 낡았다",
+                        "프로덕션 소스에서 아웃바운드를 여는 자리를 하나도 못 찾았다 — 탐색 방법이 낡았다",
                         MAIN,
                     ),
                 ),

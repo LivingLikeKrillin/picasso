@@ -111,7 +111,7 @@ internal class AdmissionGate(
             val where = unit.destination ?: continue
             if (floors.ownerOf(where) != FloorOwner.Unowned) continue
             return Submission.Rejected(
-                "자리 $where 의 바닥에 소유자가 없다 — 승인할 쪽이 없으므로 보내지 않는다(자원 소유 대장)",
+                "자리 $where 의 바닥에 소유자가 없다 — 승인할 쪽이 없으므로 보내지 않는다(자원 소유 레지스터)",
             )
         }
         return null

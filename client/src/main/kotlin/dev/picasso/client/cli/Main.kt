@@ -110,7 +110,7 @@ fun main(args: Array<String>) {
         if (!negotiated.accepted) {
             // **거절을 삼키지 않는다.** 사유가 유일한 산출물이다(§5.4).
             negotiated.rejectionsList.forEach {
-                err.println("협상 거절: ${it.code} — ${it.detail}")
+                err.println("협상 거부: ${it.code} — ${it.detail}")
             }
             exitProcess(ClientCli.REJECTED)
         }
@@ -120,7 +120,7 @@ fun main(args: Array<String>) {
         )
         if (started.hasRejection()) {
             val rejection = started.rejection
-            err.println("태스크 거절: ${rejection.code} — ${rejection.detail}")
+            err.println("태스크 거부: ${rejection.code} — ${rejection.detail}")
             if (rejection.code == RejectionCode.REJECTION_CODE_UNSPECIFIED) exitProcess(1)
             exitProcess(ClientCli.REJECTED)
         }

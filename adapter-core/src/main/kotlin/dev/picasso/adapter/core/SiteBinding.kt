@@ -163,7 +163,7 @@ object SiteBindingCheck {
             AXES.mapNotNull { (axis, active, of) -> mismatch(axis, active(source), of, names, source) }
                 .joinToString(" · ") + ". 재등록하기 전까지 이 자리로 보내지 않는다"
 
-        else -> error("결속 검사가 내지 않는 거절이다: $refusal")
+        else -> error("결속 검사가 내지 않는 거부다: $refusal")
     }
 
     private fun mismatch(

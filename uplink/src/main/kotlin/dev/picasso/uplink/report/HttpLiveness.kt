@@ -114,7 +114,7 @@ class HttpLiveness(
 
         val response = client.send(request, HttpResponse.BodyHandlers.ofString())
         if (response.statusCode() !in 200..299) {
-            error("생존 보고가 거절됐다: ${response.statusCode()} ${response.body()}")
+            error("생존 보고가 거부됐다: ${response.statusCode()} ${response.body()}")
         }
     }
 
