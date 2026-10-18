@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -402,6 +403,344 @@ class InspectAssetTest {
         }
     }
 
+    // ── 건너뛴 대상 재작업: 순회가 종결한 뒤 사람이 한 쌍씩 낸다
+
+    private fun travelId(target: String) = "$target${InspectAsset.TRAVEL_SUFFIX}"
+
+    private fun failing(vararg taskIds: String): (RobotPort) -> RobotPort = { FailingWithoutFaultPort(it, taskIds.toSet()) }
+
+    private fun Middleware.Execution.unit(unitId: String) = units.single { it.unitId == unitId }
+
+    private fun Middleware.Execution.attemptsOf(vararg unitIds: String) = unitIds.map { unit(it).attempt }
+
+    /** 순회를 접수하고 종결할 때까지 돈다. */
+    private fun World.runToEnd(): Middleware.Execution {
+        val exec = assertIs<Middleware.Submission.Accepted>(mw.submit(order(), ROBOT)).execution
+        drive { exec.settled() }
+        return exec
+    }
+
+    /** 첫 대상의 이동만 결함 없이 실패한 순회가 `PARTIAL` 로 종결할 때까지 돈다. */
+    private fun World.partialWithSkippedFirst(): Middleware.Execution {
+        val exec = runToEnd()
+        assertEquals(PhysicalState.PARTIAL, exec.physicalState)
+        assertEquals(SKIPPED, exec.unit("PUMP-01").failureClass)
+        return exec
+    }
+
+    @Test
+    fun `종결한 순회에서 건너뛴 대상을 재작업하면 그 대상의 이동과 점검이 새 시도로 나가고 실행은 PHYSICALLY_DONE 으로 끝난다`() {
+        val travel = travelId("PUMP-01")
+        World(port = failing(taskOf(travel))).use { w ->
+            val exec = w.partialWithSkippedFirst()
+            val issued = w.tasks().size
+
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+            assertEquals(PhysicalState.RUNNING, exec.physicalState)
+            listOf(travel, "PUMP-01").forEach { id ->
+                val unit = exec.unit(id)
+                assertEquals(Triple(1, UnitState.PENDING, ""), Triple(unit.attempt, unit.state, unit.taskId), id)
+                assertNull(unit.failureClass, id)
+                assertEquals("operator ordered rework", unit.note, id)
+            }
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
+            assertEquals(
+                listOf("${taskOf(travel)}@r1", "${taskOf("PUMP-01")}@r1"),
+                w.tasks().map { it.taskId }.drop(issued),
+                "같은 실행 안에서 이동 뒤 점검이 새 시도로 나가야 한다",
+            )
+            assertEquals(6, exec.completedUnits.size)
+            assertEquals(
+                listOf(0, 0, 0, 0),
+                exec.attemptsOf(travelId("PANEL-3"), "PANEL-3", travelId("COMP-2"), "COMP-2"),
+                "다른 대상의 시도가 올랐다",
+            )
+        }
+    }
+
+    @Test
+    fun `재작업한 이동이 또 실패하면 점검은 다시 건너뛰고 실행은 다시 PARTIAL 이며 다시 재작업하면 r2 로 나간다`() {
+        val travel = travelId("PUMP-01")
+        World(port = failing(taskOf(travel), "${taskOf(travel)}@r1")).use { w ->
+            val exec = w.partialWithSkippedFirst()
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+            w.drive { exec.settled() }
+
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState)
+            assertEquals(listOf(1, 1), exec.attemptsOf(travel, "PUMP-01"))
+            assertEquals(UnitState.FAILED to "", exec.unit("PUMP-01").let { it.state to it.taskId })
+            assertEquals(SKIPPED, exec.unit("PUMP-01").failureClass)
+            assertEquals(UnitState.FAILED, exec.unit(travel).state)
+            assertTrue(w.tasks().any { it.taskId == "${taskOf(travel)}@r1" })
+            assertTrue(w.tasks().none { it.taskId.startsWith(taskOf("PUMP-01")) && !it.taskId.contains(InspectAsset.TRAVEL_SUFFIX) }, "건너뛴 점검이 나갔다")
+            assertEquals(2, w.mw.incidents().count { it.unitId == travel }, "재작업한 이동의 새 실패는 보통 경로로 새 인시던트를 연다")
+
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+            assertEquals(listOf(2, 2), exec.attemptsOf(travel, "PUMP-01"))
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
+            assertEquals(
+                listOf("${taskOf(travel)}@r2", "${taskOf("PUMP-01")}@r2"),
+                w.tasks().map { it.taskId }.takeLast(2),
+            )
+        }
+    }
+
+    @Test
+    fun `순회가 종결하기 전에는 건너뛴 대상의 재작업을 받지 않는다 — 단위·태스크·인시던트·판단 기록이 그대로다`() {
+        val travel = travelId("PUMP-01")
+        World(port = failing(taskOf(travel))).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { exec.unit("PUMP-01").failureClass == SKIPPED }
+            assertFalse(exec.physicalState.isSettled, "다음 대상이 도는 중이어야 이 시험이 선다")
+            val tasksBefore = w.tasks().map { it.taskId }
+            val responsesBefore = w.mw.responses().size
+
+            val refused = assertIs<ResolveOutcome.Refused>(w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+            assertTrue("종결" in refused.reason, refused.reason)
+
+            assertEquals(listOf(0, 0), exec.attemptsOf(travel, "PUMP-01"))
+            assertEquals(listOf(UnitState.FAILED, UnitState.FAILED), listOf(travel, "PUMP-01").map { exec.unit(it).state })
+            assertEquals(SKIPPED, exec.unit("PUMP-01").failureClass)
+            assertEquals(tasksBefore, w.tasks().map { it.taskId })
+            assertEquals(responsesBefore, w.mw.responses().size, "거부가 작업 응답을 냈다")
+            assertNull(w.mw.incidents().single { it.unitId == travel }.resolution)
+            assertTrue(w.mw.judgmentRecord(exec.executionId)!!.units.all { it.decision == null })
+
+            // 종결한 뒤에는 같은 요청을 받는다 — 거부는 때의 문제였다.
+            w.drive { exec.settled() }
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+        }
+    }
+
+    @Test
+    fun `에이전트는 건너뛴 대상도 재작업하거나 확인하지 못한다 — 아무것도 안 바뀐다`() {
+        val travel = travelId("PUMP-01")
+        World(port = failing(taskOf(travel))).use { w ->
+            val exec = w.partialWithSkippedFirst()
+            OperatorDecision.entries.forEach { decision ->
+                val refused = assertIs<ResolveOutcome.Refused>(w.mw.resolve(exec.executionId, "PUMP-01", decision, AGENT), "$decision")
+                assertTrue(AGENT.id in refused.reason, refused.reason)
+            }
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState)
+            assertEquals(listOf(0, 0), exec.attemptsOf(travel, "PUMP-01"))
+            assertEquals(listOf(UnitState.FAILED, UnitState.FAILED), listOf(travel, "PUMP-01").map { exec.unit(it).state })
+            assertNull(w.mw.incidents().single { it.unitId == travel }.resolution)
+            assertTrue(w.mw.judgmentRecord(exec.executionId)!!.units.all { it.decision == null })
+        }
+    }
+
+    @Test
+    fun `건너뛴 대상에 확인은 거부한다 — 점검을 하지 않은 단위는 확인할 것이 없고 아무것도 안 바뀐다`() {
+        val travel = travelId("PUMP-01")
+        World(port = failing(taskOf(travel))).use { w ->
+            val exec = w.partialWithSkippedFirst()
+            val responsesBefore = w.mw.responses().size
+
+            val refused = assertIs<ResolveOutcome.Refused>(w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.CONFIRM_DONE, OPERATOR))
+            assertTrue("확인할 것이 없다" in refused.reason, refused.reason)
+
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState)
+            assertEquals(listOf(UnitState.FAILED, UnitState.FAILED), listOf(travel, "PUMP-01").map { exec.unit(it).state })
+            assertEquals(SKIPPED, exec.unit("PUMP-01").failureClass)
+            assertEquals(responsesBefore, w.mw.responses().size)
+            assertNull(w.mw.incidents().single { it.unitId == travel }.resolution)
+            assertTrue(w.mw.judgmentRecord(exec.executionId)!!.units.all { it.decision == null })
+        }
+    }
+
+    @Test
+    fun `건너뛴 단위 모양이 아니면 NotHeld 다 — 이동 단위, 시도 뒤에 실패한 점검, 끝난 단위, 없는 단위`() {
+        // 둘째 대상의 이동이 실패하고(건너뛴 점검 PANEL-3), 첫 대상의 점검이 시도 뒤에 실패한다(PUMP-01).
+        World(port = failing(taskOf(travelId("PANEL-3")), taskOf("PUMP-01"))).use { w ->
+            val exec = w.runToEnd()
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState)
+            assertEquals(SKIPPED, exec.unit("PANEL-3").failureClass)
+            assertEquals(UnitState.FAILED to false, exec.unit("PUMP-01").let { it.state to it.taskId.isEmpty() }, "PUMP-01 은 시도 뒤에 실패해야 한다")
+            val tasksBefore = w.tasks().map { it.taskId }
+
+            listOf(
+                travelId("PANEL-3") to "건너뛴 점검의 선행 이동",
+                "PUMP-01" to "시도 뒤에 실패한 점검",
+                "COMP-2" to "끝난 단위",
+                "NO-SUCH" to "없는 단위",
+            ).forEach { (id, why) ->
+                assertEquals(ResolveOutcome.NotHeld, w.mw.resolve(exec.executionId, id, OperatorDecision.REWORK, OPERATOR), why)
+            }
+            assertEquals(ResolveOutcome.NotHeld, w.mw.resolve("exec-없음", "PANEL-3", OperatorDecision.REWORK, OPERATOR))
+
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState)
+            assertEquals(0, exec.units.sumOf { it.attempt })
+            assertEquals(tasksBefore, w.tasks().map { it.taskId })
+            assertTrue(w.mw.incidents().all { it.resolution == null })
+        }
+    }
+
+    @Test
+    fun `취소로 끝난 실행의 건너뛴 대상은 재작업하지 않는다`() {
+        val travel = travelId("PUMP-01")
+        World(port = failing(taskOf(travel))).use { w ->
+            val exec = w.partialWithSkippedFirst()
+            assertTrue(w.mw.cancel(exec.executionId))
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(SKIPPED, exec.unit("PUMP-01").failureClass)
+            val tasksBefore = w.tasks().map { it.taskId }
+
+            val refused = assertIs<ResolveOutcome.Refused>(w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+            assertTrue("취소" in refused.reason, refused.reason)
+
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(listOf(0, 0), exec.attemptsOf(travel, "PUMP-01"))
+            assertEquals(UnitState.FAILED, exec.unit("PUMP-01").state)
+            assertEquals(tasksBefore, w.tasks().map { it.taskId })
+        }
+    }
+
+    @Test
+    fun `이동이 전부 실패해 FAILED 로 끝난 실행도 재작업을 받되 같은 기체에 다른 활성 실행이 있으면 거부한다`() {
+        val travels = points.map { taskOf(travelId(it.target)) }.toTypedArray()
+        World(port = failing(*travels)).use { w ->
+            val exec = w.runToEnd()
+            assertEquals(PhysicalState.FAILED, exec.physicalState)
+            val other = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order().copy(jobOrderId = "PATROL-8"), ROBOT)).execution
+            assertFalse(other.physicalState.isSettled, "다른 활성 실행이 서 있어야 이 시험이 선다")
+            val tasksBefore = w.tasks().map { it.taskId }
+
+            val refused = assertIs<ResolveOutcome.Refused>(w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+            assertTrue(other.executionId in refused.reason, refused.reason)
+            assertEquals(PhysicalState.FAILED, exec.physicalState)
+            assertEquals(listOf(0, 0), exec.attemptsOf(travelId("PUMP-01"), "PUMP-01"))
+            assertEquals(tasksBefore, w.tasks().map { it.taskId })
+            assertNull(w.mw.incidents().first { it.executionId == exec.executionId && it.unitId == travelId("PUMP-01") }.resolution)
+
+            // 다른 실행이 끝나면 같은 요청을 받는다.
+            assertTrue(w.mw.cancel(other.executionId))
+            w.drive { other.settled() }
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+            assertEquals(PhysicalState.RUNNING, exec.physicalState)
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PARTIAL, exec.physicalState, "나머지 두 대상은 그대로 건너뛴 채다")
+            assertEquals(
+                listOf("${taskOf(travelId("PUMP-01"))}@r1", "${taskOf("PUMP-01")}@r1"),
+                w.tasks().map { it.taskId }.filter { it.endsWith("@r1") },
+            )
+        }
+    }
+
+    @Test
+    fun `재작업 판단은 이동의 인시던트에 결정자와 함께 붙고 내보내는 인시던트 줄은 결정자를 싣지 않는다`() {
+        val travel = travelId("PUMP-01")
+        World(port = failing(taskOf(travel))).use { w ->
+            val exec = w.partialWithSkippedFirst()
+            val opened = w.mw.incidents().single()
+            assertEquals(travel, opened.unitId)
+            assertFalse(opened.unresolved, "이동 FAILED 는 보류가 아니었다")
+            assertNull(opened.resolution)
+
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+
+            val bundle = w.mw.incidents().single()
+            assertEquals(travel, bundle.unitId)
+            assertFalse(bundle.unresolved)
+            val resolution = assertNotNull(bundle.resolution)
+            assertEquals(OperatorDecision.REWORK to OPERATOR, resolution.decision to resolution.decidedBy)
+            val line = LedgerExport.incidents(w.mw.incidents())
+            assertTrue("\"resolution\":{\"decision\":\"REWORK\"" in line, line)
+            assertTrue("decidedBy" !in line && OPERATOR.id !in line, line)
+            assertEquals("6", LedgerExport.SCHEMA_VERSION)
+        }
+    }
+
+    @Test
+    fun `재작업하면 RUNNING 작업 응답이 하나 나가고 두 단위가 재작업 메모로 오르며 다시 눌러도 더 나가지 않는다`() {
+        val travel = travelId("PUMP-01")
+        World(port = failing(taskOf(travel))).use { w ->
+            val exec = w.partialWithSkippedFirst()
+            val before = w.mw.responses().size
+
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+            val sent = w.mw.responses().drop(before)
+            assertEquals(1, sent.size, "재작업이 작업 응답을 하나 내지 않았다: $sent")
+            assertEquals(PhysicalState.RUNNING, sent.single().physicalState)
+            assertEquals(
+                mapOf(travel to "operator ordered rework", "PUMP-01" to "operator ordered rework"),
+                sent.single().incompleteUnits,
+            )
+
+            assertEquals(ResolveOutcome.NotHeld, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR), "이미 되돌린 대상을 다시 받았다")
+            assertEquals(before + 1, w.mw.responses().size)
+        }
+    }
+
+    @Test
+    fun `판단 기록이 두 단위의 판단과 오른 시도를 싣고 이동을 내기 전에 리빌드하면 r1 로 낸다`() {
+        val travel = travelId("PUMP-01")
+        val port = failing(taskOf(travel))
+        World(port = port).use { w ->
+            val exec = w.partialWithSkippedFirst()
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+
+            val record = w.mw.judgmentRecord(exec.executionId)!!
+            listOf(travel, "PUMP-01").forEach { id ->
+                val unit = record.units.single { it.unitId == id }
+                val decision = assertNotNull(unit.decision, "$id 의 판단이 기록에 없다")
+                assertEquals(Triple(OperatorDecision.REWORK, OPERATOR, 0), Triple(decision.decision, decision.approver, decision.attempt), id)
+                assertEquals(1, unit.attempt, id)
+            }
+            assertTrue(record.units.filter { it.unitId !in setOf(travel, "PUMP-01") }.all { it.decision == null })
+
+            // 이동을 내기 전에 리빌드한다. 스냅숏에는 시도 0 의 이동뿐이고 재작업은 기록만 안다.
+            val again = Middleware(port(ClientRobotPort(w.harness.client())), now = { w.harness.clock.now() })
+            val rebuilt = assertIs<Middleware.Submission.Accepted>(
+                again.resume(order(), ROBOT, ActiveMission(InspectAsset(), null), JudgmentRecordWire.decode(JudgmentRecordWire.encode(record))),
+            ).execution
+            assertEquals(listOf(1, 1), rebuilt.attemptsOf(travel, "PUMP-01"))
+            assertEquals(listOf(UnitState.PENDING, UnitState.PENDING), listOf(travel, "PUMP-01").map { rebuilt.unit(it).state })
+            var rounds = 0
+            while (!rebuilt.settled() && rounds++ < 120) {
+                again.pump()
+                if (rebuilt.settled()) break
+                w.harness.advance(Duration.ofSeconds(10))
+                Thread.sleep(30)
+            }
+            assertTrue(rebuilt.settled(), rebuilt.units.map { it.unitId to it.state }.toString())
+
+            assertEquals(
+                listOf("${taskOf(travel)}@r1", "${taskOf("PUMP-01")}@r1"),
+                w.tasks().map { it.taskId }.filter { it.endsWith("@r1") },
+            )
+            assertEquals(PhysicalState.PHYSICALLY_DONE, rebuilt.physicalState)
+        }
+    }
+
+    @Test
+    fun `리빌드할 때 기체에 r1 이동이 있으면 기록 없이도 그 시도로 붙는다`() {
+        val travel = travelId("PUMP-01")
+        val port = failing(taskOf(travel))
+        World(port = port).use { w ->
+            val exec = w.partialWithSkippedFirst()
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, "PUMP-01", OperatorDecision.REWORK, OPERATOR))
+            w.mw.pump()
+            assertNotNull(w.state("${taskOf(travel)}@r1"), "재작업한 이동이 기체에 나가 있어야 이 시험이 선다")
+
+            val again = Middleware(port(ClientRobotPort(w.harness.client())), now = { w.harness.clock.now() })
+            val rebuilt = assertIs<Middleware.Submission.Accepted>(again.resume(order(), ROBOT, ActiveMission(InspectAsset(), null))).execution
+            assertEquals(1, rebuilt.unit(travel).attempt, "스냅숏의 r1 에서 시도를 되찾지 못했다")
+            var rounds = 0
+            while (!rebuilt.settled() && rounds++ < 120) {
+                again.pump()
+                if (rebuilt.settled()) break
+                w.harness.advance(Duration.ofSeconds(10))
+                Thread.sleep(30)
+            }
+            assertTrue(rebuilt.settled(), rebuilt.units.map { it.unitId to it.state }.toString())
+            assertEquals(UnitState.DONE to "${taskOf(travel)}@r1", rebuilt.unit(travel).let { it.state to it.taskId })
+        }
+    }
+
     /**
      * 정해 둔 태스크의 성공을 결함 없는 실패로 바꿔 돌려주는 포트. 에뮬레이터의 실패 주입(`ForceFault`)은 늘 결함을 세우고, 이 기체의
      * 결함은 새 태스크를 못 받는다고 말해 다음 단위를 세운다. 그래서 결함 없이 이동만 실패하는 경우를 이 대역이 만든다. 기체에서는
@@ -420,6 +759,9 @@ class InspectAssetTest {
 
     private companion object {
         const val ROBOT = "quad-01"
+
+        val OPERATOR = Approver("op-1", ApproverKind.PERSON)
+        val AGENT = Approver("narrator-1", ApproverKind.AGENT)
 
         /** 선행 단위가 완료되지 않아 내지 않은 단위의 실패 분류. 상위가 작업 응답에서 읽는 값이라 문자 그대로 고정한다. */
         const val SKIPPED = "PREDECESSOR_NOT_DONE"

@@ -122,7 +122,7 @@ CLI 옵션과 프로파일 입력은 [mimic](mimic/README.md), [client](client/R
 
 실물 어댑터가 넷 있다: 기체용 셋과 플릿용 하나입니다. **어댑터 넷 중 어느 것도 실물에 붙여 보지 못했다**는 한계(C-3)가 있습니다. 실물 넷이 계약에 얼마나 닿나 조사한 결과는 [어휘 거리 측정](profile/distance/)에 있습니다. 벤더 표면 조사와 대역 시험은 실제 SDK 연결·현장 성능·산업 안전 검증을 대신하지 않습니다.
 
-한계 레지스터에 등록된 미결 항목은 **87개**입니다. 내부 39개 · 소비자 대기 21개 · 외부 27개이며 의도적 제외 13개는 이 합계에 넣지 않습니다. [미결 한계 항목 87개](docs/limits.md)의 해결 조건을 추적합니다. 경로 계획·교통 제어·안전 인증의 제공 여부도 이 범위 안에서 해석해야 합니다.
+한계 레지스터에 등록된 미결 항목은 **90개**입니다. 내부 39개 · 소비자 대기 24개 · 외부 27개이며 의도적 제외 13개는 이 합계에 넣지 않습니다. [미결 한계 항목 90개](docs/limits.md)의 해결 조건을 추적합니다. 경로 계획·교통 제어·안전 인증의 제공 여부도 이 범위 안에서 해석해야 합니다.
 
 ## 문서 체계 가이드
 
@@ -142,14 +142,14 @@ CLI 옵션과 프로파일 입력은 [mimic](mimic/README.md), [client](client/R
 | **한계 및 이력** | [설계 문서 §15 알려진 한계](docs/superpowers/specs/2026-09-05-picasso-design.md#15) | 설계 변경 이력 및 누적 정정 기록 |
 | **운영 시나리오** | [`docs/scenarios.md`](docs/scenarios.md) | 공장 3대 시나리오(용기 공급 AMR, 부품 시퀀싱, 설비 점검) 및 완료 증명 체계 |
 | **미들웨어 코어** | [`docs/superpowers/specs/2026-09-09-middleware-core-design.md`](docs/superpowers/specs/2026-09-09-middleware-core-design.md) | 정준 실행 모델, 논리적 케이퍼빌리티 정의, 근거 등급 결합 및 장애 전이 모델 |
-| **설계 결정 기록** | [ADR 색인](docs/adr/README.md) | 주요 아키텍처 결정 레코드 (ADR 9, 10, 22, 23, 29~52) |
+| **설계 결정 기록** | [ADR 색인](docs/adr/README.md) | 주요 아키텍처 결정 레코드 (ADR 9, 10, 22, 23, 29~53) |
 | **벤더 인터페이스** | [`profile/vendors/`](profile/vendors) · [`docs/vendors/orbit.md`](docs/vendors/orbit.md) | 벤더 API 표면 분석 및 플릿 관리 인터페이스 측정 노트 |
 | **현장 전제조건** | [`docs/environment-preconditions.md`](docs/environment-preconditions.md) | 로봇 도입 현장의 인프라(도어, 바닥, 조명 등) 엔지니어링 전제조건 |
 | **벤더 매니페스트** | [`tools/vendor-manifest/README.md`](tools/vendor-manifest/README.md) | 어댑터의 사우스바운드 포트 벤더 심볼 인용 대조 검증 도구 |
-| **오픈 항목 과제 레지스터** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 87개(내부·소비자 대기·외부) 및 해결 조건 관리 레지스터 |
+| **오픈 항목 과제 레지스터** | [`docs/limits.md`](docs/limits.md) | 미결 한계 항목 90개(내부·소비자 대기·외부) 및 해결 조건 관리 레지스터 |
 
 ## 라이선스
 
 [Apache License 2.0](LICENSE). 벤더 독점 SDK는 포함하지 않습니다. 어댑터의 벤더 API 인용은 심볼명과 해시 매니페스트로 관리합니다.
 
-> 마지막 대조: 2026-10-18 · sha256:1d574b74a018 · 열림: C-3, §15.81
+> 마지막 대조: 2026-10-18 · sha256:49e8852de6b6 · 열림: C-3, §15.81

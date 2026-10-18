@@ -121,6 +121,9 @@ data class UnitVerdict(
 /**
  * 운영자 판단 한 번([Middleware.resolve]).
  *
+ * 판단은 보류에 선 단위에 붙고, 건너뛴 대상의 재작업이면 **`FAILED` 였던 두 단위**(내지 않은 점검과 시도된 선행 이동)에 같은 판단이 붙는다.
+ * 읽는 쪽은 단위 상태를 따지지 않고 판단을 옮긴다. 칸과 값의 집합은 그대로다.
+ *
  * @param attempt 판단이 선 시도. 재작업이면 그 뒤 단위의 시도는 하나 크다.
  */
 data class RecordedDecision(
