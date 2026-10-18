@@ -228,6 +228,8 @@ class DeliverContainer : LogicalCapability {
  * 그래서 이 능력이 낸 `JobResponse.results` 는 지금 비어 있으며, 그 사실을 시험이 고정한다.
  *
  * 이 능력을 들일 때 공통 엔진은 손대지 않았다 — 이 클래스와 [EquipmentUse] 의 용어 셋이 그때 확장의 전부였다(17장 10번).
+ * 그때 단위끼리 독립이라는 엔진의 전제를 그대로 가져왔으나 대상 안의 두 단위는 독립이 아니다. 점검 단위가 이동 단위를
+ * 선행으로 든다([ExecutionUnit.after], §15.234).
  * 단위의 **종류**가 늘면 이야기가 다르다 — 설비 대기는 엔진에 경로 하나([Route.SIGNAL])와 그 진행을 더했다(ADR 50).
  */
 class InspectAsset : LogicalCapability {
@@ -279,7 +281,11 @@ class InspectAsset : LogicalCapability {
                         expectedIdentity = null,
                         source = null,
                         destination = location,
-                    ),
+                    ).apply {
+                        // 점검은 그 자리에 가 있어야 뜻이 있다. 이동이 완료되지 않았으면 이 단위는 나가지 않는다(§15.234).
+                        // 대상끼리는 묶지 않는다 — 한 대상의 이동이 실패해도 다음 대상은 간다.
+                        after = "${target.id}$TRAVEL_SUFFIX"
+                    },
                 )
             }
     }
