@@ -107,6 +107,7 @@ enum class ExecutionLookup { CLIENT_REFERENCE, NONE }
  * 운영자의 판단 — 12.3 둘째 행 *"운영자 확인 후 PHYSICALLY_DONE 또는 재작업"*, 그리고 13.2 ③.
  *
  * [REWORK] 는 **명시적 재요청**이다(13.3 — 명령 재시도는 미실행이 확인된 경우에만, 사람이 확인하고 낸다). 새 정체성으로 간다.
+ * 보류에 선 단위 말고도 순회가 종결한 뒤 건너뛴 대상(이동과 점검 한 쌍)이 받는다. [CONFIRM_DONE] 은 보류에 선 단위만 받는다.
  */
 enum class OperatorDecision { CONFIRM_DONE, REWORK }
 
@@ -120,10 +121,16 @@ sealed interface ResolveOutcome {
     /** 판단이 섰다 — 단위가 움직였고 사건에 누가 판단했는지가 남았다. */
     data object Resolved : ResolveOutcome
 
-    /** 그 실행이 없거나, 그 단위가 운영자 보류에 서 있지 않다. 아무것도 안 바뀌었다. */
+    /**
+     * 그 실행이 없거나, 그 단위가 판단을 받을 모양이 아니다. 아무것도 안 바뀌었다. 판단을 받을 모양은 운영자 보류에 선 단위이거나,
+     * 시도된 이동 실패 때문에 내지 않은 점검(건너뛴 대상)이다.
+     */
     data object NotHeld : ResolveOutcome
 
-    /** 판단할 자격이 없다 — 지금은 에이전트뿐이다. 아무것도 안 바뀌었다. */
+    /**
+     * 이 판단을 지금 받지 않는다 — [reason] 이 사유다. 아무것도 안 바뀌었다. 판단할 자격이 없는 에이전트가 오늘의 첫 사유였고,
+     * 건너뛴 대상에는 순회가 종결하지 않았음, 취소한 실행, 같은 기체의 다른 활성 실행, 하지 않은 점검의 확인이 더해졌다.
+     */
     data class Refused(val reason: String) : ResolveOutcome
 }
 
@@ -354,7 +361,8 @@ data class ExecutionUnit(
      *
      * 채우는 것은 오늘 [InspectAsset] 하나다. 대상 하나가 단위 둘(이동과 점검)이고, 이동이 완료되지 않은 채 점검을 내면 엉뚱한 자리에서
      * 살핀 결과가 `DONE` 으로 남는다. 출발 직전에 이 값이 가리키는 단위가 종료했는데 `DONE` 이 아니면 실행은 이 단위를 태스크 없이 `FAILED` 로
-     * 두고 다음 단위로 간다([Middleware.PREDECESSOR_NOT_DONE]).
+     * 두고 다음 단위로 간다([Middleware.PREDECESSOR_NOT_DONE]). 순회가 종결한 뒤 사람이 낸 재작업이 이 단위와 선행을 함께 새 시도로 되돌린다
+     * ([Middleware.resolve]).
      *
      * `internal` 이다. 계약·작업 응답·내보내기·판단 기록에 싣지 않는다 — 리비전과 리빌드가 [LogicalCapability.plan] 을 다시 불러
      * 이 값을 다시 채운다. 데이터 클래스의 본문 속성이라 같음 비교와 복사에 들지 않는다([robotBinding] 과 같다).

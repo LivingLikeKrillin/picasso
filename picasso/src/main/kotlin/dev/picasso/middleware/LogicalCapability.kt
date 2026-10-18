@@ -229,7 +229,8 @@ class DeliverContainer : LogicalCapability {
  *
  * 이 능력을 들일 때 공통 엔진은 손대지 않았다 — 이 클래스와 [EquipmentUse] 의 용어 셋이 그때 확장의 전부였다(17장 10번).
  * 그때 단위끼리 독립이라는 엔진의 전제를 그대로 가져왔으나 대상 안의 두 단위는 독립이 아니다. 점검 단위가 이동 단위를
- * 선행으로 든다([ExecutionUnit.after], §15.234).
+ * 선행으로 든다([ExecutionUnit.after], §15.234). 이동이 실패해 건너뛴 대상은 순회가 종결한 뒤 사람이 한 쌍씩 재작업한다
+ * ([Middleware.resolve]) — 리비전은 시도된 이동 실패를 다시 내지 않는다.
  * 단위의 **종류**가 늘면 이야기가 다르다 — 설비 대기는 엔진에 경로 하나([Route.SIGNAL])와 그 진행을 더했다(ADR 50).
  */
 class InspectAsset : LogicalCapability {

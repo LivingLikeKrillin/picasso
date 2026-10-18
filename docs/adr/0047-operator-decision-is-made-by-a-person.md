@@ -1,8 +1,8 @@
 # ADR 47 — 운영자 판단은 사람만 내고, 누가 냈는지 남긴다
 
 - 상태: 확정 (2026-10-01)
-- 관련: [ADR 43](0043-entitlement-declared-outside-judged-inside.md) 자동 승인 자격 · [ADR 44](0044-approval-names-a-proposal-not-an-action.md) 승인은 제안을 가리킨다 · [ADR 9](0009-no-declaration-without-consumer.md) 소비자 존재 원칙
-- 변경 이력: 설계 문서 §15.202
+- 관련: [ADR 53](0053-rework-of-a-skipped-target.md) 건너뛴 대상의 재작업 · [ADR 43](0043-entitlement-declared-outside-judged-inside.md) 자동 승인 자격 · [ADR 44](0044-approval-names-a-proposal-not-an-action.md) 승인은 제안을 가리킨다 · [ADR 9](0009-no-declaration-without-consumer.md) 소비자 존재 원칙
+- 변경 이력: 설계 문서 §15.202 · §15.236
 
 ## 맥락
 
@@ -18,7 +18,7 @@
 
 **에이전트는 거절한다.** 확인도 재작업도 거절하고, 거부는 단위도 인시던트도 바꾸지 않는다. 판단은 자동으로 하지 않기로 한 것을 사람이 하는 자리라, 에이전트가 내면 그 결정이 자동화로 되돌아간다.
 
-**응답을 셋으로 가른다.** `ResolveOutcome` 는 `Resolved`(판단이 섰다) · `NotHeld`(그 실행이 없거나 그 단위가 보류에 서 있지 않다) · `Refused`(판단할 자격이 없다, 사유 텍스트)다. 참·거짓 하나로 내면 «보류 단위가 없다» 와 «에이전트라서 막았다» 가 같은 값이 되고, 부르는 쪽은 다시 눌러야 하는지 사람을 불러야 하는지 모른다.
+**응답을 셋으로 가른다.** `ResolveOutcome` 는 `Resolved`(판단이 섰다) · `NotHeld`(그 실행이 없거나 그 단위가 보류에 서 있지 않다) · `Refused`(판단할 자격이 없다, 사유 텍스트)다. 참·거짓 하나로 내면 «보류 단위가 없다» 와 «에이전트라서 막았다» 가 같은 값이 되고, 부르는 쪽은 다시 눌러야 하는지 사람을 불러야 하는지 모른다. 이후 ADR 53은 응답의 세 결과를 유지하면서 `Refused`를 «이 판단을 지금 받지 않는다(사유 텍스트)»로 넓혔다(§15.236).
 
 **판단 기록에 누가 판단했는지 남긴다.** `IncidentResolution.decidedBy` 다. 사람만 판단하므로 종류는 언제나 `PERSON` 이지만, 승인면과 같은 `Approver` 를 쓴다 — 같은 사람이 승인과 판단을 둘 다 하면 같은 값으로 이어진다.
 
@@ -57,4 +57,4 @@
 
 이 표는 게이트가 이름으로 대조하지 않는다. 이름은 시험과 손으로 맞춘다.
 
-> 마지막 대조: 2026-10-06 · sha256:dba8aab5e2ca · 열림: §15.3, §15.202
+> 마지막 대조: 2026-10-18 · sha256:31b401f1f09f · 열림: §15.3, §15.202
