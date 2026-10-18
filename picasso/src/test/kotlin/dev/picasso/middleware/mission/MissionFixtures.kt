@@ -8,7 +8,7 @@ import dev.picasso.middleware.DeadlineOutcome
  * [PREPARE_SEQUENCED_RACK] 는 코드 `PrepareSequencedRack` 을 **데이터로 옮긴 것**이다 — 동등성 시험이 그 둘이 같은
  * 계획을 내는지 칸마다 댄다. [withArrivalWait] 는 그 앞에 랙 도착 대기를 둔 버전이다(버전 2 의 모양).
  *
- * 단위 노드는 출발 관측을 `OPTIONAL` 로 선언한다 — 코드 케이퍼빌리티의 기본값과 같아야 동등성이 선다.
+ * 단위 노드는 출발 관측과 목적지 관측을 둘 다 `OPTIONAL` 로 선언한다 — 코드 케이퍼빌리티의 기본값과 같아야 동등성이 선다.
  * [prepareSequencedRack] 이 그 선언만 바꾼 문서를 낸다.
  */
 object MissionFixtures {
@@ -24,7 +24,7 @@ object MissionFixtures {
      *
      * 시험이 문자열을 바꿔 틀린 문서를 만들므로 **칸마다 한 줄**이고 들여쓰기가 없다.
      */
-    private fun placeNode(sourceObservation: String?) = listOfNotNull(
+    private fun placeNode(sourceObservation: String?, destinationObservation: String? = "OPTIONAL") = listOfNotNull(
         "{",
         "\"kind\": \"unit\",",
         "\"id\": \"place\",",
@@ -37,6 +37,7 @@ object MissionFixtures {
         "\"expectedIdentity\": { \"from\": \"ITEM_PROPERTY\", \"property\": \"material\" },",
         "\"source\": { \"from\": \"PAIRED_ID\" },",
         sourceObservation?.let { "\"sourceObservation\": \"$it\"," },
+        destinationObservation?.let { "\"destinationObservation\": \"$it\"," },
         "\"destination\": { \"from\": \"ITEM_ID\" }",
         "}",
     ).joinToString("\n")
@@ -58,8 +59,9 @@ object MissionFixtures {
     /** 코드 `PrepareSequencedRack` 의 데이터판 — 버전 1 의 모양. */
     val PREPARE_SEQUENCED_RACK: String = document(PLACE_NODE)
 
-    /** 버전 1 의 모양에서 출발 관측 선언만 바꾼 문서. 널이면 선언을 뺀다. */
-    fun prepareSequencedRack(sourceObservation: String?): String = document(placeNode(sourceObservation))
+    /** 버전 1 의 모양에서 출발 관측·목적지 관측 선언만 바꾼 문서. 널이면 그 선언을 뺀다. */
+    fun prepareSequencedRack(sourceObservation: String?, destinationObservation: String? = "OPTIONAL"): String =
+        document(placeNode(sourceObservation, destinationObservation))
 
     /** 맨 앞에 «랙 도착 신호가 기대 값이 될 때까지 대기» 를 둔 버전 — 버전 2 의 모양. 대기 노드는 한 줄이다. */
     fun withArrivalWait(

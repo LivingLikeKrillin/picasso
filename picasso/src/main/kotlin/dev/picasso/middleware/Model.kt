@@ -326,6 +326,11 @@ data class ExecutionUnit(
      * [SourceObservation.OPTIONAL] 이다. 배정 관문만 읽는다([AdmissionGate]).
      */
     val sourceObservation: SourceObservation = SourceObservation.OPTIONAL,
+    /**
+     * 목적지가 비었는지를 설비 관측으로 볼 것인가. 임무 정의의 단위 노드가 선언한 것이고, 코드 케이퍼빌리티의 단위는 기본값
+     * [DestinationObservation.OPTIONAL] 이다(보지 않는다). 배정 게이트만 읽고, 근거 윈도우([EvidenceWindow])의 판정은 이 값과 무관하다.
+     */
+    val destinationObservation: DestinationObservation = DestinationObservation.OPTIONAL,
 ) {
     /**
      * 이 단위를 맡은 기체. **널이 기본이고 그때는 실행의 기체다**([Middleware.Execution.robotOf]) — 오늘의 계획은 전부 널이다.

@@ -82,6 +82,16 @@ class InMemoryMissionCatalogTest {
     }
 
     @Test
+    fun `목적지 관측을 선언하지 않은 정의는 활성화되지 않는다`() {
+        val catalog = catalog()
+        val refused = assertIs<Activation.Refused>(
+            catalog.activate(MissionFixtures.prepareSequencedRack(sourceObservation = "OPTIONAL", destinationObservation = null)),
+        )
+        assertEquals(listOf(MissionRefusalKind.DESTINATION_OBSERVATION_UNDECLARED), refused.refusals.map { it.kind })
+        assertNull(catalog.active(PrepareSequencedRack.WORK_MASTER)!!.missionVersion, "선언 없는 정의가 섰다")
+    }
+
+    @Test
     fun `활성화와 조회가 여러 스레드에서 겹쳐도 번호가 겹치거나 빠지지 않는다`() {
         val catalog = catalog()
         val pool = Executors.newFixedThreadPool(8)

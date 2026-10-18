@@ -84,12 +84,25 @@ enum class MissionRefusalKind(val owner: RefusalOwner, val nextAction: String) {
      * 도는 뜻이 다르다.
      */
     SOURCE_OBSERVATION_UNUSED(RefusalOwner.ENGINEER, "출발 관측 선언을 지우거나 출발 자리와 기대 신원을 함께 적는다"),
+
+    /**
+     * 목적지 관측 검사 — 기대 식별 정보와 목적지를 둘 다 대는 단위 노드가 `destinationObservation` 을 선언하지 않았다(§15.235).
+     * 작업 전 목적지 «있다» 를 물리적 점유로 볼지 옛 신호로 볼지가 암묵으로 남는다.
+     */
+    DESTINATION_OBSERVATION_UNDECLARED(RefusalOwner.ENGINEER, "단위 노드에 목적지 관측을 REQUIRED 나 OPTIONAL 로 적는다"),
+
+    /**
+     * 목적지 관측 검사 — 목적지나 기대 식별 정보가 없는 단위 노드가 `destinationObservation` 을 선언했다(§15.235). 목적지가 없으면
+     * 게이트가 볼 자리가 없고, 기대 식별 정보가 없으면 그 목적지는 자재를 둘 자리가 아니라 갈 자리라 게이트가 선언을 읽지 않는다.
+     * 어느 쪽이든 적은 뜻과 실제 동작이 다르다. 출발 관측의 [SOURCE_OBSERVATION_UNUSED] 와 같은 기준이다.
+     */
+    DESTINATION_OBSERVATION_UNUSED(RefusalOwner.ENGINEER, "목적지 관측 선언을 지우거나 목적지와 기대 식별 정보를 함께 적는다"),
 }
 
 /**
  * 검증기 — 임무 정의가 활성화될 수 있는가. **라이브러리다** — 같은 규칙으로 화면이 저장 전에 막고 활성화가 막는다.
  *
- * 검사는 여섯이고(기한·신호·자원·스킬·안전·출발 관측) 그 앞에 노드 id 중복을 본다. **모든 거부를 모아 낸다** — 하나만 알리면
+ * 검사는 일곱이고(기한·신호·자원·스킬·안전·출발 관측·목적지 관측) 그 앞에 노드 id 중복을 본다. **모든 거부를 모아 낸다** — 하나만 알리면
  * 고치고 다시 내고 또 거부되는 왕복이 생긴다.
  *
  * 함수 이름은 관문의 판정 이름과 겹치지 않게 둔다 — 자리 대조 시험이 이름으로 판정의 자리를 찾는다.
@@ -123,7 +136,8 @@ object MissionValidator {
             floorRefusals(definition, byName, floors, at) +
             skillRefusals(definition, siteSkills, at) +
             safetyRefusals(definition, byName, at) +
-            sourceObservationRefusals(definition, at)
+            sourceObservationRefusals(definition, at) +
+            destinationObservationRefusals(definition, at)
     }
 
     /**
@@ -132,6 +146,13 @@ object MissionValidator {
      * 선언이다. 해석기([DefinedCapability])도 같은 함수로 본다 — 두 벌로 두면 한쪽만 기준이 바뀌는 날이 온다.
      */
     fun needsSourceObservation(step: UnitStep): Boolean = step.source != null && step.expectedIdentity != null
+
+    /**
+     * 이 단위 노드가 목적지 관측 선언을 **요구하는가** — 목적지(`destination`)와 거기 둘 것의 식별 정보(`expectedIdentity`)를
+     * 둘 다 댈 때다. 게이트가 예약으로 세는 자리(자재를 둘 자리)와 같은 기준이다. 식별 정보가 없는 목적지는 갈 자리라 점유가 아니다.
+     * 해석기([DefinedCapability])도 같은 함수로 본다.
+     */
+    fun needsDestinationObservation(step: UnitStep): Boolean = step.destination != null && step.expectedIdentity != null
 
     /** 계약 카탈로그의 스킬 이름 전부 — 기술자의 `skill_type_name` 옵션에서 읽는다. */
     val contractSkills: Set<String> by lazy {
@@ -241,6 +262,27 @@ object MissionValidator {
                 !needsSourceObservation(unit) && declared != null -> MissionRefusal(
                     MissionRefusalKind.SOURCE_OBSERVATION_UNUSED, unit.id, "sourceObservation=${declared.name}",
                     "선언 없음(출발 자리와 기대 신원이 둘 다 있는 노드만 선언한다)", at,
+                )
+                else -> null
+            }
+        }
+
+    /**
+     * 목적지 관측 — 식별 정보를 대는 목적지가 있는 단위 노드는 작업 전 목적지 관측을 볼지 적는다. 기본을 정하지 않고 묻는다.
+     * 그 밖의 단위 노드는 적지 않는다. 출발 관측([sourceObservationRefusals])과 같은 모양이고, 해석기도 같은 이유로 적지 않아야 할
+     * 선언은 거부하지 않는다.
+     */
+    private fun destinationObservationRefusals(definition: MissionDefinition, at: Instant): List<MissionRefusal> =
+        definition.steps.filterIsInstance<UnitStep>().mapNotNull { unit ->
+            val declared = unit.destinationObservation
+            when {
+                needsDestinationObservation(unit) && declared == null -> MissionRefusal(
+                    MissionRefusalKind.DESTINATION_OBSERVATION_UNDECLARED, unit.id, "destinationObservation=없음",
+                    "REQUIRED 또는 OPTIONAL", at,
+                )
+                !needsDestinationObservation(unit) && declared != null -> MissionRefusal(
+                    MissionRefusalKind.DESTINATION_OBSERVATION_UNUSED, unit.id, "destinationObservation=${declared.name}",
+                    "선언 없음(목적지와 기대 식별 정보가 둘 다 있는 노드만 선언한다)", at,
                 )
                 else -> null
             }

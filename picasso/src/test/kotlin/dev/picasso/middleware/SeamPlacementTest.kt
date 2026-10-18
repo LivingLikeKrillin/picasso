@@ -33,6 +33,7 @@ class SeamPlacementTest {
             "fun inconsistent(" to "AdmissionGate.kt",
             "fun chainRefusal(" to "AdmissionGate.kt",
             "fun occupancyViolation(" to "AdmissionGate.kt",
+            "fun destinationViolation(" to "AdmissionGate.kt",
             "fun unownedFloor(" to "AdmissionGate.kt",
             "fun workspaceViolation(" to "AdmissionGate.kt",
             // 장부가 함수로 받아 쓰는 관문의 조회 — 같은 이름의 fun 이 끼면 그쪽이 이긴다

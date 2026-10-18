@@ -173,6 +173,8 @@ internal class AdmissionGate(
      * 설비 관측이라 **말이 없으면 판정하지 않는다.** 없는 관측을 위반으로 세면 신호가 죽은 셀이 통째로 선다.
      * 단, 임무 정의가 출발 관측을 요구한 단위([SourceObservation.REQUIRED])는 말이 없으면 보내지 않고 결품과 다른
      * 확인 요구([SourceUnobserved])로 답한다.
+     *
+     * 목적지 관측을 요구한 단위([DestinationObservation.REQUIRED])는 예약 다음에 목적지의 **지금 관측**을 본다([destinationViolation]).
      */
     private fun occupancyViolation(planned: List<ExecutionUnit>, moving: String?): Admission.Refused? {
         val claimed = liveClaims(moving)
@@ -192,6 +194,8 @@ internal class AdmissionGate(
                 ),
             )
         }
+
+        destinationViolation(planned)?.let { return Admission.Refused(it) }
 
         for (unit in planned) {
             // **이 층이 집으러 보내는 단위만 본다.** 플릿 위임은 플릿이 인수 시점에 대조하고 불일치를
@@ -234,6 +238,44 @@ internal class AdmissionGate(
                     alternatives = alternatives,
                 ),
             )
+        }
+        return null
+    }
+
+    /**
+     * 목적지의 **지금 관측**(§15.235) — 목적지 관측을 요구한 단위([DestinationObservation.REQUIRED])만 본다.
+     *
+     * 예약([liveClaims])은 진행 중인 실행만 센다. 그래서 넣다가 실패해 자재가 남은 채 종료한 실행의 자리, 다 채워진 채 아직 나가지
+     * 않은 랙의 자리는 예약으로는 비어 보인다. 그 자리를 셀이 «있다» 로 보는 한 이 단위를 보내지 않는다. 실행이 종료했는지와 상관없다.
+     *
+     * **예약 다음, 출발 자리 앞이다.** 예약은 이 계층이 아는 사실이고 누가 잡았는지까지 적으므로 먼저 본다. 목적지가 차 있으면 출발
+     * 자리를 고쳐도 보낼 수 없으므로 출발 결품보다 먼저 본다 — 대체 출발 자리를 제시하면 운영자가 소용없는 수정을 한다.
+     *
+     * **이 계층이 보내는 단위만 본다.** 플릿 위임은 플릿이 목적지에 앞 용기가 남은 것을 보고한다(`WAITING_HANDOVER`). 식별 정보가
+     * 없는 단위(갈 자리)도 보지 않는다 — 예약과 같은 기준이다. 선언이 [DestinationObservation.OPTIONAL] 이면 설비에 묻지도 않는다.
+     *
+     * **거부는 텍스트 사유로만 낸다.** 조치 탐색 레지스터에 적지 않는다 — 이 계층이 계산한 응답이 없다(§15.183 의 자리 경쟁과 같은
+     * 처리). 구조 칸도 두지 않는다 — 읽을 소비자가 생기면 더한다(ADR 9). 확인은 셀의 관측으로 들어오고, 그때 같은 작업 요청이 이
+     * 판정을 다시 지난다.
+     */
+    private fun destinationViolation(planned: List<ExecutionUnit>): Submission.Rejected? {
+        for (unit in planned) {
+            if (unit.destinationObservation != DestinationObservation.REQUIRED) continue
+            if (unit.route != Route.ROBOT || unit.expectedIdentity == null) continue
+            val where = unit.destination ?: continue
+            when (val check = CellOccupancy.destinationCheck(cell.observe(where))) {
+                DestinationCheck.Free -> continue
+                is DestinationCheck.Occupied -> {
+                    val seen = check.observed?.let { "'$it' 이 있다" } ?: "설비가 있다고만 했다"
+                    return Submission.Rejected(
+                        "목적지 $where 가 비어 있지 않다 — $seen (목적지 점유, 이 단위는 목적지 관측을 요구한다, 보내지 않았다)",
+                    )
+                }
+                DestinationCheck.Unobserved -> return Submission.Rejected(
+                    "목적지 $where 를 확인하지 못했다 — 설비가 말이 없다 " +
+                        "(목적지 미관측, 이 단위는 목적지 관측을 요구한다, 확인 전에는 보내지 않는다)",
+                )
+            }
         }
         return null
     }

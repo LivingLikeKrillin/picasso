@@ -1,6 +1,7 @@
 package dev.picasso.middleware.mission
 
 import dev.picasso.middleware.DeadlineOutcome
+import dev.picasso.middleware.DestinationObservation
 import dev.picasso.middleware.EquipmentRequirement
 import dev.picasso.middleware.Evidence
 import dev.picasso.middleware.ExecutionUnit
@@ -44,6 +45,9 @@ class DefinedCapability(val definition: MissionDefinition) : LogicalCapability {
         definition.steps.filterIsInstance<UnitStep>().forEach { step ->
             require(!MissionValidator.needsSourceObservation(step) || step.sourceObservation != null) {
                 "검증을 거치지 않은 정의다: ${step.id} 가 출발 자리의 신원을 대는데 출발 관측 선언이 없다"
+            }
+            require(!MissionValidator.needsDestinationObservation(step) || step.destinationObservation != null) {
+                "검증을 거치지 않은 정의다: ${step.id} 가 목적지에 둘 것의 식별 정보를 대는데 목적지 관측 선언이 없다"
             }
         }
     }
@@ -110,6 +114,8 @@ class DefinedCapability(val definition: MissionDefinition) : LogicalCapability {
                     destination = step.destination?.let(value),
                     // 신원을 안 대는 노드는 선언이 없어도 된다 — 그때는 코드 케이퍼빌리티와 같은 기본값이다.
                     sourceObservation = step.sourceObservation ?: SourceObservation.OPTIONAL,
+                    // 목적지도 같다 — 식별 정보를 안 대는 목적지는 선언이 없어도 되고, 그때는 보지 않는다.
+                    destinationObservation = step.destinationObservation ?: DestinationObservation.OPTIONAL,
                     // 짝이 없으면 시작도 못 한다 — 부족은 계획에서 드러난다(코드 케이퍼빌리티와 같은 자리).
                     state = if (unpaired) UnitState.FAILED else UnitState.PENDING,
                     failureClass = if (unpaired) step.whenUnpaired else null,

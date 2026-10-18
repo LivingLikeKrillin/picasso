@@ -84,6 +84,51 @@ data class SourceUnobserved(
     val occupied: Boolean?,
 )
 
+/**
+ * 목적지(자재를 둘 자리)를 하달 전에 **설비 관측으로 볼지** — 임무 정의가 단위 노드마다 선언한다(`destinationObservation`).
+ *
+ * 출발 관측 선언([SourceObservation])을 본뜬 것이지만 **기본이 뜻하는 것이 다르다.** 출발 자리는 선언과 무관하게 결품을 보고
+ * 선언은 침묵만 가른다. 목적지는 [OPTIONAL] 이면 **아예 보지 않는다.** 보고서 12.1 과 근거 윈도우([EvidenceWindow])는 작업 전
+ * 목적지에 남은 «있다» 를 옛 신호(옛 용기·옛 부품)로 다루기 때문이다. 그 신호로 거부하면 래치·지연으로 옛 값을 남기는 셀에서
+ * 멀쩡한 작업 지시가 서고, 그 전제로 목적지를 제출 전에 «있다» 로 프로그램하는 시험들과도 부딪친다.
+ *
+ * [REQUIRED] 는 그 현장이 **작업 전 목적지 «있다» 를 물리적 점유로 본다**고 선언하는 것이다. 근거 윈도우의 판정(완료 뒤 어느
+ * 신호를 이 완료의 근거로 세는가)은 그대로다 — 게이트는 하달 전에 비었는지를 보고, 윈도우는 완료 뒤에 무엇이 들어왔는지를 본다.
+ *
+ * 기본을 뒤집지 않고 **암묵을 없앤다.** 식별 정보와 목적지를 둘 다 대는 정의는 어느 쪽인지 적어야 활성화된다(`MissionValidator`).
+ * 코드 케이퍼빌리티는 검증기를 거치지 않으므로 [ExecutionUnit] 의 기본값 [OPTIONAL] 로 오늘의 동작을 유지한다.
+ */
+enum class DestinationObservation {
+    /** 목적지가 비었다는 관측이 있어야 보낸다. 차 있으면 «목적지 점유», 말이 없으면 «목적지 미관측» 으로 거부한다. */
+    REQUIRED,
+
+    /** 목적지를 설비 관측으로 보지 않는다 — 오늘의 동작이다. 진행 중인 실행의 예약만 본다. */
+    OPTIONAL,
+}
+
+/**
+ * 목적지를 하달 전에 본 결과. 목적지 관측을 요구한 단위([DestinationObservation.REQUIRED])만 이 판정을 지난다.
+ *
+ * **셋으로 가른다.** 「차 있다」와 「말이 없다」를 접으면 운영자가 치울 것이 없는 자리를 찾아가고, 「말이 없다」를 「비었다」로
+ * 접으면 선언한 뜻이 사라진다. [SourceCheck] 와 같은 규율이다.
+ */
+sealed interface DestinationCheck {
+
+    /** 설비가 비었다고 말했다. */
+    data object Free : DestinationCheck
+
+    /**
+     * 무엇이 있다. **식별 정보가 맞아도 점유다** — 출발 자리와 달리 목적지는 무엇이 있든 둘 자리가 없다. 같은 부품이 있으면
+     * 앞선 작업 지시가 이미 둔 것일 수 있고, 거기에 또 두면 겹친다.
+     *
+     * @param observed 설비가 말한 식별 정보. 널이면 «있다» 고만 했다
+     */
+    data class Occupied(val observed: String?) : DestinationCheck
+
+    /** 설비가 말이 없다. **비었다고 세지 않는다** — 없다는 관측도 없다. 다음 행동은 사람의 확인이다. */
+    data object Unobserved : DestinationCheck
+}
+
 /** 점유 판정의 순수한 부분. 관측을 받아 답만 내며, 어디에 물을지는 부르는 쪽이 정한다. */
 object CellOccupancy {
 
@@ -108,6 +153,16 @@ object CellOccupancy {
         signal.identity == null -> if (observation == SourceObservation.REQUIRED) SourceCheck.Unobserved(true) else SourceCheck.Ready
         signal.identity != material -> SourceCheck.Missing(signal.identity)
         else -> SourceCheck.Ready
+    }
+
+    /**
+     * 이 목적지에 둘 수 있는가. **부르는 쪽이 선언을 먼저 가른다** — [DestinationObservation.OPTIONAL] 인 단위는 여기 오지 않고
+     * 설비에 묻지도 않는다. 그래서 침묵을 통과로 바꾸는 갈래가 이 함수에는 없다.
+     */
+    fun destinationCheck(signal: SlotSignal?): DestinationCheck = when {
+        signal == null -> DestinationCheck.Unobserved
+        signal.occupied -> DestinationCheck.Occupied(signal.identity)
+        else -> DestinationCheck.Free
     }
 
     /**

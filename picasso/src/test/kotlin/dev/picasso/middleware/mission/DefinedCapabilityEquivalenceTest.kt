@@ -1,6 +1,7 @@
 package dev.picasso.middleware.mission
 
 import dev.picasso.middleware.DeadlineOutcome
+import dev.picasso.middleware.DestinationObservation
 import dev.picasso.middleware.EquipmentRequirement
 import dev.picasso.middleware.EquipmentUse
 import dev.picasso.middleware.ExecutionUnit
@@ -67,6 +68,7 @@ class DefinedCapabilityEquivalenceTest {
         "실패 분류" to { it.failureClass },
         "대기 사양" to { it.wait },
         "출발 관측" to { it.sourceObservation },
+        "목적지 관측" to { it.destinationObservation },
     )
 
     @Test
@@ -144,6 +146,27 @@ class DefinedCapabilityEquivalenceTest {
         // 기본값으로 메우면 검증기가 없앤 암묵이 이 길로 돌아온다.
         assertFailsWith<IllegalArgumentException> {
             DefinedCapability(MissionFixtures.parsed(MissionFixtures.prepareSequencedRack(null)))
+        }
+    }
+
+    @Test
+    fun `선언한 목적지 관측이 단위에 실리고 선언 없는 목적지 식별 정보는 해석기가 받지 않는다`() {
+        val required = DefinedCapability(
+            MissionFixtures.parsed(MissionFixtures.prepareSequencedRack("OPTIONAL", destinationObservation = "REQUIRED")),
+        )
+        val planned = required.plan(shapes.getValue("제시 자리 있음"))
+        assertTrue(planned.isNotEmpty())
+        assertEquals(listOf(DestinationObservation.REQUIRED), planned.map { it.destinationObservation }.distinct())
+        assertEquals(listOf(SourceObservation.OPTIONAL), planned.map { it.sourceObservation }.distinct(), "목적지 선언이 출발 칸에 실렸다")
+        // 코드 케이퍼빌리티는 오늘의 동작(OPTIONAL, 보지 않는다)이다 — 동등성 시험의 «목적지 관측» 칸이 그것을 댄다.
+        assertEquals(
+            listOf(DestinationObservation.OPTIONAL),
+            code.plan(shapes.getValue("제시 자리 있음")).map { it.destinationObservation }.distinct(),
+        )
+
+        // 기본값으로 메우면 검증기가 없앤 암묵이 이 길로 돌아온다.
+        assertFailsWith<IllegalArgumentException> {
+            DefinedCapability(MissionFixtures.parsed(MissionFixtures.prepareSequencedRack("OPTIONAL", destinationObservation = null)))
         }
     }
 
