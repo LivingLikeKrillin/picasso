@@ -154,7 +154,7 @@ class BindingService(private val db: Db) {
             Activation.AlreadyActive -> ActivateOutcome.Refused(
                 "활성화할 수 있는 상태가 아니다: ${RevisionStatus.ACTIVE} (가능: $ACTIVATABLE)",
             )
-            Activation.Unknown -> ActivateOutcome.Refused("없는 개정판이다: $profileRevisionId")
+            Activation.Unknown -> ActivateOutcome.Refused("없는 리비전이다: $profileRevisionId")
             is Activation.Refused -> ActivateOutcome.Refused(
                 if (outcome.status !in ACTIVATABLE) {
                     "활성화할 수 있는 상태가 아니다: ${outcome.status} (가능: $ACTIVATABLE)"
@@ -228,7 +228,7 @@ class BindingService(private val db: Db) {
     ): BindOutcome = db.transaction { c ->
         if (statusOf(c, profileRevisionId) != RevisionStatus.ACTIVE) {
             return@transaction BindOutcome.Refused(
-                "활성 개정판이 아니다: $profileRevisionId (${statusOf(c, profileRevisionId)})",
+                "활성 리비전이 아니다: $profileRevisionId (${statusOf(c, profileRevisionId)})",
             )
         }
 

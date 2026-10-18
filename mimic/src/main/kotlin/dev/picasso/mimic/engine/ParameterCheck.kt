@@ -124,7 +124,7 @@ object ParameterCheck {
 
             ValueType.VALUE_TYPE_BOOL -> Unit
             ValueType.VALUE_TYPE_UNSPECIFIED, ValueType.UNRECOGNIZED ->
-                error("선언의 value_type이 미정이다: $key — 투영이 이것을 만들 수 없다")
+                error("선언의 value_type이 미정이다: $key — 프로젝션이 이것을 만들 수 없다")
         }
 
         return problems

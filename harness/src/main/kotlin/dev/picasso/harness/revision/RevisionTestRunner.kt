@@ -149,7 +149,7 @@ class RevisionTestRunner(
                     if (attempt == 0) "요청 ${claimed.requestId} 는 이미 끝났다" else "요청 ${claimed.requestId} 는 앞 보고가 반영됐다",
                 )
                 ReportReply.NotClaimer -> log("요청 ${claimed.requestId} 는 이 실행기가 집은 것이 아니다 — 버린다")
-                is ReportReply.Refused -> log("요청 ${claimed.requestId} 보고 거절 ${reply.status}: ${reply.body}")
+                is ReportReply.Refused -> log("요청 ${claimed.requestId} 보고 거부 ${reply.status}: ${reply.body}")
             }
             return
         }

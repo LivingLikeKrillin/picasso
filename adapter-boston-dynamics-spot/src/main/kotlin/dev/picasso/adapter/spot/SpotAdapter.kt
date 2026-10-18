@@ -88,7 +88,7 @@ class SpotAdapter(
      */
     override fun accept(taskId: String, skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         if (!identity.complete) {
-            return Acceptance.Refused(Refusal.IDENTITY_UNSET, "기체 신원이 비어 있다")
+            return Acceptance.Refused(Refusal.IDENTITY_UNSET, "기체 식별 정보가 비어 있다")
         }
 
         task?.takeIf { !it.state.isTerminal }?.let {
@@ -140,7 +140,7 @@ class SpotAdapter(
         }
 
         val sources = acquisition.imageSources().getOrElse {
-            return Acceptance.Refused(Refusal.LINK_ERROR, "취득 능력을 못 받았다: ${it.message}")
+            return Acceptance.Refused(Refusal.LINK_ERROR, "취득 케이퍼빌리티를 못 받았다: ${it.message}")
         }
         if (sources.isEmpty()) {
             return Acceptance.Refused(Refusal.VENDOR_SURFACE_ABSENT, "취득할 영상 원천이 하나도 없다 — 찍을 것이 없다")
@@ -155,7 +155,7 @@ class SpotAdapter(
 
             is AcquireResult.Rejected -> Acceptance.Refused(
                 Refusal.VENDOR_REJECTED,
-                "AcquireData 를 로봇이 거절했다: ${result.status}",
+                "AcquireData 를 로봇이 거부했다: ${result.status}",
                 failureClass = FailureClass.FAILURE_CLASS_UNCLASSIFIED,
                 vendorDetail = "AcquireDataResponse.status=${result.status.name}",
             )
@@ -173,7 +173,7 @@ class SpotAdapter(
         val command = link.command
             ?: return Acceptance.Refused(
                 Refusal.VENDOR_SURFACE_ABSENT,
-                "명령 계층이 없다 — 받아 놓고 아무것도 안 하는 것이 가장 나쁘므로 거절한다",
+                "명령 계층이 없다 — 받아 놓고 아무것도 안 하는 것이 가장 나쁘므로 거부한다",
             )
 
         val duration = number(parameters, P_DURATION)
@@ -310,7 +310,7 @@ class SpotAdapter(
         is LeaseResult.Ok -> null
         is LeaseResult.Rejected -> {
             authorityLost = result.status
-            Acceptance.Refused(Refusal.CONTROL_AUTHORITY_LOST, "미션 적재가 리스로 거절됐다: ${result.status}")
+            Acceptance.Refused(Refusal.CONTROL_AUTHORITY_LOST, "미션 적재가 리스로 거부됐다: ${result.status}")
         }
         is LeaseResult.Failed ->
             Acceptance.Refused(Refusal.LINK_ERROR, "미션 적재가 실패했다: ${result.cause.message}")
@@ -325,11 +325,11 @@ class SpotAdapter(
     ): Acceptance = when (result) {
         is LeaseResult.Rejected -> {
             authorityLost = result.status
-            Acceptance.Refused(Refusal.CONTROL_AUTHORITY_LOST, "리스가 거절됐다: ${result.status}")
+            Acceptance.Refused(Refusal.CONTROL_AUTHORITY_LOST, "리스가 거부됐다: ${result.status}")
         }
 
         is LeaseResult.Failed ->
-            Acceptance.Refused(Refusal.LINK_ERROR, "남쪽 호출이 실패했다: ${result.cause.message}")
+            Acceptance.Refused(Refusal.LINK_ERROR, "사우스바운드 호출이 실패했다: ${result.cause.message}")
 
         is LeaseResult.Ok -> {
             task = RunningTask(taskId, startedAt, layer, durationSeconds, TaskState.TASK_STATE_RUNNING)
@@ -582,7 +582,7 @@ class SpotAdapter(
             Layer.MISSION -> updateMission(current, parameters)
             Layer.ACQUISITION -> Applied.Refused(
                 Refusal.NO_VENDOR_PRIMITIVE,
-                "취득은 멈춤이 보장되지 않는다 — CancelAcquisition 이 STATUS_FAILED_TO_CANCEL 로 거절할 수 있고, " +
+                "취득은 멈춤이 보장되지 않는다 — CancelAcquisition 이 STATUS_FAILED_TO_CANCEL 로 거부할 수 있고, " +
                     "그러면 갱신이 취득 둘을 만든다",
             )
             Layer.COMMAND -> updateCommand(current, parameters, at)
@@ -712,7 +712,7 @@ class SpotAdapter(
                 Applied.Ok
             }
             CancelAcquisitionStatus.STATUS_FAILED_TO_CANCEL ->
-                Applied.Refused(Refusal.VENDOR_REJECTED, "로봇이 취득 취소를 거절했다 — 취득은 계속된다(CancelAcquisitionResponse.status=${answer.name})")
+                Applied.Refused(Refusal.VENDOR_REJECTED, "로봇이 취득 취소를 거부했다 — 취득은 계속된다(CancelAcquisitionResponse.status=${answer.name})")
             CancelAcquisitionStatus.STATUS_REQUEST_ID_DOES_NOT_EXIST ->
                 Applied.Refused(Refusal.NO_TASK, "로봇이 이 취득 요청을 모른다(CancelAcquisitionResponse.status=${answer.name})")
             CancelAcquisitionStatus.STATUS_UNKNOWN ->
@@ -778,12 +778,12 @@ class SpotAdapter(
         is LeaseResult.Rejected -> {
             authorityLost = result.status
             onReject()
-            Applied.Refused(Refusal.CONTROL_AUTHORITY_LOST, "리스가 거절됐다: ${result.status}")
+            Applied.Refused(Refusal.CONTROL_AUTHORITY_LOST, "리스가 거부됐다: ${result.status}")
         }
 
         is LeaseResult.Failed -> {
             onReject()
-            Applied.Refused(Refusal.LINK_ERROR, "남쪽 호출이 실패했다: ${result.cause.message}")
+            Applied.Refused(Refusal.LINK_ERROR, "사우스바운드 호출이 실패했다: ${result.cause.message}")
         }
     }
 

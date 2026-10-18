@@ -305,16 +305,16 @@ class ChangePlanService(
         val detail = when (intent) {
             Intent.REMOVE_CAPABILITY, Intent.MIGRATE_MAJOR -> {
                 val successor = requireNotNull(successorRevisionId) {
-                    "$intent 의 APPLY 는 활성화할 개정판을 요구한다 — " +
-                        "그 스킬을 뺀 새 개정판이다(§9.5)"
+                    "$intent 의 APPLY 는 활성화할 리비전을 요구한다 — " +
+                        "그 스킬을 뺀 새 리비전이다(§9.5)"
                 }
                 // **활성화는 `BindingService`가 한다.** 여기서 status를 직접
                 // 쓰면 §8.4 ③의 승인 조건(TESTED/SUPERSEDED, 세 스위트 PASS)을
                 // 지나지 않는 두 번째 활성화 경로가 생긴다.
                 when (val outcome = bindings.activate(successor, actor)) {
-                    is ActivateOutcome.Activated -> "개정판 $successor 활성화"
+                    is ActivateOutcome.Activated -> "리비전 $successor 활성화"
                     is ActivateOutcome.Refused -> throw IllegalStateException(
-                        "후계 개정판을 활성화할 수 없다: ${outcome.detail}",
+                        "후계 리비전을 활성화할 수 없다: ${outcome.detail}",
                     )
                 }
             }
@@ -328,7 +328,7 @@ class ChangePlanService(
                         "(SELECT (target->>'profile_revision_id')::bigint " +
                         " FROM change_plan WHERE plan_id = ?)",
                 ).use { it.setLong(1, planId); it.executeUpdate() }
-                "개정판 폐기"
+                "리비전 폐기"
             }
         }
 

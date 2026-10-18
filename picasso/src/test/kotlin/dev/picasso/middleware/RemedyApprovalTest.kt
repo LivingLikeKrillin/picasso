@@ -143,7 +143,7 @@ class RemedyApprovalTest {
             val answer = assertIs<Middleware.Submission.Rejected>(
                 w.mw.approveRemedy(ROBOT, "PATROL-1", emptyList(), OPERATOR),
             )
-            assertTrue(answer.reason.contains("걸음 수와 파라미터 수가 다르다"), answer.reason)
+            assertTrue(answer.reason.contains("단계 수와 파라미터 수가 다르다"), answer.reason)
         }
     }
 

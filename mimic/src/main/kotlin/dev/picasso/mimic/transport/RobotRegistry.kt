@@ -69,7 +69,7 @@ class RobotRegistry(
         val compatibility = RequestHeaders.compatibility(header)
         if (compatibility.blocking) {
             throw Status.FAILED_PRECONDITION
-                .withDescription("계약 개정판이 호환되지 않는다: $compatibility")
+                .withDescription("계약 리비전이 호환되지 않는다: $compatibility")
                 .asRuntimeException()
         }
 

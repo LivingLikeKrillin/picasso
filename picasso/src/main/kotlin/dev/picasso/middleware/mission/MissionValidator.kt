@@ -83,7 +83,7 @@ enum class MissionRefusalKind(val owner: RefusalOwner, val nextAction: String) {
      * 관문이 그 선언을 읽지 않고, 기대 신원이 없으면 `REQUIRED` 가 신원 대조 없이 설비의 침묵만 막는다. 어느 쪽이든 적은 뜻과
      * 도는 뜻이 다르다.
      */
-    SOURCE_OBSERVATION_UNUSED(RefusalOwner.ENGINEER, "출발 관측 선언을 지우거나 출발 자리와 기대 신원을 함께 적는다"),
+    SOURCE_OBSERVATION_UNUSED(RefusalOwner.ENGINEER, "출발 관측 선언을 지우거나 출발 자리와 기대 식별 정보를 함께 적는다"),
 
     /**
      * 목적지 관측 검사 — 기대 식별 정보와 목적지를 둘 다 대는 단위 노드가 `destinationObservation` 을 선언하지 않았다(§15.235).
@@ -261,7 +261,7 @@ object MissionValidator {
                 )
                 !needsSourceObservation(unit) && declared != null -> MissionRefusal(
                     MissionRefusalKind.SOURCE_OBSERVATION_UNUSED, unit.id, "sourceObservation=${declared.name}",
-                    "선언 없음(출발 자리와 기대 신원이 둘 다 있는 노드만 선언한다)", at,
+                    "선언 없음(출발 자리와 기대 식별 정보가 둘 다 있는 노드만 선언한다)", at,
                 )
                 else -> null
             }

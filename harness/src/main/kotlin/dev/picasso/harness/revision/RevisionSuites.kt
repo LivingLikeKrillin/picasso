@@ -108,7 +108,7 @@ class RevisionSuites(
             val actual = client.capabilities(ROBOT)
             if (actual != expected) {
                 failures += SuiteFailure(
-                    "CONTRACT.capabilities", "프로파일의 투영",
+                    "CONTRACT.capabilities", "프로파일의 프로젝션",
                     "응답 스킬=${actual.skillsList.map { "${it.skillType}@${it.major}.${it.minor}" }}",
                 )
             }
@@ -126,7 +126,7 @@ class RevisionSuites(
 
     /** 멈춘 상태가 계약상 올바른가. 올바르면 널, 아니면 관측값이다. */
     private fun verdict(run: TaskRun, skill: SkillDeclaration, doc: ProfileDocument): String? {
-        run.rejection?.let { return "거절: $it" }
+        run.rejection?.let { return "거부: $it" }
         val last = run.follower!!.updates.lastOrNull() ?: return "갱신 없음"
         return when (last.state) {
             TaskState.TASK_STATE_SUCCEEDED -> null
@@ -208,7 +208,7 @@ class RevisionSuites(
     ): RejectionCode? = harness(document).use { h ->
         val client = h.client(CLIENT)
         val started = client.start(ROBOT, "negative", 1, skill.skillType, MinimalParameters.of(skill, requiredOptionalKeys(expected)))
-        if (started.hasRejection()) error("유효한 태스크가 거절됐다: ${started.rejection.code} ${started.rejection.detail}")
+        if (started.hasRejection()) error("유효한 태스크가 거부됐다: ${started.rejection.code} ${started.rejection.detail}")
         control(client, started.handle)
     }
 

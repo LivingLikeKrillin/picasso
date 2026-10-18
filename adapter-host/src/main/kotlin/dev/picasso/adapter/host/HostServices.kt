@@ -72,7 +72,7 @@ internal class Routing(private val robots: Map<String, HostedRobot>) {
     fun enter(header: MessageHeader): HostedRobot {
         val compatibility = RequestHeaders.compatibility(header)
         if (compatibility.blocking) {
-            throw Status.FAILED_PRECONDITION.withDescription("계약 개정판이 호환되지 않는다: $compatibility").asRuntimeException()
+            throw Status.FAILED_PRECONDITION.withDescription("계약 리비전이 호환되지 않는다: $compatibility").asRuntimeException()
         }
         if (header.robotId.isBlank()) {
             throw Status.INVALID_ARGUMENT.withDescription("요청 헤더에 robot_id가 없다 — §5.5는 gRPC 요청에 싣는다").asRuntimeException()

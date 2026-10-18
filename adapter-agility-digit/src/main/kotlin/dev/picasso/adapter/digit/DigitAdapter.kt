@@ -62,7 +62,7 @@ class DigitAdapter(
      */
     override fun accept(taskId: String, skillType: String, parameters: Map<String, Any>, startedAt: Instant): Acceptance {
         if (!identity.complete) {
-            return Acceptance.Refused(Refusal.IDENTITY_UNSET, "기체 신원이 비어 있다")
+            return Acceptance.Refused(Refusal.IDENTITY_UNSET, "기체 식별 정보가 비어 있다")
         }
 
         val required = REQUIRED[skillType]
@@ -249,7 +249,7 @@ class DigitAdapter(
             // **여기서 멈춘다.** 새 액션을 얹으면 지워지지 않은 것과 함께 돈다.
             return Applied.Refused(
                 Refusal.LINK_ERROR,
-                "remove-action 이 성공했다는데 액션이 아직 running 이다(컨테이너 거동) — 겹쳐 돌지 않게 갱신을 멈춘다",
+                "remove-action 이 성공했다는데 액션이 아직 running 이다(컨테이너 동작) — 겹쳐 돌지 않게 갱신을 멈춘다",
             )
         }
 
@@ -296,7 +296,7 @@ class DigitAdapter(
             current.state = TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
             return Applied.Refused(
                 Refusal.LINK_ERROR,
-                "remove-action 이 성공했다는데 액션이 아직 running 이다(컨테이너 거동)",
+                "remove-action 이 성공했다는데 액션이 아직 running 이다(컨테이너 동작)",
             )
         }
 

@@ -23,7 +23,7 @@ import dev.picasso.profile.ProfileDocument
 class Check06Vocabulary : GateCheck {
 
     override val id = "6"
-    override val name = "능력 어휘 파괴와 확장·축소 분류"
+    override val name = "케이퍼빌리티 어휘 파괴와 확장·축소 분류"
     override val requires = setOf(Resource.PROFILE_DOCUMENT, Resource.BASELINE)
 
     override fun run(input: GateInput): CheckResult {
@@ -115,7 +115,7 @@ class Check06Vocabulary : GateCheck {
 
             val same = siblings.firstOrNull { it.major == old.major }
             if (same == null) {
-                val label = if (siblings.any { it.major > old.major }) "major 증가" else "능력 제거"
+                val label = if (siblings.any { it.major > old.major }) "major 증가" else "케이퍼빌리티 제거"
                 out += shrink(location, "$label: ${old.skillType}@${old.major}", old, registry, skipped)
                 return@forEach
             }
@@ -219,7 +219,7 @@ class Check06Vocabulary : GateCheck {
         return Finding(
             id, Severity.WARNING,
             "$what 가 $from → $to" +
-                if (withdrawn) " — 능력 철회다. §5.2가 분류하지 않아 막지 않는다" else "",
+                if (withdrawn) " — 케이퍼빌리티 철회다. §5.2가 분류하지 않아 막지 않는다" else "",
             location,
         )
     }
@@ -401,7 +401,7 @@ class Check06Vocabulary : GateCheck {
             .map { field ->
                 Finding(
                     id, Severity.WARNING,
-                    "투영 필드가 바뀌었다: $field (${oldTree.get(field)} → ${newTree.get(field)})" +
+                    "프로젝션 필드가 바뀌었다: $field (${oldTree.get(field)} → ${newTree.get(field)})" +
                         if (field == EXCLUSIVE) {
                             " — 소비자는 이제 자신이 유일한 명령자임을 전제해야 한다(§4.9)"
                         } else {

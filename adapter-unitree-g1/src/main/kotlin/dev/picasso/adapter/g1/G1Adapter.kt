@@ -67,7 +67,7 @@ class G1Adapter(
         if (!identity.complete) {
             return Acceptance.Refused(
                 Refusal.IDENTITY_UNSET,
-                "기체 신원이 비어 있다 — G1은 신원을 말하지 않으므로 설정으로만 온다",
+                "기체 식별 정보가 비어 있다 — G1은 식별 정보를 말하지 않으므로 설정으로만 온다",
             )
         }
         if (skillType != SKILL) {
@@ -89,7 +89,7 @@ class G1Adapter(
             ?: return Acceptance.Refused(
                 Refusal.VENDOR_SURFACE_ABSENT,
                 "고수준 서비스가 없다 — 시뮬레이터이거나 ai_sport 가 안 떠 있다. " +
-                    "받아 놓고 아무것도 안 하는 것이 가장 나쁘므로 거절한다",
+                    "받아 놓고 아무것도 안 하는 것이 가장 나쁘므로 거부한다",
             )
 
         task?.takeIf { !it.state.isTerminal }?.let {
@@ -139,7 +139,7 @@ class G1Adapter(
         }
         return Acceptance.Refused(
             Refusal.VENDOR_REJECTED,
-            "SetVelocity 를 로봇이 거절했다: ${e.message}",
+            "SetVelocity 를 로봇이 거부했다: ${e.message}",
             failureClass = failureClass,
             vendorDetail = "${e.error?.name ?: "unnamed"} code=${e.rawCode}",
         )
@@ -379,7 +379,7 @@ class G1Adapter(
      * 하나이고 그것은 배터리이지 일이 아니다. 시간으로 나누면 그 숫자는 우리가 지은 것이다(§15.108).
      */
     override fun progress(): ProgressObservation = ProgressObservation.NotObservable(
-        "벤더 표면에 태스크 진척이 없다 — 퍼센트는 AgvBmsState_.battery_percentage 뿐이고 그것은 배터리다",
+        "벤더 인터페이스에 태스크 진척이 없다 — 퍼센트는 AgvBmsState_.battery_percentage 뿐이고 그것은 배터리다",
     )
 
     /**

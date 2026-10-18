@@ -62,7 +62,7 @@ class RevisionOperationsController(
             ResponseEntity.ok(stored(outcome.profileRevisionId, outcome.revision, outcome.status.name, outcome.reasons))
         is Submitted.NotMonotonic -> ResponseEntity.status(HttpStatus.CONFLICT).body(
             mapOf(
-                "error" to "개정판 번호가 단조 증가하지 않는다(같은 번호에 다른 문서 포함)",
+                "error" to "리비전 번호가 단조 증가하지 않는다(같은 번호에 다른 문서 포함)",
                 "received" to outcome.received,
                 "highest" to outcome.highest,
             ),
@@ -122,7 +122,7 @@ class RevisionOperationsController(
             ),
         )
         Activation.Unknown ->
-            ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to "없는 개정판이다: $profileRevisionId"))
+            ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to "없는 리비전이다: $profileRevisionId"))
     }
 
     private fun stored(id: Long, revision: Int, status: String, reasons: List<String>): Map<String, Any> =

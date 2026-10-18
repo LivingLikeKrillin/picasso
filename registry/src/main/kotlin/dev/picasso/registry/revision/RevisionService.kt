@@ -67,7 +67,7 @@ class RevisionService(
             // **거꾸로 가거나 같은 번호는 거부한다.** 허용하면 같은 좌표가
             // 두 문서를 가리키고, `profile_ref`로 재현할 수 없게 된다.
             return@transaction SubmitOutcome.Rejected(
-                "개정판 번호가 단조 증가하지 않는다: 받은 값=${parsed.revision}, 현재 최대=$highest",
+                "리비전 번호가 단조 증가하지 않는다: 받은 값=${parsed.revision}, 현재 최대=$highest",
             )
         }
 

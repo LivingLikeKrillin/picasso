@@ -34,15 +34,15 @@ object ContractIdentity {
     /** 시험이 부재를 확인할 수 있도록 스트림을 인자로 받는다. */
     internal fun from(stream: InputStream?): Pair<String, String> {
         val properties = Properties()
-        (stream ?: error("계약 신원 리소스를 찾을 수 없다: $RESOURCE")).use(properties::load)
+        (stream ?: error("계약 식별 정보 리소스를 찾을 수 없다: $RESOURCE")).use(properties::load)
 
         val semver = properties.getProperty("semver").orEmpty()
         val digest = properties.getProperty("digest").orEmpty()
 
         // 파일은 있는데 키가 비는 경우가 있다 — 굽는 태스크가 반쯤 돈 경우다.
         // 파일 존재만 보는 구현은 그것을 통과시킨다.
-        check(semver.isNotBlank()) { "계약 신원에 semver가 없다: $RESOURCE" }
-        check(digest.isNotBlank()) { "계약 신원에 digest가 없다: $RESOURCE" }
+        check(semver.isNotBlank()) { "계약 식별 정보에 semver가 없다: $RESOURCE" }
+        check(digest.isNotBlank()) { "계약 식별 정보에 digest가 없다: $RESOURCE" }
 
         return semver to digest
     }

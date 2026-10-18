@@ -715,7 +715,7 @@ class TaskHost(
             .setCanContinueCurrentTask(false)
             .setCanAcceptNewTask(false)
             .setErrorHint(
-                "종료한 태스크를 로봇이 계속 수행 중이다. 계약과 실물이 어긋나 있으니 " +
+                "종료한 태스크를 로봇이 계속 수행 중이다. 계약과 실제 하드웨어가 어긋나 있으니 " +
                     "현장에서 로봇을 정지시키고 어댑터의 래치 처리를 확인하십시오.",
             )
             .addReferences(

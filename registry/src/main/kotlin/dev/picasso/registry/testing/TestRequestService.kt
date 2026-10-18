@@ -86,7 +86,7 @@ class TestRequestService(
     fun request(profileRevisionId: Long, actor: String): Long = when (val outcome = requestTest(profileRevisionId, actor)) {
         is TestRequested.Created -> outcome.requestId
         is TestRequested.Existing -> outcome.requestId
-        TestRequested.UnknownRevision -> throw IllegalArgumentException("없는 개정판이다: $profileRevisionId")
+        TestRequested.UnknownRevision -> throw IllegalArgumentException("없는 리비전이다: $profileRevisionId")
         is TestRequested.NotTestable -> throw IllegalStateException("시험할 수 없는 상태다: ${outcome.status}")
     }
 

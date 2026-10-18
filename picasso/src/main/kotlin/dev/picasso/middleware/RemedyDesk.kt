@@ -109,7 +109,7 @@ internal class RemedyDesk(
         if (approval) {
             note(robotId, jobOrderId, RemedyOutcome.Found(remedy.steps))
             return rejection.copy(
-                reason = "${rejection.reason} — 승인 시점의 거절이라 서 있는 제안을 바꾸지 않았다",
+                reason = "${rejection.reason} — 승인 시점의 거부라 활성 제안을 바꾸지 않았다",
                 remedy = null,
             )
         }
@@ -272,7 +272,7 @@ internal class RemedyDesk(
         val declared = robots.capabilities(robotId)?.skillsList?.associateBy { it.skillType }
             ?: return Judgment.No(
                 ApprovalRefusal.CAPABILITY_UNKNOWN,
-                "능력을 못 물어봤다 — 조치가 실행 가능한지 확인할 수 없다",
+                "케이퍼빌리티를 못 물어봤다 — 조치가 실행 가능한지 확인할 수 없다",
             )
 
         val parameters: List<Map<String, String>>
@@ -280,7 +280,7 @@ internal class RemedyDesk(
             if (given.size != steps.size) {
                 return Judgment.No(
                     ApprovalRefusal.VALUE_NOT_DECLARED,
-                    "걸음 수와 파라미터 수가 다르다: ${steps.size} != ${given.size}",
+                    "단계 수와 파라미터 수가 다르다: ${steps.size} != ${given.size}",
                 )
             }
             steps.forEachIndexed { at, step ->

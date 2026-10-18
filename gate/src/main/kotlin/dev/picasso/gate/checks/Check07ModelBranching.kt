@@ -126,7 +126,7 @@ class Check07ModelBranching : GateCheck {
                             needles.filter { it in line }.map { needle ->
                                 Finding(
                                     id, Severity.ERROR,
-                                    "출하 소스에 기종 좌표가 있다: '$needle' " +
+                                    "프로덕션 소스에 기종 좌표가 있다: '$needle' " +
                                         "— A-1의 '같은 클라이언트 코드'가 깨진다(설계 §11.2의 7번)",
                                     "$label:${index + 1}",
                                 )
