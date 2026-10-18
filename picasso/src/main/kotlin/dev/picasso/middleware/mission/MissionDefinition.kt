@@ -1,5 +1,6 @@
 package dev.picasso.middleware.mission
 
+import dev.picasso.middleware.DestinationObservation
 import dev.picasso.middleware.Evidence
 import dev.picasso.middleware.SourceObservation
 
@@ -42,6 +43,8 @@ sealed interface MissionStep {
  * @param parameters 파라미터 이름 → 값 출처. 값이 없으면(대체값도 없으면) 그 파라미터는 빠진다.
  * @param sourceObservation 출발 자리의 관측을 요구하는가. 널이면 **선언하지 않은 것**이다 — [source] 와
  *   [expectedIdentity] 가 둘 다 있는 노드는 선언이 없으면 검증기가 거부한다([MissionValidator]).
+ * @param destinationObservation 목적지가 비었는지를 설비 관측으로 볼 것인가. 널이면 **선언하지 않은 것**이다 — [destination] 과
+ *   [expectedIdentity] 가 둘 다 있는 노드는 선언이 없으면 검증기가 거부한다([MissionValidator]).
  */
 data class UnitStep(
     override val id: String,
@@ -55,6 +58,7 @@ data class UnitStep(
     val pairWith: Pairing?,
     val whenUnpaired: String?,
     val sourceObservation: SourceObservation? = null,
+    val destinationObservation: DestinationObservation? = null,
 ) : MissionStep
 
 /**

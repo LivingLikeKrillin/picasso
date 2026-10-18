@@ -14,7 +14,7 @@
 
 ## 결정
 
-**임무 정의는 노드형 JSON 이다.** 최상위 5칸(`schemaVersion` 1, `workMasterId`, `maxEvidence` E0~E2, `preferredOptionals`, `steps` 1개 이상)은 모두 필수다. 노드는 `kind` 로 `unit`·`wait` 를 나눈다. 단위 노드는 `id`·`skill`·`forEach`·`unitId`·`parameters` 가 필수이고 `expectedIdentity`·`source`·`destination`·`sourceObservation`(`REQUIRED`·`OPTIONAL`) 과 `pairWith`+`whenUnpaired`(둘이 함께)가 선택이다. 값 출처는 `{"from":"ITEM_ID"}`·`{"from":"ITEM_PROPERTY","property":…}`·`{"from":"PAIRED_ID"}` 셋이고 선택 대체값 `otherwise` 를 둘 수 있다. `unitId` 는 `ITEM_ID` 만 받는다. 속성이 없으면 null 이고(코드의 `expectedIdentity` 와 같다) 값이 없는 파라미터는 빠진다. 대기 노드는 `id`·`signal`·`expect`·`deadlineSeconds`·`onDeadline` 이다. 표기는 `MissionDefinitionParser` 의 KDoc 과 시험 `MissionFixtures` 에 있다.
+**임무 정의는 노드형 JSON 이다.** 최상위 5칸(`schemaVersion` 1, `workMasterId`, `maxEvidence` E0~E2, `preferredOptionals`, `steps` 1개 이상)은 모두 필수다. 노드는 `kind` 로 `unit`·`wait` 를 나눈다. 단위 노드는 `id`·`skill`·`forEach`·`unitId`·`parameters` 가 필수이고 `expectedIdentity`·`source`·`destination`·`sourceObservation`(`REQUIRED`·`OPTIONAL`)·`destinationObservation`(`REQUIRED`·`OPTIONAL`) 과 `pairWith`+`whenUnpaired`(둘이 함께)가 선택이다. 값 출처는 `{"from":"ITEM_ID"}`·`{"from":"ITEM_PROPERTY","property":…}`·`{"from":"PAIRED_ID"}` 셋이고 선택 대체값 `otherwise` 를 둘 수 있다. `unitId` 는 `ITEM_ID` 만 받는다. 속성이 없으면 null 이고(코드의 `expectedIdentity` 와 같다) 값이 없는 파라미터는 빠진다. 대기 노드는 `id`·`signal`·`expect`·`deadlineSeconds`·`onDeadline` 이다. 표기는 `MissionDefinitionParser` 의 KDoc 과 시험 `MissionFixtures` 에 있다.
 
 **파서는 모양과 형만 본다.** 모르는 키, 빠진 칸, 형 틀림, 중복 키, 문법 오류를 모두 모아 한 번에 낸다. 새 의존은 없다. protobuf-java-util 의 `JsonFormat` 으로 `Struct` 를 만들고 엄격 매핑은 손으로 한다. `StrictJson` 이 문법과 중복 키를 본다(`JsonFormat` 은 중복 키에 말없이 뒤엣것을 쓴다). 기한 값과 기한 뒤 상태의 판정은 검증기의 일이다.
 
@@ -24,7 +24,7 @@
 
 **셀 신호 포트에 `signal(name): NamedSignal?` 을 더한다.** 기본 구현은 null 이라 기존 구현체는 깨지지 않는다. 어느 주소가 어느 신호인지는 드라이버의 일이다.
 
-**검증기는 라이브러리다.** 화면과 활성화가 같은 규칙으로 막는다. 노드 id 중복과 기한·신호·자원·스킬·안전·출발 관측 여섯 검사다. 거부는 운영 관리 화면 설계 제안 §8.4 의 6칸(부족한 조건은 종류로, 관측값·기대값, 마지막 확인 시각은 활성화 시도 시각, 근거 버전은 해당 없음, 해결 담당, 바로 갈 작업)에 노드 id 를 더한 것이다. 종류는 `UNREADABLE`·`DUPLICATE_NODE_ID`·`DEADLINE_INVALID`·`SIGNAL_NOT_IN_SPEC`·`SIGNAL_VALUE_INVALID`·`FLOOR_UNOWNED`·`SKILL_NOT_IN_CONTRACT`·`SKILL_NOT_ON_SITE`·`SAFETY_SIGNAL_WAIT`·`SOURCE_OBSERVATION_UNDECLARED`·`SOURCE_OBSERVATION_UNUSED` 열하나이고, 해결 담당은 바닥 소유만 화면 밖(`OUTSIDE_CONSOLE`), 출발 관측의 두 종류(미선언, 쓰이지 않는 선언)는 엔지니어(`ENGINEER`)다.
+**검증기는 라이브러리다.** 화면과 활성화가 같은 규칙으로 막는다. 노드 id 중복과 기한·신호·자원·스킬·안전·출발 관측·목적지 관측 일곱 검사다. 거부는 운영 관리 화면 설계 제안 §8.4 의 6칸(부족한 조건은 종류로, 관측값·기대값, 마지막 확인 시각은 활성화 시도 시각, 근거 버전은 해당 없음, 해결 담당, 바로 갈 작업)에 노드 id 를 더한 것이다. 종류는 `UNREADABLE`·`DUPLICATE_NODE_ID`·`DEADLINE_INVALID`·`SIGNAL_NOT_IN_SPEC`·`SIGNAL_VALUE_INVALID`·`FLOOR_UNOWNED`·`SKILL_NOT_IN_CONTRACT`·`SKILL_NOT_ON_SITE`·`SAFETY_SIGNAL_WAIT`·`SOURCE_OBSERVATION_UNDECLARED`·`SOURCE_OBSERVATION_UNUSED`·`DESTINATION_OBSERVATION_UNDECLARED`·`DESTINATION_OBSERVATION_UNUSED` 열셋이고, 해결 담당은 바닥 소유만 화면 밖(`OUTSIDE_CONSOLE`), 출발 관측과 목적지 관측의 각 두 종류(미선언, 쓰이지 않는 선언)는 엔지니어(`ENGINEER`)다.
 
 **포트 `MissionCatalog` 와 메모리 구현을 둔다.** 포트는 middleware 패키지에, `InMemoryMissionCatalog` 는 mission 패키지에 있어 의존은 한 방향이다. 활성화는 검증을 통과하면 그 WorkMaster 의 다음 버전(1부터)이 되고 거부면 활성 버전이 그대로이며 거부된 시도는 번호를 쓰지 않는다. 검증기 입력(신호 사양·바닥 소유·현장 기체 스킬)은 활성화 호출의 인자다. 구현은 `synchronized` 로 스레드 안전하다. `Middleware` 생성자 맨 뒤에 `missions` 를 두었다. 기본은 코드 케이퍼빌리티 셋이고 버전이 없다. `capabilities` 와 함께 주면 생성이 실패한다.
 
@@ -83,4 +83,4 @@
 
 이 표는 게이트가 이름으로 대조하지 않는다. 이름은 시험과 손으로 맞춘다.
 
-> 마지막 대조: 2026-10-18 · sha256:1b30afcbac92 · 열림: §15.209 · 정의 둘, §15.209 · 분기, §15.209 · 스키마 파일, §15.209 · 이벤트형 신호, §15.209 · 임무 버전 내보내기, §15.209 · 주소
+> 마지막 대조: 2026-10-18 · sha256:252b03d90797 · 열림: §15.209 · 정의 둘, §15.209 · 분기, §15.209 · 스키마 파일, §15.209 · 이벤트형 신호, §15.209 · 임무 버전 내보내기, §15.209 · 주소

@@ -4,6 +4,7 @@ import com.google.protobuf.InvalidProtocolBufferException
 import com.google.protobuf.Struct
 import com.google.protobuf.Value
 import com.google.protobuf.util.JsonFormat
+import dev.picasso.middleware.DestinationObservation
 import dev.picasso.middleware.Evidence
 import dev.picasso.middleware.SourceObservation
 
@@ -46,6 +47,7 @@ sealed interface MissionParse {
  *       "expectedIdentity": { "from": "ITEM_PROPERTY", "property": "material" },
  *       "source": { "from": "PAIRED_ID" },
  *       "sourceObservation": "OPTIONAL",
+ *       "destinationObservation": "OPTIONAL",
  *       "destination": { "from": "ITEM_ID" } }
  *   ]
  * }
@@ -53,7 +55,8 @@ sealed interface MissionParse {
  *
  * 최상위 다섯 칸은 모두 필수다. 단위 노드는 `id`·`skill`·`forEach`·`unitId`·`parameters` 가 필수이고 나머지는 선택이며,
  * `pairWith` 와 `whenUnpaired` 는 함께 온다. `sourceObservation` 은 `REQUIRED`·`OPTIONAL` 중 하나이고, 없어도 읽는다 —
- * 신원을 대는 출발 자리에 선언이 없는 것은 검증기가 거부한다. 대기 노드는 `id`·`signal`·`expect` 가 필수이고 `deadlineSeconds`·`onDeadline`
+ * 신원을 대는 출발 자리에 선언이 없는 것은 검증기가 거부한다. `destinationObservation` 도 같은 두 값이고 없어도 읽는다 —
+ * 식별 정보를 대는 목적지에 선언이 없는 것은 검증기가 거부한다. 대기 노드는 `id`·`signal`·`expect` 가 필수이고 `deadlineSeconds`·`onDeadline`
  * 은 형만 본다(없음은 검증기가 거부한다).
  */
 object MissionDefinitionParser {
@@ -79,6 +82,7 @@ object MissionDefinitionParser {
     private val UNIT = setOf(
         "kind", "id", "skill", "forEach", "unitId", "parameters",
         "expectedIdentity", "source", "destination", "pairWith", "whenUnpaired", "sourceObservation",
+        "destinationObservation",
     )
     private val WAIT = setOf("kind", "id", "signal", "expect", "deadlineSeconds", "onDeadline")
     private val PAIRING = setOf("equipmentUse", "property")
@@ -233,9 +237,19 @@ object MissionDefinitionParser {
                         problem("$path.sourceObservation", "${SourceObservation.entries.joinToString("·")} 중 하나여야 한다($name)")
                     }
             }
+            val destinationObservation = string(node, "destinationObservation", path, required = false)?.let { name ->
+                DestinationObservation.entries.firstOrNull { it.name == name }
+                    ?: null.also {
+                        problem(
+                            "$path.destinationObservation",
+                            "${DestinationObservation.entries.joinToString("·")} 중 하나여야 한다($name)",
+                        )
+                    }
+            }
             if (id == null || skill == null || forEach == null || unitId == null || parameters == null) return null
             return UnitStep(
                 id, skill, forEach, unitId, parameters, expected, source, destination, pairWith, whenUnpaired, observation,
+                destinationObservation,
             )
         }
 

@@ -145,7 +145,8 @@ class MissionValidatorTest {
         // 관문이 출발 자리의 신원을 대조하지 않는 노드에 선언을 요구하면 상관없는 정의가 활성화되지 않는다.
         val undeclared = MissionFixtures.prepareSequencedRack(sourceObservation = null)
         val noSource = undeclared.replace("\"source\": { \"from\": \"PAIRED_ID\" },\n", "")
-        val noIdentity = undeclared.replace("\"expectedIdentity\": { \"from\": \"ITEM_PROPERTY\", \"property\": \"material\" },\n", "")
+        // 기대 식별 정보를 빼면 목적지 관측 선언도 쓰이지 않는 선언이 되므로 그 선언까지 뺀 문서로 만든다(§15.235).
+        val noIdentity = MissionFixtures.prepareSequencedRack(sourceObservation = null, destinationObservation = null).replace("\"expectedIdentity\": { \"from\": \"ITEM_PROPERTY\", \"property\": \"material\" },\n", "")
         assertTrue(noSource != undeclared && noIdentity != undeclared, "시험 문서가 안 바뀌었다")
         assertEquals(emptyList(), refusals(noSource))
         assertEquals(emptyList(), refusals(noIdentity))
@@ -157,7 +158,7 @@ class MissionValidatorTest {
         //   어느 쪽이든 적은 뜻과 도는 뜻이 달라 조용히 받으면 안 된다.
         val required = MissionFixtures.prepareSequencedRack(sourceObservation = "REQUIRED")
         val noSource = required.replace("\"source\": { \"from\": \"PAIRED_ID\" },\n", "")
-        val optional = MissionFixtures.prepareSequencedRack(sourceObservation = "OPTIONAL")
+        val optional = MissionFixtures.prepareSequencedRack(sourceObservation = "OPTIONAL", destinationObservation = null)
         val noIdentity = optional.replace("\"expectedIdentity\": { \"from\": \"ITEM_PROPERTY\", \"property\": \"material\" },\n", "")
         assertTrue(noSource != required && noIdentity != optional, "시험 문서가 안 바뀌었다")
 
@@ -166,6 +167,50 @@ class MissionValidatorTest {
         assertEquals("sourceObservation=REQUIRED", unread.observed)
         assertEquals(RefusalOwner.ENGINEER, unread.owner)
         assertEquals("sourceObservation=OPTIONAL", only(MissionRefusalKind.SOURCE_OBSERVATION_UNUSED, refusals(noIdentity)).observed)
+    }
+
+    @Test
+    fun `목적지 관측 검사 — 식별 정보를 대는 목적지가 있는데 선언이 없으면 거부한다`() {
+        // 작업 전 목적지 «있다» 를 점유로 볼지 옛 신호로 볼지가 암묵으로 남는다 — 기본을 정하지 않고 묻는다.
+        val refusal = only(
+            MissionRefusalKind.DESTINATION_OBSERVATION_UNDECLARED,
+            refusals(MissionFixtures.prepareSequencedRack(sourceObservation = "OPTIONAL", destinationObservation = null)),
+        )
+        assertEquals("place", refusal.nodeId)
+        assertEquals("destinationObservation=없음", refusal.observed)
+        assertEquals("REQUIRED 또는 OPTIONAL", refusal.expected)
+        assertEquals(RefusalOwner.ENGINEER, refusal.owner)
+    }
+
+    @Test
+    fun `목적지 관측 검사 — REQUIRED 와 OPTIONAL 은 통과한다`() {
+        assertEquals(emptyList(), refusals(MissionFixtures.prepareSequencedRack("OPTIONAL", destinationObservation = "REQUIRED")))
+        assertEquals(emptyList(), refusals(MissionFixtures.prepareSequencedRack("OPTIONAL", destinationObservation = "OPTIONAL")))
+    }
+
+    @Test
+    fun `목적지 관측 검사 — 목적지나 기대 식별 정보가 없는 노드는 선언 없이 통과하고 선언하면 거부한다`() {
+        // 목적지가 없으면 게이트가 볼 자리가 없고, 기대 식별 정보가 없으면 그 목적지는 갈 자리라 게이트가 선언을 읽지 않는다.
+        // 출발 관측 선언은 빼 둔다 — 기대 식별 정보를 빼면 출발 관측 검사도 걸려 «그 종류 하나뿐» 이 흐려진다.
+        fun doc(declaration: String?) = MissionFixtures.prepareSequencedRack(sourceObservation = null, destinationObservation = declaration)
+        val destination = ",\n\"destination\": { \"from\": \"ITEM_ID\" }"
+        val identity = "\"expectedIdentity\": { \"from\": \"ITEM_PROPERTY\", \"property\": \"material\" },\n"
+
+        val undeclared = doc(null)
+        val noDestination = undeclared.replace(destination, "")
+        val noIdentity = undeclared.replace(identity, "")
+        assertTrue(noDestination != undeclared && noIdentity != undeclared, "시험 문서가 안 바뀌었다")
+        // 목적지만 뺀 문서는 출발 관측 선언이 없어 그 검사에 걸린다 — 목적지 관측 종류가 없는 것만 본다.
+        assertTrue(refusals(noDestination).none { it.kind.name.startsWith("DESTINATION_") }, "${refusals(noDestination)}")
+        assertEquals(emptyList(), refusals(noIdentity))
+
+        val required = doc("REQUIRED")
+        val unread = refusals(required.replace(destination, "")).single { it.kind == MissionRefusalKind.DESTINATION_OBSERVATION_UNUSED }
+        assertEquals("place", unread.nodeId)
+        assertEquals("destinationObservation=REQUIRED", unread.observed)
+        assertEquals(RefusalOwner.ENGINEER, unread.owner)
+        val walk = only(MissionRefusalKind.DESTINATION_OBSERVATION_UNUSED, refusals(doc("OPTIONAL").replace(identity, "")))
+        assertEquals("destinationObservation=OPTIONAL", walk.observed)
     }
 
     @Test

@@ -89,6 +89,23 @@ class OccupancyTest {
     }
 
     @Test
+    fun `목적지는 말이 없으면 미관측이고 비었을 때만 둘 수 있다`() {
+        // 미관측을 비었다로 접으면 목적지 관측을 요구한 선언의 뜻이 사라진다.
+        assertEquals(DestinationCheck.Unobserved, CellOccupancy.destinationCheck(null))
+        assertEquals(DestinationCheck.Free, CellOccupancy.destinationCheck(SlotSignal(occupied = false, identity = null)))
+    }
+
+    @Test
+    fun `목적지는 무엇이 있든 차 있으면 점유이고 그 식별 정보를 싣는다`() {
+        // ★출발 자리와 다르다 — 같은 부품이 있어도, 있다고만 해도 둘 자리가 없다.
+        assertEquals(
+            DestinationCheck.Occupied("ENGINE-COVER-B"),
+            CellOccupancy.destinationCheck(SlotSignal(occupied = true, identity = "ENGINE-COVER-B")),
+        )
+        assertEquals(DestinationCheck.Occupied(null), CellOccupancy.destinationCheck(SlotSignal(occupied = true, identity = null)))
+    }
+
+    @Test
     fun `셀이 답하지 않으면 모른다가 흐른다`() {
         // 빈 목록으로 접으면 «그 자재를 든 자리가 하나도 없다» 로 읽혀 운영자가 재고를 의심한다.
         assertNull(CellOccupancy.alternatives(null, emptySet(), exclude = "BIN-A"))

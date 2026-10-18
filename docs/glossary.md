@@ -76,9 +76,11 @@
 - `TERMINAL`: 재시도가 불가능한 영구적 실패.
 
 ### 임무 정의 (Mission Definition) 와 임무 버전 (Mission Version)
-**임무 정의**는 WorkMaster 하나를 실행 단위로 펼치는 규칙을 노드형 JSON 으로 적은 것입니다. 노드는 단위 노드와 설비 대기 노드 둘이고 직선으로만 잇습니다. 검증(노드 id · 기한 · 신호 · 자원 · 스킬 · 안전 · 출발 관측)을 지나야 활성화됩니다. **임무 버전**(`missionVersion`)은 활성화마다 그 WorkMaster 안에서 1부터 오르는 번호입니다. 코드 케이퍼빌리티는 버전이 없습니다(null). 작업 지시의 버전(`JobOrder.version`, 단위의 `revision`)과는 다른 차원입니다. 실행은 생성 때 그 버전을 쥐고 리비전까지 그것으로 돌며, 인시던트 번들의 의도에 실리지만 내보내지는 않습니다. 이것을 주는 포트가 **임무 카탈로그**(`MissionCatalog`)이며, 계약의 `SkillCatalog`, registry 의 `GET /catalog`, 사이트 카탈로그와는 다른 것입니다.
+**임무 정의**는 WorkMaster 하나를 실행 단위로 펼치는 규칙을 노드형 JSON 으로 적은 것입니다. 노드는 단위 노드와 설비 대기 노드 둘이고 직선으로만 잇습니다. 검증(노드 id · 기한 · 신호 · 자원 · 스킬 · 안전 · 출발 관측 · 목적지 관측)을 지나야 활성화됩니다. **임무 버전**(`missionVersion`)은 활성화마다 그 WorkMaster 안에서 1부터 오르는 번호입니다. 코드 케이퍼빌리티는 버전이 없습니다(null). 작업 지시의 버전(`JobOrder.version`, 단위의 `revision`)과는 다른 차원입니다. 실행은 생성 때 그 버전을 쥐고 리비전까지 그것으로 돌며, 인시던트 번들의 의도에 실리지만 내보내지는 않습니다. 이것을 주는 포트가 **임무 카탈로그**(`MissionCatalog`)이며, 계약의 `SkillCatalog`, registry 의 `GET /catalog`, 사이트 카탈로그와는 다른 것입니다.
 
 **출발 관측 선언**(`sourceObservation`)은 단위 노드가 출발 자리의 자재 신원을 설비 관측으로 확인해야 하는지 지정하는 선택 속성(`REQUIRED`·`OPTIONAL`)입니다. 단위 노드가 `source`와 `expectedIdentity`를 둘 다 가지는데 선언이 누락되면 검증기가 거부하여 활성화를 막습니다. `OPTIONAL`은 설비 신호가 없을 때 판정하지 않고 통과시키는 기존 동작을 유지하여 라인 정지를 방지하며, `REQUIRED`는 신원 확인이 필요한 임무에서 설비 침묵이나 단순 재하 신호에 출발하지 않도록 요구합니다. 실행 단위의 `ExecutionUnit.sourceObservation`에 실리며, 코드 케이퍼빌리티와 데이터판 픽스처는 `OPTIONAL`로 동작합니다.
+
+**목적지 관측 선언**(`destinationObservation`)은 임무 정의의 단위 노드에서 목적지 슬롯의 점유 여부를 검사할지 결정하는 선택적 키(`REQUIRED`·`OPTIONAL`, 기본값 `OPTIONAL`)입니다. 게이트는 `REQUIRED`로 선언되고 `expectedIdentity`와 `destination`을 모두 갖춘 로봇 단위에 대해 디스패치 전 설비에 목적지가 비어 있는지 확인하며, 비어 있지 않거나(목적지 점유) 무응답인 경우(목적지 미관측) 작업 지시를 거부합니다. 이 거부는 대체 자리를 찾지 않고 조치 탐색 레지스터에 기록되지 않으며, `OPTIONAL` 단위는 설비에 묻지 않고 통과시킵니다. 검증기는 두 속성을 모두 갖추고도 선언하지 않거나(`DESTINATION_OBSERVATION_UNDECLARED`) 둘을 모두 갖추지 않고 선언한 경우(`DESTINATION_OBSERVATION_UNUSED`) 엔지니어 담당의 거부로 판정합니다.
 
 **출발 미관측**(`SourceUnobserved`)은 `REQUIRED`로 선언된 단위 노드에서 설비가 침묵하거나(occupied가 null), 재하만 알리고 신원을 답하지 않을 때(occupied가 true) 게이트가 내는 거부 결과입니다. 다른 신원이거나 비어 있을 때 내는 출발 결품(`SourceMissing`)과 달리 대체 자리를 계산하지 않으며, 다음 조치는 작업 지시 수정이 아닌 사람의 확인입니다. 상위 시스템 확인, 인계 시점 점검, 기록된 수동 자재 확인 등의 근거가 셀 포트의 신원 관측으로 들어온 뒤 같은 작업 지시를 다시 제출하면 통과합니다. `submit` 경로의 `Submission.Rejected.sourceUnobserved`와 `adopt` 경로의 `Unassigned.sourceUnobserved`로 전달되며 조치 탐색 레지스터에는 기록되지 않습니다.
 
@@ -333,4 +335,4 @@ OPC UA 기반의 단위 스킬 상태 모델:
 | 놓기 | 이빅션 | eviction (`forget`) |
 | 접수 불명 | 미확정 | `IN_DOUBT` |
 
-> 마지막 대조: 2026-10-18 · sha256:e2f892754fbd · 열림: §15.185
+> 마지막 대조: 2026-10-18 · sha256:ea4ba464d219 · 열림: §15.185
