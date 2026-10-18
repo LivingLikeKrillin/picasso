@@ -1354,7 +1354,36 @@ class Middleware(
         }
         // 막히면 단위는 `PENDING` 그대로 기다린다. 실패도 운영자 보류도 아니고, 허가가 돌아오는 라운드에 나간다.
         if (!permitted) return
+        // **선행 단위가 완료되지 않았으면 그 단위는 내지 않고 다음으로 간다**(§15.234). 결함과 허가를 먼저 묻는다 — 기체가 새 태스크를
+        // 못 받는다고 말하면 그 사실이 실행 보류와 `blockedBy` 로 먼저 드러나고, 사람이 수용한 뒤에 이 단위를 거른다. 거른 뒤 이 라운드를
+        // 다시 돌아 다음 단위를 같은 순서로 본다. 단위마다 한 번만 거르므로 깊이는 단위 수를 넘지 않는다.
+        if (skipAfterPredecessor(execution, next)) {
+            pumpRound(execution)
+            return
+        }
         startUnit(execution, next)
+    }
+
+    /**
+     * [unit] 의 선행 단위([ExecutionUnit.after])가 종료했는데 `DONE` 이 아니면 [unit] 을 태스크 없이 `FAILED` 로 두고 참을 돌려준다.
+     * 선행이 없거나 `DONE` 이면 거짓이다.
+     *
+     * 모양은 계획 단계 실패(`NO_LOCATION_FOR_TARGET` 등)와 같다. 그래서 종결(`PARTIAL`·`FAILED`)과 리비전 규칙이 그대로 선다 — 리비전은
+     * 이 단위를 다시 계획하지만 선행이 시도된 실패로 남아 있으면 다음 라운드에 같은 이유로 다시 거른다. 인시던트는 열지 않는다. 선행의
+     * 실패가 이미 열었다.
+     *
+     * 선행이 아직 종료하지 않은 경우는 여기 오지 않는다. 단위는 목록 순서로 나가고 선행은 늘 앞에 있으며, 운영자 보류·검증 대기·미확정은
+     * 이 앞에서 라운드를 끝낸다.
+     */
+    private fun skipAfterPredecessor(execution: Execution, unit: ExecutionUnit): Boolean {
+        val after = unit.after ?: return false
+        val predecessor = execution.units.firstOrNull { it.unitId == after } ?: return false
+        if (predecessor.state !in ENDED_NOT_DONE) return false
+        unit.state = UnitState.FAILED
+        unit.failureClass = PREDECESSOR_NOT_DONE
+        unit.note = "선행 단위 ${predecessor.unitId} 가 ${predecessor.state.name} 로 종료해 내지 않았다"
+        execution.trail(PREDECESSOR_NOT_DONE, "${unit.unitId}: ${unit.note}")
+        return true
     }
 
     /**
@@ -2734,6 +2763,15 @@ class Middleware(
          * 명령은 아직 안 나간다 — 이 줄은 «허가가 돌아왔다» 이지 «나갔다» 가 아니다.
          */
         const val ISSUE_RESUMED = "ISSUE_RESUMED"
+
+        /**
+         * 선행 단위([ExecutionUnit.after])가 완료되지 않아 이 단위를 내지 않았다 — 실패 분류이자 실행 트레이스의 종류(§15.234).
+         * 작업 응답의 `incompleteUnits` 에 이 값으로 오른다. 태스크가 없으므로 하위 분류가 아니라 이 계층의 이름이다.
+         */
+        const val PREDECESSOR_NOT_DONE = "PREDECESSOR_NOT_DONE"
+
+        /** 선행이 이 상태로 종료했으면 뒤 단위를 내지 않는다. `UNVERIFIED` 도 든다 — 이동이 확인되지 않은 자리에서 살피지 않는다. */
+        private val ENDED_NOT_DONE = setOf(UnitState.FAILED, UnitState.UNVERIFIED, UnitState.ABORTED)
 
         /** 재작업 태스크 id 의 접미사. `startUnit` 이 재작업한 단위에 `@rN` 으로 붙인다. */
         private val RETRY_SUFFIX = Regex("""@r([1-9]\d*)""")

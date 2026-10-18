@@ -342,6 +342,19 @@ data class ExecutionUnit(
      * 데이터 클래스의 본문 속성이라 같음 비교와 복사에 들지 않는다.
      */
     internal var robotBinding: String? = null
+
+    /**
+     * 이 단위보다 먼저 `DONE` 이어야 하는 단위의 id(§15.234). **널이 기본이고 그때는 앞 단위의 결과와 상관없이 나간다** — 슬롯끼리
+     * 독립인 계획([PrepareSequencedRack])은 앞 슬롯이 실패해도 다음 슬롯을 낸다.
+     *
+     * 채우는 것은 오늘 [InspectAsset] 하나다. 대상 하나가 단위 둘(이동과 점검)이고, 이동이 완료되지 않은 채 점검을 내면 엉뚱한 자리에서
+     * 살핀 결과가 `DONE` 으로 남는다. 출발 직전에 이 값이 가리키는 단위가 종료했는데 `DONE` 이 아니면 실행은 이 단위를 태스크 없이 `FAILED` 로
+     * 두고 다음 단위로 간다([Middleware.PREDECESSOR_NOT_DONE]).
+     *
+     * `internal` 이다. 계약·작업 응답·내보내기·판단 기록에 싣지 않는다 — 리비전과 리빌드가 [LogicalCapability.plan] 을 다시 불러
+     * 이 값을 다시 채운다. 데이터 클래스의 본문 속성이라 같음 비교와 복사에 들지 않는다([robotBinding] 과 같다).
+     */
+    internal var after: String? = null
 }
 
 /**
