@@ -162,6 +162,7 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
             tasks = s.tasksList.associate { it.taskId to it.state },
             revisions = s.tasksList.associate { it.taskId to it.revision },
             session = s.header.sessionId,
+            occurredAt = s.header.occurredAt.takeIf { it.isNotBlank() }?.let { runCatching { Instant.parse(it) }.getOrNull() },
         )
     } catch (_: RuntimeException) {
         null

@@ -396,7 +396,45 @@ data class RobotSnapshot(
      * 빈 문자열은 못 읽었다는 뜻이고 그때는 비교하지 않는다.
      */
     val session: String = "",
+    /**
+     * 응답 헤더의 `occurred_at` — 발신자(어댑터 호스트·에뮬레이터)가 **자기 시계로** 이 응답을 찍은 시각이다. 미들웨어가 보낸 시각·받은 시각과
+     * 맞대 발신자 시계 차의 구간을 잰다([Middleware] 의 `CLOCK_SKEW`). 계약 필드가 아니라 헤더에 이미 있는 값을 읽는 내부 칸이다.
+     * 널은 못 읽었다는 뜻이고 그때는 재지 않는다.
+     */
+    val occurredAt: Instant? = null,
 )
+
+/**
+ * 발신자 시계 차 — 발신자 시계에서 미들웨어 시계를 뺀 값의 **구간**이다. 한 번의 왕복으로는 값 하나를 못 재고, 발신자가 찍은 시각이 보낸 순간과
+ * 받은 순간 사이에 있다는 것만 안다. 음수면 발신자가 늦다. [low] 는 `occurred − 받은 시각`, [high] 는 `occurred − 보낸 시각` 이다.
+ */
+internal data class ClockOffset(val low: Duration, val high: Duration)
+
+/**
+ * 구간 전체가 임계 [threshold] 밖인 시계 차 — 방향([behind])과 구간에서 0 에 가까운 쪽([nearest])·먼 쪽([farthest])의 크기다.
+ * 사람에게 보이는 문장과 되풀이를 거르는 서명을 만든다.
+ */
+internal data class ClockSuspicion(val behind: Boolean, val nearest: Duration, val farthest: Duration, val threshold: Duration) {
+
+    /**
+     * 방향과 크기 등급. 등급은 0 에 가까운 쪽 크기가 임계의 몇 배인지를 2 의 거듭제곱 구간으로 센 것이다(1~2배 · 2~4배 · 4~8배 ...).
+     * 크기가 조금 흔들리는 것을 새 줄로 세지 않고, 배로 벌어지면 다시 남기려는 눈금이다.
+     */
+    val signature: String
+        get() {
+            val ratio = (nearest.toMillis() / threshold.toMillis().coerceAtLeast(1)).coerceAtLeast(1)
+            val grade = 63 - java.lang.Long.numberOfLeadingZeros(ratio)
+            return "${if (behind) "LATE" else "EARLY"}:$grade"
+        }
+
+    /** 「발신자 시계가 미들웨어보다 20초 늦다」 — 구간이 넓으면 `10~20초` 로 쓴다. */
+    fun describe(): String {
+        val near = Math.round(nearest.toMillis() / 1000.0)
+        val far = Math.round(farthest.toMillis() / 1000.0)
+        val size = if (near == far) "${near}초" else "${near}~${far}초"
+        return "발신자 시계가 미들웨어보다 $size ${if (behind) "늦다" else "빠르다"}"
+    }
+}
 
 /** `ReplayEvents(from)` 의 답 — 이벤트들이거나, 버퍼를 벗어났으니 스냅샷부터 다시 세우라는 말. */
 sealed interface Replay {
