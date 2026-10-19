@@ -381,8 +381,8 @@ class WorkPermitTest {
 
     @Test
     fun `미확정 조회도 허가 없이 다시 보내지 않는다`() {
-        // 조회는 같은 참조의 StartTask 재전송이다 — 원 요청이 안 닿았으면 새 접수가 된다.
-        World(port = { LossyRobotPort(it, dropStartResponses = 1) }).use { w ->
+        // 조회는 같은 참조의 StartTask 재전송이다 — 원 요청이 안 닿았으면 새 접수가 된다. 스냅숏이 안 열려야 조회만 남는다.
+        World(port = { LossyRobotPort(FaultBlindRobotPort(it), dropStartResponses = 1) }).use { w ->
             w.permits.only(permitted(A))
             val exec = w.accept()
             w.mw.pump()
@@ -400,6 +400,59 @@ class WorkPermitTest {
             assertEquals(2, w.wire.starts.size)
             assertEquals(UnitState.RUNNING, exec.units.first().state)
             assertNull(exec.permitBlock)
+        }
+    }
+
+    @Test
+    fun `허가가 막은 채 유예가 지나도 한 번도 못 물었으면 운영자로 넘기지 않고 허가가 돌아오면 묻는다`() {
+        World(port = { LossyRobotPort(FaultBlindRobotPort(it), dropStartResponses = 1) }).use { w ->
+            w.permits.only(permitted(A))
+            val exec = w.accept()
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.units.first().state)
+
+            w.permits.only(inhibited(A))
+            w.harness.advance(exec.capability.inDoubtGrace.plusSeconds(30))
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.units.first().state, "허가가 막은 동안 유예가 가서 운영자로 넘어갔다")
+            assertEquals(1, w.wire.starts.size, "막혔는데 조회가 나갔다")
+
+            w.permits.only(permitted(A))
+            w.mw.pump()
+            assertEquals(2, w.wire.starts.size)
+            assertEquals(UnitState.RUNNING, exec.units.first().state)
+        }
+    }
+
+    @Test
+    fun `미확정 태스크가 스냅숏에 보이면 허가가 막아도 붙는다 — 붙는 것은 읽기뿐이다`() {
+        World(port = { LossyRobotPort(it, dropStartResponses = 1) }).use { w ->
+            w.permits.only(permitted(A))
+            val exec = w.accept()
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.units.first().state)
+
+            w.permits.only(inhibited(A))
+            w.mw.pump()
+            assertEquals(1, w.wire.starts.size, "막혔는데 StartTask 가 나갔다")
+            assertEquals(UnitState.RUNNING, exec.units.first().state, "스냅숏에 보이는 태스크에 붙는 데 허가를 물었다")
+            assertNull(exec.permitBlock)
+        }
+    }
+
+    @Test
+    fun `허가가 막은 채 미확정인 단위의 취소도 스냅숏으로 붙어 기체에 나간다`() {
+        World(port = { LossyRobotPort(it, dropStartResponses = 1) }).use { w ->
+            w.permits.only(permitted(A))
+            val exec = w.accept()
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.units.first().state)
+
+            w.permits.only(inhibited(A))
+            assertTrue(w.mw.cancel(exec.executionId))
+            w.mw.pump()
+            assertEquals(listOf(exec.units.first().taskId), w.wire.cancels, "허가가 막은 동안 미확정 단위의 취소가 기체에 안 나갔다")
+            assertEquals(1, w.wire.starts.size, "취소를 보내려고 StartTask 를 다시 보냈다")
         }
     }
 

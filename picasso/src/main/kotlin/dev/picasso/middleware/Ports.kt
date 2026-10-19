@@ -160,6 +160,7 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
             faults = s.faultsList,
             connection = s.connectionState,
             tasks = s.tasksList.associate { it.taskId to it.state },
+            revisions = s.tasksList.associate { it.taskId to it.revision },
             session = s.header.sessionId,
         )
     } catch (_: RuntimeException) {
@@ -439,8 +440,8 @@ data class SiteTimings(
         val EVIDENCE_WINDOW_AFTER_SECONDS: LongRange = 5L..120L
 
         /**
-         * `IN_DOUBT` 유예의 허용 범위(초). 하한은 같은 참조로 다시 묻는 상한(pump 마다 한 번, 세 번)을 마친 뒤에도 설비를
-         * 여러 번 읽을 폭이고, 상한은 기본값의 10배다. 기본값 60.
+         * `IN_DOUBT` 유예의 허용 범위(초). 이 유예 안에서 pump 마다 같은 참조로 다시 묻고 스냅숏에 그 태스크가 보이는지 본다.
+         * 하한은 그 뒤에도 설비를 여러 번 읽을 폭이고, 상한은 기본값의 10배다. 기본값 60.
          */
         val IN_DOUBT_GRACE_SECONDS: LongRange = 10L..600L
 

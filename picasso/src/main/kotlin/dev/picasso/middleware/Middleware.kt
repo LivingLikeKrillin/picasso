@@ -52,11 +52,6 @@ class Middleware(
     capabilities: List<LogicalCapability>? = null,
     private val now: () -> Instant = { Instant.now() },
     /**
-     * `IN_DOUBT` 에서 같은 참조로 다시 묻는 횟수의 상한(13.2 ①). 이만큼 물어도 답이 없으면 하류가 지금은 조회 불가인
-     * 것이고, 12.3 셋째 행대로 **불가 시 운영자**다. `pump()` 한 번에 한 번 묻는다.
-     */
-    private val lookupRetries: Int = 3,
-    /**
      * 실 시계 — 사건 번들의 **현장 대조**·검토 시각, 탐색 대장([RemedySearchRecord])과 승인 소모 기록의 실 시각용이다.
      * [now] 와 나누는 이유는 [now] 가 시험에서 가상 시계이기 때문이다. 둘을 접으면 재현 판정과 현장 대조 중 하나를 잃는다(설계안 §4.2).
      */
@@ -185,6 +180,9 @@ class Middleware(
             internal set
         var tasks: Map<String, dev.picasso.contracts.v1.TaskState> = emptyMap()
             internal set
+        /** [tasks] 의 태스크마다 기체가 든 리비전. 포트가 안 실으면 비어 있다. */
+        var taskRevisions: Map<String, Int> = emptyMap()
+            internal set
         /** 마지막 동기화에서 기체를 봤는가. 거짓이면 위의 값은 낡은 것이다. */
         var observable: Boolean = false
             internal set
@@ -244,6 +242,12 @@ class Middleware(
 
         /** [cancelUnsent] 의 까닭을 트레이스에 남긴 마지막 값. 같은 까닭을 라운드마다 되풀이하지 않는다. */
         internal var notedCancelUnsent: String? = null
+
+        /**
+         * 취소가 걸린 채 미확정이 끝내 안 풀려 운영자 보류가 된 단위의 id(§15.238). 핸들이 없어 취소가 하위에 닿지 못했다 — 널이 아니고
+         * 그 단위가 아직 운영자 보류인 동안 실행은 중단으로 닫지 않고 운영자 판단을 기다린다([cancelWaitsOnHeldDoubt]).
+         */
+        internal var doubtCancelHold: String? = null
 
         /**
          * 라운드 진행([PUMP_SOURCE])과 기체 동기화(`sync:<기체>`)에서 포트가 던진 마지막 까닭. 같은 자리가 같은 까닭으로 계속 던지면
@@ -1074,6 +1078,7 @@ class Middleware(
             unit.state = UnitState.IN_DOUBT
             unit.requestedAt = now()
             unit.lookups = 0
+            unit.lastLookupAt = null
             unit.annotate("revision $revision update unanswered")
             execution.physicalState = PhysicalState.IN_DOUBT
         }
@@ -1191,6 +1196,7 @@ class Middleware(
         view.faults = snapshot.faults.associateBy { faultKey(it) }
         view.connection = snapshot.connection
         view.tasks = snapshot.tasks
+        view.taskRevisions = snapshot.revisions
         val previousSession = view.session
         if (snapshot.session.isNotEmpty()) view.session = snapshot.session
 
@@ -1337,7 +1343,7 @@ class Middleware(
             execution.handle?.let { robots.release(execution.robotOf(active), it) }
             execution.handle = null
             execution.transport = null
-            if (execution.cancelRequested) {
+            if (execution.cancelRequested && !cancelWaitsOnHeldDoubt(execution)) {
                 // 하류 갱신을 읽은 경로는 abort 를 이미 적었다. 검증 대기 중에 취소가 걸린 경우만 여기서 적는다.
                 if (execution.physicalState != PhysicalState.ABORTED) abort(execution, inProgress = active, hold = active.hold, cleanup = "not_applicable")
                 return
@@ -1347,7 +1353,8 @@ class Middleware(
             if (execution.physicalState == PhysicalState.ABORTED) return
         }
 
-        if (execution.cancelRequested) {
+        // 취소가 걸린 채 미확정이 끝내 안 풀린 단위는 취소가 하위에 닿지 못했다 — 중단으로 닫지 않고 아래 운영자 보류에 둔다(§15.238).
+        if (execution.cancelRequested && !cancelWaitsOnHeldDoubt(execution)) {
             // 다시 지은 실행이 아직 붙지 않은 태스크가 기체에 있으면 그것부터 멈춘다. 붙지 않은 채 정착하면 기체가 그 태스크를 하는
             // 동안 실행이 기체를 내준다.
             if (attachForCancel(execution)) return
@@ -1625,11 +1632,15 @@ class Middleware(
     }
 
     /**
-     * `IN_DOUBT` 의 해소 — 보고서 13.2 의 순서 그대로.
+     * `IN_DOUBT` 의 해소 — 보고서 13.2 의 순서에 스냅숏 부착을 앞에 더했다(§15.238).
      *
+     * 0. **스냅숏 부착**(로봇 경로만) — 기체의 스냅숏에 이 단위의 태스크가 보이면 `StartTask` 없이 핸들을 지어 붙는다
+     *    ([attachFromSnapshot]). 읽기뿐이라 발행 게이트를 묻지 않고, 조회가 막힌 동안에도 붙는다.
      * 1. **하류의 클라이언트 참조 기반 조회** — 같은 참조로 다시 묻는다. 계약은 같은 핸들을 돌려주고 플릿은 같은 운반을
      *    돌려준다. 돌아오면 그 실행을 **이어서 추적**한다(새 실행이 아니다 — 17장 3번 *자동 재실행 없음*, 9번 재동기화는
-     *    처음부터 되짚는 `WatchTask(0)` 이 한다). [lookupRetries] 번 물어도 답이 없으면 지금은 조회 불가다.
+     *    처음부터 되짚는 `WatchTask(0)` 이 한다). **횟수가 아니라 시간으로 잰다** — 미확정 유예([LogicalCapability.inDoubtGrace]) 안에서
+     *    pump 마다 한 번 묻는다. 횟수로 재면 pump 주기가 짧을수록 짧은 끊김에도 예산이 바닥난다. 유예가 지나도 한 번은 묻는다 —
+     *    허가가 막은 동안 유예가 다 가서 «하위가 답하지 않았다» 가 아닌 것이 그렇게 적히는 일이 없게.
      * 2. **물리 상태 관측** — 하류에 물을 수 없을 때 설비를 본다. 요청 시각부터 [LogicalCapability.inDoubtGrace] 안에
      *    기대한 것이 목적지에 나타나면 **잠정 완료**다(12.3 셋째 행). 확정은 조회가 하고, 조회가 없으면 운영자가 한다.
      * 3. **운영자** — `OPERATOR_HOLD`. 자동 재실행은 없다. 재요청은 사람이 [OperatorDecision.REWORK] 로 명시적으로 낸다(13.3).
@@ -1638,15 +1649,28 @@ class Middleware(
      */
     private fun resolveDoubt(execution: Execution, unit: ExecutionUnit): Boolean {
         val lookup = lookupOf(unit.route)
-        if (lookup == ExecutionLookup.CLIENT_REFERENCE && unit.lookups < lookupRetries) {
+        // ⓪ 스냅숏 부착 — 붙었으면 이 라운드는 여기까지다. 다음 라운드의 [pumpRobotUnit] 이 처음부터 되짚는다.
+        if (unit.route == Route.ROBOT && attachFromSnapshot(execution, unit)) return false
+
+        val requestedAt = unit.requestedAt!!
+        val inGrace = now().isBefore(requestedAt.plus(inDoubtGraceOf(execution)))
+        if (lookup == ExecutionLookup.CLIENT_REFERENCE && (inGrace || unit.lookups == 0)) {
+            // 조회 사이에 간격을 둔다([LOOKUP_INTERVAL]). 간격 안이면 이 라운드는 묻지 않고 미확정인 채 기다린다.
+            val last = unit.lastLookupAt
+            if (last != null && now().isBefore(last.plus(LOOKUP_INTERVAL))) {
+                execution.physicalState = PhysicalState.IN_DOUBT
+                return false
+            }
             // **로봇 경로의 조회는 같은 참조의 `StartTask` 재전송이다** — 원 요청이 안 닿았으면 새 접수가 되어 기체가 움직인다.
-            // 그래서 새 발행과 같은 관문을 지난다(ADR 52). 막히면 조회 횟수를 쓰지 않고 미확정인 채 기다린다 — 횟수를 쓰면
-            // 허가가 막은 동안에 운영자 판단으로 넘어가, «하류가 답하지 않았다» 가 아닌 것이 그렇게 적힌다.
+            // 그래서 새 발행과 같은 게이트를 지난다(ADR 52). 막히면 조회 횟수를 쓰지 않고 미확정인 채 기다린다 — 유예가 다 갔어도
+            // 한 번도 못 물었으면 계속 기다린다. 안 그러면 허가가 막은 동안에 운영자 판단으로 넘어가,
+            // «하류가 답하지 않았다» 가 아닌 것이 그렇게 적힌다.
             if (unit.route == Route.ROBOT && !issuable(execution, unit, WithheldIssue.IN_DOUBT_LOOKUP)) {
                 execution.physicalState = PhysicalState.IN_DOUBT
                 return false
             }
             unit.lookups += 1
+            unit.lastLookupAt = now()
             val found = try {
                 lookupDownstream(execution, unit)
             } catch (_: RuntimeException) {
@@ -1670,20 +1694,19 @@ class Middleware(
         }
 
         // ② 물리 관측 — 요청 시각부터의 신호만 이 요청의 것이다.
-        val requestedAt = unit.requestedAt!!
         val window = windowOf(execution)
         val signal = execution.observeCell(unit)
         val observedAt = signal?.observedAt ?: now()
         val provisional = signal != null && signal.occupied &&
             (unit.expectedIdentity == null || signal.identity == unit.expectedIdentity) &&
             !observedAt.isBefore(requestedAt.minus(window.before))
-        if (!provisional && now().isBefore(requestedAt.plus(inDoubtGraceOf(execution)))) {
+        if (!provisional && inGrace) {
             execution.physicalState = PhysicalState.IN_DOUBT
             return false
         }
 
         // ③ 운영자.
-        val why = if (lookup == ExecutionLookup.NONE) "downstream has no client-reference lookup" else "lookup unanswered ${unit.lookups} time(s)"
+        val why = if (lookup == ExecutionLookup.NONE) "downstream has no client-reference lookup" else "lookup unanswered within grace (${unit.lookups} time(s))"
         if (provisional) {
             unit.verification = Verification.MATCHED
             unit.evidenceAt = observedAt
@@ -1693,9 +1716,63 @@ class Middleware(
         }
         unit.state = UnitState.OPERATOR_HOLD
         execution.notedDoubt = null
+        // **취소가 걸렸는데 핸들이 없다** — 취소가 하위에 닿지 못했다. 이 단위를 든 채 실행을 중단으로 닫으면 기체가 응답을 잃은 그
+        // 태스크를 하는 동안 실행이 기체를 내준다. 운영자 판단까지 보류에 둔다(§15.92, §15.238).
+        if (execution.cancelRequested && execution.handle == null && execution.transport == null) holdUnsentCancel(execution, unit)
         execution.markIncident(unit)
         return true
     }
+
+    /**
+     * 취소가 걸린 채 미확정이 안 풀린 [unit] 의 취소를 «보내지 못한 취소» 로 표시한다([Execution.cancelUnsent]). 실행은 단위가 운영자
+     * 보류인 동안 중단으로 닫히지 않는다([cancelWaitsOnHeldDoubt]). 운영자가 판단하면 취소는 보통 경로로 끝나고 취소 응답에
+     * [CANCEL_NOT_SENT] 가 실린다.
+     */
+    private fun holdUnsentCancel(execution: Execution, unit: ExecutionUnit) {
+        execution.cancelUnsent = true
+        execution.doubtCancelHold = unit.unitId
+        execution.notedCancelUnsent = HOLD_UNSENT_CAUSE
+        unit.annotate("cancel requested but never reached the downstream: no task handle")
+        execution.trail(CANCEL_UNSENT, "${unit.unitId}: 취소를 하위에 보내지 못했다 ($HOLD_UNSENT_CAUSE) — 운영자 판단을 기다린다")
+    }
+
+    /** 걸린 취소가 [holdUnsentCancel] 로 서 있고 그 단위가 아직 운영자 보류다 — 실행은 운영자 판단을 기다린다. */
+    private fun cancelWaitsOnHeldDoubt(execution: Execution): Boolean {
+        val held = execution.doubtCancelHold ?: return false
+        return execution.units.any { it.unitId == held && it.state == UnitState.OPERATOR_HOLD }
+    }
+
+    /**
+     * ⓪ 스냅숏 부착(§15.238) — 기체의 스냅숏에 이 단위의 지금 시도의 태스크가 있으면 `StartTask` 를 다시 보내지 않고 그 태스크의
+     * 핸들(태스크 id·리비전·기체)을 지어 붙는다. 단위는 도는 중이 되고, 취소가 걸려 있으면 그 핸들로 바로 보낸다. 부착한 라운드의
+     * 상태 읽기는 다음 라운드의 [pumpRobotUnit] 이 `WatchTask(0)` 으로 처음부터 되짚는다 — 이미 끝난 태스크도 그 종료를 읽는다.
+     *
+     * - **읽기뿐이라 발행 게이트([issuable])를 묻지 않는다.** 붙는 데 새 로봇 명령이 없다([attachForCancel] 과 같은 이유).
+     * - **리비전이 단위의 것과 같아야 한다.** 개정 갱신의 미확정은 태스크가 원래 있고, 기체가 아직 옛 리비전이면 갱신이 안 닿은 것이라
+     *   붙지 않고 조회가 갱신을 다시 보낸다. 포트가 리비전을 안 싣거나 이 태스크의 것이 비어 있어도 붙지 않는다.
+     * - **스냅숏을 못 읽었으면 붙지 않는다.** 못 읽은 것은 태스크가 없다는 관측이 아니다. 조회가 맡는다.
+     *
+     * @return 붙었는가.
+     */
+    private fun attachFromSnapshot(execution: Execution, unit: ExecutionUnit): Boolean {
+        val robot = execution.robotOf(unit)
+        val view = views[robot]?.takeIf { it.observable } ?: return false
+        val state = view.tasks[unit.taskId] ?: return false
+        if (view.taskRevisions[unit.taskId] != unit.revision) return false
+
+        execution.handle = handleFor(robot, unit.taskId, unit.revision)
+        unit.state = UnitState.RUNNING
+        execution.notedDoubt = null
+        unit.annotate("IN_DOUBT resolved by snapshot attach: ${unit.taskId}=${state.name} revision ${unit.revision}")
+        execution.trail(DOUBT_ATTACHED, "${unit.unitId}: 스냅숏의 ${unit.taskId}=${state.name}(리비전 ${unit.revision})에 StartTask 없이 붙었다")
+        execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+        if (execution.cancelRequested) sendCancel(execution)
+        return true
+    }
+
+    /** 스냅숏으로 짓는 태스크 핸들 — [attachForCancel] 과 [attachFromSnapshot] 이 같은 값을 짓는다. */
+    private fun handleFor(robot: String, taskId: String, revision: Int): TaskHandle =
+        TaskHandle.newBuilder().setTaskId(taskId).setRevision(revision).setRobotId(robot).build()
 
     /** 13.2 ① — 같은 참조로 다시 묻는다. 돌아오면 핸들을 잡고 참, 거절이면 단위를 실패로 적고 거짓, 답이 없으면 던진다. */
     private fun lookupDownstream(execution: Execution, unit: ExecutionUnit): Boolean = when (unit.route) {
@@ -1964,6 +2041,7 @@ class Middleware(
         unit.taskId = taskIdOf(execution, unit)
         unit.requestedAt = requestedAtOf(execution, unit)
         unit.lookups = 0
+        unit.lastLookupAt = null
         // 같은 태스크 id 로 보내면 기체에 있던 태스크에 붙는다 — 이제 이 인스턴스가 든 태스크다.
         execution.unattached.remove(unit.unitId)
         execution.active = unit
@@ -2044,7 +2122,7 @@ class Middleware(
 
         val robot = execution.robotOf(unit)
         val taskId = taskIdOf(execution, unit)
-        val handle = TaskHandle.newBuilder().setTaskId(taskId).setRevision(unit.revision).setRobotId(robot).build()
+        val handle = handleFor(robot, taskId, unit.revision)
         val sent = !state.endedOnRobot()
         if (sent) {
             val response = try {
@@ -2057,6 +2135,7 @@ class Middleware(
         unit.taskId = taskId
         unit.requestedAt = requestedAtOf(execution, unit)
         unit.lookups = 0
+        unit.lastLookupAt = null
         unit.state = UnitState.RUNNING
         execution.unattached.remove(unit.unitId)
         execution.notedUnattached = null
@@ -2933,6 +3012,23 @@ class Middleware(
 
         /** 붙기 전에 걸린 취소가 기체를 못 봐 정착하지 않고 기다린다는 실행 자취의 종류(§15.231). 같은 까닭은 한 번만 남는다. */
         const val CANCEL_UNATTACHED_WAIT = "CANCEL_UNATTACHED_WAIT"
+
+        /**
+         * 유예 안에서 미확정 조회(`StartTask` 재전송) 사이에 두는 최소 간격(§15.238). 새 현장 시간값이 아니라 이 층의 상수다.
+         *
+         * 2초로 고른 근거: ops 의 pump 주기 250ms 에서 라운드마다 묻는 것보다 8배 줄고(멈춘 엔드포인트가 호스트 잠금을 쥐는 횟수가
+         * 그만큼 준다), 유예 최솟값 10초 안에서도 다섯 번 묻고, 1초 안팎의 짧은 끊김은 첫 조회 뒤 2초 안에 다시 묻는 다음 조회로
+         * 풀린다. 첫 조회는 간격 없이 바로 나간다. 단위의 마지막 조회 시각([ExecutionUnit.lastLookupAt])은 판단 기록에 안 들어 리빌드 뒤에는
+         * 없고, 그때 첫 조회가 한 번 더 바로 나가는 것은 무해하다 — 같은 참조의 재전송은 멱등이고 간격은 부하를 줄이려는 것이지 정합성의
+         * 조건이 아니다.
+         */
+        internal val LOOKUP_INTERVAL: Duration = Duration.ofSeconds(2)
+
+        /** 미확정 단위가 기체의 스냅숏에 보이는 태스크에 `StartTask` 없이 붙어 풀렸다는 실행 트레이스의 종류(§15.238). */
+        const val DOUBT_ATTACHED = "DOUBT_ATTACHED"
+
+        /** 취소가 걸린 채 미확정이 안 풀려 취소가 닿지 못했다는 [CANCEL_UNSENT] 의 까닭(§15.238). 한 번만 남는다. */
+        private const val HOLD_UNSENT_CAUSE = "미확정이라 태스크 핸들이 없다"
 
         /** 라운드 진행([PUMP_SOURCE])의 실패를 [Execution.pumpFailures] 에 적는 자리 이름. 기체 동기화는 `sync:<기체>` 다. */
         private const val PUMP_SOURCE = "pump"

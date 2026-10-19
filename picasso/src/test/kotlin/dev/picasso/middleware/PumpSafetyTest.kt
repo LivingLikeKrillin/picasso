@@ -37,17 +37,36 @@ class PumpSafetyTest {
         override fun replay(robotId: String, from: Long): Replay? = if (blind) null else delegate.replay(robotId, from)
     }
 
-    /** 다음 `StartTask` 의 답을 버린다 — 요청은 기체에 닿는다. [drop] 만큼. */
+    /** 다음 `StartTask` 의 답을 버린다 — 요청은 기체에 닿는다. [drop] 만큼. 나간 `StartTask` 는 [starts] 로 센다. */
     private class DropNext(private val delegate: RobotPort) : RobotPort by delegate {
         var drop = 0
+        var starts = 0
+            private set
 
         override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse {
+            starts += 1
             val response = delegate.start(robotId, taskId, revision, skillType, parameters)
             if (drop > 0) {
                 drop -= 1
                 throw IllegalStateException("response lost after the request reached the robot")
             }
             return response
+        }
+    }
+
+    /** 다음 `StartTask` 가 기체에 **닿지 못한 채** 던진다 — [DropNext] 와 달리 위임하지 않는다. [lose] 만큼. */
+    private class LoseNext(private val delegate: RobotPort) : RobotPort by delegate {
+        var lose = 0
+        var starts = 0
+            private set
+
+        override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse {
+            starts += 1
+            if (lose > 0) {
+                lose -= 1
+                throw IllegalStateException("request did not reach the robot")
+            }
+            return delegate.start(robotId, taskId, revision, skillType, parameters)
         }
     }
 
@@ -225,6 +244,47 @@ class PumpSafetyTest {
             val cleared = w.mw.sentFor(exec).drop(before + 1)
             assertEquals(1, cleared.size, "미확정이 풀렸는데 작업 응답이 안 나갔다: $cleared")
             assertEquals(PhysicalState.RUNNING to emptyList(), cleared.single().physicalState to cleared.single().inDoubtUnits)
+        }
+    }
+
+    @Test
+    fun `개정 갱신의 답을 잃어도 스냅숏의 리비전이 새 것이면 재전송 없이 풀린다`() {
+        World(wrap = { DropNext(it) }).use { w ->
+            val port = w.port as DropNext
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            val travel = exec.units.first().unitId
+            w.drive { w.state(taskOf(travel)) == "RUNNING" }
+
+            port.drop = 1
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(version = 2), ROBOT))
+            assertEquals(UnitState.IN_DOUBT, exec.unit(travel).state, "시험의 전제: 갱신의 답을 잃어 미확정이다")
+            val sent = port.starts
+
+            w.mw.pump()
+            assertEquals(UnitState.RUNNING, exec.unit(travel).state)
+            assertEquals(sent, port.starts, "스냅숏이 새 리비전을 보이는데 StartTask 를 다시 보냈다")
+            assertEquals(2, assertNotNull(exec.handle).revision)
+        }
+    }
+
+    @Test
+    fun `개정 갱신이 기체에 안 닿았으면 스냅숏의 옛 리비전에 붙지 않고 다시 보낸다`() {
+        World(wrap = { LoseNext(it) }).use { w ->
+            val port = w.port as LoseNext
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            val travel = exec.units.first().unitId
+            w.drive { w.state(taskOf(travel)) == "RUNNING" }
+
+            port.lose = 1
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(version = 2), ROBOT))
+            assertEquals(UnitState.IN_DOUBT, exec.unit(travel).state, "시험의 전제: 갱신이 안 닿아 미확정이다")
+            assertEquals(1, w.tasks().first { it.taskId == taskOf(travel) }.revision, "시험의 전제: 기체는 옛 리비전이다")
+            val sent = port.starts
+
+            w.mw.pump()
+            assertEquals(UnitState.RUNNING, exec.unit(travel).state)
+            assertEquals(sent + 1, port.starts, "옛 리비전인데 붙기만 하고 새 리비전을 안 보냈다")
+            assertEquals(2, w.tasks().first { it.taskId == taskOf(travel) }.revision, "기체가 새 리비전으로 안 올랐다")
         }
     }
 
