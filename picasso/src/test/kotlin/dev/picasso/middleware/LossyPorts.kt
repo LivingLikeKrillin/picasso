@@ -13,6 +13,8 @@ import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.WatchTaskResponse
+import java.time.Duration
+import java.time.Instant
 
 /**
  * **응답 유실**의 더블 — 요청은 하류에 닿고 답만 오지 않는다(보고서 17장 3번 *"요청 직후 연결 단절"*).
@@ -277,4 +279,27 @@ class ThrowingSnapshotRobotPort(
         if (armed && robotId == this.robotId) throw IllegalStateException("snapshot read timed out for $robotId")
         return delegate.snapshot(robotId)
     }
+}
+
+/**
+ * **발신자 시계가 어긋난** 포트 — 어댑터 호스트·에뮬레이터가 자기 시계로 찍는 두 시각을 [shift] 만큼 옮긴다. 하위가 상태 전이를 적은
+ * 시각(감시 응답 헤더의 `state_as_of`)과 응답을 찍은 시각(스냅숏 헤더의 `occurred_at`)이다. 음수면 발신자가 미들웨어보다 늦다.
+ * 같은 시계로 도는 시험 세계에서 환경 전제 K 가 깨진 현장을 만든다. 값을 지어내는 것이 아니라 한 시계의 오차를 두 자리에 같이 싣는다.
+ */
+class ClockShiftRobotPort(private val delegate: RobotPort, var shift: Duration) : RobotPort by delegate {
+    override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
+        delegate.watch(robotId, handle).map { response ->
+            val stamped = response.header.stateAsOf
+            if (stamped.isBlank()) response else response.toBuilder()
+                .setHeader(response.header.toBuilder().setStateAsOf(Instant.parse(stamped).plus(shift).toString()))
+                .build()
+        }
+
+    override fun snapshot(robotId: String): RobotSnapshot? =
+        delegate.snapshot(robotId)?.let { s -> s.copy(occurredAt = s.occurredAt?.plus(shift)) }
+}
+
+/** 스냅숏 왕복이 [spend] 만큼 걸리는 포트 — 응답을 받은 뒤 가상 시계를 민다. 보낸 시각과 받은 시각이 벌어진다. */
+class SlowSnapshotRobotPort(private val delegate: RobotPort, private val spend: () -> Unit) : RobotPort by delegate {
+    override fun snapshot(robotId: String): RobotSnapshot? = delegate.snapshot(robotId).also { spend() }
 }

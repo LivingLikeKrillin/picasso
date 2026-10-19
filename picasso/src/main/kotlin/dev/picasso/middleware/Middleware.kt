@@ -190,6 +190,12 @@ class Middleware(
             internal set
         var eventsSeen: Long = 0
             internal set
+
+        /**
+         * 마지막 스냅숏 왕복에서 잰 **발신자 시계 차의 구간**(발신자 시계 − 미들웨어 시계). 널이면 아직 못 쟀다 — 응답 헤더에 시각이 없었거나
+         * 스냅숏을 못 읽었다. 임계 판정은 읽는 쪽 실행의 근거 시간 윈도우로 하므로 구간 그대로 든다.
+         */
+        internal var clockOffset: ClockOffset? = null
     }
 
     fun view(robotId: String): RobotView? = views[robotId]
@@ -254,6 +260,12 @@ class Middleware(
          * 트레이스에 한 번만 남기려는 표시이고, 그 자리가 한 번 성공하면 지운다.
          */
         internal val pumpFailures: MutableMap<String, String> = mutableMapOf()
+
+        /**
+         * 기체마다 [CLOCK_SKEW] 로 남긴 마지막 시계 차의 방향·크기 등급. 같은 등급이 이어지는 동안 되풀이하지 않으려는 표시이고,
+         * 시계 차가 다시 허용 안으로 들어오면 지운다.
+         */
+        internal val clockSkewNoted: MutableMap<String, String> = mutableMapOf()
         /** 지연 보고·운영자 보류·미확정 통보를 한 번만 내기 위한 표시. */
         internal var notedDelay: String? = null
         internal var notedHold: String? = null
@@ -1182,17 +1194,20 @@ class Middleware(
     private fun sync(robotId: String, live: List<Execution>) {
         val view = views.getOrPut(robotId) { RobotView() }
         // 던지는 포트도 «못 물어봤다» 다 — 낡은 값을 관측한 값으로 두지 않는다. 던진 사실은 부른 쪽이 트레이스에 남긴다.
+        val sentAt = now()
         val snapshot = try {
             robots.snapshot(robotId)
         } catch (e: RuntimeException) {
             view.observable = false
             throw e
         }
+        val receivedAt = now()
         if (snapshot == null) {
             view.observable = false
             return
         }
         view.observable = true
+        measureClock(robotId, view, snapshot, sentAt, receivedAt, live)
         view.faults = snapshot.faults.associateBy { faultKey(it) }
         view.connection = snapshot.connection
         view.tasks = snapshot.tasks
@@ -1228,6 +1243,60 @@ class Middleware(
                 replay.events.lastOrNull()?.let { view.cursor = it.header.sequence + 1 }
             }
         }
+    }
+
+    /**
+     * 발신자 시계 차의 구간을 재고, 구간 전체가 임계 밖이면 그 기체의 진행 중인 실행에 [CLOCK_SKEW] 를 남긴다(환경 전제 K).
+     *
+     * 응답 헤더의 `occurred_at` 은 발신자가 자기 시계로 찍은 시각이고, 그 시각은 우리가 보낸 순간과 받은 순간 사이의 어딘가에 해당한다. 그래서
+     * 차(발신자 − 미들웨어)는 한 값이 아니라 `[occurred − 받은 시각, occurred − 보낸 시각]` 구간이다. 왕복이 길수록 구간이 넓어지고, 구간이
+     * 임계에 걸치면 시계 차인지 왕복 지연인지 가를 수 없으므로 남기지 않는다. **판정은 바꾸지 않는다** — 보정은 계약 §4 가 하지 않는다고 한 일이다.
+     * 셀 시계는 잴 수단이 없어 다루지 않는다.
+     */
+    private fun measureClock(
+        robotId: String,
+        view: RobotView,
+        snapshot: RobotSnapshot,
+        sentAt: Instant,
+        receivedAt: Instant,
+        live: List<Execution>,
+    ) {
+        val occurred = snapshot.occurredAt ?: return
+        val offset = ClockOffset(low = Duration.between(receivedAt, occurred), high = Duration.between(sentAt, occurred))
+        view.clockOffset = offset
+        live.forEach { it.noteClockSkew(robotId, offset) }
+    }
+
+    /**
+     * 이 실행의 근거 시간 윈도우로 본 발신자 시계 차 의심. 구간 전체가 임계 밖일 때만 값이 있다.
+     *
+     * 임계는 **좁은 쪽 허용 폭의 절반**이다 — 윈도우의 앞·뒤 폭 중 좁은 것의 절반(기본값이면 15초의 절반인 7.5초, 현장이 줄이면 따라 줄어든다).
+     * 허용 폭은 발신자가 늦는 쪽이 `뒤 폭 − L`, 빠른 쪽이 `앞 폭 − L` 이고 L(셀 폴링 주기·pump 주기·전달 지연의 합)은 현장 값이라 여기서 모른다.
+     * 그래서 폭의 절반에서 알린다 — 허용 폭에 닿기 전에 사람이 보게 하는 여유다(`docs/environment-preconditions.md` 절 K).
+     */
+    private fun clockSuspicionOf(execution: Execution, offset: ClockOffset?): ClockSuspicion? {
+        offset ?: return null
+        val window = windowOf(execution)
+        val threshold = minOf(window.before, window.after).dividedBy(2)
+        return when {
+            offset.high < threshold.negated() -> ClockSuspicion(behind = true, nearest = offset.high.negated(), farthest = offset.low.negated(), threshold = threshold)
+            offset.low > threshold -> ClockSuspicion(behind = false, nearest = offset.low, farthest = offset.high, threshold = threshold)
+            else -> null
+        }
+    }
+
+    /** 시계 차 의심을 트레이스에 한 번 남긴다. 같은 방향·같은 크기 등급이면 되풀이하지 않고, 허용 안으로 들어오면 표시를 지운다. */
+    private fun Execution.noteClockSkew(robot: String, offset: ClockOffset) {
+        val suspicion = clockSuspicionOf(this, offset)
+        if (suspicion == null) {
+            clockSkewNoted.remove(robot)
+            return
+        }
+        if (clockSkewNoted.put(robot, suspicion.signature) == suspicion.signature) return
+        trail(
+            CLOCK_SKEW,
+            "robot=$robot ${suspicion.describe()} (임계 ${suspicion.threshold.toMillis() / 1000.0}초) — 근거 시간 윈도우가 이 차를 그대로 먹는다. 판정은 바꾸지 않는다",
+        )
     }
 
     private fun record(event: Event, live: List<Execution>) {
@@ -2298,6 +2367,10 @@ class Middleware(
                         "no signal within window after ${unit.rechecks} rechecks"
                     },
                 )
+                // 신호가 윈도우 밖이라 닫혔다면 윈도우의 기준인 발신자 시계를 의심할 만하다. 의심이 있을 때만 싣는다.
+                if (signal != null && signal.occupied) {
+                    clockSuspicionOf(execution, views[execution.robotOf(unit)]?.clockOffset)?.let { unit.annotate("시계 차 의심 — ${it.describe()}") }
+                }
             }
 
             else -> {
@@ -3038,6 +3111,12 @@ class Middleware(
          * 라운드에 다시 본다. 같은 자리가 같은 까닭으로 계속 던지면 한 번만 남는다.
          */
         const val PUMP_FAILED = "PUMP_FAILED"
+
+        /**
+         * 발신자(어댑터 호스트·에뮬레이터) 시계가 미들웨어 시계와 임계 넘게 어긋났다는 실행 트레이스의 종류(환경 전제 K). 스냅숏 왕복에서 잰 차의
+         * 구간 전체가 임계 밖일 때 남고, 같은 방향·같은 크기 등급이면 한 번만 남는다. 판정은 바꾸지 않는다.
+         */
+        const val CLOCK_SKEW = "CLOCK_SKEW"
 
         /** 건 취소를 하위에 보내지 못했다는 실행 트레이스의 종류(§15.237). 같은 까닭은 한 번만 남고, 닿을 때까지 다시 보낸다. */
         const val CANCEL_UNSENT = "CANCEL_UNSENT"

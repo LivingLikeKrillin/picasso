@@ -62,7 +62,7 @@
 
 **인터페이스**: `RobotPort{capabilities, start, watch, cancel, snapshot, replay, executionLookup}` (실제 하드웨어 배선은 ClientRobotPort(gRPC))
 
-`ClientRobotPort`는 `snapshot`·`replay`·`capabilities` 실패를 null로 처리하지만 `start`와 `cancel`은 예외를 던지며, 동기화 중 `snapshot` 예외가 발생하면 기체 뷰가 관측 불가(`observable = false`)로 설정되어 낡은 값이 관측값으로 간주되지 않습니다. 취소 전송 중 예외가 발생하면 하위에 도달할 때까지 매 라운드 재전송되고, `Middleware.cancel`의 `true` 반환은 하위 전달 완료가 아니라 접수를 의미합니다. 취소가 끝내 도달하지 못한 채 단위가 종료되면 취소 보고의 `refusal` 항목에 `CANCEL_NOT_SENT`가 기록됩니다. 아울러 picasso는 자체 스레드 없이 소비자의 잠금 아래에서 동작하고 기본 기한(10초)이 적용되므로, 포트가 예외 없이 멈추면 기체마다 호출 시간이 누적되어 라운드가 지연됩니다.
+`ClientRobotPort`는 `snapshot`·`replay`·`capabilities` 실패를 null로 처리하지만 `start`와 `cancel`은 예외를 던지며, 동기화 중 `snapshot` 예외가 발생하면 기체 뷰가 관측 불가(`observable = false`)로 설정되어 낡은 값이 관측값으로 간주되지 않습니다. 취소 전송 중 예외가 발생하면 하위에 도달할 때까지 매 라운드 재전송되고, `Middleware.cancel`의 `true` 반환은 하위 전달 완료가 아니라 접수를 의미합니다. 취소가 끝내 도달하지 못한 채 단위가 종료되면 취소 보고의 `refusal` 항목에 `CANCEL_NOT_SENT`가 기록됩니다. 아울러 picasso는 자체 스레드 없이 소비자의 잠금 아래에서 동작하고 기본 기한(10초)이 적용되므로, 포트가 예외 없이 멈추면 기체마다 호출 시간이 누적되어 라운드가 지연됩니다. 또한 `snapshot` 응답 헤더의 `occurred_at`은 `RobotSnapshot.occurredAt`으로 전달되며, 미들웨어는 이 왕복 과정을 활용해 발신자의 시계 차를 측정하되 별도의 보정 없이 감지만 수행합니다.
 
 - **실제 하드웨어 전환 작업**:
   - 기본적으로 gRPC 기반 `ClientRobotPort`가 제공되므로 추가 수정이 불필요합니다.
@@ -185,4 +185,4 @@
 
 > **검증 보증:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
 
-> 마지막 대조: 2026-10-19 · sha256:a7d81bd66262 · 열림: §15.34, C-3, §15.5, §15.156
+> 마지막 대조: 2026-10-19 · sha256:2ba0754542af · 열림: §15.34, C-3, §15.5, §15.156
