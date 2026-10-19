@@ -356,6 +356,13 @@ data class ExecutionUnit(
     internal var robotBinding: String? = null
 
     /**
+     * 미확정 조회([Middleware] 의 `resolveDoubt`)를 마지막으로 보낸 시각. 널이면 아직 안 물었다 — 첫 조회는 바로 나간다. 유예 안의 조회
+     * 사이에 [Middleware.LOOKUP_INTERVAL] 을 두려고 미들웨어 시계로 잰다. 판단 기록에 싣지 않으므로 리빌드 뒤에는 널이고, 그때 첫 조회가
+     * 바로 한 번 더 나갈 뿐이다(같은 참조의 재전송은 멱등이다). 본문 속성이라 같음 비교와 복사에 들지 않는다.
+     */
+    internal var lastLookupAt: Instant? = null
+
+    /**
      * 이 단위보다 먼저 `DONE` 이어야 하는 단위의 id(§15.234). **널이 기본이고 그때는 앞 단위의 결과와 상관없이 나간다** — 슬롯끼리
      * 독립인 계획([PrepareSequencedRack])은 앞 슬롯이 실패해도 다음 슬롯을 낸다.
      *
@@ -379,6 +386,11 @@ data class RobotSnapshot(
     val faults: List<Fault>,
     val connection: ConnectionState,
     val tasks: Map<String, TaskState>,
+    /**
+     * [tasks] 의 태스크마다 기체가 든 리비전(계약 `TaskSnapshot.revision`). 리비전을 안 싣는 포트는 비워 둔다 — 비어 있으면 그 태스크의
+     * 리비전을 모르는 것이고, 리비전을 대야 하는 자리([Middleware] 의 미확정 부착)는 붙지 않는다.
+     */
+    val revisions: Map<String, Int> = emptyMap(),
     /**
      * 응답 헤더의 `session_id`. [sequence] 는 이 세션 안의 번호다 — 세션이 바뀌면 앞 세션의 커서는 이 번호와 잴 수 없다.
      * 빈 문자열은 못 읽었다는 뜻이고 그때는 비교하지 않는다.

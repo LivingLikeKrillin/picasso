@@ -35,10 +35,15 @@ class InDoubtTest {
         ),
     )
 
-    private class RobotWorld(drop: Int, profile: Path = Path.of("..", "profile", "fixtures", "minimal.json").normalize()) : AutoCloseable {
+    /** [blind] 면 스냅숏을 못 읽는 기체다 — 미확정 태스크가 스냅숏에 안 보여 조회(`StartTask` 재전송)로만 풀 수 있다. */
+    private class RobotWorld(
+        drop: Int,
+        profile: Path = Path.of("..", "profile", "fixtures", "minimal.json").normalize(),
+        blind: Boolean = false,
+    ) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to profile))
         val cell = CellMimic(now = { harness.clock.now() })
-        val port = LossyRobotPort(ClientRobotPort(harness.client()), dropStartResponses = drop)
+        val port = LossyRobotPort(ClientRobotPort(harness.client()).let { if (blind) FaultBlindRobotPort(it) else it }, dropStartResponses = drop)
         val mw = Middleware(port, cell, now = { harness.clock.now() })
 
         fun tasks() = harness.oracle.dumpInternalState(DumpInternalStateRequest.newBuilder().setRobotId(ROBOT).build()).tasksList
@@ -63,7 +68,7 @@ class InDoubtTest {
 
     @Test
     fun `답을 잃으면 IN_DOUBT 이고, 같은 요청으로 조회해 이어서 추적한다 — 재실행 0회`() {
-        RobotWorld(drop = 1).use { w ->
+        RobotWorld(drop = 1, blind = true).use { w -> // 스냅숏이 안 열려야 조회가 푼다. 열리면 붙는다(아래 시험)
             w.cell.program(SLOT, PART)
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
             w.mw.pump()
@@ -89,15 +94,78 @@ class InDoubtTest {
     }
 
     @Test
-    fun `조회가 계속 안 되면 운영자다 — 그래도 재실행은 없다`() {
-        RobotWorld(drop = 10).use { w ->
+    fun `조회가 유예 안에서 계속 안 되면 유예가 지난 뒤 운영자다 — 그래도 재실행은 없다`() {
+        RobotWorld(drop = 1000, blind = true).use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            val start = w.harness.clock.now()
             w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
 
             assertEquals(UnitState.OPERATOR_HOLD, exec.unit().state)
             assertEquals(1, w.tasks().size, "조회 시도가 물리 작업을 만들었다")
-            assertEquals(3, exec.unit().lookups, "상한만큼 묻고 멈춘다")
-            assertTrue(exec.unit().note!!.contains("lookup unanswered 3 time(s)"), exec.unit().note)
+            assertTrue(exec.unit().lookups > 3, "횟수가 아니라 유예 안의 시간으로 물어야 한다: ${exec.unit().lookups}")
+            assertTrue(!w.harness.clock.now().isBefore(start.plus(exec.capability.inDoubtGrace)), "유예가 지나기 전에 운영자로 넘어갔다")
+            assertTrue(exec.unit().note!!.contains("lookup unanswered"), exec.unit().note)
+        }
+    }
+
+    @Test
+    fun `1초 안의 짧은 끊김 뒤 링크가 돌아오면 미확정 유예 안에서 풀린다`() {
+        // 출발의 응답과 조회 셋이 한꺼번에 사라진다(가상 시계는 안 밀렸다). 횟수로 재면 여기서 예산이 바닥나고, 시간으로 재면 유예가 남아 있다.
+        RobotWorld(drop = 5, blind = true).use { w ->
+            w.cell.program(SLOT, PART)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            repeat(4) { w.mw.pump() }
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+            assertEquals(2, w.port.starts, "시험의 전제: 출발과 첫 조회의 응답을 잃었고 간격 안의 라운드는 묻지 않았다")
+
+            w.harness.advance(Duration.ofSeconds(1))
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
+            assertEquals(1, w.tasks().size, "조회가 물리 작업을 다시 만들었다")
+            assertEquals(Evidence.E2, exec.unit().reached)
+        }
+    }
+
+    @Test
+    fun `미확정 조회는 간격 안에서 다시 묻지 않고 간격이 지나면 묻는다`() {
+        RobotWorld(drop = 1000, blind = true).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            w.mw.pump() // 첫 조회는 간격 없이 바로 나간다
+            assertEquals(2, w.port.starts)
+
+            repeat(5) { w.mw.pump() }
+            assertEquals(2, w.port.starts, "간격 안인데 다시 물었다")
+            w.harness.advance(Middleware.LOOKUP_INTERVAL.minusMillis(1))
+            w.mw.pump()
+            assertEquals(2, w.port.starts, "간격이 지나기 전에 다시 물었다")
+
+            w.harness.advance(Duration.ofMillis(1))
+            w.mw.pump()
+            assertEquals(3, w.port.starts, "간격이 지났는데 안 물었다")
+            assertEquals(2, exec.unit().lookups)
+        }
+    }
+
+    @Test
+    fun `스냅숏에 보이는 미확정 태스크에는 StartTask 없이 붙는다`() {
+        RobotWorld(drop = 1).use { w ->
+            w.cell.program(SLOT, PART)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+
+            w.mw.pump()
+            assertEquals(UnitState.RUNNING, exec.unit().state)
+            assertEquals(1, w.port.starts, "스냅숏으로 붙을 수 있는데 StartTask 를 다시 보냈다")
+            assertEquals(0, exec.unit().lookups)
+            assertTrue(exec.unit().note!!.contains("snapshot"), exec.unit().note)
+            assertEquals(exec.unit().taskId, exec.handle!!.taskId)
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
+            assertEquals(1, w.tasks().size)
+            assertEquals(Evidence.E2, exec.unit().reached, "붙은 태스크를 처음부터 되짚어 종료까지 봐야 한다")
         }
     }
 
@@ -130,6 +198,61 @@ class InDoubtTest {
             assertEquals(null, report.refusal)
             assertEquals(SLOT, report.inProgressUnit)
             assertTrue(w.tasks().single().taskState.startsWith("CANCELLED"), w.tasks().single().taskState)
+        }
+    }
+
+    @Test
+    fun `미확정 중에 건 취소는 조회가 안 돼도 기체 태스크를 멈춘다`() {
+        // 조회(StartTask 재전송)는 전부 응답을 잃는다. 스냅숏에 태스크가 보이면 그 핸들로 취소가 나가야 한다.
+        RobotWorld(drop = 10, profile = cancellableProfile()).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+            assertTrue(w.mw.cancel(exec.executionId))
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(1, w.tasks().size)
+            assertTrue(w.tasks().single().taskState.startsWith("CANCELLED"), "취소가 기체 태스크에 안 닿았다: ${w.tasks().single().taskState}")
+            assertEquals(null, w.mw.lastCancel(exec.executionId)!!.refusal)
+        }
+    }
+
+    @Test
+    fun `스냅숏도 조회도 안 되면 취소가 걸린 실행을 중단으로 닫지 않고 운영자 보류에 둔다`() {
+        // 취소가 갈 핸들이 없다. 중단(motionStopped)으로 닫으면 기체가 그 태스크를 하는 동안 실행이 기체를 내준다.
+        RobotWorld(drop = 1000, profile = cancellableProfile(), blind = true).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertTrue(w.mw.cancel(exec.executionId))
+
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+            repeat(3) { w.mw.pump() }
+
+            assertEquals(PhysicalState.OPERATOR_HOLD, exec.physicalState, "취소가 닿지 않았는데 실행이 닫혔다")
+            assertEquals(UnitState.OPERATOR_HOLD, exec.unit().state)
+            assertEquals(null, w.mw.lastCancel(exec.executionId), "닿지 않은 취소에 취소 응답이 나갔다")
+            assertTrue(exec.physicalState.occupiesRobot, "실행이 기체를 내줬다")
+            assertTrue(exec.eventTrail.any { it.kind == Middleware.CANCEL_UNSENT }, "닿지 못한 취소가 트레이스에 없다")
+            assertEquals(true, w.mw.pending().last().operatorRequired)
+        }
+    }
+
+    @Test
+    fun `운영자 보류에 둔 취소는 운영자가 판단하면 닿지 못했다는 사유를 싣고 끝난다`() {
+        RobotWorld(drop = 1000, profile = cancellableProfile(), blind = true).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertTrue(w.mw.cancel(exec.executionId))
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, SLOT, OperatorDecision.CONFIRM_DONE, OPERATOR))
+            w.drive { exec.settled() }
+
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            val report = w.mw.lastCancel(exec.executionId)!!
+            assertEquals(Middleware.CANCEL_NOT_SENT, report.refusal)
+            assertEquals(listOf(SLOT), report.completedUnits, "운영자가 확인한 단위가 완료로 실려야 한다")
         }
     }
 
