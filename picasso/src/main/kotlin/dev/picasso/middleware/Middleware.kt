@@ -234,6 +234,22 @@ class Middleware(
         internal var lastCancel: CancelReport? = null
         /** 하류가 진행 중 단위의 중단을 거절한 사유 — 그 단위는 끝까지 가고 다음 경계에서 멈춘다. */
         internal var cancelRefusal: String? = null
+
+        /**
+         * 건 취소가 하위에 **아직 닿지 않았다** — 보내다가 포트가 던졌다. 응답을 받으면(상태든 거부든) 내린다. 서 있는 동안
+         * 도는 단위가 있으면 [pumpRound] 가 머리에서 다시 보내고([sendCancel]), 닿지 못한 채 단위가 끝나면 취소 응답이
+         * [CANCEL_NOT_SENT] 를 싣는다.
+         */
+        internal var cancelUnsent = false
+
+        /** [cancelUnsent] 의 까닭을 트레이스에 남긴 마지막 값. 같은 까닭을 라운드마다 되풀이하지 않는다. */
+        internal var notedCancelUnsent: String? = null
+
+        /**
+         * 라운드 진행([PUMP_SOURCE])과 기체 동기화(`sync:<기체>`)에서 포트가 던진 마지막 까닭. 같은 자리가 같은 까닭으로 계속 던지면
+         * 트레이스에 한 번만 남기려는 표시이고, 그 자리가 한 번 성공하면 지운다.
+         */
+        internal val pumpFailures: MutableMap<String, String> = mutableMapOf()
         /** 지연 보고·운영자 보류·미확정 통보를 한 번만 내기 위한 표시. */
         internal var notedDelay: String? = null
         internal var notedHold: String? = null
@@ -1123,13 +1139,35 @@ class Middleware(
     /** 이 라운드의 진행 정체 유예. */
     private fun stallWindowOf(execution: Execution): Duration = round?.stallWindow ?: execution.capability.stallWindow
 
-    /** 하류에서 온 것을 읽고 상태를 한 걸음 민다. 몇 번 불러도 같은 결과다(멱등). */
+    /**
+     * 하류에서 온 것을 읽고 상태를 한 걸음 민다. 몇 번 불러도 같은 결과다(멱등).
+     *
+     * **포트가 던져도 한 실행의 일이다.** 기체 동기화와 실행의 라운드 진행을 각각 격리한다 — 던지면 그 기체의 실행들(동기화) 또는 그
+     * 실행(진행)의 트레이스에 [PUMP_FAILED] 를 같은 까닭이면 한 번만 남기고, 상태는 되돌리지 않은 채 다음 실행으로 간다.
+     * 던진 실행은 다음 라운드에 처음부터 다시 본다. 격리가 없으면 표에서 던지는 실행 뒤의 실행이 그 실행이 던지는 동안 매 라운드 굶는다.
+     */
     fun pump() {
         round = siteTimings.current()
         val live = executions.values.filter { it.physicalState.pumps }
         // 단위가 묶인 기체까지 동기화한다 — 안 하면 그 기체의 결함·연결은 «못 봤다» 로 남아 관문이 그 단위를 막지 않는다.
-        live.flatMap { it.robots }.distinct().forEach { robot -> sync(robot, live.filter { robot in it.robots }) }
+        live.flatMap { it.robots }.distinct().forEach { robot ->
+            val related = live.filter { robot in it.robots }
+            val source = "sync:$robot"
+            try {
+                sync(robot, related)
+                related.forEach { it.pumpFailures.remove(source) }
+            } catch (e: RuntimeException) {
+                related.forEach { it.notePumpFailure(source, "robot=$robot 동기화", e) }
+            }
+        }
         executions.values.forEach { pump(it) }
+    }
+
+    /** 포트가 던진 것을 이 실행의 트레이스에 남긴다. [source] 마다 같은 까닭은 한 번만 남는다. */
+    private fun Execution.notePumpFailure(source: String, where: String, e: RuntimeException) {
+        val cause = "${e::class.simpleName}: ${e.message}"
+        if (pumpFailures.put(source, cause) == cause) return
+        trail(PUMP_FAILED, "$where 중 포트가 던졌다 ($cause) — 상태는 그대로 두고 다음 라운드에 다시 본다")
     }
 
     /**
@@ -1138,7 +1176,13 @@ class Middleware(
      */
     private fun sync(robotId: String, live: List<Execution>) {
         val view = views.getOrPut(robotId) { RobotView() }
-        val snapshot = robots.snapshot(robotId)
+        // 던지는 포트도 «못 물어봤다» 다 — 낡은 값을 관측한 값으로 두지 않는다. 던진 사실은 부른 쪽이 트레이스에 남긴다.
+        val snapshot = try {
+            robots.snapshot(robotId)
+        } catch (e: RuntimeException) {
+            view.observable = false
+            throw e
+        }
         if (snapshot == null) {
             view.observable = false
             return
@@ -1218,13 +1262,22 @@ class Middleware(
 
     private fun pump(execution: Execution) {
         val pumped = execution.physicalState.pumps
-        pumpRound(execution)
+        try {
+            pumpRound(execution)
+            execution.pumpFailures.remove(PUMP_SOURCE)
+        } catch (e: RuntimeException) {
+            execution.notePumpFailure(PUMP_SOURCE, "라운드 진행", e)
+        }
         if (pumped) noteAttention(execution)
         incidentLog.sealIncidents(execution, round)
     }
 
     private fun pumpRound(execution: Execution) {
         if (!execution.physicalState.pumps) return
+
+        // **닿지 못한 취소는 닿을 때까지 다시 보낸다.** 도는 단위의 태스크에만 의미가 있다 — 이미 끝난 태스크(검증 대기)에는 보내지
+        // 않고, 그대로 끝나면 취소 응답이 닿지 못했다고 말한다([abort]). 미확정 중에는 핸들이 없고, 조회가 풀린 뒤 [resolveDoubt] 가 보낸다.
+        if (execution.cancelUnsent && execution.active?.state == UnitState.RUNNING) sendCancel(execution)
 
         // **연결이 끊기면 도는 단위의 결과는 미확정이다.** 계약이 OFFLINE 과 CONNECTION_BROKEN 을 가른다(완료 기준 5);
         // HIBERNATING 은 침묵하지만 정상이다(§4.7). 되돌아오면 스냅샷으로 태스크 상태를 다시 세워 이어 간다 —
@@ -1605,13 +1658,7 @@ class Middleware(
                 execution.notedDoubt = null
                 unit.annotate("IN_DOUBT resolved by client-reference lookup after ${unit.lookups} lookup(s)")
                 execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
-                if (execution.cancelRequested) {
-                    execution.handle?.let { handle ->
-                        val response = robots.cancel(execution.robotOf(unit), handle)
-                        if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
-                    }
-                    execution.transport?.let { fleet.cancel(it) }
-                }
+                if (execution.cancelRequested) sendCancel(execution)
                 return false
             }
             if (unit.state == UnitState.FAILED) { // 하류가 이 요청을 거절했다 — 미실행이 확인된 것이고 그 사유는 우리 어휘다
@@ -2548,22 +2595,68 @@ class Middleware(
     /**
      * 취소를 건다. 실제 중단과 잔여 상태는 [pump] 가 하류를 읽고 [CancelReport] 로 확정한다. 다시 지은 실행이 아직 붙지 않았으면
      * 기체의 태스크에 붙어 취소를 보내는 것도 [pump] 다([attachForCancel]).
+     *
+     * **참은 «받았다» 이지 «닿았다» 가 아니다.** 하위로 보내다가 포트가 던져도 이 호출은 던지지 않고 참을 돌려준다 — 건 취소는
+     * 실행에 남고, 닿을 때까지 [pump] 가 다시 보낸다([sendCancel]).
      */
     fun cancel(executionId: String): Boolean {
         val execution = executions[executionId] ?: return false
         if (!execution.physicalState.pumps) return false
         execution.cancelRequested = true
         execution.cancelRefusal = null
-        execution.handle?.let { handle ->
-            // 핸들은 도는 단위의 것이다 — 그 단위가 묶인 기체로 보낸다.
-            val response = robots.cancel(execution.active?.let(execution::robotOf) ?: execution.robotId, handle)
-            // **거절을 감추지 않는다.** 그 스킬이 취소를 안 들면(CANCEL_UNSUPPORTED) 진행 중 단위는 끝까지 가고 다음
-            // 경계에서 멈춘다 — 그 사실이 취소 응답에 드러나야 상류가 중단점을 안다(16장).
-            if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
-        }
-        execution.transport?.let { fleet.cancel(it) }
+        sendCancel(execution)
         execution.physicalState = PhysicalState.CANCELING
         return true
+    }
+
+    /**
+     * 건 취소를 하위로 보낸다 — 도는 단위의 핸들이 있으면 그 단위가 묶인 기체의 로봇에, 운반이 있으면 플릿에. 부르는 자리는
+     * [cancel]·[resolveDoubt]·[pumpRound] 머리의 다시 보내기 셋이다.
+     *
+     * **던져도 부른 쪽으로 내보내지 않는다.** 보내지 못했으면 [Execution.cancelUnsent] 를 세우고 트레이스에 [CANCEL_UNSENT] 를
+     * 같은 까닭이면 한 번만 남긴다. 응답을 받으면 — 상태든 거부든 — 내린다. 거부는 하위가 답한 것이라 다시 보내지 않는다.
+     * **거부를 감추지 않는다.** 그 스킬이 취소를 안 들면(`CANCEL_UNSUPPORTED`) 진행 중 단위는 끝까지 가고 다음 경계에서 멈춘다 —
+     * 그 사실이 취소 응답에 드러나야 상위가 중단점을 안다(16장).
+     *
+     * 보낼 핸들도 운반도 없으면 아무것도 하지 않고 표시를 그대로 둔다.
+     */
+    private fun sendCancel(execution: Execution) {
+        var failure: RuntimeException? = null
+        var attempted = false
+        val handle = execution.handle
+        if (handle != null) {
+            attempted = true
+            try {
+                val response = robots.cancel(execution.active?.let(execution::robotOf) ?: execution.robotId, handle)
+                if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
+            } catch (e: RuntimeException) {
+                failure = e
+            }
+        }
+        val transport = execution.transport
+        if (transport != null) {
+            attempted = true
+            try {
+                fleet.cancel(transport)
+            } catch (e: RuntimeException) {
+                failure = failure ?: e
+            }
+        }
+        if (!attempted) return
+        if (failure != null) {
+            execution.cancelUnsent = true
+            val cause = "${failure::class.simpleName}: ${failure.message}"
+            if (execution.notedCancelUnsent != cause) {
+                execution.notedCancelUnsent = cause
+                execution.trail(CANCEL_UNSENT, "취소를 하위에 보내지 못했다 ($cause) — 다음 라운드에 다시 보낸다")
+            }
+            return
+        }
+        if (execution.cancelUnsent) {
+            execution.cancelUnsent = false
+            execution.notedCancelUnsent = null
+            execution.trail(CANCEL_RESENT, "보내지 못했던 취소가 하위에 닿았다")
+        }
     }
 
     fun lastCancel(executionId: String): CancelReport? = executions[executionId]?.lastCancel
@@ -2603,7 +2696,9 @@ class Middleware(
             residualHold = hold ?: execution.units.lastOrNull { it.hold.kind != HoldKind.HOLD_KIND_UNSPECIFIED }?.hold ?: HoldState.getDefaultInstance(),
             cleanup = cleanup,
             finalState = PhysicalState.ABORTED,
-            refusal = execution.cancelRefusal,
+            // 하위가 거부한 사유가 먼저다. 거부도 응답도 없이 끝났는데 취소가 닿지 못했다면 «닿지 못했다» 가 사유다 — 비워 두면
+            // 하위에 닿지 않은 취소가 «멈췄다» 로 읽힌다.
+            refusal = execution.cancelRefusal ?: CANCEL_NOT_SENT.takeIf { execution.cancelUnsent },
         )
         execution.lastCancel = report
         execution.physicalState = PhysicalState.ABORTED
@@ -2838,6 +2933,27 @@ class Middleware(
 
         /** 붙기 전에 걸린 취소가 기체를 못 봐 정착하지 않고 기다린다는 실행 자취의 종류(§15.231). 같은 까닭은 한 번만 남는다. */
         const val CANCEL_UNATTACHED_WAIT = "CANCEL_UNATTACHED_WAIT"
+
+        /** 라운드 진행([PUMP_SOURCE])의 실패를 [Execution.pumpFailures] 에 적는 자리 이름. 기체 동기화는 `sync:<기체>` 다. */
+        private const val PUMP_SOURCE = "pump"
+
+        /**
+         * 포트가 던져 한 실행의 라운드 진행 또는 기체 동기화가 중단됐다는 실행 트레이스의 종류(§15.237). 상태는 되돌리지 않고 다음
+         * 라운드에 다시 본다. 같은 자리가 같은 까닭으로 계속 던지면 한 번만 남는다.
+         */
+        const val PUMP_FAILED = "PUMP_FAILED"
+
+        /** 건 취소를 하위에 보내지 못했다는 실행 트레이스의 종류(§15.237). 같은 까닭은 한 번만 남고, 닿을 때까지 다시 보낸다. */
+        const val CANCEL_UNSENT = "CANCEL_UNSENT"
+
+        /** 보내지 못했던 취소가 다시 보내져 하위에 닿았다는 실행 트레이스의 종류(§15.237). */
+        const val CANCEL_RESENT = "CANCEL_RESENT"
+
+        /**
+         * 취소 응답의 [CancelReport.refusal] 에 실리는 이 층의 값 — 건 취소가 끝내 하위에 닿지 못한 채 단위가 끝났다(§15.237).
+         * 하위가 거부한 사유(계약의 거부 코드)가 아니라 이 층이 말하는 것이다. 단위는 [CancelReport.stoppedAfter] 로 나간다.
+         */
+        const val CANCEL_NOT_SENT = "CANCEL_NOT_SENT"
 
         /** 발행 관문이 새 로봇 명령을 막았다는 실행 자취의 종류(ADR 52). 같은 막음은 한 번만 남는다. */
         const val ISSUE_WITHHELD = "ISSUE_WITHHELD"

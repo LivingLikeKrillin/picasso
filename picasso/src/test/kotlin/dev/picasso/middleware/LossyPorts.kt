@@ -210,3 +210,71 @@ class StuckGripperRobotPort(private val delegate: RobotPort) : RobotPort by dele
             }
         }
 }
+
+/**
+ * 설비 읽기가 **던지는** 포트 — [at] 의 자리를 [armed] 가 켜진 동안 읽으면 예외가 나온다. PLC 읽기 시간 초과의 모양이다.
+ *
+ * 켜기 전에는 그대로 위임한다. 제출 때의 게이트도 같은 포트를 읽으므로, 던지게 하는 시점을 시험이 정한다.
+ */
+class ThrowingCellSignals(private val delegate: CellSignals, private val at: Set<String>) : CellSignals by delegate {
+    var armed = false
+    var throws = 0
+        private set
+
+    override fun observe(location: String): SlotSignal? {
+        if (armed && location in at) {
+            throws += 1
+            throw IllegalStateException("PLC read timed out at $location")
+        }
+        return delegate.observe(location)
+    }
+}
+
+/**
+ * **취소 전송이 던지는** 포트 — 처음 [failures] 번은 하위에 닿지 않은 채 던지고, 그 뒤는 위임한다. 연결 거부나 기한 초과로
+ * 취소가 나가지 못한 모양이다. 닿지 않았으므로 위임하지 않는다(응답만 잃는 [LossyRobotPort] 와 다르다).
+ */
+class FlakyCancelRobotPort(private val delegate: RobotPort, private var failures: Int = Int.MAX_VALUE) : RobotPort by delegate {
+    var attempts = 0
+        private set
+    var delivered = 0
+        private set
+
+    override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse {
+        attempts += 1
+        if (failures > 0) {
+            failures -= 1
+            throw IllegalStateException("cancel did not reach the robot")
+        }
+        delivered += 1
+        return delegate.cancel(robotId, handle)
+    }
+}
+
+/** 플릿 쪽의 같은 더블 — 처음 [failures] 번의 취소가 던진다. */
+class FlakyCancelFleet(private val delegate: AmrFleetPort, private var failures: Int = Int.MAX_VALUE) : AmrFleetPort by delegate {
+    var attempts = 0
+        private set
+
+    override fun cancel(handle: TransportHandle): Boolean {
+        attempts += 1
+        if (failures > 0) {
+            failures -= 1
+            throw IllegalStateException("cancel did not reach the fleet")
+        }
+        return delegate.cancel(handle)
+    }
+}
+
+/** 그 기체의 스냅숏 읽기가 던지는 포트 — [ClientRobotPort] 는 잡아 `null` 로 접지만 다른 구현은 그러지 않을 수 있다. */
+class ThrowingSnapshotRobotPort(
+    private val delegate: RobotPort,
+    private val robotId: String,
+    var armed: Boolean = true,
+) : RobotPort by delegate {
+
+    override fun snapshot(robotId: String): RobotSnapshot? {
+        if (armed && robotId == this.robotId) throw IllegalStateException("snapshot read timed out for $robotId")
+        return delegate.snapshot(robotId)
+    }
+}

@@ -38,6 +38,8 @@
 
 **인터페이스**: `CellSignals.observe(location): SlotSignal?` (null 반환 시 '신호 없음'으로 처리) · `CellSignals.holding(material): List<String>?` (기본 null — 그 질문에 응답하지 않는 설비) · `CellSignals.signal(name): NamedSignal?` (기본 null — 이름 있는 신호를 모르는 설비)
 
+포트 호출 중 예외가 발생하면 해당 라운드에서는 해당 실행만 건너뛰고 `PUMP_FAILED` 트레이스를 남긴 뒤 다음 라운드에서 다시 시도합니다. 본 포트는 소비자의 잠금 아래에서 실행되므로 응답 없이 멈추어 전체 라운드를 지연시키지 않아야 합니다.
+
 - **실제 하드웨어 전환 작업**:
   - 현장 PLC의 OPC UA 노드 또는 무전압 I/O 접점 상태를 폴링하여 `SlotSignal(occupied, identity, observedAt)` 객체로 변환하는 구현체를 제공합니다.
   - 설비 신호 폴링 주기 및 하드웨어 래치 정책은 현장 환경에 맞춰 구현하며, 시간 윈도우 δ는 논리적 케이퍼빌리티 파라미터로 설정합니다.
@@ -49,6 +51,8 @@
 **인터페이스**: `AmrFleetPort{executionLookup, dispatch(TransportOrder), status(handle), cancel(handle)}`
 (기본 Null 구현체: `None`)
 
+취소 전송 중 예외가 발생한 요청은 하위에 도달할 때까지 매 라운드 재전송됩니다.
+
 - **실제 하드웨어 전환 작업**:
   - 상용 AMR 플릿 관리자(Fleet Manager) API를 호출하는 어댑터 클래스를 구현하여 본 인터페이스를 충족시킵니다.
   - `TransportState`의 시맨틱 계약을 엄격히 준수해야 합니다. `DELIVERED` 상태는 *[목적지 도착 ∧ 하역 완료 ∧ 공정 간 인계 승인 ∧ 기체 미보유]* 조건을 모두 만족해야 하며, 단순 "도착" 신호를 성급히 매핑해서는 안 됩니다.
@@ -57,6 +61,8 @@
 ### 4. 로봇 인터페이스 계약 — 소비자 영역
 
 **인터페이스**: `RobotPort{capabilities, start, watch, cancel, snapshot, replay, executionLookup}` (실제 하드웨어 배선은 ClientRobotPort(gRPC))
+
+`ClientRobotPort`는 `snapshot`·`replay`·`capabilities` 실패를 null로 처리하지만 `start`와 `cancel`은 예외를 던지며, 동기화 중 `snapshot` 예외가 발생하면 기체 뷰가 관측 불가(`observable = false`)로 설정되어 낡은 값이 관측값으로 간주되지 않습니다. 취소 전송 중 예외가 발생하면 하위에 도달할 때까지 매 라운드 재전송되고, `Middleware.cancel`의 `true` 반환은 하위 전달 완료가 아니라 접수를 의미합니다. 취소가 끝내 도달하지 못한 채 단위가 종료되면 취소 보고의 `refusal` 항목에 `CANCEL_NOT_SENT`가 기록됩니다. 아울러 picasso는 자체 스레드 없이 소비자의 잠금 아래에서 동작하고 기본 기한(10초)이 적용되므로, 포트가 예외 없이 멈추면 기체마다 호출 시간이 누적되어 라운드가 지연됩니다.
 
 - **실제 하드웨어 전환 작업**:
   - 기본적으로 gRPC 기반 `ClientRobotPort`가 제공되므로 추가 수정이 불필요합니다.
@@ -179,4 +185,4 @@
 
 > **검증 보증:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
 
-> 마지막 대조: 2026-10-18 · sha256:b4e573cf47a4 · 열림: §15.34, C-3, §15.5, §15.156
+> 마지막 대조: 2026-10-19 · sha256:9bed93bbf848 · 열림: §15.34, C-3, §15.5, §15.156
