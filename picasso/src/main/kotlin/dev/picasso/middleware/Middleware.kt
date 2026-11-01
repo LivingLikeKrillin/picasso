@@ -299,7 +299,10 @@ class Middleware(
          */
         internal var deferredUpdate: Int? = null
 
-        /** 운영자가 [release] 로 감수한 결함의 열쇠 — 같은 결함은 다시 막지 않는다. 새 결함은 막는다. 감사 기록이다. */
+        /**
+         * 운영자가 [release] 로 감수한 결함의 열쇠 — 같은 결함은 다시 막지 않는다. 새 결함은 막는다. 결함이 걷히면 열쇠를 놓으므로
+         * 걷혔다가 같은 열쇠로 다시 생긴 결함도 새 결함이다([forgetAcknowledged], §15.248). 놓은 것은 트레이스에 남는다.
+         */
         val acknowledgedFaults: MutableSet<String> = linkedSetOf()
 
         /** 이 실행이 도는 동안 기체가 낸 이벤트와 이 층의 관측 — 감사 자취(보고서 7장 *실행 추적·이벤트 전달·감사 기록*). */
@@ -1226,6 +1229,7 @@ class Middleware(
         view.lastObservedAt = receivedAt
         measureClock(robotId, view, snapshot, sentAt, receivedAt, live)
         view.faults = snapshot.faults.associateBy { faultKey(it) }
+        live.forEach { e -> e.acknowledgedFaults.filter { it !in view.faults }.forEach { e.forgetAcknowledged(robotId, it, "robot=$robotId 의 스냅숏에 없다") } }
         view.connection = snapshot.connection
         view.tasks = snapshot.tasks
         view.taskRevisions = snapshot.revisions
@@ -1256,7 +1260,7 @@ class Middleware(
                 live.forEach { it.trail("RESYNC", "replay evicted at cursor=$cursor; rebuilt from snapshot sequence=${snapshot.sequence}") }
             }
             is Replay.Events -> {
-                replay.events.forEach { event -> record(event, live); view.eventsSeen += 1 }
+                replay.events.forEach { event -> record(robotId, event, live); view.eventsSeen += 1 }
                 replay.events.lastOrNull()?.let { view.cursor = it.header.sequence + 1 }
             }
         }
@@ -1316,7 +1320,7 @@ class Middleware(
         )
     }
 
-    private fun record(event: Event, live: List<Execution>) {
+    private fun record(robotId: String, event: Event, live: List<Execution>) {
         val at = event.header.occurredAt
         val seq = event.header.sequence
         when {
@@ -1330,6 +1334,8 @@ class Middleware(
                 val f = event.faultEvent
                 val kind = if (f.cleared) "FAULT_CLEARED" else "FAULT_RAISED"
                 live.forEach { it.eventTrail += ObservedEvent(seq, at, kind, "${f.fault.errorType} class=${canonicalClassOf(f.fault)} can_accept_new_task=${f.fault.canAcceptNewTask}") }
+                // 스냅숏 둘 사이에 걷혔다가 다시 생긴 결함은 스냅숏만으로는 같은 결함으로 보인다 — 걷힘 이벤트가 그것을 가른다.
+                if (f.cleared) faultKey(f.fault).let { key -> live.forEach { it.forgetAcknowledged(robotId, key, "robot=$robotId 가 걷혔다고 알렸다(seq=$seq)") } }
             }
             event.hasCapabilityChanged() -> {
                 val c = event.capabilityChanged
@@ -1563,13 +1569,28 @@ class Middleware(
         return view.faults.values.filter { !it.canAcceptNewTask && faultKey(it) !in execution.acknowledgedFaults }
     }
 
+    /**
+     * 감수한 결함이 [robotId] 에서 걷혔으면 그 열쇠를 놓는다(§15.248). 감수는 그 결함이 남아 있는 동안의 것이다 — 같은 열쇠로 다시
+     * 생기면 새 결함이라 다시 막는다. 부르는 쪽은 스냅숏을 읽은 라운드와 걷힘 이벤트뿐이다. 못 읽은 것은 걷혔다는 관측이 아니다.
+     *
+     * **이 실행의 다른 기체가 지금 그 열쇠를 보이면 놓지 않는다.** 열쇠에 기체가 없어서, 놓으면 그 결함이 없는 기체의 스냅숏 하나가
+     * 다른 기체에서 감수한 결함을 라운드마다 다시 막는다.
+     */
+    private fun Execution.forgetAcknowledged(robotId: String, key: String, why: String) {
+        if (key !in acknowledgedFaults) return
+        if (robots.any { it != robotId && views[it]?.let { v -> v.observable && key in v.faults } == true }) return
+        acknowledgedFaults -= key
+        trail(ACKNOWLEDGED_FAULT_CLEARED, "$key: $why — 다시 생기면 새 결함으로 막는다")
+    }
+
     /** 결함의 정체 — 모드 이름과 참조. 미믹의 `FaultRegistry` 가 같은 열쇠로 중복을 막는다. */
     private fun faultKey(fault: Fault): String =
         fault.errorType + fault.referencesList.joinToString(prefix = "[", postfix = "]") { "${it.key}=${it.value}" }
 
     /**
      * 운영자의 해제 — *지금 막고 있는* 결함을 감수하고 다음 단위로 간다. 결함을 지우지 않는다(그것은 기체 쪽 일이고
-     * 계약에 그 표면이 없다). 감수한 열쇠가 남으므로 같은 결함은 다시 막지 않고, **새 결함은 다시 막는다.**
+     * 계약에 그 표면이 없다). 감수한 열쇠가 남으므로 같은 결함은 다시 막지 않고, **새 결함은 다시 막는다.** 결함이 걷히면 열쇠를
+     * 놓으므로 걷혔다가 다시 생긴 결함도 새 결함이다([forgetAcknowledged]).
      *
      * **작업 허가의 막음([Execution.permitBlock])은 건드리지 않는다**(ADR 52). 허가는 사람이 감수할 값이 아니라 원천이 다시
      * `PERMITTED` 를 낼 때만 걷힌다. 결함 없이 허가만 막고 있으면 거짓을 돌려준다.
@@ -3288,6 +3309,9 @@ class Middleware(
 
         /** 보내지 못했던 취소가 다시 보내져 하위에 닿았다는 실행 트레이스의 종류(§15.237). */
         const val CANCEL_RESENT = "CANCEL_RESENT"
+
+        /** 감수한 결함이 기체에서 걷혀 그 열쇠를 놓았다는 실행 트레이스의 종류(§15.248). 같은 열쇠로 다시 생기면 다시 막는다. */
+        const val ACKNOWLEDGED_FAULT_CLEARED = "ACKNOWLEDGED_FAULT_CLEARED"
 
         /**
          * 취소 응답의 [CancelReport.refusal] 에 실리는 이 층의 값 — 건 취소가 끝내 하위에 닿지 못한 채 단위가 끝났다(§15.237).

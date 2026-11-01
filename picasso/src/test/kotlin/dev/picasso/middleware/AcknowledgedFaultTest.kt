@@ -1,0 +1,199 @@
+package dev.picasso.middleware
+
+import dev.picasso.contracts.v1.CancelTaskResponse
+import dev.picasso.contracts.v1.Capability
+import dev.picasso.contracts.v1.ConnectionState
+import dev.picasso.contracts.v1.Event
+import dev.picasso.contracts.v1.Fault
+import dev.picasso.contracts.v1.FaultEvent
+import dev.picasso.contracts.v1.HoldKind
+import dev.picasso.contracts.v1.HoldState
+import dev.picasso.contracts.v1.MessageHeader
+import dev.picasso.contracts.v1.StartTaskResponse
+import dev.picasso.contracts.v1.TaskHandle
+import dev.picasso.contracts.v1.TaskState
+import dev.picasso.contracts.v1.WatchTaskResponse
+import java.time.Instant
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * 결함 수용의 범위(§15.248). 수용은 그 결함이 남아 있는 동안의 것이다 — 걷혔다가 같은 열쇠로 다시 생기면 새 결함이라 다시 막고,
+ * 걷혔는지 모르는 라운드(스냅숏을 못 읽음)에는 놓지 않는다. 실행이 기체 둘을 쓰면 그 결함이 없는 기체의 스냅숏으로는 놓지 않는다.
+ *
+ * 에뮬레이터에는 다음 태스크를 막는 결함을 걷는 표면이 없어서(그런 모드는 모두 `UNTIL_CLEARED` 다) 결함을 손으로 세우고 걷는
+ * 포트로 본다.
+ */
+class AcknowledgedFaultTest {
+
+    @Test
+    fun `수용한 결함이 스냅숏에서 사라졌다가 다시 생기면 다음 단위를 다시 막는다`() {
+        World(bound = null).use { w ->
+            val exec = w.releasedOnFirstUnit()
+
+            w.robots.faults.remove(A)
+            w.mw.pump()
+            assertTrue(exec.acknowledgedFaults.isEmpty(), "걷힌 결함의 열쇠를 놓지 않았다")
+            assertTrue(
+                exec.eventTrail.any { it.kind == Middleware.ACKNOWLEDGED_FAULT_CLEARED && it.detail.startsWith(KEY) },
+                "놓은 사실이 트레이스에 없다",
+            )
+
+            w.robots.faults[A] = listOf(FAULT)
+            w.robots.finish(A, "$ORDER#u1")
+            w.mw.pump()
+            assertEquals(PhysicalState.OPERATOR_HOLD, exec.physicalState, "다시 생긴 결함이 다음 단위를 막지 않았다")
+            assertEquals(listOf(FAULT.errorType), exec.blockedBy.map { it.errorType })
+            assertEquals(listOf("$ORDER#u1"), w.robots.started)
+        }
+    }
+
+    @Test
+    fun `걷힘 이벤트가 오면 스냅숏에 같은 결함이 다시 있어도 새 결함으로 다시 막는다`() {
+        World(bound = null).use { w ->
+            val exec = w.releasedOnFirstUnit()
+
+            // 스냅숏 둘 사이에 걷혔다가 다시 생겼다 — 스냅숏은 내내 같은 결함을 보인다.
+            w.robots.cleared(A, FAULT)
+            w.robots.finish(A, "$ORDER#u1")
+            w.mw.pump()
+            assertTrue(exec.acknowledgedFaults.isEmpty(), "걷힘 이벤트로 열쇠를 놓지 않았다")
+            assertEquals(PhysicalState.OPERATOR_HOLD, exec.physicalState, "걷혔다 다시 생긴 결함이 다음 단위를 막지 않았다")
+            assertEquals(listOf("$ORDER#u1"), w.robots.started)
+        }
+    }
+
+    @Test
+    fun `스냅숏을 못 읽은 라운드에는 수용을 놓지 않는다`() {
+        World(bound = null).use { w ->
+            val exec = w.releasedOnFirstUnit()
+
+            w.robots.faults.remove(A)
+            w.robots.unreadable += A
+            w.mw.pump()
+            assertEquals(setOf(KEY), exec.acknowledgedFaults, "못 읽은 라운드에 수용을 놓았다")
+        }
+    }
+
+    @Test
+    fun `실행의 다른 기체가 그 결함을 보이는 동안은 결함이 없는 기체의 스냅숏으로 수용을 놓지 않는다`() {
+        World(bound = B).use { w ->
+            w.robots.faults[B] = listOf(FAULT)
+            val exec = w.submit()
+            w.mw.pump()
+            w.robots.finish(A, "$ORDER#u1")
+            w.mw.pump()
+            assertEquals(PhysicalState.OPERATOR_HOLD, exec.physicalState, "시험의 전제: 묶인 기체의 결함이 둘째 단위를 막는다")
+
+            assertTrue(w.mw.release(exec.executionId))
+            w.mw.pump()
+            assertEquals(setOf(KEY), exec.acknowledgedFaults, "결함이 없는 기체의 스냅숏이 다른 기체에서 수용한 결함을 놓았다")
+            assertEquals(listOf("$ORDER#u1", "$ORDER#u2"), w.robots.started, "수용한 결함이 둘째 단위를 다시 막았다")
+        }
+    }
+
+    /** 기체마다 결함·태스크를 손으로 세우는 포트. 걷힘 이벤트는 다음 재생에 한 번 실린다. */
+    private class Robots(private val now: () -> Instant) : RobotPort {
+        val faults = mutableMapOf<String, List<Fault>>()
+        val unreadable = mutableSetOf<String>()
+        val started = mutableListOf<String>()
+        private val tasks = mutableMapOf<String, LinkedHashMap<String, TaskState>>()
+        private val replayed = mutableMapOf<String, MutableList<Event>>()
+        private var sequence = 0L
+
+        fun finish(robot: String, taskId: String) {
+            tasks.getValue(robot)[taskId] = TaskState.TASK_STATE_SUCCEEDED
+        }
+
+        fun cleared(robot: String, fault: Fault) {
+            replayed.getOrPut(robot) { mutableListOf() } += Event.newBuilder()
+                .setHeader(MessageHeader.newBuilder().setSequence(++sequence))
+                .setFaultEvent(FaultEvent.newBuilder().setFault(fault).setCleared(true))
+                .build()
+        }
+
+        override fun capabilities(robotId: String): Capability? = null
+
+        override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse {
+            if (tasks.getOrPut(robotId) { linkedMapOf() }.putIfAbsent(taskId, TaskState.TASK_STATE_RUNNING) == null) started += taskId
+            return StartTaskResponse.newBuilder()
+                .setHandle(TaskHandle.newBuilder().setTaskId(taskId).setRevision(revision).setRobotId(robotId))
+                .build()
+        }
+
+        override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> {
+            val state = tasks[robotId]?.get(handle.taskId) ?: return emptyList()
+            return listOf(
+                WatchTaskResponse.newBuilder()
+                    .setHeader(MessageHeader.newBuilder().setStateAsOf(now().toString()))
+                    .setState(state)
+                    .setRevision(handle.revision)
+                    .setHold(HoldState.newBuilder().setKind(HoldKind.HOLD_KIND_EMPTY))
+                    .build(),
+            )
+        }
+
+        override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = CancelTaskResponse.getDefaultInstance()
+
+        override fun snapshot(robotId: String): RobotSnapshot? {
+            if (robotId in unreadable) return null
+            return RobotSnapshot(0, faults[robotId].orEmpty(), ConnectionState.CONNECTION_STATE_ONLINE, tasks[robotId].orEmpty().toMap())
+        }
+
+        override fun replay(robotId: String, from: Long): Replay = Replay.Events(replayed.remove(robotId).orEmpty())
+    }
+
+    /** 단위 둘. 둘째는 [bound] 에 묶는다(널이면 실행의 기체). */
+    private class Split(private val bound: String?) : LogicalCapability {
+        override val workMasterId: String = WORK_MASTER
+        override val maxEvidence: Evidence = Evidence.E2
+
+        override fun plan(order: JobOrder): List<ExecutionUnit> = listOf(
+            unit("u1", "Z1/a"),
+            unit("u2", "Z2/a").also { it.robotBinding = bound },
+        )
+    }
+
+    private class World(bound: String?) : AutoCloseable {
+        val robots = Robots { T0 }
+        val mw = Middleware(robots, capabilities = listOf(Split(bound)), now = { T0 })
+
+        fun submit(): Middleware.Execution = (mw.submit(JobOrder(ORDER, WORK_MASTER, 1), A) as Middleware.Submission.Accepted).execution
+
+        /** 기체 A 의 결함이 첫 단위를 막고, 운영자가 수용해 첫 단위가 나간 실행. */
+        fun releasedOnFirstUnit(): Middleware.Execution {
+            robots.faults[A] = listOf(FAULT)
+            val exec = submit()
+            mw.pump()
+            assertEquals(PhysicalState.OPERATOR_HOLD, exec.physicalState, "시험의 전제: 결함이 첫 단위를 막는다")
+            assertTrue(mw.release(exec.executionId))
+            mw.pump()
+            assertEquals(listOf("$ORDER#u1"), robots.started, "시험의 전제: 수용 뒤 첫 단위가 나갔다")
+            assertEquals(setOf(KEY), exec.acknowledgedFaults)
+            return exec
+        }
+
+        override fun close() = Unit
+    }
+
+    private companion object {
+        const val A = "amr-a"
+        const val B = "amr-b"
+        const val ORDER = "ACK-248"
+        const val WORK_MASTER = "Split"
+        const val KEY = "ARM_FAULT[]"
+        val T0: Instant = Instant.parse("2026-11-02T00:00:00Z")
+        val FAULT: Fault = Fault.newBuilder().setErrorType("ARM_FAULT").setCanAcceptNewTask(false).build()
+
+        fun unit(id: String, to: String) = ExecutionUnit(
+            unitId = id,
+            route = Route.ROBOT,
+            skillType = "navigate_to",
+            parameters = emptyMap(),
+            expectedIdentity = null,
+            source = null,
+            destination = to,
+        )
+    }
+}
