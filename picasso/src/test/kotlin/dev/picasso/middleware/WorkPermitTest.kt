@@ -456,6 +456,23 @@ class WorkPermitTest {
         }
     }
 
+    @Test
+    fun `허가가 막고 스냅숏도 안 열려도 미확정 단위의 취소는 키로 지은 핸들로 기체에 나간다`() {
+        World(port = { LossyRobotPort(FaultBlindRobotPort(it), dropStartResponses = 1) }).use { w ->
+            w.permits.only(permitted(A))
+            val exec = w.accept()
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.units.first().state)
+
+            w.permits.only(inhibited(A))
+            assertTrue(w.mw.cancel(exec.executionId))
+            w.mw.pump()
+            assertEquals(listOf(exec.units.first().taskId), w.wire.cancels, "허가가 막은 동안 미확정 단위의 취소가 기체에 안 나갔다")
+            assertEquals(1, w.wire.starts.size, "취소를 보내려고 StartTask 를 다시 보냈다")
+            assertEquals(UnitState.RUNNING, exec.units.first().state, "기체가 받은 취소의 핸들로 붙지 않았다")
+        }
+    }
+
     // ── 취소는 언제나 나간다
 
     @Test

@@ -50,7 +50,8 @@ class FaultBlindRobotPort(private val delegate: RobotPort) : RobotPort by delega
 
 /**
  * 하위와의 선이 **재시작 없이 끊긴** 것처럼 답하는 포트(§15.242). [down] 인 동안 스냅숏과 재생을 못 읽고(널), 갱신 스트림은 끊기기 전까지
- * 받은 것만 돌려준다 — 끊긴 스트림이 조용히 다시 붙으려 하는 동안 새 갱신이 안 오는 모양이다. 던지지 않는다. 하위는 그동안에도 일을 한다.
+ * 받은 것만 돌려준다 — 끊긴 스트림이 조용히 다시 붙으려 하는 동안 새 갱신이 안 오는 모양이다. 읽기는 던지지 않는다. 취소는 닿지 않고
+ * 던진다. 하위는 그동안에도 일을 한다.
  */
 class LinkDownRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
     var down = false
@@ -61,6 +62,22 @@ class LinkDownRobotPort(private val delegate: RobotPort) : RobotPort by delegate
     override fun replay(robotId: String, from: Long): Replay? = if (down) null else delegate.replay(robotId, from)
     override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
         if (down) seen[handle.taskId].orEmpty() else delegate.watch(robotId, handle).also { seen[handle.taskId] = it }
+    override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse =
+        if (down) throw IllegalStateException("link down: cancel did not reach the robot") else delegate.cancel(robotId, handle)
+}
+
+/**
+ * **요청이 닿지 않는** 포트 — `StartTask` 가 하위에 닿기 전에 던진다. 미들웨어에게는 응답 유실([LossyRobotPort])과 똑같이 보이지만 기체는
+ * 그 태스크를 모르고, 그 태스크의 취소에 `NOT_FOUND` 로 답한다. 위임하지 않으므로 [starts] 는 보낸 횟수이지 닿은 횟수가 아니다.
+ */
+class UnsentStartRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    var starts = 0
+        private set
+
+    override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse {
+        starts += 1
+        throw IllegalStateException("request never reached the robot")
+    }
 }
 
 /**
