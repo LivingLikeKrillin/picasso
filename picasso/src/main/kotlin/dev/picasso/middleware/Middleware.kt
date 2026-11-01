@@ -961,6 +961,18 @@ class Middleware(
         return Reassignment.Moved(from, target.first, saved)
     }
 
+    /**
+     * 리비전이 아직 내지 않은 단위를 새 계획의 단위([fresh])로 바꿀 때 **시도와 앞 시도의 파지를 옮긴다.** 새 계획의 단위는 시도 0 이고
+     * 쥔 적이 없다. 재작업이 올린 시도를 잃으면 다음 [startUnit] 이 첫 시도의 태스크 id 로 내고, 같은 태스크 id 로 보내면 기체에 있던 첫
+     * 시도의 태스크에 붙는다. 앞 시도의 파지([ExecutionUnit.heldInEarlierAttempt])를 잃으면 재할당이 반쯤 한 물리 작업을 옮긴다.
+     * 새 계획에 이 단위가 없으면 그대로 둔다.
+     */
+    private fun ExecutionUnit.replannedAs(fresh: ExecutionUnit?): ExecutionUnit =
+        fresh?.also {
+            it.attempt = attempt
+            it.heldInEarlierAttempt = heldInEarlierAttempt
+        } ?: this
+
     private fun revise(execution: Execution, order: JobOrder): Submission {
         // **실행이 쥔 케이퍼빌리티로 판정한다**(카탈로그가 아니다). 다른 WorkMaster 로 바꾸는 리비전은 그 케이퍼빌리티로
         // 계획할 수 없으므로 받지 않는다 — 새 작업 지시다.
@@ -999,11 +1011,11 @@ class Middleware(
                 // 물리적으로 시도된 실패는 확정된 단위다. 계획 단계에서 못 시작한 것(태스크가 없다)은
                 // 아니다 — C형 부족처럼 새 버전이 공급을 채우면 그 슬롯은 다시 계획된다.
                 UnitState.FAILED -> if (unit.taskId.isEmpty()) {
-                    (replanned[unit.unitId] ?: unit).also { it.revision = order.version }
+                    unit.replannedAs(replanned[unit.unitId]).also { it.revision = order.version }
                 } else {
                     unit
                 }
-                UnitState.PENDING -> (replanned[unit.unitId] ?: unit).also { it.revision = order.version }
+                UnitState.PENDING -> unit.replannedAs(replanned[unit.unitId]).also { it.revision = order.version }
                 // 도는 단위와 답을 못 받은 단위는 같은 길이다 — 새 버전을 보내는 것이 계약에서는 갱신이자 조회다(같은
                 // task_id: 접수돼 있었으면 갱신, 아니었으면 새 접수. 어느 쪽이든 핸들이 돌아오면 이제 추적한다).
                 UnitState.RUNNING, UnitState.IN_DOUBT -> {
