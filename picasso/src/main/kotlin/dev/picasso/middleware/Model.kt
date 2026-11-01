@@ -371,6 +371,14 @@ data class ExecutionUnit(
     internal var streamLostAt: Instant? = null
 
     /**
+     * 이 시도의 태스크에 키로 지은 핸들로 취소를 마지막으로 보낸 시각(§15.219, §15.238). 미확정 중이거나 운영자 보류에 둔 취소를 다시
+     * 보낼 때 [Middleware.LOOKUP_INTERVAL] 을 두려고 미들웨어 시계로 잰다. 새 시도를 내거나 취소용으로 붙으면 걷힌다. 판단 기록에 싣지
+     * 않으므로 리빌드 뒤에는 널이고, 그때 첫 취소가 바로 한 번 더 나갈 뿐이다(같은 태스크의 취소는 멱등이다). 본문 속성이라 같음 비교와
+     * 복사에 들지 않는다.
+     */
+    internal var keyedCancelAt: Instant? = null
+
+    /**
      * 이 단위보다 먼저 `DONE` 이어야 하는 단위의 id(§15.234). **널이 기본이고 그때는 앞 단위의 결과와 상관없이 나간다** — 슬롯끼리
      * 독립인 계획([PrepareSequencedRack])은 앞 슬롯이 실패해도 다음 슬롯을 낸다.
      *

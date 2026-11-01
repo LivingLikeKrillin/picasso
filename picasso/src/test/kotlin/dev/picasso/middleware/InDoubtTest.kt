@@ -35,15 +35,19 @@ class InDoubtTest {
         ),
     )
 
-    /** [blind] 면 스냅숏을 못 읽는 기체다 — 미확정 태스크가 스냅숏에 안 보여 조회(`StartTask` 재전송)로만 풀 수 있다. */
+    /**
+     * [blind] 면 스냅숏을 못 읽는 기체다 — 미확정 태스크가 스냅숏에 안 보여 조회(`StartTask` 재전송)로만 풀 수 있다. [wrap] 은 계약
+     * 클라이언트 바로 위의 더블이다.
+     */
     private class RobotWorld(
         drop: Int,
         profile: Path = Path.of("..", "profile", "fixtures", "minimal.json").normalize(),
         blind: Boolean = false,
+        wrap: (RobotPort) -> RobotPort = { it },
     ) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to profile))
         val cell = CellMimic(now = { harness.clock.now() })
-        val port = LossyRobotPort(ClientRobotPort(harness.client()).let { if (blind) FaultBlindRobotPort(it) else it }, dropStartResponses = drop)
+        val port = LossyRobotPort(wrap(ClientRobotPort(harness.client())).let { if (blind) FaultBlindRobotPort(it) else it }, dropStartResponses = drop)
         val mw = Middleware(port, cell, now = { harness.clock.now() })
 
         fun tasks() = harness.oracle.dumpInternalState(DumpInternalStateRequest.newBuilder().setRobotId(ROBOT).build()).tasksList
@@ -180,6 +184,17 @@ class InDoubtTest {
         return copy
     }
 
+    /** [cancellableProfile] 에서 `pick_place` 가 600초 걸리는 사본 — 운영자 보류에 든 뒤에도 기체의 태스크가 아직 돈다. */
+    private fun longCancellableProfile(): Path {
+        val raw = Files.readString(cancellableProfile())
+        val needle = "{ \"skill_type\": \"pick_place\", \"seconds\": 45"
+        check(raw.split(needle).size == 2) { "픽스처에 pick_place 45초가 하나가 아니다" }
+        val copy = Files.createTempFile("picasso-doubt-long-", ".json")
+        Files.writeString(copy, raw.replace(needle, "{ \"skill_type\": \"pick_place\", \"seconds\": 600"))
+        copy.toFile().deleteOnExit()
+        return copy
+    }
+
     @Test
     fun `미확정 중의 취소는 핸들이 생기는 순간 하류에 닿는다 — 재실행 없이 중단으로 끝난다`() {
         RobotWorld(drop = 1, profile = cancellableProfile()).use { w ->
@@ -220,8 +235,9 @@ class InDoubtTest {
 
     @Test
     fun `스냅숏도 조회도 안 되면 취소가 걸린 실행을 중단으로 닫지 않고 운영자 보류에 둔다`() {
-        // 취소가 갈 핸들이 없다. 중단(motionStopped)으로 닫으면 기체가 그 태스크를 하는 동안 실행이 기체를 내준다.
-        RobotWorld(drop = 1000, profile = cancellableProfile(), blind = true).use { w ->
+        // 취소가 갈 핸들이 없고 키로 지은 핸들의 취소도 닿지 않는다. 중단(motionStopped)으로 닫으면 기체가 그 태스크를 하는 동안 실행이
+        // 기체를 내준다.
+        RobotWorld(drop = 1000, profile = cancellableProfile(), blind = true, wrap = { FlakyCancelRobotPort(it) }).use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
             w.mw.pump()
             assertTrue(w.mw.cancel(exec.executionId))
@@ -240,7 +256,7 @@ class InDoubtTest {
 
     @Test
     fun `운영자 보류에 둔 취소는 운영자가 판단하면 닿지 못했다는 사유를 싣고 끝난다`() {
-        RobotWorld(drop = 1000, profile = cancellableProfile(), blind = true).use { w ->
+        RobotWorld(drop = 1000, profile = cancellableProfile(), blind = true, wrap = { FlakyCancelRobotPort(it) }).use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
             w.mw.pump()
             assertTrue(w.mw.cancel(exec.executionId))
@@ -253,6 +269,140 @@ class InDoubtTest {
             val report = w.mw.lastCancel(exec.executionId)!!
             assertEquals(Middleware.CANCEL_NOT_SENT, report.refusal)
             assertEquals(listOf(SLOT), report.completedUnits, "운영자가 확인한 단위가 완료로 실려야 한다")
+        }
+    }
+
+    @Test
+    fun `스냅숏도 조회도 안 되는 미확정 단위의 취소는 키로 지은 핸들로 기체에 닿는다 — 재전송 없이 중단으로 끝난다`() {
+        RobotWorld(drop = 1000, profile = cancellableProfile(), blind = true).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+            assertTrue(w.mw.cancel(exec.executionId))
+
+            w.mw.pump()
+            assertEquals(UnitState.RUNNING, exec.unit().state, "기체가 받은 취소의 핸들로 붙지 않았다")
+            assertEquals(exec.unit().taskId, exec.handle!!.taskId)
+            assertTrue(exec.unit().note!!.contains("keyed cancel"), exec.unit().note)
+            assertEquals(1, exec.eventTrail.count { it.kind == Middleware.DOUBT_ATTACHED }, exec.eventTrail.toString())
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(1, w.port.starts, "취소하려고 StartTask 를 다시 보냈다")
+            assertEquals(1, w.tasks().size)
+            assertTrue(w.tasks().single().taskState.startsWith("CANCELLED"), w.tasks().single().taskState)
+            val report = w.mw.lastCancel(exec.executionId)!!
+            assertEquals(null, report.refusal)
+            assertEquals(SLOT, report.inProgressUnit)
+        }
+    }
+
+    @Test
+    fun `스냅숏이 안 열린 미확정 단위의 키 취소를 하류가 거절해도 붙어 끝까지 따라간다 — 거절이 응답에 있다`() {
+        RobotWorld(drop = 1000, blind = true).use { w -> // 픽스처의 pick_place 는 취소 NO
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder().copy(requiredEvidence = Evidence.E0), ROBOT)).execution
+            w.mw.pump()
+            assertTrue(w.mw.cancel(exec.executionId))
+            w.mw.pump()
+            assertEquals(UnitState.RUNNING, exec.unit().state, "취소를 거부한 기체는 그 태스크를 안다 — 붙어야 한다")
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(1, w.port.starts)
+            val report = w.mw.lastCancel(exec.executionId)!!
+            assertEquals("REJECTION_CODE_CANCEL_UNSUPPORTED", report.refusal)
+            assertEquals(SLOT, report.stoppedAfter)
+            assertEquals("SUCCEEDED", w.tasks().single().taskState)
+        }
+    }
+
+    @Test
+    fun `기체가 모르는 태스크의 키 취소는 쉬고 있다는 증거가 아니다 — 재전송 없이 운영자 보류다`() {
+        // 원 요청이 기체에 닿지 않았다. 키로 지은 핸들의 취소에 기체는 NOT_FOUND 로 답한다.
+        lateinit var cancels: FlakyCancelRobotPort
+        RobotWorld(
+            drop = 0,
+            profile = cancellableProfile(),
+            blind = true,
+            wrap = { FlakyCancelRobotPort(UnsentStartRobotPort(it), failures = 0).also { p -> cancels = p } },
+        ).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+            assertTrue(w.mw.cancel(exec.executionId))
+
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+            assertEquals(UnitState.OPERATOR_HOLD, exec.unit().state)
+            assertTrue(cancels.delivered > 0, "키로 지은 핸들의 취소가 안 나갔다")
+            assertEquals(1, w.port.starts, "취소가 걸렸는데 조회로 StartTask 를 다시 보냈다")
+            assertEquals(0, exec.unit().lookups)
+            assertTrue(w.tasks().isEmpty(), w.tasks().toString())
+            assertEquals(null, w.mw.lastCancel(exec.executionId), "닿지 않은 취소에 취소 응답이 나갔다")
+            assertTrue(exec.unit().note!!.contains("keyed cancel not accepted"), exec.unit().note)
+            assertTrue(exec.eventTrail.any { it.kind == Middleware.CANCEL_UNSENT }, exec.eventTrail.toString())
+        }
+    }
+
+    @Test
+    fun `키로 보내는 취소는 간격 안에서 다시 보내지 않고 간격이 지나면 보낸다`() {
+        lateinit var cancels: FlakyCancelRobotPort
+        RobotWorld(
+            drop = 0,
+            profile = cancellableProfile(),
+            blind = true,
+            wrap = { FlakyCancelRobotPort(UnsentStartRobotPort(it), failures = 0).also { p -> cancels = p } },
+        ).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertTrue(w.mw.cancel(exec.executionId))
+            w.mw.pump()
+            assertEquals(1, cancels.attempts)
+
+            repeat(5) { w.mw.pump() }
+            w.harness.advance(Middleware.LOOKUP_INTERVAL.minusMillis(1))
+            w.mw.pump()
+            assertEquals(1, cancels.attempts, "간격이 지나기 전에 다시 보냈다")
+
+            w.harness.advance(Duration.ofMillis(1))
+            w.mw.pump()
+            assertEquals(2, cancels.attempts, "간격이 지났는데 안 보냈다")
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+        }
+    }
+
+    @Test
+    fun `운영자 보류에 둔 취소는 스냅숏에 태스크가 보이면 키로 다시 보내고 보류는 그대로 둔다`() {
+        lateinit var link: LinkDownRobotPort
+        RobotWorld(drop = 1000, profile = longCancellableProfile(), wrap = { LinkDownRobotPort(it).also { p -> link = p } }).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+            link.down = true // 스냅숏도 취소도 안 닿는다
+            assertTrue(w.mw.cancel(exec.executionId))
+            w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
+            assertEquals(1, exec.eventTrail.count { it.kind == Middleware.CANCEL_UNSENT }, exec.eventTrail.toString())
+            assertEquals("RUNNING", w.tasks().single().taskState, "시험의 전제: 보류에 들 때 기체의 태스크가 아직 돈다")
+
+            link.down = false
+            w.harness.advance(Middleware.LOOKUP_INTERVAL) // 보류에 든 라운드에 키 취소를 한 번 보냈다
+            w.mw.pump()
+            assertEquals(1, exec.eventTrail.count { it.kind == Middleware.CANCEL_RESENT }, "스냅숏에 보이는 태스크에 취소를 다시 안 보냈다")
+            assertTrue(w.tasks().single().taskState.startsWith("CANCEL"), w.tasks().single().taskState)
+            assertTrue(exec.unit().note!!.contains("held cancel re-sent by key"), exec.unit().note)
+
+            repeat(3) {
+                w.harness.advance(Duration.ofSeconds(10))
+                w.mw.pump()
+            }
+            assertEquals(1, exec.eventTrail.count { it.kind == Middleware.CANCEL_RESENT }, "닿은 취소를 또 보냈다")
+            assertEquals(PhysicalState.OPERATOR_HOLD, exec.physicalState, "보류가 풀렸다")
+            assertEquals(UnitState.OPERATOR_HOLD, exec.unit().state)
+            assertEquals(null, w.mw.lastCancel(exec.executionId))
+
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, SLOT, OperatorDecision.CONFIRM_DONE, OPERATOR))
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(null, w.mw.lastCancel(exec.executionId)!!.refusal, "닿은 취소를 닿지 못했다고 말했다")
         }
     }
 

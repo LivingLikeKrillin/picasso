@@ -1356,7 +1356,7 @@ class Middleware(
         if (!execution.physicalState.pumps) return
 
         // **닿지 못한 취소는 닿을 때까지 다시 보낸다.** 도는 단위의 태스크에만 의미가 있다 — 이미 끝난 태스크(검증 대기)에는 보내지
-        // 않고, 그대로 끝나면 취소 응답이 닿지 못했다고 말한다([abort]). 미확정 중에는 핸들이 없고, 조회가 풀린 뒤 [resolveDoubt] 가 보낸다.
+        // 않고, 그대로 끝나면 취소 응답이 닿지 못했다고 말한다([abort]). 미확정 중에는 핸들이 없고, [resolveDoubt] 가 붙으면서 보낸다.
         if (execution.cancelUnsent && execution.active?.state == UnitState.RUNNING) sendCancel(execution)
 
         // **연결이 끊기면 도는 단위의 결과는 미확정이다.** 계약이 OFFLINE 과 CONNECTION_BROKEN 을 가른다(완료 기준 5);
@@ -1448,6 +1448,7 @@ class Middleware(
         // 운영자가 판단할 단위가 있으면 다음으로 가지 않는다 — 판단이 재작업이면 그 슬롯이 먼저다.
         val held = execution.units.firstOrNull { it.state == UnitState.OPERATOR_HOLD }
         if (held != null) {
+            if (execution.cancelUnsent && execution.doubtCancelHold == held.unitId) resendHeldCancel(execution, held)
             execution.physicalState = PhysicalState.OPERATOR_HOLD
             if (execution.notedHold != held.unitId) {
                 execution.notedHold = held.unitId
@@ -1748,6 +1749,9 @@ class Middleware(
      *
      * 0. **스냅숏 부착**(로봇 경로만) — 기체의 스냅숏에 이 단위의 태스크가 보이면 `StartTask` 없이 핸들을 지어 붙는다
      *    ([attachFromSnapshot]). 읽기뿐이라 발행 게이트를 묻지 않고, 조회가 막힌 동안에도 붙는다.
+     *    **취소가 걸렸으면** 스냅숏으로 못 붙어도 태스크 id·리비전으로 핸들을 지어 취소를 보내고, 기체가 받으면 그 핸들로 붙는다
+     *    ([cancelByKey], §15.219). 취소도 발행이 아니라서 허가를 묻지 않는다(ADR 52). 이때는 1 을 건너뛴다 — 멈추려는 태스크를 같은
+     *    참조의 `StartTask` 로 다시 보내면 원 요청이 안 닿았던 기체가 그 일을 새로 시작한다.
      * 1. **하류의 클라이언트 참조 기반 조회** — 같은 참조로 다시 묻는다. 계약은 같은 핸들을 돌려주고 플릿은 같은 운반을
      *    돌려준다. 돌아오면 그 실행을 **이어서 추적**한다(새 실행이 아니다 — 17장 3번 *자동 재실행 없음*, 9번 재동기화는
      *    처음부터 되짚는 `WatchTask(0)` 이 한다). **횟수가 아니라 시간으로 잰다** — 미확정 유예([LogicalCapability.inDoubtGrace]) 안에서
@@ -1763,11 +1767,14 @@ class Middleware(
         val lookup = lookupOf(unit.route)
         // ⓪ 스냅숏 부착 — 붙었으면 이 라운드는 여기까지다. 다음 라운드의 [pumpRobotUnit] 이 처음부터 되짚는다.
         if (unit.route == Route.ROBOT && attachFromSnapshot(execution, unit)) return false
+        // ⓪′ 키로 지은 핸들로 취소 — 받으면 붙는다. 기체가 모른다고 해도 쉬고 있다는 증거가 아니다 — 아래 관측과 운영자로 간다.
+        val cancelling = unit.route == Route.ROBOT && execution.cancelRequested
+        if (cancelling && cancelByKey(execution, unit)) return false
 
         val requestedAt = unit.requestedAt!!
         // 스트림을 잃은 단위는 그때부터 잰다 — 요청 시각부터 재면 긴 태스크는 잃은 순간 이미 유예 밖이다.
         val inGrace = now().isBefore((unit.streamLostAt ?: requestedAt).plus(inDoubtGraceOf(execution)))
-        if (lookup == ExecutionLookup.CLIENT_REFERENCE && unit.streamLostAt == null && (inGrace || unit.lookups == 0)) {
+        if (lookup == ExecutionLookup.CLIENT_REFERENCE && unit.streamLostAt == null && !cancelling && (inGrace || unit.lookups == 0)) {
             // 조회 사이에 간격을 둔다([LOOKUP_INTERVAL]). 간격 안이면 이 라운드는 묻지 않고 미확정인 채 기다린다.
             val last = unit.lastLookupAt
             if (last != null && now().isBefore(last.plus(LOOKUP_INTERVAL))) {
@@ -1847,11 +1854,78 @@ class Middleware(
      * [CANCEL_NOT_SENT] 가 실린다.
      */
     private fun holdUnsentCancel(execution: Execution, unit: ExecutionUnit) {
+        val keyed = unit.route == Route.ROBOT
+        val cause = if (keyed) KEYED_UNSENT_CAUSE else HOLD_UNSENT_CAUSE
         execution.cancelUnsent = true
         execution.doubtCancelHold = unit.unitId
-        execution.notedCancelUnsent = HOLD_UNSENT_CAUSE
-        unit.annotate("cancel requested but never reached the downstream: no task handle")
-        execution.trail(CANCEL_UNSENT, "${unit.unitId}: 취소를 하위에 보내지 못했다 ($HOLD_UNSENT_CAUSE) — 운영자 판단을 기다린다")
+        execution.notedCancelUnsent = cause
+        unit.annotate("cancel requested but never reached the downstream: no task handle" + if (keyed) ", keyed cancel not accepted" else "")
+        execution.trail(CANCEL_UNSENT, "${unit.unitId}: 취소를 하위에 보내지 못했다 ($cause) — 운영자 판단을 기다린다")
+    }
+
+    /**
+     * ⓪′ 키로 지은 핸들로 취소(§15.219) — 취소가 걸린 미확정 단위에 스냅숏으로 못 붙었을 때, 태스크 id·리비전으로 핸들을 지어
+     * `CancelTask` 를 보낸다. 기체가 상태로 답하면 그 태스크가 있는 것이고 그 핸들로 붙는다. 단위는 도는 중이 되고 다음 라운드의
+     * [pumpRobotUnit] 이 `WatchTask(0)` 으로 처음부터 되짚어 취소의 끝을 읽는다. 그 스킬이 취소를 안 들면(`CANCEL_UNSUPPORTED`) 그것도
+     * 기체가 그 태스크를 안다는 답이다 — 거부를 싣고 붙어 끝까지 따라간다.
+     *
+     * - **허가를 묻지 않는다.** 취소는 새 발행이 아니다(ADR 52). 허가가 조회를 막은 동안에도 나간다.
+     * - **간격을 둔다**([LOOKUP_INTERVAL], [ExecutionUnit.keyedCancelAt]). 간격 안이면 보내지 않는다.
+     * - **던지거나 다른 거부면 붙지 않는다.** 기체가 그 태스크를 모른다는 답(`NOT_FOUND`)은 기체가 쉬고 있다는 증거가 아니다 — 원 요청이
+     *   아직 오는 중일 수 있다. 부른 쪽이 설비 관측과 운영자 보류로 간다.
+     *
+     * @return 붙었는가.
+     */
+    private fun cancelByKey(execution: Execution, unit: ExecutionUnit): Boolean {
+        val last = unit.keyedCancelAt
+        if (last != null && now().isBefore(last.plus(LOOKUP_INTERVAL))) return false
+        unit.keyedCancelAt = now()
+        val robot = execution.robotOf(unit)
+        val handle = handleFor(robot, unit.taskId, unit.revision)
+        val response = try {
+            robots.cancel(robot, handle)
+        } catch (_: RuntimeException) {
+            return false
+        }
+        val refusal = response.takeUnless { it.hasState() }?.rejection?.code
+        if (refusal != null && refusal != RejectionCode.REJECTION_CODE_CANCEL_UNSUPPORTED) return false
+
+        execution.cancelRefusal = refusal?.name
+        execution.handle = handle
+        unit.state = UnitState.RUNNING
+        unit.streamLostAt = null
+        execution.notedDoubt = null
+        unit.annotate("IN_DOUBT resolved by keyed cancel: ${unit.taskId} revision ${unit.revision}")
+        execution.trail(DOUBT_ATTACHED, "${unit.unitId}: 키로 지은 핸들(${unit.taskId}, 리비전 ${unit.revision})로 보낸 취소를 기체가 받아 StartTask 없이 붙었다")
+        execution.physicalState = PhysicalState.CANCELING
+        return true
+    }
+
+    /**
+     * 운영자 보류에 둔 취소([holdUnsentCancel])를 다시 보낸다(§15.238). 기체의 스냅숏에 그 단위의 태스크가 같은 리비전으로 아직 끝나지 않은
+     * 채 보이면 키로 지은 핸들로 `CancelTask` 를 보낸다. **보류는 그대로다** — 단위의 결과는 여전히 운영자가 판단하고 실행은 그 판단을
+     * 기다린다. 기체가 답하면(상태든 거부든) [CANCEL_RESENT] 를 남기고 [Execution.cancelUnsent] 를 내린다 — 취소 응답이 닿지 못했다고
+     * 말하지 않는다. 던지면 간격([LOOKUP_INTERVAL]) 뒤에 스냅숏부터 다시 본다. 스냅숏을 못 읽었거나 태스크가 끝났으면 보내지 않는다.
+     */
+    private fun resendHeldCancel(execution: Execution, unit: ExecutionUnit) {
+        if (unit.route != Route.ROBOT) return
+        val robot = execution.robotOf(unit)
+        val view = views[robot]?.takeIf { it.observable } ?: return
+        val state = view.tasks[unit.taskId] ?: return
+        if (state.endedOnRobot() || view.taskRevisions[unit.taskId] != unit.revision) return
+        val last = unit.keyedCancelAt
+        if (last != null && now().isBefore(last.plus(LOOKUP_INTERVAL))) return
+        unit.keyedCancelAt = now()
+        val response = try {
+            robots.cancel(robot, handleFor(robot, unit.taskId, unit.revision))
+        } catch (_: RuntimeException) {
+            return
+        }
+        if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
+        execution.cancelUnsent = false
+        execution.notedCancelUnsent = null
+        unit.annotate("held cancel re-sent by key: snapshot showed ${unit.taskId}=${state.name}")
+        execution.trail(CANCEL_RESENT, "${unit.unitId}: 운영자 보류 중 스냅숏에 ${unit.taskId}=${state.name} 가 보여 키로 지은 핸들로 취소를 보냈다 — 판단은 운영자가 한다")
     }
 
     /** 걸린 취소가 [holdUnsentCancel] 로 서 있고 그 단위가 아직 운영자 보류다 — 실행은 운영자 판단을 기다린다. */
@@ -2162,6 +2236,7 @@ class Middleware(
         unit.lookups = 0
         unit.lastLookupAt = null
         unit.streamLostAt = null
+        unit.keyedCancelAt = null
         // 같은 태스크 id 로 보내면 기체에 있던 태스크에 붙는다 — 이제 이 인스턴스가 든 태스크다.
         execution.unattached.remove(unit.unitId)
         execution.active = unit
@@ -2256,6 +2331,7 @@ class Middleware(
         unit.requestedAt = requestedAtOf(execution, unit)
         unit.lookups = 0
         unit.lastLookupAt = null
+        unit.keyedCancelAt = null
         unit.state = UnitState.RUNNING
         execution.unattached.remove(unit.unitId)
         execution.notedUnattached = null
@@ -3156,6 +3232,9 @@ class Middleware(
 
         /** 취소가 걸린 채 미확정이 안 풀려 취소가 닿지 못했다는 [CANCEL_UNSENT] 의 까닭(§15.238). 한 번만 남는다. */
         private const val HOLD_UNSENT_CAUSE = "미확정이라 태스크 핸들이 없다"
+
+        /** 로봇 경로의 [HOLD_UNSENT_CAUSE] — 키로 지은 핸들로 보낸 취소도 기체가 받지 않았다(§15.219). */
+        private const val KEYED_UNSENT_CAUSE = "미확정이라 태스크 핸들이 없고 키로 보낸 취소도 기체가 받지 않았다"
 
         /** 라운드 진행([PUMP_SOURCE])의 실패를 [Execution.pumpFailures] 에 적는 자리 이름. 기체 동기화는 `sync:<기체>` 다. */
         private const val PUMP_SOURCE = "pump"
