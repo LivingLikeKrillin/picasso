@@ -21,6 +21,8 @@ dependencies {
 
     testImplementation(project(":harness"))
     testImplementation(project(":mimic"))
+    // 답하지 않는 하위를 시험 안에 세운다(`PortBreakerTest`). 미믹은 늘 답한다.
+    testImplementation(libs.grpc.inprocess)
     testImplementation(kotlin("test"))
 }
 

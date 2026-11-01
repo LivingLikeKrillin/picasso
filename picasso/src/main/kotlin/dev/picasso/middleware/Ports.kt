@@ -12,6 +12,7 @@ import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.ValueType
 import dev.picasso.contracts.v1.WatchTaskResponse
 import io.grpc.Status
+import io.grpc.StatusRuntimeException
 import java.time.Duration
 import java.time.Instant
 
@@ -72,11 +73,53 @@ interface RobotPort {
  *
  * 태스크별 표는 잠금 없는 맵이다. 호출자는 미들웨어 하나이고 그 미들웨어를 지키는 호스트의 잠금 아래에서
  * 부른다고 전제한다(미들웨어 자체에 스레드가 없다).
+ *
+ * **답하지 않는 기체는 잠시 묻지 않는다**(§15.237). 단건 호출(`GetCapabilities`·`StartTask`·`CancelTask`·`GetSnapshot`·
+ * `ReplayEvents`)이 기한을 다 쓰고(`DEADLINE_EXCEEDED`) 끝나면 그 기체의 단건 호출을 [backoff] 동안 하위로 보내지 않고 바로
+ * `UNAVAILABLE` 로 실패시킨다. 호출자의 잠금 아래에서 도는 라운드가 답하지 않는 기체 하나 때문에 라운드마다 기한만큼 늘지 않게 —
+ * 차단 창 동안 그 기체가 라운드에 더하는 지연은 없고, 창이 지나면 한 번 다시 묻는다. 답이 오면(상태든 거부든 gRPC 오류든) 창을 걷는다.
+ *
+ * - **기한 값은 그대로다.** 적정 예산은 현장 실측 전까지 모른다. 바꾸는 것은 같은 기체에 기한을 되풀이해 쓰는 횟수뿐이다.
+ * - **기한 초과에만 건다.** `UNAVAILABLE` 은 어댑터 호스트가 바로 돌려주는 답이기도 하다(벤더 링크 오류, 결함을 못 보는 스냅숏) —
+ *   빨리 온 답은 라운드를 늘리지 않는다.
+ * - **기체마다 따로다.** 한 기체의 창이 다른 기체의 호출을 막지 않는다.
+ * - 갱신 스트림(`WatchTask`)은 비동기라 라운드를 막지 않으므로 창과 상관없다.
+ *
+ * @param now 창을 재는 시계. 기본은 벽시계다.
+ * @param backoff 차단 창의 길이. 기본 30초는 [LogicalCapability.linkLossWindow] 와 같다 — 스냅숏을 못 읽는 창이 끝날 무렵 다시
+ *   물어, 끝내 답하지 않는 기체는 미들웨어가 끊김으로 판정한다. 현장마다 바꿀 소비자가 아직 없어 현장 시간값에 넣지 않는다(ADR 9).
  */
-class ClientRobotPort(private val client: PicassoClient) : RobotPort {
+class ClientRobotPort(
+    private val client: PicassoClient,
+    private val now: () -> Instant = Instant::now,
+    val backoff: Duration = Duration.ofSeconds(30),
+) : RobotPort {
+
+    /** 기체마다 차단 창이 끝나는 시각. 창이 지나도 남아 있다가 다음 호출이 답을 받으면 걷힌다. */
+    private val backingOff = mutableMapOf<String, Instant>()
+
+    /** 이 기체의 차단 창이 끝나는 시각. 창이 없으면 `null`. 시험이 창을 보는 문이다. */
+    internal fun backingOffUntil(robotId: String): Instant? = backingOff[robotId]
+
+    /** [call] 을 [robotId] 의 차단 창 아래에서 부른다. 창 안이면 하위로 보내지 않고 `UNAVAILABLE` 로 던진다. */
+    private fun <T> guarded(robotId: String, call: () -> T): T {
+        backingOff[robotId]?.let { until ->
+            if (now().isBefore(until)) {
+                throw Status.UNAVAILABLE.withDescription("robot=$robotId 가 기한 안에 답하지 않아 $until 까지 묻지 않는다").asRuntimeException()
+            }
+        }
+        val result = try {
+            call()
+        } catch (e: StatusRuntimeException) {
+            if (e.status.code == Status.Code.DEADLINE_EXCEEDED) backingOff[robotId] = now().plus(backoff) else backingOff.remove(robotId)
+            throw e
+        }
+        backingOff.remove(robotId)
+        return result
+    }
 
     /** `PicassoClient` 가 이미 세대별로 캐시한다 — 여기서 또 들면 두 캐시가 어긋난다. */
-    override fun capabilities(robotId: String): Capability? = runCatching { client.capabilities(robotId) }.getOrNull()
+    override fun capabilities(robotId: String): Capability? = runCatching { guarded(robotId) { client.capabilities(robotId) } }.getOrNull()
 
     /** 태스크마다 지금까지 받은 갱신과 지금 열린 팔로워. 팔로워는 끊기면 바뀌고 누적 목록은 남는다. */
     private class Followed(var follower: TaskFollower) {
@@ -91,11 +134,10 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
     /** 지금 표에 든 태스크 id. 시험이 [release] 가 표를 비우는지 보는 문이다. */
     internal val following: Set<String> get() = followed.keys.toSet()
 
-    override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse =
-        client.start(
-            robotId, taskId, revision, skillType,
-            parameters.map { (k, v) -> typed(robotId, skillType, k, v) },
-        )
+    override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse {
+        val typed = parameters.map { (k, v) -> typed(robotId, skillType, k, v) }
+        return guarded(robotId) { client.start(robotId, taskId, revision, skillType, typed) }
+    }
 
     /**
      * 문자열 하나를 **계약이 선언한 타입**으로 옮긴다.
@@ -166,10 +208,10 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
         followed.remove(handle.taskId)
     }
 
-    override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = client.cancel(robotId, handle)
+    override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = guarded(robotId) { client.cancel(robotId, handle) }
 
     override fun snapshot(robotId: String): RobotSnapshot? = try {
-        val s = client.snapshot(robotId)
+        val s = guarded(robotId) { client.snapshot(robotId) }
         RobotSnapshot(
             sequence = s.sequence,
             faults = s.faultsList,
@@ -184,7 +226,7 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
     }
 
     override fun replay(robotId: String, from: Long): Replay? = try {
-        val responses = client.replay(robotId, from)
+        val responses = guarded(robotId) { client.replay(robotId, from) }
         if (responses.any { it.hasRejection() && it.rejection.code == RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED }) {
             Replay.Evicted
         } else {
