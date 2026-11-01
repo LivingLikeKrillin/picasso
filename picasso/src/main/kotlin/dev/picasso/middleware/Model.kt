@@ -363,6 +363,14 @@ data class ExecutionUnit(
     internal var lastLookupAt: Instant? = null
 
     /**
+     * 이 시도의 갱신 스트림을 더 따라갈 수 없게 된 시각(§15.228, [RobotPort.unfollowable]). 널이면 그런 일이 없었다. 값이 있으면 단위는
+     * 미확정이고, 해소가 같은 참조의 `StartTask` 재전송을 건너뛴다 — 원 요청은 이미 닿았으므로 재전송은 기체가 잊은 일을 새로 낸다. 설비
+     * 관측의 유예도 이 시각부터 잰다. 새 시도를 내거나 스냅숏에 붙으면 걷힌다. 판단 기록에 싣지 않는다 — 리빌드는 미확정을 옮기지 않고
+     * 스냅숏에서 다시 붙는다. 본문 속성이라 같음 비교와 복사에 들지 않는다.
+     */
+    internal var streamLostAt: Instant? = null
+
+    /**
      * 이 단위보다 먼저 `DONE` 이어야 하는 단위의 id(§15.234). **널이 기본이고 그때는 앞 단위의 결과와 상관없이 나간다** — 슬롯끼리
      * 독립인 계획([PrepareSequencedRack])은 앞 슬롯이 실패해도 다음 슬롯을 낸다.
      *

@@ -101,6 +101,37 @@ class StreamResumeTest {
     }
 
     @Test
+    fun `기체가 모르는 태스크면 따라갈 수 없다고 답한다`() {
+        // §15.228 — 다시 붙지 않는 것만으로는 미들웨어가 모른다. 포트가 그 사실을 따로 내야 단위가 미확정으로 간다.
+        Harness(mapOf(ROBOT to profile)).use { harness ->
+            val port = ClientRobotPort(harness.client())
+            val unknown = TaskHandle.newBuilder().setTaskId("nobody").setRevision(1).setRobotId(ROBOT).build()
+            port.watch(ROBOT, unknown)
+
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (port.unfollowable(ROBOT, unknown) == null && System.nanoTime() < deadline) {
+                Thread.sleep(20)
+                port.watch(ROBOT, unknown)
+            }
+
+            assertEquals("NOT_FOUND", port.unfollowable(ROBOT, unknown))
+        }
+    }
+
+    @Test
+    fun `기한으로 닫힌 스트림은 따라갈 수 없다고 하지 않는다`() {
+        Harness(mapOf(ROBOT to profile)).use { harness ->
+            val port = ClientRobotPort(harness.client(deadlineSeconds = DEADLINE_MS / 1000))
+            val handle = harness.startAndOutliveDeadline(port)
+
+            assertEquals(null, port.unfollowable(ROBOT, handle), "기한 초과를 영구 실패로 읽었다")
+            harness.advance(Duration.ofSeconds(60))
+            assertEquals(TaskState.TASK_STATE_SUCCEEDED, port.watch(ROBOT, handle).last().state)
+            assertEquals(null, port.unfollowable(ROBOT, handle), "종료를 본 태스크를 따라갈 수 없다고 했다")
+        }
+    }
+
+    @Test
     fun `여러 스레드가 동시에 넣어도 팔로워는 하나도 잃지 않는다`() {
         val follower = TaskFollower()
         val threads = 8
