@@ -922,7 +922,7 @@ class Middleware(
                 "끝난 단위가 있다(${it.unitId}) — 반쯤 한 물리 작업의 인계는 재할당이 보장하지 않는다",
             )
         }
-        execution.units.firstOrNull { it.route == Route.ROBOT && it.everHeld }?.let {
+        execution.units.firstOrNull { it.route == Route.ROBOT && (it.everHeld || it.heldInEarlierAttempt) }?.let {
             return Reassignment.Kept(
                 from,
                 "자재를 다룬 단위가 있다(${it.unitId}, 마지막 파지 ${it.hold.kind.name}) — " +
@@ -2605,6 +2605,26 @@ class Middleware(
         unit.failureClass = null
         unit.verification = Verification.NOT_REQUESTED
         unit.note = "operator ordered rework"
+        // 시도별 관측을 비운다(§15.236). 남기면 새 시도의 사건 번들이 앞 시도의 결함·어긋남·근거 등급을 싣고, 정체는 한 번 알린 표시와 앞
+        // 시도의 진행률에 막혀 새 시도에서 다시 알리지 않는다. 비운 값은 계획이 처음 지은 단위의 값이다. 쥔 것을 본 사실만 따로 남긴다 —
+        // 재할당이 그것으로 반쯤 한 물리 작업을 거른다.
+        unit.heldInEarlierAttempt = unit.heldInEarlierAttempt || unit.everHeld
+        unit.everHeld = false
+        unit.holdExpected = null
+        unit.holdMismatch = null
+        unit.fault = null
+        unit.reached = Evidence.E0
+        unit.downstreamDoneAt = null
+        unit.evidenceDeadline = null
+        unit.evidenceAt = null
+        unit.rechecks = 0
+        unit.requestedAt = null
+        unit.progress = 0.0
+        unit.progressAt = null
+        unit.progressObservable = null
+        unit.progressStalled = false
+        unit.preconditionSubjects = emptyList()
+        unit.result = null
     }
 
     /**
