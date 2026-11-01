@@ -186,6 +186,10 @@ class Middleware(
         /** 마지막 동기화에서 기체를 봤는가. 거짓이면 위의 값은 낡은 것이다. */
         var observable: Boolean = false
             internal set
+
+        /** 마지막으로 스냅숏을 읽은 시각(미들웨어 시계). 널이면 한 번도 못 읽었다. 연결 끊김의 유예([LogicalCapability.linkLossWindow])를 여기부터 잰다. */
+        var lastObservedAt: Instant? = null
+            internal set
         var resyncs: Int = 0
             internal set
         var eventsSeen: Long = 0
@@ -1207,6 +1211,7 @@ class Middleware(
             return
         }
         view.observable = true
+        view.lastObservedAt = receivedAt
         measureClock(robotId, view, snapshot, sentAt, receivedAt, live)
         view.faults = snapshot.faults.associateBy { faultKey(it) }
         view.connection = snapshot.connection
@@ -1357,8 +1362,17 @@ class Middleware(
         // **연결이 끊기면 도는 단위의 결과는 미확정이다.** 계약이 OFFLINE 과 CONNECTION_BROKEN 을 가른다(완료 기준 5);
         // HIBERNATING 은 침묵하지만 정상이다(§4.7). 되돌아오면 스냅샷으로 태스크 상태를 다시 세워 이어 간다 —
         // 재실행이 아니다. 어느 쪽도 상류에 한 번씩 알린다(16장 — 결과가 아직 확인되지 않았다는 사실).
+        // **스냅숏을 못 읽는 것도 유예가 지나면 끊김이다**(§15.242). 하위가 다시 뜨지 않고 끊기면 포트가 던지지도 끊김을 말하지도 않는다.
         val runningRobotUnit = execution.active?.takeIf { it.route == Route.ROBOT && it.state == UnitState.RUNNING }
         val view = runningRobotUnit?.let { views[execution.robotOf(it)] }
+        val unseenSince = view?.takeIf { !it.observable }?.lastObservedAt
+            ?.takeIf { !now().isBefore(it.plus(execution.capability.linkLossWindow)) }
+        if (unseenSince != null && runningRobotUnit != null && !execution.linkBroken) {
+            execution.linkBroken = true
+            execution.trail("LINK_BROKEN", "snapshot unreadable since $unseenSince while ${runningRobotUnit.unitId} is running — result unconfirmed")
+            execution.physicalState = PhysicalState.IN_DOUBT
+            notify(execution)
+        }
         if (view != null && view.observable && runningRobotUnit != null) {
             val down = view.connection == ConnectionState.CONNECTION_STATE_CONNECTION_BROKEN ||
                 view.connection == ConnectionState.CONNECTION_STATE_OFFLINE
@@ -1607,15 +1621,20 @@ class Middleware(
 
     /** @return 단위가 이 펌프에서 종착(또는 검증 대기로 이행)해 active 에서 내려와도 되는가. */
     private fun pumpRobotUnit(execution: Execution, unit: ExecutionUnit): Boolean {
-        val updates = robots.watch(execution.robotOf(unit), execution.handle!!)
+        val robot = execution.robotOf(unit)
+        val handle = execution.handle!!
+        val updates = robots.watch(robot, handle)
         // **결과 이벤트는 (실행, 버전)으로 맞춘다**(15.1). 이 단위의 지금 버전보다 낮은 버전의 종착은 지연 이벤트로
         // **보존**하고, 이 버전의 갱신만 상태로 옮긴다.
         val (late, current) = updates.partition { it.revision < unit.revision }
         late.filter { it.state.isTerminal() }.forEach { execution.noteLate(unit, it) }
         val last = current.lastOrNull()
-            ?: return late.lastOrNull { it.state.isTerminal() }?.let { settleLate(execution, unit, it) } ?: false
+            ?: return late.lastOrNull { it.state.isTerminal() }?.let { settleLate(execution, unit, it) }
+                ?: robots.unfollowable(robot, handle)?.let { loseStream(execution, unit, handle, it) }
+                ?: false
         unit.observeHold(last.hold)
         if (!last.state.isTerminal()) {
+            robots.unfollowable(robot, handle)?.let { return loseStream(execution, unit, handle, it) }
             noteProgress(execution, unit, last)
             execution.physicalState = when {
                 execution.cancelRequested -> PhysicalState.CANCELING
@@ -1671,6 +1690,30 @@ class Middleware(
     }
 
     /**
+     * 도는 단위의 갱신 스트림이 종료 없이 영구히 닫혔다(§15.228, [RobotPort.unfollowable]) — 대개 어댑터 호스트가 다시 떠 태스크를 잊은 것이다.
+     *
+     * 단위를 **미확정**으로 옮긴다. 기체가 그 일을 마쳤는지, 하는 중인지, 멈췄는지 이 층은 모른다. 해소는 [resolveDoubt] 의 순서이되 같은
+     * 참조의 `StartTask` 재전송(①)은 건너뛴다 — 원 요청은 이미 닿았고 하위가 그것을 잊었으므로, 재전송은 같은 일을 새로 낸다. 스냅숏에
+     * 태스크가 보이면 붙고(⓪), 아니면 설비를 보고(②) 사람에게 간다(③). 핸들은 버린다 — 미확정 단위는 핸들을 들지 않고, 붙으면 다시 짓는다.
+     *
+     * @return 늘 거짓 — 단위는 이 펌프에서 종착하지 않는다.
+     */
+    private fun loseStream(execution: Execution, unit: ExecutionUnit, handle: TaskHandle, why: String): Boolean {
+        robots.release(execution.robotOf(unit), handle)
+        execution.handle = null
+        unit.state = UnitState.IN_DOUBT
+        unit.streamLostAt = now()
+        unit.annotate("task stream closed for good ($why) — result unconfirmed, no re-send")
+        execution.trail(WATCH_CLOSED, "${unit.unitId}: ${unit.taskId} 의 갱신 스트림이 $why 로 닫혔다 — 미확정, 같은 참조로 다시 보내지 않는다")
+        execution.physicalState = PhysicalState.IN_DOUBT
+        if (execution.notedDoubt != unit.unitId) {
+            execution.notedDoubt = unit.unitId
+            notify(execution)
+        }
+        return false
+    }
+
+    /**
      * 옛 버전의 종착만 있고 새 버전의 갱신은 오지 않는다 — 갱신이 닿기 전에 끝난 태스크다(보고서 17장 6번).
      *
      * **새 버전의 완료로 적지 않는다**(15.1). 물리적으로 일어난 일은 옛 버전의 파라미터로 한 일이므로, 그것이 새 버전의
@@ -1722,8 +1765,9 @@ class Middleware(
         if (unit.route == Route.ROBOT && attachFromSnapshot(execution, unit)) return false
 
         val requestedAt = unit.requestedAt!!
-        val inGrace = now().isBefore(requestedAt.plus(inDoubtGraceOf(execution)))
-        if (lookup == ExecutionLookup.CLIENT_REFERENCE && (inGrace || unit.lookups == 0)) {
+        // 스트림을 잃은 단위는 그때부터 잰다 — 요청 시각부터 재면 긴 태스크는 잃은 순간 이미 유예 밖이다.
+        val inGrace = now().isBefore((unit.streamLostAt ?: requestedAt).plus(inDoubtGraceOf(execution)))
+        if (lookup == ExecutionLookup.CLIENT_REFERENCE && unit.streamLostAt == null && (inGrace || unit.lookups == 0)) {
             // 조회 사이에 간격을 둔다([LOOKUP_INTERVAL]). 간격 안이면 이 라운드는 묻지 않고 미확정인 채 기다린다.
             val last = unit.lastLookupAt
             if (last != null && now().isBefore(last.plus(LOOKUP_INTERVAL))) {
@@ -1775,13 +1819,18 @@ class Middleware(
         }
 
         // ③ 운영자.
-        val why = if (lookup == ExecutionLookup.NONE) "downstream has no client-reference lookup" else "lookup unanswered within grace (${unit.lookups} time(s))"
+        val why = when {
+            unit.streamLostAt != null -> "downstream forgot the task, lookup not re-sent"
+            lookup == ExecutionLookup.NONE -> "downstream has no client-reference lookup"
+            else -> "lookup unanswered within grace (${unit.lookups} time(s))"
+        }
+        val lost = if (unit.streamLostAt != null) "task stream closed" else "response lost"
         if (provisional) {
             unit.verification = Verification.MATCHED
             unit.evidenceAt = observedAt
-            unit.annotate("IN_DOUBT: response lost; evidence present at ${unit.destination} (provisional done); $why — confirm")
+            unit.annotate("IN_DOUBT: $lost; evidence present at ${unit.destination} (provisional done); $why — confirm")
         } else {
-            unit.annotate("IN_DOUBT: response lost; no evidence at ${unit.destination} within grace; $why — no automatic re-execution")
+            unit.annotate("IN_DOUBT: $lost; no evidence at ${unit.destination} within grace; $why — no automatic re-execution")
         }
         unit.state = UnitState.OPERATOR_HOLD
         execution.notedDoubt = null
@@ -1831,6 +1880,7 @@ class Middleware(
 
         execution.handle = handleFor(robot, unit.taskId, unit.revision)
         unit.state = UnitState.RUNNING
+        unit.streamLostAt = null
         execution.notedDoubt = null
         unit.annotate("IN_DOUBT resolved by snapshot attach: ${unit.taskId}=${state.name} revision ${unit.revision}")
         execution.trail(DOUBT_ATTACHED, "${unit.unitId}: 스냅숏의 ${unit.taskId}=${state.name}(리비전 ${unit.revision})에 StartTask 없이 붙었다")
@@ -2111,6 +2161,7 @@ class Middleware(
         unit.requestedAt = requestedAtOf(execution, unit)
         unit.lookups = 0
         unit.lastLookupAt = null
+        unit.streamLostAt = null
         // 같은 태스크 id 로 보내면 기체에 있던 태스크에 붙는다 — 이제 이 인스턴스가 든 태스크다.
         execution.unattached.remove(unit.unitId)
         execution.active = unit
@@ -3099,6 +3150,9 @@ class Middleware(
 
         /** 미확정 단위가 기체의 스냅숏에 보이는 태스크에 `StartTask` 없이 붙어 풀렸다는 실행 트레이스의 종류(§15.238). */
         const val DOUBT_ATTACHED = "DOUBT_ATTACHED"
+
+        /** 도는 단위의 갱신 스트림이 종료 없이 영구히 닫혀 단위를 미확정으로 옮겼다는 실행 트레이스의 종류(§15.228). */
+        const val WATCH_CLOSED = "WATCH_CLOSED"
 
         /** 취소가 걸린 채 미확정이 안 풀려 취소가 닿지 못했다는 [CANCEL_UNSENT] 의 까닭(§15.238). 한 번만 남는다. */
         private const val HOLD_UNSENT_CAUSE = "미확정이라 태스크 핸들이 없다"

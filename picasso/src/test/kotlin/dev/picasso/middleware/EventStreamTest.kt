@@ -127,6 +127,81 @@ class EventStreamTest {
     }
 
     @Test
+    fun `스냅숏을 유예 넘게 못 읽으면 도는 단위는 미확정이고, 다시 읽히면 이어 간다 — 재실행 없음`() {
+        // §15.242 — 재시작 없이 끊기면 포트가 던지지도 끊김을 말하지도 않는다. 스냅숏을 못 읽은 시간으로 판정한다.
+        lateinit var link: LinkDownRobotPort
+        World(port = { LinkDownRobotPort(it).also { p -> link = p } }).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { w.state(task) == "RUNNING" }
+            w.mw.pump()
+
+            link.down = true
+            w.harness.advance(Duration.ofSeconds(20)); w.mw.pump()
+            assertEquals(PhysicalState.RUNNING, exec.physicalState, "유예 안의 못 읽음을 끊김으로 봤다")
+            assertTrue(exec.eventTrail.none { it.kind == "LINK_BROKEN" }, exec.eventTrail.toString())
+
+            w.harness.advance(Duration.ofSeconds(15)); w.mw.pump()
+            assertEquals(PhysicalState.IN_DOUBT, exec.physicalState)
+            assertEquals(UnitState.RUNNING, exec.unit().state, "단위는 도는 중이다 — 미확정인 것은 실행의 결과다")
+            assertTrue(exec.eventTrail.any { it.kind == "LINK_BROKEN" && it.detail.startsWith("snapshot unreadable since") }, exec.eventTrail.toString())
+            assertEquals(PhysicalState.IN_DOUBT, w.mw.pending().last().physicalState, "상류에 미확정을 안 알렸다")
+
+            link.down = false
+            w.mw.pump()
+            assertTrue(exec.eventTrail.any { it.kind == "LINK_RESTORED" }, exec.eventTrail.toString())
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
+            assertEquals(1, w.tasks().size, "끊김이 재실행을 만들었다")
+        }
+    }
+
+    @Test
+    fun `갱신 스트림이 영구히 닫히면 단위는 미확정이고 같은 참조로 다시 보내지 않는다`() {
+        // §15.228 — 어댑터 호스트가 다시 떠 태스크를 잊으면 재구독은 늘 NOT_FOUND 다. 재전송은 기체가 잊은 일을 새로 낸다.
+        lateinit var port: ForgettingRobotPort
+        World(port = { ForgettingRobotPort(it).also { p -> port = p } }).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { w.state(task) == "RUNNING" }
+            port.forget(ROBOT, exec.handle!!, hide = true)
+
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+            assertEquals(PhysicalState.IN_DOUBT, exec.physicalState)
+            assertTrue(exec.eventTrail.any { it.kind == Middleware.WATCH_CLOSED && it.detail.contains("NOT_FOUND") }, exec.eventTrail.toString())
+            assertEquals(listOf(exec.unit().unitId), w.mw.pending().last().inDoubtUnits, "상류에 미확정을 안 알렸다")
+
+            // 유예는 잃은 때부터다 — 요청 시각부터 재면 이미 지나 바로 운영자에게 간다.
+            w.harness.advance(Duration.ofSeconds(50)); w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state, "유예를 요청 시각부터 쟀다")
+            assertEquals(1, port.starts, "잊은 태스크를 같은 참조로 다시 보냈다")
+
+            w.harness.advance(Duration.ofSeconds(15)); w.mw.pump()
+            assertEquals(UnitState.OPERATOR_HOLD, exec.unit().state)
+            assertTrue(exec.unit().note!!.contains("IN_DOUBT: task stream closed;") && exec.unit().note!!.contains("lookup not re-sent"), exec.unit().note)
+            assertEquals(1, port.starts, "잊은 태스크를 같은 참조로 다시 보냈다")
+        }
+    }
+
+    @Test
+    fun `영구히 닫힌 스트림의 태스크가 스냅숏에 보이면 붙어 이어 간다`() {
+        lateinit var port: ForgettingRobotPort
+        World(port = { ForgettingRobotPort(it).also { p -> port = p } }).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { w.state(task) == "RUNNING" }
+            port.forget(ROBOT, exec.handle!!, hide = false)
+
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+            w.mw.pump()
+            assertTrue(exec.eventTrail.any { it.kind == Middleware.DOUBT_ATTACHED }, exec.eventTrail.toString())
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
+            assertEquals(1, port.starts, "붙을 수 있는데 같은 참조로 다시 보냈다")
+        }
+    }
+
+    @Test
     fun `절전은 단절이 아니다`() {
         World().use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution

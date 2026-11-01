@@ -45,6 +45,15 @@ interface RobotPort {
      */
     fun release(robotId: String, handle: TaskHandle) = Unit
 
+    /**
+     * 이 태스크를 **더 따라갈 수 없는가** — 갱신 스트림이 종료 없이 닫혔고 다시 열어도 같은 실패로 닫힌다(계약 `WatchTask` 의
+     * `NOT_FOUND`·`OUT_OF_RANGE`, `docs/contract.md` §7.1). 널이면 따라가는 중이거나 다시 붙을 수 있다. 값은 그 까닭이며 자취에 남는다.
+     *
+     * [watch] 의 반환이 갱신 목록뿐이라 이 사실을 따로 묻는다. 어댑터 호스트가 다시 떠 태스크를 잊으면 재구독이 늘 `NOT_FOUND` 이고,
+     * 이 문이 없으면 그 단위는 종료를 영영 못 본 채 `RUNNING` 에 남는다(§15.228). 들 것이 없는 포트는 늘 널이다.
+     */
+    fun unfollowable(robotId: String, handle: TaskHandle): String? = null
+
     fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse
 
     /**
@@ -145,6 +154,12 @@ class ClientRobotPort(private val client: PicassoClient) : RobotPort {
     /** 다시 열어도 같은 실패로 닫힐 스트림인가. */
     private val TaskFollower.closedForGood: Boolean
         get() = error?.let { Status.fromThrowable(it).code in PERMANENT } ?: false
+
+    override fun unfollowable(robotId: String, handle: TaskHandle): String? {
+        val f = followed[handle.taskId] ?: return null
+        if (!f.follower.ended || !f.follower.closedForGood || f.updates.lastOrNull()?.state in TERMINAL) return null
+        return f.follower.error?.let { Status.fromThrowable(it).code.name }
+    }
 
     /** 그 태스크의 누적 목록과 팔로워를 버린다. 다시 [watch] 하면 처음부터 다시 따라간다. */
     override fun release(robotId: String, handle: TaskHandle) {

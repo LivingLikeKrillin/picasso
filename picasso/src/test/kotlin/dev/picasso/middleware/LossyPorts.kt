@@ -48,6 +48,62 @@ class FaultBlindRobotPort(private val delegate: RobotPort) : RobotPort by delega
     override fun replay(robotId: String, from: Long): Replay? = null
 }
 
+/**
+ * 하위와의 선이 **재시작 없이 끊긴** 것처럼 답하는 포트(§15.242). [down] 인 동안 스냅숏과 재생을 못 읽고(널), 갱신 스트림은 끊기기 전까지
+ * 받은 것만 돌려준다 — 끊긴 스트림이 조용히 다시 붙으려 하는 동안 새 갱신이 안 오는 모양이다. 던지지 않는다. 하위는 그동안에도 일을 한다.
+ */
+class LinkDownRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    var down = false
+
+    private val seen = mutableMapOf<String, List<WatchTaskResponse>>()
+
+    override fun snapshot(robotId: String): RobotSnapshot? = if (down) null else delegate.snapshot(robotId)
+    override fun replay(robotId: String, from: Long): Replay? = if (down) null else delegate.replay(robotId, from)
+    override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
+        if (down) seen[handle.taskId].orEmpty() else delegate.watch(robotId, handle).also { seen[handle.taskId] = it }
+}
+
+/**
+ * 하위가 **태스크를 잊은** 것처럼 답하는 포트(§15.228) — 어댑터 호스트가 다시 뜬 모양이다. [forget] 뒤로 그 태스크의 갱신 스트림은 받은
+ * 것에서 멈추고 따라갈 수 없다고 답한다(`NOT_FOUND`). `hide` 면 스냅숏에도 그 태스크가 없다. 포트가 그 태스크를 놓으면([release]) 다음
+ * [watch] 는 하위를 처음부터 다시 따라간다. 하위는 그동안에도 일을 한다. [starts] 는 `StartTask` 를 보낸 횟수다.
+ */
+class ForgettingRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+    var starts = 0
+        private set
+
+    private var forgotten: String? = null
+    private var hidden: String? = null
+    private var frozen: List<WatchTaskResponse> = emptyList()
+
+    fun forget(robotId: String, handle: TaskHandle, hide: Boolean) {
+        frozen = delegate.watch(robotId, handle)
+        forgotten = handle.taskId
+        hidden = handle.taskId.takeIf { hide }
+    }
+
+    override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse {
+        starts += 1
+        return delegate.start(robotId, taskId, revision, skillType, parameters)
+    }
+
+    override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
+        if (handle.taskId == forgotten) frozen else delegate.watch(robotId, handle)
+
+    override fun unfollowable(robotId: String, handle: TaskHandle): String? =
+        if (handle.taskId == forgotten) "NOT_FOUND" else delegate.unfollowable(robotId, handle)
+
+    override fun release(robotId: String, handle: TaskHandle) {
+        if (handle.taskId == forgotten) forgotten = null
+        delegate.release(robotId, handle)
+    }
+
+    override fun snapshot(robotId: String): RobotSnapshot? = delegate.snapshot(robotId)?.let { s ->
+        val hide = hidden ?: return@let s
+        s.copy(tasks = s.tasks - hide, revisions = s.revisions - hide)
+    }
+}
+
 /** 재생 버퍼가 **한 번 축출**된 것처럼 답하는 포트 — 소비자가 스냅샷부터 다시 세우는지 본다(17장 9번). */
 class EvictingRobotPort(private val delegate: RobotPort, private var evictions: Int = 1) : RobotPort by delegate {
     var replays = 0
