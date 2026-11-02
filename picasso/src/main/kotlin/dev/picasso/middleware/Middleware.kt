@@ -1055,8 +1055,11 @@ class Middleware(
                     val fresh = replanned[unit.unitId]
                     // 경로마다 가른다. 로봇 단위만 계약의 갱신 규칙을 탄다 — 플릿에 맡긴 운반은 아래 이유로, 설비 대기는
                     // 같은 실행이 쥔 같은 정의의 같은 노드라 바꿀 것이 없어 그대로 둔다(기다림이 이어진다).
+                    // **취소가 걸렸으면 로봇 단위도 그대로 둔다**(§15.256). 멈추라는 말 뒤에 새 버전을 보내면 기체가 그 버전으로 다시
+                    // 움직일 수 있고(미룬 갱신과 같은 규칙), 원 요청이 안 닿은 미확정 단위면 갱신이 새 태스크로 접수된다. 리비전도
+                    // 올리지 않는다 — 기체에서 도는 것이 옛 리비전이라, 올리면 스냅숏 부착과 키로 짓는 취소 핸들이 기체와 어긋난다.
                     val updatable = when (unit.route) {
-                        Route.ROBOT -> true
+                        Route.ROBOT -> !execution.cancelRequested
                         Route.FLEET, Route.SIGNAL -> false
                     }
                     if (fresh != null && updatable) {
@@ -1103,7 +1106,8 @@ class Middleware(
 
     /**
      * 도는 로봇 단위에 개정의 갱신을 보낸다 — 같은 태스크 id, 단위의 지금 리비전([ExecutionUnit.revision]). [revise] 와 미룬 갱신을
-     * 허가가 돌아온 뒤 보내는 [pumpRound] 가 함께 쓴다. 부르기 전에 발행 관문을 지났어야 한다.
+     * 허가가 돌아온 뒤 보내는 [pumpRound] 가 함께 쓴다. 부르기 전에 발행 관문을 지났어야 한다. 취소가 걸린 실행에는 둘 다 부르지
+     * 않는다(§15.256).
      *
      * @param previous 기체에서 지금 도는 리비전. 거절 사유에 «어느 판으로 끝났나» 로 남는다.
      */
@@ -1119,12 +1123,9 @@ class Middleware(
                     execution.handle = response.handle
                     unit.state = UnitState.RUNNING
                     // 실행 상태도 함께 되돌린다 — 안 되돌리면 이 판의 작업 응답이 미확정 단위 없이 `IN_DOUBT` 를 든다.
-                    execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+                    execution.physicalState = PhysicalState.RUNNING
                     execution.notedDoubt = null
                     unit.annotate("IN_DOUBT resolved by revision $revision update")
-                    // 핸들 없이 걸렸던 취소는 아직 하위에 안 갔다 — 붙은 핸들로 지금 보낸다(§15.255, [attachFromSnapshot] 과 같다).
-                    // 안 보내면 기체는 그 태스크를 끝까지 하고, 취소 응답은 거절 없이 «그 뒤에서 멈췄다» 고 말한다.
-                    if (execution.cancelRequested) sendCancel(execution)
                 }
 
                 // **이미 종착한 태스크다** — 갱신이 닿기 전에 끝났다(계약의 래치, §4.4). 그 종착은 옛 버전의

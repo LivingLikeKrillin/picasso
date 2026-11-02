@@ -14,13 +14,13 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * **개정이 걸린 취소를 지나가는 자리**(§15.255). 취소가 걸린 실행에도 새 버전은 붙는다 — 도는 로봇 단위에는 계약의 갱신이 나가고, 그
- * 응답이 두 갈래로 취소와 만난다.
+ * **개정과 취소가 만나는 자리**(§15.255·§15.256). 개정은 도는 로봇 단위에 계약의 갱신을 보낸다. 취소와는 두 순서로 만난다.
  *
- * - 갱신이 닿기 전에 태스크가 취소로 끝났으면 그 종료는 옛 리비전의 **지연 이벤트**로 온다([Middleware.settleLate]). 건 취소의 종료면
- *   요청된 취소로 종결하고, 아니면 요청 없는 취소라 운영자 보류에 둔다.
- * - 답을 못 받은(미확정) 단위에 핸들 없이 취소가 걸렸으면 갱신이 핸들을 돌려줄 때 비로소 붙는다. 그때 걸린 취소를 보낸다 — 안 보내면
- *   기체는 그 태스크를 끝까지 한다.
+ * - **취소가 먼저 걸렸으면** 도는 단위와 미확정 단위는 개정이 바꾸지 않는다 — 갱신을 보내지 않고 리비전과 기대도 그대로 둔다.
+ *   멈추라는 말 뒤에 새 버전을 보내면 기체가 그 버전으로 다시 움직일 수 있고, 원 요청이 안 닿은 미확정 단위면 갱신이 새 태스크로
+ *   접수된다.
+ * - **개정이 먼저 왔으면** 기체에서 도는 것은 옛 리비전이고, 그 태스크의 취소 종료는 옛 리비전의 지연 이벤트로 온다
+ *   ([Middleware.settleLate]). 건 취소의 종료면 요청된 취소로 종결하고, 아니면 요청 없는 취소라 운영자 보류에 둔다.
  *
  * 기체는 4족 픽스처 `quadruped-b`, 업무는 점검 순회다. `inspect` 는 취소를 받는다. 나간 명령은 포트([Wire])에서 센다.
  */
@@ -50,7 +50,21 @@ class CancelUnderRevisionTest {
     private class World(dropStartOf: String? = null) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to Path.of("..", "profile", "profiles", "quadruped-b.json").normalize()))
         val wire = Wire(ClientRobotPort(harness.client()), dropStartOf)
-        val mw = Middleware(wire, now = { harness.clock.now() })
+
+        /** 작업 허가 — 닫으면 새 발행(갱신 포함)이 미뤄진다. 취소는 막지 않는다. */
+        var permitted = true
+        val mw = Middleware(wire, now = { harness.clock.now() }, permits = WorkPermitPort {
+            if (!permitted) {
+                emptyList()
+            } else {
+                listOf(
+                    PermitReading(
+                        "cell-door", "s-1", setOf(ROBOT),
+                        listOf(PermitScope(setOf(ROBOT), WorkPermit.PERMITTED, null, null, harness.clock.now(), Duration.ofDays(1), "s-1")),
+                    ),
+                )
+            }
+        })
 
         fun tasks() = harness.oracle.dumpInternalState(DumpInternalStateRequest.newBuilder().setRobotId(ROBOT).build()).tasksList
         fun state(taskId: String) = tasks().firstOrNull { it.taskId == taskId }?.taskState
@@ -84,7 +98,7 @@ class CancelUnderRevisionTest {
             return exec
         }
 
-        /** 같은 실행에 새 버전을 낸다 — 점검 단위는 도는 중이라 계약의 갱신을 탄다. */
+        /** 같은 실행에 새 버전을 낸다. */
         fun revise() {
             assertIs<Middleware.Submission.Accepted>(mw.submit(order(2), ROBOT))
         }
@@ -94,17 +108,65 @@ class CancelUnderRevisionTest {
 
     private fun Middleware.Execution.unit(unitId: String) = units.single { it.unitId == unitId }
 
-    // ── 지연 이벤트로 오는 취소 종료
+    // ── 취소가 먼저 걸린 개정
 
     @Test
-    fun `건 취소가 갱신보다 먼저 태스크를 끝냈으면 그 지연 이벤트를 요청된 취소로 읽어 중단으로 종결한다`() {
+    fun `건 취소가 걸린 채 개정이 오면 도는 단위에 갱신을 보내지 않고 그 리비전 그대로 중단으로 종결한다`() {
         World().use { w ->
             val exec = w.runUntilInspecting()
             assertTrue(w.mw.cancel(exec.executionId))
-            w.cancelDownstreamWithoutReading(taskOf(INSPECT))
+            w.revise()
+
+            assertEquals(1, w.wire.starts.count { it == taskOf(INSPECT) }, "취소한 태스크에 갱신을 보냈다 — 기체가 새 버전으로 다시 움직일 수 있다")
+            assertEquals(1, exec.unit(INSPECT).revision, "보내지 않은 갱신의 리비전으로 단위를 올렸다")
+            assertEquals(2, exec.version, "시험의 전제: 개정은 받았다")
+
+            w.drive { !exec.physicalState.pumps }
+
+            assertEquals("CANCELLED", w.state(taskOf(INSPECT)))
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(UnitState.ABORTED, exec.unit(INSPECT).state)
+            assertEquals(emptyList(), exec.lateEvents, "보내지 않은 갱신이 지연 이벤트를 만들었다")
+            assertEquals(INSPECT, assertNotNull(w.mw.lastCancel(exec.executionId)).inProgressUnit)
+            assertEquals(emptyList(), w.mw.incidents())
+        }
+    }
+
+    @Test
+    fun `핸들 없이 취소가 걸린 미확정 단위에 개정이 오면 갱신을 보내지 않고 같은 리비전의 태스크에 붙어 중단으로 종결한다`() {
+        World(dropStartOf = taskOf(INSPECT)).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(1), ROBOT)).execution
+            w.drive { exec.unit(INSPECT).state == UnitState.IN_DOUBT }
+            assertTrue(w.mw.cancel(exec.executionId))
+            assertEquals(emptyList(), w.wire.cancels, "시험의 전제: 핸들이 없어 취소가 안 나갔다")
+
+            w.revise()
+            assertEquals(1, w.wire.starts.count { it == taskOf(INSPECT) }, "취소가 걸린 미확정 단위에 갱신을 보냈다 — 원 요청이 안 닿았으면 새 태스크가 나간다")
+            assertEquals(1, exec.unit(INSPECT).revision, "기체에서 도는 리비전과 단위의 리비전이 어긋났다")
+
+            w.drive { !exec.physicalState.pumps }
+
+            assertEquals(listOf(taskOf(INSPECT)), w.wire.cancels, "같은 리비전의 태스크에 붙어 취소를 보내지 않았다")
+            assertEquals("CANCELLED", w.state(taskOf(INSPECT)), "기체가 멈추지 않았다")
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(UnitState.ABORTED, exec.unit(INSPECT).state)
+            assertEquals(emptyList(), w.mw.incidents())
+        }
+    }
+
+    // ── 개정이 먼저 온 뒤의 취소 종료(지연 이벤트)
+
+    @Test
+    fun `미룬 갱신 뒤 건 취소가 옛 리비전의 태스크를 끝냈으면 그 지연 이벤트를 요청된 취소로 읽어 중단으로 종결한다`() {
+        World().use { w ->
+            val exec = w.runUntilInspecting()
+            // 허가가 닫혀 갱신이 미뤄진다 — 단위는 새 리비전이고 기체에서는 옛 리비전이 돈다.
+            w.permitted = false
             w.revise()
             assertEquals(2, exec.unit(INSPECT).revision)
-            assertTrue(exec.unit(INSPECT).note!!.contains("already terminal under revision 1"), "시험의 전제: 갱신이 끝난 태스크에 닿았다 — ${exec.unit(INSPECT).note}")
+            assertEquals(1, w.wire.starts.count { it == taskOf(INSPECT) }, "시험의 전제: 갱신이 미뤄졌다")
+            assertTrue(w.mw.cancel(exec.executionId))
+            w.cancelDownstreamWithoutReading(taskOf(INSPECT))
 
             w.drive { !exec.physicalState.pumps }
 
@@ -124,6 +186,7 @@ class CancelUnderRevisionTest {
             w.harness.client().cancel(ROBOT, TaskHandle.newBuilder().setTaskId(taskOf(INSPECT)).setRevision(1).setRobotId(ROBOT).build())
             w.cancelDownstreamWithoutReading(taskOf(INSPECT))
             w.revise()
+            assertTrue(exec.unit(INSPECT).note!!.contains("already terminal under revision 1"), "시험의 전제: 갱신이 끝난 태스크에 닿았다 — ${exec.unit(INSPECT).note}")
 
             w.drive { exec.physicalState == PhysicalState.OPERATOR_HOLD }
 
@@ -131,31 +194,6 @@ class CancelUnderRevisionTest {
             assertEquals(listOf("TASK_STATE_CANCELLED"), exec.lateEvents.map { it.downstreamState })
             assertEquals(1, w.mw.incidents().size, "보류에 인시던트가 안 열렸다")
             assertEquals(emptyList(), w.wire.cancels, "걸지 않은 취소를 보냈다")
-        }
-    }
-
-    // ── 갱신이 붙인 미확정 단위
-
-    @Test
-    fun `핸들 없이 취소가 걸린 미확정 단위가 갱신으로 붙으면 그 핸들로 취소를 보내고 중단으로 종결한다`() {
-        World(dropStartOf = taskOf(INSPECT)).use { w ->
-            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(1), ROBOT)).execution
-            w.drive { exec.unit(INSPECT).state == UnitState.IN_DOUBT }
-            assertTrue(w.mw.cancel(exec.executionId))
-            assertEquals(emptyList(), w.wire.cancels, "시험의 전제: 핸들이 없어 취소가 안 나갔다")
-
-            w.revise()
-            assertEquals(UnitState.RUNNING, exec.unit(INSPECT).state, "시험의 전제: 갱신이 핸들을 돌려줘 붙었다")
-            assertEquals(PhysicalState.CANCELING, exec.physicalState)
-            assertEquals(listOf(taskOf(INSPECT)), w.wire.cancels, "붙은 핸들로 걸린 취소를 안 보냈다 — 기체는 그 태스크를 끝까지 한다")
-
-            w.drive { !exec.physicalState.pumps }
-
-            assertEquals("CANCELLED", w.state(taskOf(INSPECT)), "기체가 멈추지 않았다")
-            assertEquals(PhysicalState.ABORTED, exec.physicalState)
-            assertEquals(UnitState.ABORTED, exec.unit(INSPECT).state)
-            assertEquals(INSPECT, assertNotNull(w.mw.lastCancel(exec.executionId)).inProgressUnit)
-            assertEquals(emptyList(), w.mw.incidents())
         }
     }
 
