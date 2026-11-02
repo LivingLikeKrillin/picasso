@@ -3,7 +3,7 @@ package dev.picasso.middleware
 import java.time.Instant
 
 /**
- * **발행 관문**(ADR 51 결정 6, ADR 52) — 새 로봇 명령이 나가기 전에 묻는 자리 하나, 입력 둘.
+ * **발행 관문**(ADR 51 결정 6, ADR 52, §15.249) — 새 로봇 명령이 나가기 전에 묻는 자리 하나, 입력 셋.
  *
  * 묻는 자리는 [Middleware] 의 셋이다. 다음 단위를 출발시키는 `startUnit` 앞, 개정이 도는 단위에 갱신을 보내는 `revise`
  * 의 `robots.start` 앞, 그리고 `IN_DOUBT` 의 조회 앞이다. 조회도 `StartTask` 재전송이라 원 요청이 안 닿았으면 새 접수가
@@ -20,6 +20,8 @@ import java.time.Instant
 internal class IssuingGate(
     /** 널이면 붙이지 않은 것이다 — 둘째 입력이 아무것도 막지 않는다. 오늘의 거동이다. */
     private val permits: WorkPermitPort?,
+    /** 널이면 붙이지 않은 것이다 — 셋째 입력이 아무것도 막지 않는다. */
+    private val retirements: RetirementPort?,
     private val now: () -> Instant,
 ) {
 
@@ -31,7 +33,33 @@ internal class IssuingGate(
      */
     fun check(robots: Set<String>): IssueVerdict {
         authorityRefusal(robots)?.let { return it }
-        return permitVerdict(robots)
+        val retired = robots.sorted().mapNotNull { robot ->
+            retirementOf(robot)?.let { reason ->
+                RobotPermit(
+                    robot, WorkPermit.INHIBITED,
+                    listOf(PermitReason(null, PermitCause.RETIRED, reason, "운영자가 이 기체의 퇴역을 취소할 때", null)),
+                )
+            }
+        }
+        val permit = permitVerdict(robots - retired.map { it.robotId }.toSet())
+        if (retired.isEmpty()) return permit
+        val others = (permit as? IssueVerdict.Withheld)?.robots.orEmpty()
+        return IssueVerdict.Withheld((retired + others).sortedBy { it.robotId })
+    }
+
+    /**
+     * **셋째 입력 — 기체 퇴역**(§15.249). 그 기체가 퇴역했으면 사유, 아니면 널이다. 재할당이 후보를 거를 때도 이것을 묻는다.
+     *
+     * 퇴역한 기체는 허가를 따로 판정하지 않는다 — 퇴역이 풀려야 허가가 의미를 갖는다. 포트를 못 읽으면 널(막지 않음)이다
+     * ([RetirementPort]).
+     */
+    fun retirementOf(robot: String): String? {
+        val port = retirements ?: return null
+        return try {
+            port.retired()[robot]
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**
@@ -157,12 +185,16 @@ enum class PermitCause {
 
     /** 포트를 못 읽었다(던졌다). */
     PORT_FAILED,
+
+    /** 운영자가 원장에서 이 기체를 퇴역으로 내렸다(§15.249). [PermitReason.subject] 가 퇴역 사유다. */
+    RETIRED,
 }
 
 /**
  * 기체 하나에 대한 판단 하나.
  *
- * @param source 그 값을 낸 원천. 이 층이 정한 것([PermitCause.NOT_COVERED]·[PermitCause.PORT_FAILED])이면 널이다.
+ * @param source 그 값을 낸 원천. 이 층이 정한 것([PermitCause.NOT_COVERED]·[PermitCause.PORT_FAILED])과 퇴역
+ *   ([PermitCause.RETIRED])이면 널이다.
  * @param subject 막는 주체 — 원천이 보고한 것(문 열림 신호, 셀 모드 같은). 원천이 말하지 않았으면 널이다.
  * @param resumeBasis 무엇이 바뀌면 풀리는가. 원천이 말했으면 그 말, 아니면 이 층이 까닭에서 정한 말이다.
  * @param observedAt 원천이 그 값을 관측한 시각. 이 층이 정한 것이면 널이다.
