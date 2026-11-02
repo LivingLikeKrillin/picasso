@@ -118,6 +118,12 @@ class Middleware(
      * ([floors]·[workspace] 와 같은 이유).
      */
     permits: WorkPermitPort? = null,
+    /**
+     * 기체 퇴역의 출처(§15.249) — 발행 관문([IssuingGate])의 셋째 입력이고 재할당([reassign])이 후보를 거르는 데도 쓴다. **널이면
+     * 붙이지 않은 것이고 아무것도 막지 않는다** — 오늘의 거동 그대로다. 붙이면 퇴역한 기체로는 새 로봇 명령을 내지 않고 기다리며,
+     * 도는 단위는 끊지 않는다.
+     */
+    retirements: RetirementPort? = null,
 ) {
     // ⚠ 생성자 인자 `missions`(널 허용)가 이 속성을 가린다 — 다른 속성의 초기화식에서 `missions` 는 인자다. 거기서는 `this.missions` 로 쓴다.
     private val missions: MissionCatalog = run {
@@ -152,7 +158,7 @@ class Middleware(
      * 발행 관문(ADR 51 결정 6, ADR 52). 배정 관문([gate])과 다르다 — 배정 관문은 작업 지시를 받을 때 한 번 묻고, 이것은 새 로봇
      * 명령이 나가기 직전마다 묻는다. 허가는 받은 뒤에도 바뀌기 때문이다.
      */
-    private val issuing = IssuingGate(permits, now)
+    private val issuing = IssuingGate(permits, retirements, now)
 
     /** 제안과 승인의 장부(설계안 §6.4). 승인 뒤의 접수는 [commit] 에 남고, 승인의 기록([RemedyDesk.settle])은 접수가 된 뒤에만 한다. */
     private val desk = RemedyDesk(robots, entitlements, withholdEvery, now, wallClock, gate::liveHold)
@@ -911,7 +917,7 @@ class Middleware(
      * 실행은 그대로 센다.
      *
      * 후보가 실재하는지·연결됐는지·그 스킬을 드는지는 보지 않는다 — 능력을 못 물은 기체의 조건은 지어내지 않고
-     * 접수 때 발신자가 판정한다(권위는 발신자다).
+     * 접수 때 발신자가 판정한다(권위는 발신자다). **퇴역한 후보는 거른다**(§15.249) — 옮기면 발행 관문이 첫 단위부터 막는다.
      */
     fun reassign(executionId: String, candidates: List<String>): Reassignment {
         val execution = executions[executionId]
@@ -945,6 +951,7 @@ class Middleware(
         var best: Pair<String, Int>? = null
         for (robotId in candidates) {
             if (robotId == from) continue
+            if (issuing.retirementOf(robotId) != null) continue
             if (gate.admits(execution.order, robotId, remaining, moving = executionId) !is Admission.Passed) continue
             val load = liveExecutionCount(robotId, excluding = executionId)
             if (best == null || load < best.second) best = robotId to load
