@@ -278,6 +278,54 @@ class ResumeTest {
         }
     }
 
+    // ── 재부착과 발행 게이트
+
+    @Test
+    fun `작업 허가가 막아도 스냅숏에 보이는 지금 시도의 태스크에는 StartTask 없이 다시 붙는다`() {
+        // 어느 허가 원천도 덮지 않는 기체는 허가를 모르니 새 발행이 막힌다(ADR 52).
+        World(permits = WorkPermitPort { emptyList() }).use { w ->
+            w.robot.hold("$ORDER#$SLOT@r1", TaskState.TASK_STATE_RUNNING, revision = 1)
+            val exec = w.resume()
+
+            w.mw.pump()
+            assertEquals(emptyList(), w.robot.starts, "재부착이 StartTask 로 갔다")
+            assertEquals(UnitState.RUNNING, exec.units.single().state, "허가가 재부착을 막았다")
+            assertEquals("$ORDER#$SLOT@r1", exec.handle?.taskId)
+            assertNull(exec.permitBlock, "재부착을 새 발행으로 막았다")
+            val line = exec.eventTrail.single { it.kind == Middleware.RESUME_REATTACHED }
+            assertTrue("$ORDER#$SLOT@r1" in line.detail && "TASK_STATE_RUNNING" in line.detail, line.detail)
+        }
+    }
+
+    @Test
+    fun `퇴역한 기체라도 다시 붙은 태스크는 끝까지 따라가 끝을 읽는다`() {
+        World(retirements = RetirementPort { mapOf(ROBOT to "decommissioned") }).use { w ->
+            w.robot.hold("$ORDER#$SLOT", TaskState.TASK_STATE_RUNNING, revision = 1)
+            val exec = w.resume()
+            w.mw.pump()
+            assertEquals(UnitState.RUNNING, exec.units.single().state, "퇴역이 재부착을 막았다")
+
+            w.robot.hold("$ORDER#$SLOT", TaskState.TASK_STATE_FAILED)
+            w.mw.pump()
+            assertEquals(UnitState.FAILED, exec.units.single().state, "붙은 태스크의 끝을 읽지 않았다")
+            assertEquals(emptyList(), w.robot.starts)
+        }
+    }
+
+    @Test
+    fun `스냅숏의 리비전이 단위와 다르면 다시 붙지 않고 재전송이 게이트에 막힌다`() {
+        World(permits = WorkPermitPort { emptyList() }).use { w ->
+            w.robot.hold("$ORDER#$SLOT@r1", TaskState.TASK_STATE_RUNNING, revision = 0)
+            val exec = w.resume()
+
+            w.mw.pump()
+            assertEquals(UnitState.PENDING, exec.units.single().state, "옛 리비전의 태스크에 새 판으로 붙었다")
+            assertEquals(emptyList(), w.robot.starts, "게이트가 막은 재전송이 나갔다")
+            assertEquals(SLOT, exec.permitBlock?.unitId, "막힌 재전송이 차단으로 안 보인다")
+            assertTrue(exec.eventTrail.none { it.kind == Middleware.RESUME_REATTACHED }, exec.eventTrail.toString())
+        }
+    }
+
     // ── 거부와 멱등
 
     @Test
@@ -325,11 +373,15 @@ class ResumeTest {
 
     // ── 더블
 
-    private class World(catalog: InMemoryMissionCatalog? = null) : AutoCloseable {
+    private class World(
+        catalog: InMemoryMissionCatalog? = null,
+        permits: WorkPermitPort? = null,
+        retirements: RetirementPort? = null,
+    ) : AutoCloseable {
         var t: Instant = T0
         val robot = Robot { t }
         val cell = CellMimic(now = { t })
-        val mw = Middleware(robot, cell, now = { t }, missions = catalog)
+        val mw = Middleware(robot, cell, now = { t }, missions = catalog, permits = permits, retirements = retirements)
 
         fun resume(
             mission: ActiveMission = ActiveMission(PrepareSequencedRack(), null),
@@ -349,8 +401,12 @@ class ResumeTest {
         var created = 0
         var unreadable = false
 
-        fun hold(taskId: String, state: TaskState) {
+        /** 스냅숏이 싣는 태스크마다의 리비전. 비어 있으면 리비전을 안 싣는 포트다. */
+        val revisions = mutableMapOf<String, Int>()
+
+        fun hold(taskId: String, state: TaskState, revision: Int? = null) {
             tasks[taskId] = state
+            revision?.let { revisions[taskId] = it }
         }
 
         override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse {
@@ -378,7 +434,7 @@ class ResumeTest {
         override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = CancelTaskResponse.getDefaultInstance()
 
         override fun snapshot(robotId: String): RobotSnapshot? =
-            if (unreadable) null else RobotSnapshot(0, emptyList(), ConnectionState.CONNECTION_STATE_ONLINE, tasks.toMap())
+            if (unreadable) null else RobotSnapshot(0, emptyList(), ConnectionState.CONNECTION_STATE_ONLINE, tasks.toMap(), revisions.toMap())
 
         override fun replay(robotId: String, from: Long): Replay = Replay.Events(emptyList())
     }

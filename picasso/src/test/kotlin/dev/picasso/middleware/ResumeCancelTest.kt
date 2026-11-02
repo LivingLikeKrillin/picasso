@@ -124,8 +124,9 @@ class ResumeCancelTest {
             val (again, wire) = w.restart(permits = WorkPermitPort { emptyList() })
             val rebuilt = again.rebuild(record)
             again.pump()
-            assertNotNull(rebuilt.permitBlock, "시험의 전제: 관문이 다시 붙는 StartTask 를 막는다")
-            assertEquals(emptyList(), wire.starts, "시험의 전제: 막힌 동안 StartTask 가 안 나간다")
+            // 재부착은 새 발행이 아니다 — 스냅숏의 태스크에 StartTask 없이 붙고 관문을 묻지 않는다(§15.219).
+            assertEquals(null, rebuilt.permitBlock, "시험의 전제: 재부착을 새 발행으로 막았다")
+            assertEquals(emptyList(), wire.starts, "시험의 전제: 재부착이 StartTask 로 갔다")
 
             assertTrue(again.cancel(rebuilt.executionId))
             again.pump()
