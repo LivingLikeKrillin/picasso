@@ -55,10 +55,13 @@ class ResumeCancelTest {
         fun tasks() = harness.oracle.dumpInternalState(DumpInternalStateRequest.newBuilder().setRobotId(ROBOT).build()).tasksList
         fun state(taskId: String) = tasks().firstOrNull { it.taskId == taskId }?.taskState
 
+        /** 다시 뜬 인스턴스의 시계만 미는 폭 — 기체는 그대로 두고 미들웨어의 유예만 지나가게 한다. */
+        var skew: Duration = Duration.ZERO
+
         /** 다시 뜬 인스턴스 — 새 포트, 같은 기체. */
         fun restart(permits: WorkPermitPort? = null): Pair<Middleware, Wire> {
             val wire = Wire(ClientRobotPort(harness.client()))
-            return Middleware(wire, now = { harness.clock.now() }, permits = permits) to wire
+            return Middleware(wire, now = { harness.clock.now().plus(skew) }, permits = permits) to wire
         }
 
         fun drive(mw: Middleware = this.mw, rounds: Int = 120, until: () -> Boolean) {
@@ -245,6 +248,37 @@ class ResumeCancelTest {
             w.drive(again) { !rebuilt.physicalState.pumps }
             assertEquals(PhysicalState.ABORTED, rebuilt.physicalState)
             assertEquals("CANCELLED", w.state(taskOf(INSPECT)))
+        }
+    }
+
+    @Test
+    fun `스냅숏을 못 읽은 채 미확정 유예가 지나면 붙기 전에 건 취소를 운영자 보류에 두고 다시 읽히면 취소를 보낸다`() {
+        World().use { w ->
+            val record = w.runUntilInspecting()
+            val (again, wire) = w.restart()
+            val rebuilt = again.rebuild(record)
+            wire.blind = true
+            assertTrue(again.cancel(rebuilt.executionId))
+            again.pump()
+            assertEquals(PhysicalState.CANCELING, rebuilt.physicalState, "시험의 전제: 유예 안에서는 기다린다")
+
+            // 미들웨어의 시계만 유예 너머로 민다 — 기체는 그 태스크를 계속 한다.
+            w.skew = Duration.ofSeconds(61)
+            repeat(2) { again.pump() }
+            assertEquals(PhysicalState.OPERATOR_HOLD, rebuilt.physicalState, "유예가 지나도 기한 없이 기다렸다 — 작업 응답이 안 나간다")
+            assertEquals(UnitState.OPERATOR_HOLD, rebuilt.unit(INSPECT).state)
+            assertEquals(1, again.incidents().size, "보류에 인시던트가 안 열렸다")
+            assertTrue(
+                rebuilt.eventTrail.any { it.kind == Middleware.CANCEL_UNSENT && Middleware.UNATTACHED_UNSENT_CAUSE in it.detail },
+                "닿지 못한 까닭을 자취에 남기지 않았다: ${rebuilt.eventTrail}",
+            )
+            assertEquals("RUNNING", w.state(taskOf(INSPECT)), "시험의 전제: 기체는 그 태스크를 계속 한다")
+            assertEquals(emptyList(), wire.starts + wire.cancels, "못 본 채 명령을 냈다")
+
+            wire.blind = false
+            again.pump()
+            assertEquals(listOf(taskOf(INSPECT)), wire.cancels, "보류 중 다시 읽힌 스냅숏으로 취소를 안 보냈다")
+            assertEquals(PhysicalState.OPERATOR_HOLD, rebuilt.physicalState, "판단은 운영자가 한다 — 보류를 걷었다")
         }
     }
 

@@ -132,6 +132,27 @@ class ResumeFleetCancelTest {
         }
     }
 
+    @Test
+    fun `플릿 찾기가 미확정 유예 동안 답하지 않으면 건 취소를 운영자 보류에 두고 새로 맡기지 않는다`() {
+        World().use { w ->
+            val record = w.cancelUnreachedThenDie()
+            val again = w.restart(object : AmrFleetPort by w.fleet {
+                override fun find(reference: String): TransportHandle? = throw IllegalStateException("fleet unreachable")
+            })
+            val rebuilt = again.rebuild(record)
+            w.drive(again) { rebuilt.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            assertEquals(UnitState.OPERATOR_HOLD, rebuilt.units.single().state, "유예가 지나도 기한 없이 기다렸다")
+            assertEquals(1, w.fleet.dispatches, "찾지 못한 운반을 다시 맡겼다")
+            assertEquals(1, again.incidents().size, "보류에 인시던트가 안 열렸다")
+            assertEquals(1, rebuilt.eventTrail.count { it.kind == Middleware.CANCEL_UNATTACHED_WAIT }, "기다리는 까닭을 한 번 남기지 않았다: ${rebuilt.eventTrail}")
+            assertTrue(
+                rebuilt.eventTrail.any { it.kind == Middleware.CANCEL_UNSENT && Middleware.UNATTACHED_UNSENT_CAUSE in it.detail },
+                "닿지 못한 까닭을 자취에 남기지 않았다: ${rebuilt.eventTrail}",
+            )
+        }
+    }
+
     private companion object {
         const val ROBOT = "idle-robot"
         const val CONTAINER = "HU-1042"

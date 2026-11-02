@@ -353,6 +353,12 @@ class Middleware(
         /** [attachForCancel] 이 기다리는 까닭을 자취에 남긴 마지막 값. 같은 까닭을 라운드마다 되풀이하지 않는다. */
         internal var notedUnattached: String? = null
 
+        /**
+         * 붙기 전에 건 취소가 답을 처음 기다린 시각(§15.255). 미확정 유예가 이 시각부터 지나면 기다리던 단위를 운영자 보류에 둔다
+         * ([waitUnattached]). 붙으면 걷힌다. 판단 기록에는 싣지 않는다.
+         */
+        internal var unattachedCancelSince: Instant? = null
+
         /** 지연 이벤트(15.1) — 옛 버전의 종착. 폐기하지 않는다. */
         val lateEvents: MutableList<LateEvent> = mutableListOf()
         private val seenLate = mutableSetOf<Triple<String, Int, String>>()
@@ -1116,6 +1122,9 @@ class Middleware(
                     execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
                     execution.notedDoubt = null
                     unit.annotate("IN_DOUBT resolved by revision $revision update")
+                    // 핸들 없이 걸렸던 취소는 아직 하위에 안 갔다 — 붙은 핸들로 지금 보낸다(§15.255, [attachFromSnapshot] 과 같다).
+                    // 안 보내면 기체는 그 태스크를 끝까지 하고, 취소 응답은 거절 없이 «그 뒤에서 멈췄다» 고 말한다.
+                    if (execution.cancelRequested) sendCancel(execution)
                 }
 
                 // **이미 종착한 태스크다** — 갱신이 닿기 전에 끝났다(계약의 래치, §4.4). 그 종착은 옛 버전의
@@ -2394,8 +2403,8 @@ class Middleware(
      * 3. **이미 끝난 태스크면 보내지 않고 붙기만 한다.** 그 종료로 단위를 판정하는 것은 보통의 정착 규칙이다 — 취소로 끝났으면 요청한
      *    취소의 중단, 성공이면 완료(중단점은 그 뒤), 실패면 실패.
      * 4. **스냅숏을 못 읽으면 정착하지 않는다.** 실행은 `CANCELING` 인 채 다음 라운드에 다시 본다. 못 읽은 것은 태스크가 없다는 관측이
-     *    아니다 — 그것을 «지울 것 없음» 으로 읽으면 기체가 일하는 동안 실행이 기체를 내준다. 기한을 두지 않는다. 기다리는 까닭은
-     *    자취에 [CANCEL_UNATTACHED_WAIT] 로 한 번 남긴다.
+     *    아니다 — 그것을 «지울 것 없음» 으로 읽으면 기체가 일하는 동안 실행이 기체를 내준다. 기다리는 까닭은 자취에
+     *    [CANCEL_UNATTACHED_WAIT] 로 한 번 남긴다. 미확정 유예가 지나도 못 읽으면 그 단위를 운영자 보류에 둔다([waitUnattached]).
      * 5. **스냅숏에 그 태스크가 없으면 대상이 아니다.** 붙을 것이 하나도 없으면 거짓을 돌려주고 부르는 쪽이 지금처럼 «지울 것 없음» 으로
      *    정착한다.
      *
@@ -2414,20 +2423,13 @@ class Middleware(
         }
         if (candidates.isEmpty()) return false
 
-        fun wait(why: String): Boolean {
-            execution.physicalState = PhysicalState.CANCELING
-            if (execution.notedUnattached != why) {
-                execution.notedUnattached = why
-                execution.trail(CANCEL_UNATTACHED_WAIT, why)
-            }
-            return true
-        }
-
         val onRobot = mutableListOf<Pair<ExecutionUnit, TaskState>>()
         for (unit in candidates) {
             val robot = execution.robotOf(unit)
             val view = views[robot]
-            if (view == null || !view.observable) return wait("robot=$robot 스냅숏을 못 읽었다 — ${unit.unitId} 의 태스크를 볼 때까지 종결하지 않는다")
+            if (view == null || !view.observable) {
+                return waitUnattached(execution, unit, "robot=$robot 스냅숏을 못 읽었다 — ${unit.unitId} 의 태스크를 볼 때까지 종결하지 않는다")
+            }
             val state = view.tasks[taskIdOf(execution, unit)]
             if (state == null) execution.unattached.remove(unit.unitId) else onRobot += unit to state
         }
@@ -2441,7 +2443,7 @@ class Middleware(
             val response = try {
                 robots.cancel(robot, handle)
             } catch (_: RuntimeException) {
-                return wait("$taskId 의 취소에 답이 없다 — 다음 라운드에 스냅숏부터 다시 본다")
+                return waitUnattached(execution, unit, "$taskId 의 취소에 답이 없다 — 다음 라운드에 스냅숏부터 다시 본다")
             }
             if (!response.hasState()) execution.cancelRefusal = response.rejection.code.name
         }
@@ -2453,6 +2455,7 @@ class Middleware(
         unit.state = UnitState.RUNNING
         execution.unattached.remove(unit.unitId)
         execution.notedUnattached = null
+        execution.unattachedCancelSince = null
         execution.active = unit
         execution.handle = handle
         execution.physicalState = PhysicalState.CANCELING
@@ -2474,7 +2477,8 @@ class Middleware(
      *    멈추려고 붙는 자리에서 운반을 새로 낸다([attachForCancel] 의 1 과 같은 이유).
      * 2. **찾으면 붙는다.** 끝나지 않은 운반이면 취소를 보내고([sendCancel]), 끝났으면 보내지 않는다. 그 종료로 단위를 판정하는 것은
      *    다음 라운드의 [pumpFleetUnit] 이다.
-     * 3. **답이 없으면 정착하지 않고** 다음 라운드에 다시 찾는다. 까닭은 자취에 [CANCEL_UNATTACHED_WAIT] 로 한 번 남긴다.
+     * 3. **답이 없으면 정착하지 않고** 다음 라운드에 다시 찾는다. 까닭은 자취에 [CANCEL_UNATTACHED_WAIT] 로 한 번 남긴다. 미확정 유예가
+     *    지나도 답이 없으면 그 단위를 운영자 보류에 둔다([waitUnattached]).
      * 4. **플릿에 조회가 없으면**([ExecutionLookup.NONE]) 판단 기록이 지금 시도를 맡겼다고 적은 단위를 운영자 보류에 둔다. 맡긴 운반이
      *    도는지 볼 길이 없다 — «지울 것 없음» 으로 정착하면 운반이 도는 동안 실행이 끝난다. 기록이 맡겼다고 적지 않은 단위는 대상이 아니다.
      * 5. **찾았는데 없으면 대상이 아니다.** 붙을 것이 하나도 없으면 거짓을 돌려주고 부르는 쪽이 «지울 것 없음» 으로 정착한다.
@@ -2485,15 +2489,6 @@ class Middleware(
      * @return 붙었거나 기다리거나 보류에 뒀다 — 이번 라운드에 정착하지 않는다.
      */
     private fun attachTransportForCancel(execution: Execution): Boolean {
-        fun wait(why: String): Boolean {
-            execution.physicalState = PhysicalState.CANCELING
-            if (execution.notedUnattached != why) {
-                execution.notedUnattached = why
-                execution.trail(CANCEL_UNATTACHED_WAIT, why)
-            }
-            return true
-        }
-
         for (unit in execution.units.filter { it.route == Route.FLEET && it.state == UnitState.PENDING }) {
             val reference = taskIdOf(execution, unit)
             if (fleet.executionLookup == ExecutionLookup.NONE) {
@@ -2512,18 +2507,19 @@ class Middleware(
             val handle = try {
                 fleet.find(reference)
             } catch (_: RuntimeException) {
-                return wait("$reference 의 운반을 찾는 데 답이 없다 — 다음 라운드에 다시 찾는다")
+                return waitUnattached(execution, unit, "$reference 의 운반을 찾는 데 답이 없다 — 다음 라운드에 다시 찾는다")
             } ?: continue
             val status = try {
                 fleet.status(handle)
             } catch (_: RuntimeException) {
-                return wait("$reference 의 운반(${handle.id}) 상태에 답이 없다 — 다음 라운드에 다시 찾는다")
+                return waitUnattached(execution, unit, "$reference 의 운반(${handle.id}) 상태에 답이 없다 — 다음 라운드에 다시 찾는다")
             }
             val ended = status.state in TRANSPORT_ENDED
             unit.taskId = reference
             unit.requestedAt = requestedAtOf(execution, unit)
             unit.state = UnitState.RUNNING
             execution.notedUnattached = null
+            execution.unattachedCancelSince = null
             execution.active = unit
             execution.transport = handle
             execution.physicalState = PhysicalState.CANCELING
@@ -2536,6 +2532,41 @@ class Middleware(
             return true
         }
         return false
+    }
+
+    /**
+     * 붙기 전에 건 취소가 [unit] 의 답을 기다린다 — [attachForCancel] 의 4, [attachTransportForCancel] 의 3. 실행은 `CANCELING` 인 채
+     * 다음 라운드에 다시 보고, 까닭은 같은 것이면 자취에 한 번만 남긴다.
+     *
+     * **기한은 미확정 유예다**(§15.255). 처음 기다린 때부터 [LogicalCapability.inDoubtGrace] 가 지나도 답이 없으면 [unit] 을 운영자
+     * 보류에 두고 인시던트를 연다. 기체나 운반이 멈췄는지 확인할 수 없어 내주지 않는 쪽이다 — 끊긴 기체에 건 취소([holdUnreachedCancel])와
+     * 같은 기한, 같은 보류다. 보류 중에 스냅숏에 그 태스크가 보이면 [resendHeldCancel] 이 취소를 다시 보낸다(로봇 경로만).
+     *
+     * @return 늘 참 — 이번 라운드에 정착하지 않는다.
+     */
+    private fun waitUnattached(execution: Execution, unit: ExecutionUnit, why: String): Boolean {
+        val since = execution.unattachedCancelSince ?: now().also { execution.unattachedCancelSince = it }
+        if (now().isBefore(since.plus(inDoubtGraceOf(execution)))) {
+            execution.physicalState = PhysicalState.CANCELING
+            if (execution.notedUnattached != why) {
+                execution.notedUnattached = why
+                execution.trail(CANCEL_UNATTACHED_WAIT, why)
+            }
+            return true
+        }
+        execution.unattachedCancelSince = null
+        execution.notedUnattached = null
+        execution.unattached.remove(unit.unitId)
+        unit.taskId = taskIdOf(execution, unit)
+        unit.requestedAt = requestedAtOf(execution, unit)
+        unit.state = UnitState.OPERATOR_HOLD
+        unit.annotate("cancel requested before attach but never answered: waiting since $since, not answered within grace")
+        execution.cancelUnsent = true
+        execution.doubtCancelHold = unit.unitId
+        execution.notedCancelUnsent = UNATTACHED_UNSENT_CAUSE
+        execution.trail(CANCEL_UNSENT, "${unit.unitId}: 취소를 하위에 보내지 못했다 ($UNATTACHED_UNSENT_CAUSE) — 운영자 판단을 기다린다")
+        execution.markIncident(unit)
+        return true
     }
 
     /** 계약의 종착 — 기체가 더는 그 태스크를 하지 않는다. [isTerminal] 과 달리 사람을 기다리는 태스크는 아직 기체가 붙들고 있다. */
@@ -3456,6 +3487,9 @@ class Middleware(
 
         /** 다시 지은 실행이 재기동 전에 맡긴 운반을 찾을 수 없어 취소가 닿지 못했다는 [CANCEL_UNSENT] 의 까닭(§15.254). */
         internal const val LOOKUP_UNSENT_CAUSE = "플릿에 맡긴 운반을 찾을 조회가 없다"
+
+        /** 붙기 전에 건 취소가 유예 안에 하위의 답을 받지 못했다는 [CANCEL_UNSENT] 의 까닭(§15.255). */
+        internal const val UNATTACHED_UNSENT_CAUSE = "붙기 전에 건 취소가 미확정 유예 안에 답을 받지 못했다"
 
         /** 플릿이 더는 그 운반을 하지 않는 상태. */
         private val TRANSPORT_ENDED = setOf(
