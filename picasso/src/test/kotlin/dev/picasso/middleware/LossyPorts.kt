@@ -51,10 +51,11 @@ class FaultBlindRobotPort(private val delegate: RobotPort) : RobotPort by delega
 /**
  * 하위와의 선이 **재시작 없이 끊긴** 것처럼 답하는 포트(§15.242). [down] 인 동안 스냅숏과 재생을 못 읽고(널), 갱신 스트림은 끊기기 전까지
  * 받은 것만 돌려준다 — 끊긴 스트림이 조용히 다시 붙으려 하는 동안 새 갱신이 안 오는 모양이다. 읽기는 던지지 않는다. 취소는 닿지 않고
- * 던진다. 하위는 그동안에도 일을 한다.
+ * 던진다 — [cancelThrough] 면 끊긴 동안에도 취소만은 닿는다(읽기만 못 하는 선). 하위는 그동안에도 일을 한다.
  */
 class LinkDownRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
     var down = false
+    var cancelThrough = false
 
     private val seen = mutableMapOf<String, List<WatchTaskResponse>>()
 
@@ -63,7 +64,7 @@ class LinkDownRobotPort(private val delegate: RobotPort) : RobotPort by delegate
     override fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse> =
         if (down) seen[handle.taskId].orEmpty() else delegate.watch(robotId, handle).also { seen[handle.taskId] = it }
     override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse =
-        if (down) throw IllegalStateException("link down: cancel did not reach the robot") else delegate.cancel(robotId, handle)
+        if (down && !cancelThrough) throw IllegalStateException("link down: cancel did not reach the robot") else delegate.cancel(robotId, handle)
 }
 
 /**
