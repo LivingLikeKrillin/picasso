@@ -154,7 +154,7 @@ class ResumeCancelTest {
     // ── 판단 기록의 건 취소 (§15.253)
 
     @Test
-    fun `앞 인스턴스가 건 취소를 판단 기록이 들고 오면 다시 지은 실행이 그 하위 취소를 요청된 취소로 정착한다`() {
+    fun `앞 인스턴스가 건 취소를 판단 기록이 들고 오면 다시 지은 실행이 그 하위 취소를 요청된 취소로 종결한다`() {
         World().use { w ->
             val record = w.cancelThenDie()
             assertTrue(record.cancelRequested, "판단 기록이 건 취소를 안 실었다")
