@@ -83,7 +83,7 @@ class RobotRetirementTest {
     private fun Middleware.Execution.unit(unitId: String) = units.first { it.unitId == unitId }
 
     @Test
-    fun `퇴역한 기체에는 첫 단위를 내지 않고 퇴역 사유와 풀릴 근거가 막음으로 보인다`() {
+    fun `퇴역한 기체에는 첫 단위를 내지 않고 퇴역 사유와 풀릴 근거가 차단으로 보인다`() {
         World().use { w ->
             w.ledger.retired[A] = REASON
             val exec = w.accept()
@@ -94,7 +94,7 @@ class RobotRetirementTest {
             assertEquals(UnitState.PENDING, exec.unit(TRAVEL).state)
             assertEquals(emptyList(), w.mw.incidents(), "기다림이 인시던트로 섰다")
 
-            val block = assertNotNull(exec.permitBlock, "막음이 안 보인다")
+            val block = assertNotNull(exec.permitBlock, "차단이 안 보인다")
             assertEquals(WithheldIssue.START, block.withheld)
             assertEquals(listOf(A), block.robotIds)
             val reason = block.robots.single().reasons.single()
@@ -136,7 +136,7 @@ class RobotRetirementTest {
             w.mw.pump()
 
             assertEquals(listOf(A to "$ORDER#$TRAVEL"), w.wire.starts)
-            assertNull(exec.permitBlock, "퇴역을 취소했는데 막음이 남았다")
+            assertNull(exec.permitBlock, "퇴역을 취소했는데 차단이 남았다")
             assertEquals(1, exec.eventTrail.count { it.kind == Middleware.ISSUE_RESUMED })
         }
     }
