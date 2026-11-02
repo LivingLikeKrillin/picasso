@@ -22,6 +22,8 @@ import kotlin.test.assertTrue
  * 포트가 들던 갱신 목록을 물려받지 않는다.
  *
  * 기체는 4족 픽스처 `quadruped-b`, 업무는 점검 순회(지점마다 이동 뒤 점검)다. `inspect` 는 취소를 받는다.
+ *
+ * 앞 인스턴스가 건 취소는 판단 기록이 들고 온다(§15.253). 그 기록으로 다시 지은 실행은 담는 쪽이 취소를 다시 걸지 않아도 걸린 채로 선다.
  */
 class ResumeCancelTest {
 
@@ -75,6 +77,18 @@ class ResumeCancelTest {
         fun runUntilInspecting(): JudgmentRecord {
             val exec = assertIs<Middleware.Submission.Accepted>(mw.submit(order(), ROBOT)).execution
             drive { state(taskOf(INSPECT)) == "RUNNING" }
+            return assertNotNull(mw.judgmentRecord(exec.executionId))
+        }
+
+        /**
+         * 점검 단위가 기체에서 돌 때 취소를 걸고 그 직후의 판단 기록을 받아 둔다 — 취소는 기체에 닿았고 앞 인스턴스는 그 종료를 보기
+         * 전에 죽었다.
+         */
+        fun cancelThenDie(): JudgmentRecord {
+            val exec = assertIs<Middleware.Submission.Accepted>(mw.submit(order(), ROBOT)).execution
+            drive { state(taskOf(INSPECT)) == "RUNNING" }
+            assertTrue(mw.cancel(exec.executionId))
+            assertTrue(state(taskOf(INSPECT)) in setOf("CANCELLING", "CANCELLED"), "시험의 전제: 취소가 기체에 닿았다 — ${state(taskOf(INSPECT))}")
             return assertNotNull(mw.judgmentRecord(exec.executionId))
         }
 
@@ -134,6 +148,46 @@ class ResumeCancelTest {
             w.drive(again) { !rebuilt.physicalState.pumps }
             assertEquals(PhysicalState.ABORTED, rebuilt.physicalState)
             assertEquals("CANCELLED", w.state(taskOf(INSPECT)))
+        }
+    }
+
+    // ── 판단 기록의 건 취소 (§15.253)
+
+    @Test
+    fun `앞 인스턴스가 건 취소를 판단 기록이 들고 오면 다시 지은 실행이 그 하위 취소를 요청된 취소로 정착한다`() {
+        World().use { w ->
+            val record = w.cancelThenDie()
+            assertTrue(record.cancelRequested, "판단 기록이 건 취소를 안 실었다")
+
+            val (again, wire) = w.restart()
+            val rebuilt = again.rebuild(JudgmentRecordWire.decode(JudgmentRecordWire.encode(record)))
+            assertEquals(PhysicalState.CANCELING, rebuilt.physicalState, "기록의 건 취소가 걸린 채로 짓지 않았다")
+            w.drive(again) { !rebuilt.physicalState.pumps }
+
+            assertEquals(emptyList(), again.incidents(), "요청한 취소를 요청 없는 취소로 읽었다")
+            assertTrue(again.responses().none { it.physicalState == PhysicalState.OPERATOR_HOLD }, "요청한 취소에 운영자 보류가 나갔다: ${again.responses()}")
+            assertEquals(PhysicalState.ABORTED, rebuilt.physicalState)
+            assertEquals(UnitState.ABORTED, rebuilt.unit(INSPECT).state)
+            assertEquals(INSPECT, assertNotNull(again.lastCancel(rebuilt.executionId)).inProgressUnit)
+            assertEquals(emptyList(), wire.starts, "취소된 실행이 StartTask 를 보냈다")
+            assertEquals(2, w.tasks().size, "취소 뒤에 새 단위가 나갔다: ${w.tasks().map { it.taskId }}")
+        }
+    }
+
+    @Test
+    fun `건 취소 칸이 없는 버전 1 기록으로 다시 지으면 그 하위 취소를 요청 없는 취소로 읽어 운영자 보류에 세운다`() {
+        World().use { w ->
+            val text = JudgmentRecordWire.encode(w.cancelThenDie())
+            val v1 = text.replace("\"schemaVersion\":\"2\"", "\"schemaVersion\":\"1\"").replace(",\"cancelRequested\":true", "")
+            assertTrue("cancelRequested" !in v1, "시험의 전제: 버전 1 모양을 못 지었다")
+
+            val (again, wire) = w.restart()
+            val rebuilt = again.rebuild(JudgmentRecordWire.decode(v1))
+            w.drive(again) { rebuilt.physicalState == PhysicalState.OPERATOR_HOLD }
+
+            assertEquals(UnitState.OPERATOR_HOLD, rebuilt.unit(INSPECT).state, "누가 멈췄는지 모르는 하위 취소를 중단으로 접었다")
+            assertEquals(1, again.incidents().size, "요청 없는 취소에 인시던트가 안 열렸다")
+            assertEquals(emptyList(), wire.starts, "보류에 선 실행이 다음 단위를 냈다")
         }
     }
 

@@ -21,7 +21,7 @@ class JudgmentRecordWireTest {
         assertTrue("\"schemaVersion\":\"${JudgmentRecordWire.SCHEMA_VERSION}\"" in text, text)
 
         // 빈 칸이 많은 기록도 같다. 널 칸은 키를 빼지 않고 null 로 적는다.
-        val bare = JudgmentRecord("J-2", 1, emptyList(), null, listOf(UnitRecord("u", 0, "", null, null, null, null)))
+        val bare = JudgmentRecord("J-2", 1, emptyList(), null, listOf(UnitRecord("u", 0, "", null, null, null, null)), cancelRequested = false)
         val bareText = JudgmentRecordWire.encode(bare)
         assertEquals(bare, JudgmentRecordWire.decode(bareText))
         assertTrue("\"approval\":null" in bareText && "\"requestedAt\":null" in bareText, bareText)
@@ -31,12 +31,32 @@ class JudgmentRecordWireTest {
     fun `모르는 판이나 판이 없는 기록은 읽지 않고 거부한다`() {
         val text = JudgmentRecordWire.encode(FULL)
         listOf(
-            text.replace("\"schemaVersion\":\"1\"", "\"schemaVersion\":\"2\""),
-            text.replace("\"schemaVersion\":\"1\",", ""),
-            text.replace("\"schemaVersion\":\"1\"", "\"schemaVersion\":1"),
+            text.replace("\"schemaVersion\":\"2\"", "\"schemaVersion\":\"3\""),
+            text.replace("\"schemaVersion\":\"2\",", ""),
+            text.replace("\"schemaVersion\":\"2\"", "\"schemaVersion\":2"),
         ).forEach { wrong ->
+            assertTrue(wrong != text, "시험의 전제: 바꿀 자리를 못 찾았다")
             val e = assertFailsWith<IllegalArgumentException>(wrong) { JudgmentRecordWire.decode(wrong) }
             assertTrue("모르는 판단 기록 판" in e.message!!, e.message)
+        }
+    }
+
+    @Test
+    fun `버전 1 기록은 건 취소 칸 없이 읽고 취소가 걸리지 않은 기록이 된다`() {
+        val text = JudgmentRecordWire.encode(FULL)
+        val v1 = text.replace("\"schemaVersion\":\"2\"", "\"schemaVersion\":\"1\"").replace(",\"cancelRequested\":true", "")
+        assertTrue(v1 != text && "cancelRequested" !in v1, "시험의 전제: 버전 1 모양을 못 지었다")
+        assertEquals(FULL.copy(cancelRequested = false), JudgmentRecordWire.decode(v1))
+
+        // 버전마다 칸 목록이 정확해야 한다 — 버전 1 에 그 칸이 있거나, 버전 2 에 그 칸이 없거나, 값이 참거짓이 아니면 거부한다.
+        mapOf(
+            v1.replace("\"units\":", "\"cancelRequested\":true,\"units\":") to "모르는 칸",
+            text.replace(",\"cancelRequested\":true", "") to "칸이 없다",
+            text.replace("\"cancelRequested\":true", "\"cancelRequested\":\"yes\"") to "참거짓이 아니다",
+        ).forEach { (wrong, why) ->
+            assertTrue(wrong != text && wrong != v1, "시험의 전제: 바꿀 자리를 못 찾았다")
+            val e = assertFailsWith<IllegalArgumentException>(wrong) { JudgmentRecordWire.decode(wrong) }
+            assertTrue(why in e.message!!, e.message)
         }
     }
 
@@ -106,6 +126,7 @@ class JudgmentRecordWireTest {
                     decision = RecordedDecision(OperatorDecision.REWORK, OPERATOR, T0.plusSeconds(30), 1),
                 ),
             ),
+            cancelRequested = true,
         )
     }
 }
