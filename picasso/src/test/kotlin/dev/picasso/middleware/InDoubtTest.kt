@@ -406,6 +406,77 @@ class InDoubtTest {
         }
     }
 
+    /** 도는 단위의 기체 연결을 끊고 끊김 판정(`LINK_BROKEN`)까지 간 뒤 취소를 건다. 끊긴 동안 취소는 기체에 안 닿는다. */
+    private fun cancelOverBrokenLink(w: RobotWorld, link: LinkDownRobotPort): Middleware.Execution {
+        val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+        w.mw.pump()
+        assertEquals(UnitState.RUNNING, exec.unit().state)
+        link.down = true
+        w.harness.advance(Duration.ofSeconds(35)); w.mw.pump()
+        assertTrue(exec.linkBroken, "시험의 전제: 끊김으로 판정했다")
+        assertTrue(w.mw.cancel(exec.executionId))
+        assertEquals(PhysicalState.CANCELING, exec.physicalState)
+        w.mw.pump() // 닿지 않은 취소를 이 라운드가 처음 본다 — 유예는 여기서부터다
+        return exec
+    }
+
+    @Test
+    fun `끊긴 기체에 건 취소가 유예 안에 닿지 않으면 운영자 보류에 두고 기체를 내주지 않는다`() {
+        lateinit var link: LinkDownRobotPort
+        RobotWorld(drop = 0, profile = longCancellableProfile(), wrap = { LinkDownRobotPort(it).also { p -> link = p } }).use { w ->
+            val exec = cancelOverBrokenLink(w, link)
+
+            w.harness.advance(Duration.ofSeconds(50)); w.mw.pump()
+            assertEquals(UnitState.RUNNING, exec.unit().state, "유예 안에 보류로 넘겼다")
+            assertEquals(PhysicalState.CANCELING, exec.physicalState)
+
+            w.harness.advance(Duration.ofSeconds(15)); w.mw.pump()
+            assertEquals(UnitState.OPERATOR_HOLD, exec.unit().state, "닿지 않은 취소가 시한 없이 CANCELING 에 머문다")
+            assertEquals(PhysicalState.OPERATOR_HOLD, exec.physicalState)
+            assertTrue(exec.eventTrail.any { it.kind == Middleware.CANCEL_UNSENT && it.detail.contains("연결이 끊긴 채") }, exec.eventTrail.toString())
+            assertTrue(exec.unit().note!!.contains("link broken since"), exec.unit().note)
+            assertEquals(exec.unit().unitId, w.mw.incidents().singleOrNull()?.unitId, "보류가 인시던트로 봉해지지 않았다")
+            assertEquals(PhysicalState.OPERATOR_HOLD, w.mw.pending().last().physicalState, "상류에 운영자 보류를 안 알렸다")
+
+            repeat(3) {
+                w.harness.advance(Duration.ofSeconds(10))
+                w.mw.pump()
+            }
+            assertEquals(PhysicalState.OPERATOR_HOLD, exec.physicalState, "기체가 멈췄는지 모르는 채 실행을 닫았다")
+            assertEquals(null, w.mw.lastCancel(exec.executionId))
+
+            assertEquals(ResolveOutcome.Resolved, w.mw.resolve(exec.executionId, SLOT, OperatorDecision.CONFIRM_DONE, OPERATOR))
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(Middleware.CANCEL_NOT_SENT, w.mw.lastCancel(exec.executionId)!!.refusal, "닿지 못한 취소를 닿았다고 말했다")
+        }
+    }
+
+    @Test
+    fun `끊긴 기체의 취소가 유예 안에 닿으면 보류 없이 따라가 중단으로 끝난다`() {
+        lateinit var link: LinkDownRobotPort
+        RobotWorld(drop = 0, profile = longCancellableProfile(), wrap = { LinkDownRobotPort(it).also { p -> link = p } }).use { w ->
+            val exec = cancelOverBrokenLink(w, link)
+
+            // 스냅숏은 여전히 못 읽고 끊김 판정도 그대로인데 취소만 닿는다.
+            w.harness.advance(Duration.ofSeconds(50))
+            link.cancelThrough = true
+            w.mw.pump()
+            assertTrue(exec.eventTrail.any { it.kind == Middleware.CANCEL_RESENT }, exec.eventTrail.toString())
+            assertTrue(exec.linkBroken, "시험의 전제: 끊김 판정이 그대로다")
+
+            w.harness.advance(Duration.ofSeconds(15)); w.mw.pump()
+            assertTrue(exec.units.none { it.state == UnitState.OPERATOR_HOLD }, "닿은 취소를 운영자 보류로 넘겼다")
+            assertEquals(PhysicalState.CANCELING, exec.physicalState)
+
+            link.down = false
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.ABORTED, exec.physicalState)
+            assertEquals(1, w.tasks().size, "끊김이 재실행을 만들었다")
+            assertEquals(null, w.mw.lastCancel(exec.executionId)!!.refusal)
+        }
+    }
+
     @Test
     fun `미확정 중의 취소를 하류가 거절하면 그 단위는 끝까지 가고 — 거절과 멈춘 경계가 응답에 있다`() {
         RobotWorld(drop = 1).use { w -> // 픽스처의 pick_place 는 취소 NO

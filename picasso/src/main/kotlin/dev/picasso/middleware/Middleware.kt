@@ -260,10 +260,17 @@ class Middleware(
         internal var notedCancelUnsent: String? = null
 
         /**
-         * 취소가 걸린 채 미확정이 끝내 안 풀려 운영자 보류가 된 단위의 id(§15.238). 핸들이 없어 취소가 하위에 닿지 못했다 — 널이 아니고
+         * 취소가 걸린 채 미확정이 끝내 안 풀려 운영자 보류가 된 단위의 id(§15.238). 핸들이 없어 취소가 하위에 닿지 못했다. 연결이 끊긴 채
+         * 취소가 닿지 않아 보류가 된 도는 단위도 같다([holdUnreachedCancel], §15.243). 널이 아니고
          * 그 단위가 아직 운영자 보류인 동안 실행은 중단으로 닫지 않고 운영자 판단을 기다린다([cancelWaitsOnHeldDoubt]).
          */
         internal var doubtCancelHold: String? = null
+
+        /**
+         * 연결이 끊긴 채([linkBroken]) 건 취소가 닿지 않은 것([cancelUnsent])을 처음 본 시각(§15.243). 미확정 유예가 이 시각부터 지나면
+         * 도는 단위를 운영자 보류에 둔다([holdUnreachedCancel]). 둘 중 하나가 풀리면 걷힌다. 판단 기록에는 싣지 않는다.
+         */
+        internal var unreachedCancelSince: Instant? = null
 
         /**
          * 라운드 진행([PUMP_SOURCE])과 기체 동기화(`sync:<기체>`)에서 포트가 던진 마지막 까닭. 같은 자리가 같은 까닭으로 계속 던지면
@@ -1433,7 +1440,7 @@ class Middleware(
                 active.state == UnitState.IN_DOUBT -> resolveDoubt(execution, active)
                 active.state == UnitState.VERIFYING -> checkEvidence(execution, active)
                 else -> when (active.route) {
-                    Route.ROBOT -> pumpRobotUnit(execution, active)
+                    Route.ROBOT -> holdUnreachedCancel(execution, active) || pumpRobotUnit(execution, active)
                     Route.FLEET -> pumpFleetUnit(execution, active)
                     Route.SIGNAL -> pumpSignalUnit(execution, active)
                 }
@@ -1966,6 +1973,30 @@ class Middleware(
         execution.notedCancelUnsent = null
         unit.annotate("held cancel re-sent by key: snapshot showed ${unit.taskId}=${state.name}")
         execution.trail(CANCEL_RESENT, "${unit.unitId}: 운영자 보류 중 스냅숏에 ${unit.taskId}=${state.name} 가 보여 키로 지은 핸들로 취소를 보냈다 — 판단은 운영자가 한다")
+    }
+
+    /**
+     * 연결이 끊긴 기체에 건 취소가 미확정 유예 안에 닿지 않으면 도는 [unit] 을 운영자 보류에 둔다(§15.243). 기체가 멈췄는지 확인할 수 없어
+     * 기체를 내주지 않는 쪽이다 — 실행은 중단으로 닫지 않고 운영자 판단을 기다린다([cancelWaitsOnHeldDoubt]). 보류 중에 스냅숏에 그 태스크가
+     * 보이면 [resendHeldCancel] 이 다시 보낸다. 유예 안에 연결이 돌아오거나 취소가 닿으면 [pumpRound] 머리의 다시 보내기가 그대로 끝낸다.
+     *
+     * @return 단위가 이 라운드에 운영자 보류가 됐는가.
+     */
+    private fun holdUnreachedCancel(execution: Execution, unit: ExecutionUnit): Boolean {
+        if (!execution.cancelRequested || !execution.cancelUnsent || !execution.linkBroken) {
+            execution.unreachedCancelSince = null
+            return false
+        }
+        val since = execution.unreachedCancelSince ?: now().also { execution.unreachedCancelSince = it }
+        if (now().isBefore(since.plus(inDoubtGraceOf(execution)))) return false
+        execution.unreachedCancelSince = null
+        unit.annotate("cancel requested but never reached the downstream: link broken since $since, not answered within grace")
+        unit.state = UnitState.OPERATOR_HOLD
+        execution.doubtCancelHold = unit.unitId
+        execution.notedCancelUnsent = LINK_UNSENT_CAUSE
+        execution.trail(CANCEL_UNSENT, "${unit.unitId}: 취소를 하위에 보내지 못했다 ($LINK_UNSENT_CAUSE) — 운영자 판단을 기다린다")
+        execution.markIncident(unit)
+        return true
     }
 
     /** 걸린 취소가 [holdUnsentCancel] 로 서 있고 그 단위가 아직 운영자 보류다 — 실행은 운영자 판단을 기다린다. */
@@ -3295,6 +3326,9 @@ class Middleware(
 
         /** 로봇 경로의 [HOLD_UNSENT_CAUSE] — 키로 지은 핸들로 보낸 취소도 기체가 받지 않았다(§15.219). */
         private const val KEYED_UNSENT_CAUSE = "미확정이라 태스크 핸들이 없고 키로 보낸 취소도 기체가 받지 않았다"
+
+        /** 연결이 끊긴 기체에 건 취소가 유예 안에 닿지 않았다는 [CANCEL_UNSENT] 의 까닭(§15.243). */
+        private const val LINK_UNSENT_CAUSE = "연결이 끊긴 채 미확정 유예 안에 닿지 않았다"
 
         /** 라운드 진행([PUMP_SOURCE])의 실패를 [Execution.pumpFailures] 에 적는 자리 이름. 기체 동기화는 `sync:<기체>` 다. */
         private const val PUMP_SOURCE = "pump"
