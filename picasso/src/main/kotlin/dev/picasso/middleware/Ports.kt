@@ -314,11 +314,19 @@ interface AmrFleetPort {
 
     /** 맡긴다. 플릿이 거절하면 `null`. 같은 [TransportOrder.reference] 는 같은 핸들이다. */
     fun dispatch(order: TransportOrder): TransportHandle?
+
+    /**
+     * [reference] 로 맡긴 운반을 **찾기만 한다** — 없으면 `null` 이고 새로 맡기지 않는다(§15.254). [dispatch] 의 같은 참조 재전송과 다른
+     * 것은 그것뿐이다. 다시 지은 실행이 취소하려고 붙는 자리에서 쓴다 — 재전송은 플릿이 그 운반을 모르면 새 운반을 낸다.
+     * [executionLookup] 이 [ExecutionLookup.NONE] 이면 부르지 않는다.
+     */
+    fun find(reference: String): TransportHandle?
     fun status(handle: TransportHandle): TransportStatus
     fun cancel(handle: TransportHandle): Boolean
 
     object None : AmrFleetPort {
         override fun dispatch(order: TransportOrder): TransportHandle? = null
+        override fun find(reference: String): TransportHandle? = null
         override fun status(handle: TransportHandle): TransportStatus =
             TransportStatus(TransportState.FAILED, null, false, "플릿이 없다")
         override fun cancel(handle: TransportHandle): Boolean = false

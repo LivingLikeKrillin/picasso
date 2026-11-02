@@ -48,7 +48,7 @@
 
 ### 3. AMR 플릿 관리 시스템
 
-**인터페이스**: `AmrFleetPort{executionLookup, dispatch(TransportOrder), status(handle), cancel(handle)}`
+**인터페이스**: `AmrFleetPort{executionLookup, dispatch(TransportOrder), find(reference), status(handle), cancel(handle)}`
 (기본 Null 구현체: `None`)
 
 취소 전송 중 예외가 발생한 요청은 하위에 도달할 때까지 매 라운드 재전송됩니다.
@@ -56,6 +56,7 @@
 - **실제 하드웨어 전환 작업**:
   - 상용 AMR 플릿 관리자(Fleet Manager) API를 호출하는 어댑터 클래스를 구현하여 본 인터페이스를 충족시킵니다.
   - `TransportState`의 시맨틱 계약을 엄격히 준수해야 합니다. `DELIVERED` 상태는 *[목적지 도착 ∧ 하역 완료 ∧ 공정 간 인계 승인 ∧ 기체 미보유]* 조건을 모두 만족해야 하며, 단순 "도착" 신호를 성급히 매핑해서는 안 됩니다.
+  - `find(reference)`는 클라이언트 참조로 맡긴 운반을 찾기만 하고 없으면 `null`을 돌려주며 새 운반을 맡기지 않아야 합니다. 리빌드한 실행이 취소하려고 붙을 때 이것을 씁니다. 클라이언트 참조로 찾을 수 없는 플릿은 `executionLookup`을 `NONE`으로 선언하고, 그때 재기동 전에 맡긴 운반의 취소는 운영자 보류로 갑니다.
 - **불변 유지 대상**: E1→E2 근거 결합 모델, 작업 공정 간 인계 대기, 작업 취소 정리 규칙.
 
 ### 4. 로봇 인터페이스 계약 — 소비자 영역
@@ -200,4 +201,4 @@
 
 > **검증 보증:** 본 색인 테이블의 인터페이스명 및 파일 경로는 `DocumentClaimsTest`를 통해 실제 소스 코드와 상시 대조 검증됩니다.
 
-> 마지막 대조: 2026-11-02 · sha256:c9d89fd93db3 · 열림: §15.34, C-3, §15.5, §15.156
+> 마지막 대조: 2026-11-02 · sha256:777c1fe9c86d · 열림: §15.34, C-3, §15.5, §15.156

@@ -182,6 +182,7 @@ class LossyFleet(
         return handle
     }
 
+    override fun find(reference: String): TransportHandle? = delegate.find(reference)
     override fun status(handle: TransportHandle): TransportStatus = delegate.status(handle)
     override fun cancel(handle: TransportHandle): Boolean = delegate.cancel(handle)
 }

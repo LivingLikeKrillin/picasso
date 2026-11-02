@@ -58,6 +58,8 @@ class AmrFleetMimic(private val now: () -> Instant = { Instant.now() }) : AmrFle
         return TransportHandle(id)
     }
 
+    override fun find(reference: String): TransportHandle? = byReference[reference]?.let { TransportHandle(it) }
+
     override fun status(handle: TransportHandle): TransportStatus {
         val t = transports.getValue(handle.id)
         return TransportStatus(t.state, t.observed, t.holding, t.detail)
