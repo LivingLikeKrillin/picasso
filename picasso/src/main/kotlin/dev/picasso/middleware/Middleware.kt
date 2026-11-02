@@ -1481,8 +1481,8 @@ class Middleware(
         // 취소가 걸린 채 미확정이 끝내 안 풀린 단위는 취소가 하위에 닿지 못했다 — 중단으로 닫지 않고 아래 운영자 보류에 둔다(§15.238).
         if (execution.cancelRequested && !cancelWaitsOnHeldDoubt(execution)) {
             // 다시 지은 실행이 아직 붙지 않은 태스크가 기체에 있으면 그것부터 멈춘다. 붙지 않은 채 정착하면 기체가 그 태스크를 하는
-            // 동안 실행이 기체를 내준다.
-            if (attachForCancel(execution)) return
+            // 동안 실행이 기체를 내준다. 플릿에 맡긴 운반도 같다(§15.254).
+            if (attachForCancel(execution) || attachTransportForCancel(execution)) return
             abort(execution, inProgress = null, hold = null, cleanup = "nothing_to_clean")
             return
         }
@@ -2464,6 +2464,80 @@ class Middleware(
         return true
     }
 
+    /**
+     * **붙기 전에 걸린 취소의 플릿 쪽**(§15.254) — 다시 지은 실행([resume])에 취소가 걸렸는데 도는 단위가 없고, 대기 중인 플릿 운반
+     * 단위가 재기동 전에 플릿에 맡겨졌을 수 있다. 다시 짓기는 플릿을 읽지 않으므로([rebuildFrom] 은 로봇 단위만 본다) 여기서 찾는다.
+     *
+     * 규칙 다섯이다.
+     *
+     * 1. **[AmrFleetPort.find] 로 찾기만 한다.** 같은 참조의 [AmrFleetPort.dispatch] 재전송은 플릿이 그 운반을 모르면 새로 맡긴다 —
+     *    멈추려고 붙는 자리에서 운반을 새로 낸다([attachForCancel] 의 1 과 같은 이유).
+     * 2. **찾으면 붙는다.** 끝나지 않은 운반이면 취소를 보내고([sendCancel]), 끝났으면 보내지 않는다. 그 종료로 단위를 판정하는 것은
+     *    다음 라운드의 [pumpFleetUnit] 이다.
+     * 3. **답이 없으면 정착하지 않고** 다음 라운드에 다시 찾는다. 까닭은 자취에 [CANCEL_UNATTACHED_WAIT] 로 한 번 남긴다.
+     * 4. **플릿에 조회가 없으면**([ExecutionLookup.NONE]) 판단 기록이 지금 시도를 맡겼다고 적은 단위를 운영자 보류에 둔다. 맡긴 운반이
+     *    도는지 볼 길이 없다 — «지울 것 없음» 으로 정착하면 운반이 도는 동안 실행이 끝난다. 기록이 맡겼다고 적지 않은 단위는 대상이 아니다.
+     * 5. **찾았는데 없으면 대상이 아니다.** 붙을 것이 하나도 없으면 거짓을 돌려주고 부르는 쪽이 «지울 것 없음» 으로 정착한다.
+     *
+     * 실행은 단위를 차례로 돌므로 맡겨진 운반은 많아야 하나다 — 계획 순서로 처음 찾은 것에 붙는다. 취소와 읽기뿐이라 발행 게이트를
+     * 묻지 않는다(플릿 운반은 원래 묻지 않는다).
+     *
+     * @return 붙었거나 기다리거나 보류에 뒀다 — 이번 라운드에 정착하지 않는다.
+     */
+    private fun attachTransportForCancel(execution: Execution): Boolean {
+        fun wait(why: String): Boolean {
+            execution.physicalState = PhysicalState.CANCELING
+            if (execution.notedUnattached != why) {
+                execution.notedUnattached = why
+                execution.trail(CANCEL_UNATTACHED_WAIT, why)
+            }
+            return true
+        }
+
+        for (unit in execution.units.filter { it.route == Route.FLEET && it.state == UnitState.PENDING }) {
+            val reference = taskIdOf(execution, unit)
+            if (fleet.executionLookup == ExecutionLookup.NONE) {
+                if (execution.restoredRequests[unit.unitId]?.first != unit.attempt) continue
+                unit.taskId = reference
+                unit.requestedAt = requestedAtOf(execution, unit)
+                unit.state = UnitState.OPERATOR_HOLD
+                unit.annotate("cancel requested but the fleet has no lookup for the transport dispatched before restart")
+                execution.cancelUnsent = true
+                execution.doubtCancelHold = unit.unitId
+                execution.notedCancelUnsent = LOOKUP_UNSENT_CAUSE
+                execution.trail(CANCEL_UNSENT, "${unit.unitId}: 취소를 하위에 보내지 못했다 ($LOOKUP_UNSENT_CAUSE) — 운영자 판단을 기다린다")
+                execution.markIncident(unit)
+                return true
+            }
+            val handle = try {
+                fleet.find(reference)
+            } catch (_: RuntimeException) {
+                return wait("$reference 의 운반을 찾는 데 답이 없다 — 다음 라운드에 다시 찾는다")
+            } ?: continue
+            val status = try {
+                fleet.status(handle)
+            } catch (_: RuntimeException) {
+                return wait("$reference 의 운반(${handle.id}) 상태에 답이 없다 — 다음 라운드에 다시 찾는다")
+            }
+            val ended = status.state in TRANSPORT_ENDED
+            unit.taskId = reference
+            unit.requestedAt = requestedAtOf(execution, unit)
+            unit.state = UnitState.RUNNING
+            execution.notedUnattached = null
+            execution.active = unit
+            execution.transport = handle
+            execution.physicalState = PhysicalState.CANCELING
+            if (!ended) sendCancel(execution)
+            execution.trail(
+                CANCEL_ATTACHED,
+                "${unit.unitId}: 플릿의 $reference=${status.state.name}(${handle.id}) 에 새로 맡기지 않고 붙었다, " +
+                    if (ended) "이미 끝나 그 종료로 판정한다" else "취소를 보냈다",
+            )
+            return true
+        }
+        return false
+    }
+
     /** 계약의 종착 — 기체가 더는 그 태스크를 하지 않는다. [isTerminal] 과 달리 사람을 기다리는 태스크는 아직 기체가 붙들고 있다. */
     private fun TaskState.endedOnRobot(): Boolean = this == TaskState.TASK_STATE_SUCCEEDED ||
         this == TaskState.TASK_STATE_FAILED || this == TaskState.TASK_STATE_CANCELLED ||
@@ -3011,7 +3085,7 @@ class Middleware(
 
     /**
      * 취소를 건다. 실제 중단과 잔여 상태는 [pump] 가 하류를 읽고 [CancelReport] 로 확정한다. 다시 지은 실행이 아직 붙지 않았으면
-     * 기체의 태스크에 붙어 취소를 보내는 것도 [pump] 다([attachForCancel]).
+     * 기체의 태스크에 붙어 취소를 보내는 것도 [pump] 다([attachForCancel]). 플릿에 맡긴 운반도 같다([attachTransportForCancel]).
      *
      * **참은 «받았다» 이지 «닿았다» 가 아니다.** 하위로 보내다가 포트가 던져도 이 호출은 던지지 않고 참을 돌려준다 — 건 취소는
      * 실행에 남고, 닿을 때까지 [pump] 가 다시 보낸다([sendCancel]).
@@ -3379,6 +3453,14 @@ class Middleware(
 
         /** 연결이 끊긴 기체에 건 취소가 유예 안에 닿지 않았다는 [CANCEL_UNSENT] 의 까닭(§15.243). */
         private const val LINK_UNSENT_CAUSE = "연결이 끊긴 채 미확정 유예 안에 닿지 않았다"
+
+        /** 다시 지은 실행이 재기동 전에 맡긴 운반을 찾을 수 없어 취소가 닿지 못했다는 [CANCEL_UNSENT] 의 까닭(§15.254). */
+        internal const val LOOKUP_UNSENT_CAUSE = "플릿에 맡긴 운반을 찾을 조회가 없다"
+
+        /** 플릿이 더는 그 운반을 하지 않는 상태. */
+        private val TRANSPORT_ENDED = setOf(
+            TransportState.DELIVERED, TransportState.REJECTED_AT_SOURCE, TransportState.CANCELLED, TransportState.FAILED,
+        )
 
         /** 라운드 진행([PUMP_SOURCE])의 실패를 [Execution.pumpFailures] 에 적는 자리 이름. 기체 동기화는 `sync:<기체>` 다. */
         private const val PUMP_SOURCE = "pump"
