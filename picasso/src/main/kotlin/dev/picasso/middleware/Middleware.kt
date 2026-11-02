@@ -516,8 +516,10 @@ class Middleware(
      * 정의와 버전([mission])을 넘겨받는다. 미들웨어를 담는 실행 호스트가 기동할 때 [pump] 를 켜기 전에 부르는 자리다.
      *
      * **상태를 되살리는 것이 아니라 같은 정체성으로 다시 짓는 것이다.** 실행 id 와 작업 응답 id 는 이 인스턴스의 셈으로 새로
-     * 붙고, 로봇 단위와 플릿 단위는 대기에서 시작한다. 로봇 단위의 상태는 [pump] 가 기체에서 다시 관측해 세운다. 같은 태스크
-     * id 와 리비전으로 `StartTask` 를 다시 보내면 기체가 기존 핸들을 돌려주므로(계약의 멱등) 새 명령이 나가지 않는다.
+     * 붙고, 로봇 단위와 플릿 단위는 대기에서 시작한다. 로봇 단위의 상태는 [pump] 가 기체에서 다시 관측해 세운다. 첫 pump 는 스냅숏에
+     * 그 시도의 태스크가 단위의 리비전으로 보이면 `StartTask` 없이 붙고 발행 게이트를 묻지 않는다([reattachFromSnapshot], §15.219).
+     * 리비전을 모르면 같은 태스크 id 와 리비전으로 `StartTask` 를 다시 보내며, 기체가 기존 핸들을 돌려주므로(계약의 멱등) 새 명령이
+     * 나가지 않지만 그 재전송은 게이트를 지난다.
      *
      * **넘기는 작업 지시는 이전 인스턴스가 받은 마지막 버전이어야 한다.** 리비전은 단위의 `revision` 이 되고 태스크의 멱등은
      * 같은 `task_id`·`revision` 에만 서므로, 낮은 버전을 넘기면 기체가 기존 태스크에 붙여 주지 않는다.
@@ -1495,6 +1497,10 @@ class Middleware(
             return
         }
 
+        // **다시 지은 실행의 재부착은 새 발행이 아니다**(§15.219). 기체가 이미 하는 태스크에 붙는 것이라 아래 결함·허가 게이트를 묻지
+        // 않는다 — 막으면 기체가 그 일을 하는 동안 이 인스턴스는 따라가지 않는다.
+        if (next.route == Route.ROBOT && reattachFromSnapshot(execution, next)) return
+
         // **기체가 새 태스크를 못 받는다고 말하면 보내지 않는다.** 계약은 막지 않는다 — 결함은 인터록이 아니고
         // "판단은 밖으로"(§4.6·§15.87)이며, 그 밖이 여기다. 자동으로 넘어가지 않는다: 사람이 [release] 로 감수하거나
         // 결함이 사라져야 다음 단위가 나간다. 못 물어봤으면(null) 막지 않고 그 사실만 남긴다 — 관측 실패로 현장을
@@ -2300,6 +2306,39 @@ class Middleware(
      */
     private fun requestedAtOf(execution: Execution, unit: ExecutionUnit): Instant =
         execution.restoredRequests.remove(unit.unitId)?.takeIf { it.first == unit.attempt }?.second ?: now()
+
+    /**
+     * 다시 지은 실행([resume])의 붙지 않은 [unit] 을 스냅숏의 태스크에 `StartTask` 없이 붙인다(§15.219). 스냅숏에 이 단위의 지금 시도의
+     * 태스크가 단위의 리비전으로 있어야 한다 — 기체가 그 태스크를 들고 있다는 관측이고, 붙는 데 새 로봇 명령이 없다. 그래서 발행 게이트를
+     * 묻지 않는다. 이미 끝난 태스크도 붙고 그 종료는 다음 라운드의 [pumpRobotUnit] 이 `WatchTask(0)` 으로 읽는다.
+     *
+     * 스냅숏을 못 읽었거나, 그 태스크가 없거나, 리비전이 다르거나 비어 있으면 붙지 않는다. 그때는 지금처럼 같은 태스크 id 의 재전송이
+     * 게이트를 지난다 — 리비전이 다르면 그 재전송은 개정 갱신이라 새 명령이다.
+     *
+     * @return 붙었는가.
+     */
+    private fun reattachFromSnapshot(execution: Execution, unit: ExecutionUnit): Boolean {
+        if (execution.unattached[unit.unitId] != unit.attempt) return false
+        val robot = execution.robotOf(unit)
+        val view = views[robot]?.takeIf { it.observable } ?: return false
+        val taskId = taskIdOf(execution, unit)
+        val state = view.tasks[taskId] ?: return false
+        if (view.taskRevisions[taskId] != unit.revision) return false
+
+        unit.taskId = taskId
+        unit.requestedAt = requestedAtOf(execution, unit)
+        unit.lookups = 0
+        unit.lastLookupAt = null
+        unit.streamLostAt = null
+        unit.keyedCancelAt = null
+        execution.unattached.remove(unit.unitId)
+        execution.active = unit
+        execution.handle = handleFor(robot, taskId, unit.revision)
+        unit.state = UnitState.RUNNING
+        execution.physicalState = PhysicalState.RUNNING
+        execution.trail(RESUME_REATTACHED, "${unit.unitId}: 스냅숏의 $taskId=${state.name}(리비전 ${unit.revision})에 StartTask 없이 붙었다")
+        return true
+    }
 
     private fun startUnit(execution: Execution, unit: ExecutionUnit) {
         unit.taskId = taskIdOf(execution, unit)
@@ -3279,6 +3318,9 @@ class Middleware(
 
         /** [resume] 이 마지막 로봇 태스크 앞의 로봇 단위를 설비 근거 재확인 없이 닫기로 했다는 실행 자취의 종류. */
         const val RESUME_PRIOR_ROBOT = "RESUME_PRIOR_ROBOT"
+
+        /** 다시 지은 실행이 붙지 않은 단위를 스냅숏의 태스크에 `StartTask` 없이 붙였다는 실행 자취의 종류(§15.219). */
+        const val RESUME_REATTACHED = "RESUME_REATTACHED"
 
         /**
          * [resume] 이 판단 기록을 받지 않을 때의 사유 앞머리 — 기록의 작업 지시 id·버전이 넘긴 작업 지시와 다르거나 계획에 없는 단위가
