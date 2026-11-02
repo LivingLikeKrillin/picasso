@@ -555,7 +555,7 @@ class Middleware(
      *
      * 7. **판단 기록을 옮긴다.** 감수한 결함, 승인 소모(조치 열의 걸음은 계획 앞에 다시 서고 승인 장부에 소모로 다시 선다),
      *    단위마다의 시도 번호, 요청 시각(근거 윈도우와 미확정 유예의 기준, 설비 대기의 기한 시작), 검증 대기의 창, 이미 내린
-     *    판정, 운영자 판단이다. **다시 판정하지 않는다** — 판정이 있는 단위는 다시 돌리지 않고, 앞선 로봇 단위라도 기록의 근거
+     *    판정, 운영자 판단, 건 취소다. **다시 판정하지 않는다** — 판정이 있는 단위는 다시 돌리지 않고, 앞선 로봇 단위라도 기록의 근거
      *    등급을 그대로 쓴다. 시각은 그 시도를 다시 낼 때 쓰므로 기한은 재기동 시각이 아니라 처음 시작한 시각부터 이어 간다.
      *    스냅숏이 기록보다 큰 시도를 보이는 단위는 기록이 그 재작업보다 먼저 적힌 것이라 그 단위의 시각과 판정을 옮기지 않고
      *    [RESUME_RECORD_SUPERSEDED] 로 남긴다. 기록의 작업 지시 id 나 버전이 넘긴 작업 지시와 다르거나 계획에 없는 단위가 있으면
@@ -567,16 +567,16 @@ class Middleware(
      *    [resolve] 로 낸다. 같은 작업 지시로 다시 부르면 리비전 경로라 다시 열지 않는다.
      *
      * **기록 없이 넘어오지 않는 것**: 운영자 판단, 감수한 결함([Execution.acknowledgedFaults]), 승인 소모 기록, 근거 윈도우의 요청
-     * 시각, 설비 대기의 기한 시작 시각, 앞선 로봇 단위에 이전 인스턴스가 낸 근거 확인 결과. 모두 이 인스턴스에서 새로 서거나(6 은
-     * E0 으로) 비어 있다. 계약과 내보내기 형식은 그대로다.
+     * 시각, 설비 대기의 기한 시작 시각, 앞선 로봇 단위에 이전 인스턴스가 낸 근거 확인 결과, 건 취소. 모두 이 인스턴스에서 새로
+     * 서거나(6 은 E0 으로) 비어 있다. 계약과 내보내기 형식은 그대로다.
      *
      * **스냅숏은 단위가 묶인 기체마다 읽는다**([Execution.robotOf]). 오늘은 단위가 전부 실행의 기체라 한 번이다. 기체가 N 이면 N 번
      * 읽고 하나만 못 읽어도 다시 짓기를 미룬다(ADR 51 «대가») — 그 기체의 단위는 재작업 횟수를 정할 근거가 없고, 못 읽은 기체를
      * 빼고 지으면 그 단위가 이미 끝난 태스크에 붙는다.
      *
-     * **첫 pump 전에 건 취소**는 붙지 않은 태스크에 `StartTask` 없이 붙어 멈추고 그 종료를 본 뒤 정착한다([attachForCancel]). 그래서
-     * 담는 쪽은 다시 지은 직후 취소를 걸어도 된다. 첫 pump 가 붙은 뒤로 미루면 그 사이 취소로 끝난 태스크를 이 인스턴스가 요청 없는
-     * 취소로 읽는다([holdUnrequestedCancel]).
+     * **첫 pump 전에 건 취소**는 붙지 않은 태스크에 `StartTask` 없이 붙어 멈추고 그 종료를 본 뒤 정착한다([attachForCancel]). 기록이
+     * 건 취소를 들고 오면 실행은 그 취소가 걸린 채로 지어지므로(7) 담는 쪽이 다시 걸지 않아도 같다. 기록 없이 첫 pump 가 붙은 뒤로
+     * 미루면 그 사이 취소로 끝난 태스크를 이 인스턴스가 요청 없는 취소로 읽는다([holdUnrequestedCancel]).
      */
     fun resume(order: JobOrder, robotId: String, mission: ActiveMission, record: JudgmentRecord? = null): Submission {
         forgottenRefusal(order.jobOrderId)?.let { return it }
@@ -630,6 +630,13 @@ class Middleware(
      */
     private fun restore(execution: Execution, record: JudgmentRecord): Instant? {
         var reopenedAt: Instant? = null
+        // **건 취소는 걸린 채로 짓는다**(§15.253). 걸지 않으면 그 사이 취소로 끝난 하위 태스크를 요청 없는 취소로 읽는다
+        // ([holdUnrequestedCancel]). 하위로 보내는 것은 첫 pump 다 — 붙지 않은 태스크는 [attachForCancel] 이 붙어 멈춘다.
+        if (record.cancelRequested) {
+            execution.cancelRequested = true
+            execution.physicalState = PhysicalState.CANCELING
+            execution.trail(RESUME_RECORD, "cancel requested before restart — 걸린 채로 짓고 첫 pump 가 하위로 보낸다")
+        }
         execution.acknowledgedFaults += record.acknowledgedFaults
         if (record.acknowledgedFaults.isNotEmpty()) {
             execution.trail(RESUME_RECORD, "acknowledged faults: ${record.acknowledgedFaults.joinToString()}")
@@ -743,6 +750,7 @@ class Middleware(
                     decision = execution.decisions[unit.unitId],
                 )
             },
+            cancelRequested = execution.cancelRequested,
         )
     }
 
@@ -2238,8 +2246,8 @@ class Middleware(
 
     /**
      * **하위가 스스로 낸 취소** — 이 층이 [cancel] 을 걸지 않았는데 하위가 단위를 취소로 끝냈다. 현장의 사람이 기체·플릿 쪽에서
-     * 멈췄거나, 이 층이 취소를 건 뒤 다시 떠서([resume]) 그 요청을 모르는 경우다(취소 요청 표시는 판단 기록에 없다). 둘을 가르지
-     * 않는다 — 다시 뜬 쪽은 누가 멈췄는지 모르고, 모르면 진행하지 않는다.
+     * 멈췄거나, 이 층이 취소를 건 뒤 다시 떠서([resume]) 그 요청을 모르는 경우다(판단 기록 없이, 또는 건 취소 칸이 없는 버전 1
+     * 기록으로 다시 지었다, §15.253). 둘을 가르지 않는다 — 다시 뜬 쪽은 누가 멈췄는지 모르고, 모르면 진행하지 않는다.
      *
      * **다음 단위로 가지 않는다.** 단위를 운영자 보류로 세우고 인시던트를 연다. 중단(`ABORTED`)으로 적으면 실행이 취소를 안 받았으므로
      * 구동이 다음 단위를 찾아 내고, 사람이 세운 기체가 다시 움직인다. 닫는 길은 보통의 보류와 같다 — [resolve] 의 재작업·확인, 또는

@@ -15,7 +15,7 @@ import java.time.format.DateTimeParseException
  * **사실만 든다. 다시 짓기는 옮기기만 하고 다시 판정하지 않는다.** 판정을 다시 하면 그 사이 바뀐 설비 값과 기체 상태로
  * 같은 단위가 다른 답을 받는다 — 이전 인스턴스가 확인한 완료가 불일치가 되고, 사람이 확인한 단위가 다시 보류에 선다.
  *
- * 드는 것은 한계 §15.213 이 «넘어오지 않는다» 고 적은 여섯이다(그 행은 §15.221 에서 닫혔다).
+ * 드는 것은 한계 §15.213 이 «넘어오지 않는다» 고 적은 여섯(그 행은 §15.221 에서 닫혔다)과 건 취소다.
  *
  * 1. 운영자 판단 — [UnitRecord.decision]. 판단이 낸 결과(확인한 완료, 재작업의 시도 번호)는 [UnitRecord.verdict] 와
  *    [UnitRecord.attempt] 가 든다. 판단 자체는 누가 언제 무엇을 했는지의 기록이다.
@@ -25,6 +25,8 @@ import java.time.format.DateTimeParseException
  * 5. 설비 대기의 기한 시작 시각 — 설비 대기 단위의 [UnitRecord.requestedAt]. 같은 칸이다. 대기 단위는 요청을 보내지 않으므로
  *    시작 시각이 곧 그 칸이고([Middleware] 의 `startUnit`), 두 칸으로 나누면 한쪽만 옮겨지는 날이 온다.
  * 6. 이전 근거 확인 결과 — [UnitRecord.verdict] 와 검증 대기 중이던 단위의 [UnitRecord.verifyWindow].
+ * 7. 건 취소 — [cancelRequested](§15.253). 이 층이 [Middleware.cancel] 로 받은 취소다. 옮기지 않으면 다시 지은 실행이 그 사이
+ *    취소로 끝난 하위 태스크를 요청 없는 취소로 읽어 운영자 보류에 세운다(§15.230).
  *
  * **들지 않는 것**: 사건 번들, 조치 탐색 대장, 같은 조치의 승인 횟수, 결과 통보 아웃박스, 실행 자취, 파지 관측, 진행률 정체 표시,
  * 미확정 조회 횟수. 앞의 넷은 이 층의 다른 장부이고 저마다의 적재가 있거나(§15.166) 이 기록의 소비자가 없다(ADR 9). 뒤의 넷은
@@ -39,6 +41,7 @@ import java.time.format.DateTimeParseException
  * @param acknowledgedFaults 운영자가 [Middleware.release] 로 감수한 결함의 열쇠.
  * @param approval 이 실행이 승인된 조치로 섰다면 그 소모. 아니면 널.
  * @param units 실행의 단위 전부, 계획 순서대로.
+ * @param cancelRequested 이 실행에 취소가 걸렸는가. 하위에 닿았는지는 들지 않는다 — 다시 지은 실행이 하위를 다시 본다.
  */
 data class JudgmentRecord(
     val jobOrderId: String,
@@ -46,6 +49,7 @@ data class JudgmentRecord(
     val acknowledgedFaults: List<String>,
     val approval: RecordedApproval?,
     val units: List<UnitRecord>,
+    val cancelRequested: Boolean,
 )
 
 /**
@@ -139,11 +143,18 @@ data class RecordedDecision(
  * **못 읽는 기록은 던진다.** 모르는 판, 모르는 칸, 빠진 칸, 모르는 값 모두다. 일부만 읽어 다시 지으면 읽지 못한 사실은
  * 조용히 «없었다» 가 되고, 그것이 이 기록이 막으려는 바로 그 손실이다. 그래서 칸이 하나만 늘어도 판을 올린다 — 모르는 칸을
  * 무시하는 읽는 쪽이 없다.
+ *
+ * **앞 버전 1 은 읽는다**(§15.253). 그 버전에는 건 취소 칸이 없고, 읽으면 취소가 걸리지 않은 기록이 된다. 그 실행이 다시 지은 뒤
+ * 하위의 취소를 만나면 요청 없는 취소로 운영자 보류에 서므로(§15.230) 모르는 사실이 진행 쪽으로 접히지 않는다. 담는 쪽이 이미
+ * 적어 둔 버전 1 기록으로도 다시 지을 수 있어야 한다.
  */
 object JudgmentRecordWire {
 
     /** 이 규약의 판. 칸이 늘거나 값이 늘면 올린다. */
-    const val SCHEMA_VERSION: String = "1"
+    const val SCHEMA_VERSION: String = "2"
+
+    /** 읽을 줄 아는 앞 버전. 건 취소 칸([JudgmentRecord.cancelRequested])이 없다. */
+    private const val V1: String = "1"
 
     fun encode(record: JudgmentRecord): String = Obj()
         .str("schemaVersion", SCHEMA_VERSION)
@@ -152,6 +163,7 @@ object JudgmentRecordWire {
         .raw("acknowledgedFaults", LedgerExport.arrayOfStrings(record.acknowledgedFaults))
         .raw("approval", record.approval?.let { approval(it) } ?: "null")
         .raw("units", record.units.joinToString(",", "[", "]") { unit(it) })
+        .bool("cancelRequested", record.cancelRequested)
         .done()
 
     fun decode(json: String): JudgmentRecord {
@@ -161,18 +173,20 @@ object JudgmentRecordWire {
             throw IllegalArgumentException("판단 기록을 읽지 못했다: ${e.message}", e)
         }
         val version = root.fieldsMap["schemaVersion"]
-        if (version == null || !version.hasStringValue() || version.stringValue != SCHEMA_VERSION) {
+        if (version == null || !version.hasStringValue() || version.stringValue !in setOf(SCHEMA_VERSION, V1)) {
             throw IllegalArgumentException(
-                "모르는 판단 기록 판이다: ${version?.let { describe(it) } ?: "(없음)"} — 이 판은 $SCHEMA_VERSION 만 읽는다",
+                "모르는 판단 기록 판이다: ${version?.let { describe(it) } ?: "(없음)"} — 읽는 버전은 $V1 과 $SCHEMA_VERSION 이다",
             )
         }
-        val r = Fields("$", root, ROOT)
+        val v1 = version.stringValue == V1
+        val r = Fields("$", root, if (v1) ROOT - "cancelRequested" else ROOT)
         return JudgmentRecord(
             jobOrderId = r.string("jobOrderId"),
             orderVersion = r.int("orderVersion"),
             acknowledgedFaults = r.list("acknowledgedFaults").mapIndexed { i, v -> stringOf("$.acknowledgedFaults[$i]", v) },
             approval = r.objOrNull("approval", APPROVAL)?.let { approvalOf(it) },
             units = r.list("units").mapIndexed { i, v -> unitOf(Fields("$.units[$i]", structOf("$.units[$i]", v), UNIT)) },
+            cancelRequested = !v1 && r.bool("cancelRequested"),
         )
     }
 
@@ -264,7 +278,7 @@ object JudgmentRecordWire {
     )
 
     // 칸 이름 — 읽는 쪽이 모르는 칸을 거부하는 기준이다. 적는 쪽(위)과 한 벌로 고친다.
-    private val ROOT = setOf("schemaVersion", "jobOrderId", "orderVersion", "acknowledgedFaults", "approval", "units")
+    private val ROOT = setOf("schemaVersion", "jobOrderId", "orderVersion", "acknowledgedFaults", "approval", "units", "cancelRequested")
     private val APPROVAL = setOf("robotId", "approverId", "approverKind", "at", "wallClockAt", "steps")
     private val STEP = setOf("unitId", "skillType", "parameters")
     private val UNIT = setOf("unitId", "attempt", "taskId", "requestedAt", "verifyWindow", "verdict", "decision")
@@ -308,6 +322,12 @@ object JudgmentRecordWire {
         }
 
         fun instantOrNull(name: String): Instant? = if (isNull(name)) null else instant(name)
+
+        fun bool(name: String): Boolean {
+            val v = value(name)
+            if (!v.hasBoolValue()) throw IllegalArgumentException("$path.$name: 참거짓이 아니다")
+            return v.boolValue
+        }
 
         fun <E : Enum<E>> enum(name: String, entries: List<E>): E {
             val s = string(name)
