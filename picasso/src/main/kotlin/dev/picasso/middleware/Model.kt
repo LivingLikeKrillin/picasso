@@ -484,12 +484,15 @@ data class ObservedEvent(
     val local: Boolean = false,
 )
 
-/** 취소 응답(보고서 14.1) — 원상복구가 아니라 중단점과 잔여 물리 상태의 보고다. */
+/**
+ * 취소 응답(보고서 14.1) — 원상복구가 아니라 중단점과 잔여 물리 상태의 보고다.
+ *
+ * 칸은 전부 관측이나 이 층의 판정에서 온다. 하위가 받아들였는가는 [refusal] 이, 어디서 멈췄는가는 [inProgressUnit]·
+ * [stoppedAfter] 가 말한다. 앞 판의 `accepted`·`motionStopped` 는 관측 없이 늘 참이던 상수라 걷었다(§15.258).
+ */
 data class CancelReport(
     val executionId: String,
     val version: Int,
-    val accepted: Boolean,
-    val motionStopped: Boolean,
     val completedUnits: List<String>,
     val inProgressUnit: String?,
     val notStartedUnits: List<String>,

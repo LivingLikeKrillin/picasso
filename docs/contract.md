@@ -146,7 +146,7 @@
   - 멱등 키와 수명: 키는 `TaskHandle`이다. 재취소는 멱등이다(검증됨(같은 프로세스): `mimic` · `EngineListenerTest` · `멱등 재취소는 전이를 보고하지 않는다`).
   - 재기동 뒤 조회: 취소 결과는 `WatchTask`의 종료 상태와 `hold`로 확인한다.
   - 취소 효력: 즉시가 아니다. `CANCELLING` 뒤 `CANCELLED`(복구 마침) 또는 `CANCELLED_RECOVERY_FAILED`(적재 상태 정지)로 전이한다. `CANCELLED`와 `HOLDING`은 함께 오지 않는다. 하위 수단 부재 시 `CANCEL_UNSUPPORTED`, 기종료 태스크면 `INVALID_TRANSITION`을 반환한다. 미들웨어는 현재 핸들에만 발송하며 거부되면 진행 중 단위는 경계까지 실행 후 정지한다. 설비 대기는 미들웨어가 직접 종료한다.
-  - 완료 근거: 취소 보고(`CancelReport`)의 정리 결과(`cleanup`)는 계약 종료 상태에서 판정한다. 정리 실패 시 운영자 개입이 필요하다. 보고의 `accepted`와 `motionStopped`는 항상 `true`인 상수다(관측 근거 없음, 미검증, §7.2 (e)).
+  - 완료 근거: 취소 보고(`CancelReport`)의 정리 결과(`cleanup`)는 계약 종료 상태에서 판정한다. 정리 실패 시 운영자 개입이 필요하다. 보고에는 관측 없는 상수 칸이 없고, 하위가 받아들였는가는 거부 사유(`refusal`)가, 멈춘 자리는 `inProgressUnit`·`stoppedAfter`가 말한다(§7.2 (e)).
   - 확인 불가 시 정책: [미들웨어] `IN_DOUBT` 진행 중의 취소는 스냅숏 부착으로 핸들이 생성되면 조회가 성공하지 않더라도 해당 핸들을 통해 하위에 즉시 전달된다(검증됨(같은 프로세스): `picasso` · `InDoubtTest` · `미확정 중에 건 취소는 조회가 안 돼도 기체 태스크를 멈춘다`). 설비 관측 후에도 핸들과 전송 수단이 모두 없으면 실행을 `ABORTED`로 닫지 않고 미전송 취소 표식(`cancelUnsent`)과 함께 `CANCEL_UNSENT`를 트레이스하며 운영자 보류를 유지하고, 운영자가 해소(`resolve`)하면 보류가 풀리며 정상 취소 경로를 거쳐 `ABORTED`로 종결되고 취소 보고에 `refusal` = `CANCEL_NOT_SENT`가 기록된다(검증됨(같은 프로세스): `picasso` · `InDoubtTest` · `운영자 보류에 둔 취소는 운영자가 판단하면 닿지 못했다는 사유를 싣고 끝난다`).
 
 - `RetryTask` 상세
@@ -189,7 +189,7 @@
 | (d) 스트림을 다시 구독하면? | 재구독이 `NOT_FOUND`이면 미들웨어가 다시 붙지 않고 단위를 미확정으로 옮기며 같은 참조로 다시 보내지 않는다(하위가 태스크를 잊는 것은 시험 더블). | `picasso` · `EventStreamTest` · `갱신 스트림이 영구히 닫히면 단위는 미확정이고 같은 참조로 다시 보내지 않는다` <br> `picasso` · `StreamResumeTest` · `기체가 모르는 태스크면 따라갈 수 없다고 답한다` | 검증됨(같은 프로세스) |
 | (e) 취소와 완료가 겹치면? | 취소 중 태스크는 완주하지 않고 종료 전이; 하위 취소 거부 시 다음 경계에서 멈추고 응답에 반영; 복구 성공 시 파지 상태 배타(`CANCELLED`와 `HOLDING` 동시 발생 방지) | `harness` · `TerminalViolationTest` · `위반 뒤에 명령을 보내도 종착이다` <br> `mimic` · `WatchTaskTest` · `CANCELLING인 태스크는 완주하지 않는다` <br> `harness` · `CancelRecoveryTest` · `관측 순서가 CANCELLING → 종착이다` <br> `picasso` · `InDoubtTest` · `미확정 중의 취소를 하류가 거절하면 그 단위는 끝까지 가고 — 거절과 멈춘 경계가 응답에 있다` <br> `picasso` · `InspectAssetTest` · `이동 중 취소는 하류가 거절하고 다음 경계에서 멈춘다 — 그 차이가 취소 응답에 드러난다` <br> `harness` · `HoldOnCancelTest` · `복구 성공은 빈손이다 — CANCELLED 와 HOLDING 은 함께 오지 않는다` | 검증됨(같은 프로세스) |
 | (e) 취소와 완료가 겹치면? | 미들웨어 취소 요청 시 하위가 이미 `SUCCEEDED`인 경합에서 거부 코드(`INVALID_TRANSITION`) 기록 및 다음 pump에서 중단 | 없음(코드는 거부 코드(`INVALID_TRANSITION`)를 남기고 다음 pump 가 «그 뒤에서 멈춘 단위» 로 적지만, 그 거부 코드를 단언하는 시험이 없음(있는 단언은 `CANCEL_UNSUPPORTED` 와 거부 없음뿐)) | 미검증 |
-| (e) 취소와 완료가 겹치면? | 취소 보고의 `motionStopped`와 `accepted` 필드가 상수 `true`로 반환됨 | 없음(취소 보고의 `motionStopped`·`accepted` 는 상수 `true`이나, 어느 시험도 단언하지 않고 내보내지도 않음) | 미검증 |
+| (e) 취소와 완료가 겹치면? | 취소 보고는 관측과 판정에서 온 칸만 든다(수락 여부는 `refusal`, 멈춘 자리는 `inProgressUnit`·`stoppedAfter`) | `picasso` · `InspectAssetTest` · `취소 응답은 관측과 판정에서 온 칸만 든다` | 검증됨(같은 프로세스) |
 | (f) 재기동 뒤 이력을 잃으면? | 스냅숏 실패 시 실행 거부; 마지막 로봇 태스크 앞의 성공 로봇 단위 및 선행 설비 대기는 근거 재확인 없이 E0으로 종결하고 후속 단위는 정상 확인/유지 | `picasso` · `ResumeTest` · `마지막 로봇 태스크 앞에서 성공한 로봇 단위는 설비 근거를 다시 묻지 않고 E0 으로 닫고 마지막 단위는 보통대로 확인한다` <br> `picasso` · `ResumeTest` · `마지막 로봇 태스크보다 앞선 설비 대기는 근거 등급 E0 인 채 끝난 것으로 두고 뒤 대기는 그대로 둔다` <br> `picasso` · `ResumeTest` · `스냅숏을 못 읽으면 거부하고 실행을 만들지 않는다` | 검증됨(재기동, 같은 소유자; 미들웨어만) |
 | (f) 재기동 뒤 이력을 잃으면? | 판단 기록을 넘기면 앞선 단위도 기록의 판정과 근거 등급으로 선다(요구 E2 를 채운 단위는 E2 그대로, 미확인으로 종결한 단위는 미확인 그대로이며 다시 관측한 성공으로 닫지 않음). | `picasso` · `JudgmentRecordTest` · `이전 근거 확인 결과가 남아 다시 지은 뒤에도 요구 등급 E2 를 채운다` <br> `picasso` · `JudgmentRecordTest` · `미확인으로 정착한 단위는 다시 지은 뒤에도 미확인이고 다시 관측한 성공으로 닫지 않는다` | 검증됨(재기동, 같은 소유자; 미들웨어만) |
 | (f) 재기동 뒤 이력을 잃으면? | 한 JVM 안의 두 기체 인스턴스에서는 새 `session_id`가 난다. 소비자 쪽 합성 입력에서는 세션이 바뀌면 처음부터 다시 센다. 같은 프로세스의 `adapter-host`는 못 보낸 구간이 밀려나면 새 세션을 내고, 재생 버퍼를 벗어난 요청에는 `SEQUENCE_EVICTED`를 낸다. | `mimic` · `RobotInstanceTest` · `재기동하면 새 session_id다`(한 JVM 안의 두 인스턴스) <br> `client` · `EventConsumerTest` · `세션이 바뀌면 처음부터 다시 센다`(소비자 쪽 합성 입력) <br> `adapter-host` · `AdapterHostTest` · `못 보낸 구간이 버퍼에서 밀려나면 세션을 새로 낸다` <br> `adapter-host` · `AdapterHostTest` · `재생 버퍼를 벗어나면 SEQUENCE_EVICTED 다` | 검증됨(같은 프로세스) |
@@ -226,4 +226,4 @@
 
 이 절의 «미검증» 과 빈자리는 [`limits.md`](limits.md) 의 해당 행이 추적한다(§15.8, §15.21, §15.166, §15.221 · 기록이 들지 않는 것, §15.215 행들).
 
-> 마지막 대조: 2026-11-03 · sha256:a2c058536216 · 열림: ADR 32 · 시나리오 5, §15.126, §15.81, §15.8, C-3, §15.1, §15.21, §15.221 · 기록이 들지 않는 것, §15.215 · 옛 커서, §15.215 · 취소 보고 상수
+> 마지막 대조: 2026-11-03 · sha256:7479036095bc · 열림: ADR 32 · 시나리오 5, §15.126, §15.81, §15.8, C-3, §15.1, §15.21, §15.221 · 기록이 들지 않는 것, §15.215 · 옛 커서

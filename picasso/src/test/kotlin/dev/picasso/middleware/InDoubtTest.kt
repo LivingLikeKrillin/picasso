@@ -235,7 +235,7 @@ class InDoubtTest {
 
     @Test
     fun `스냅숏도 조회도 안 되면 취소가 걸린 실행을 중단으로 닫지 않고 운영자 보류에 둔다`() {
-        // 취소가 갈 핸들이 없고 키로 지은 핸들의 취소도 닿지 않는다. 중단(motionStopped)으로 닫으면 기체가 그 태스크를 하는 동안 실행이
+        // 취소가 갈 핸들이 없고 키로 지은 핸들의 취소도 닿지 않는다. 중단(`ABORTED`)으로 닫으면 기체가 그 태스크를 하는 동안 실행이
         // 기체를 내준다.
         RobotWorld(drop = 1000, profile = cancellableProfile(), blind = true, wrap = { FlakyCancelRobotPort(it) }).use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution

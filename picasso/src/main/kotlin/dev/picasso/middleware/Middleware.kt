@@ -3219,8 +3219,6 @@ class Middleware(
         val report = CancelReport(
             executionId = execution.executionId,
             version = execution.order.version,
-            accepted = true,
-            motionStopped = true,
             completedUnits = execution.completedUnits,
             inProgressUnit = if (refused) null else inProgress?.unitId,
             stoppedAfter = if (refused) inProgress.unitId else null,
