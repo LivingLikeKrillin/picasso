@@ -386,19 +386,19 @@ flowchart TB
 
 | 항목 | 규약 |
 |---|---|
-| 버전 | 최상위 `schemaVersion` 이 문자열 `"2"` 입니다. 칸이 늘거나 값이 늘면 버전을 올립니다. 모르는 칸을 무시하는 읽기를 두지 않기 때문입니다. 지금 버전은 `"2"`이고 최상위 칸 `cancelRequested`가 늘었습니다. 버전 1 기록도 읽으며, 그 기록은 `cancelRequested` 칸 없이 읽고 취소가 걸리지 않은 기록이 됩니다 |
+| 버전 | 최상위 `schemaVersion` 이 문자열 `"3"` 입니다. 칸이 늘거나 값이 늘면 버전을 올립니다. 모르는 칸을 무시하는 읽기를 두지 않기 때문입니다. 버전 2 에서 최상위 칸 `cancelRequested`가, 버전 3 에서 단위 칸 `everHeld`·`heldInEarlierAttempt`가 늘었습니다. 버전 1·2 기록도 읽습니다. 버전 1 기록은 `cancelRequested` 칸 없이 읽고 취소가 걸리지 않은 기록이 되며, 버전 1·2 기록은 두 단위 칸 없이 읽고 쥔 것을 본 적 없는 단위가 됩니다 |
 | 최상위 칸 | `schemaVersion`, `jobOrderId`, `orderVersion`(정수, 기록이 선 작업 지시 버전), `acknowledgedFaults`(문자열 배열, 수용한 결함의 열쇠), `approval`, `units`, `cancelRequested`(참거짓, 실행에 취소가 걸렸는가. 버전 2 부터) 입니다 |
 | `approval` | 널이거나 `robotId`(제안의 열쇠가 된 기체), `approverId`, `approverKind`, `at`(가상 시계), `wallClockAt`(실제 시계), `steps` 배열(`unitId`, `skillType`, `parameters` 문자열 표)입니다. 리빌드할 때 이 걸음이 계획 앞에 이 순서로 다시 섭니다. 실행 id 는 싣지 않습니다(인스턴스 안의 셈, ADR 48) |
-| `units` | 계획 순서대로 단위마다 `unitId`, `attempt`(정수, 시도 번호), `taskId`(이 시도에 낸 태스크 id, 내지 않았으면 빈 문자열), `requestedAt`(요청을 보낸 시각, 설비 대기는 기다리기 시작한 시각, 내지 않았으면 널. 근거 윈도우의 요청 시각과 설비 대기의 기한 시작을 한 칸이 겸합니다), `verifyWindow`(널 또는 `doneAt`·`deadline`, 검증 대기 중이던 단위의 창, 기한은 다시 계산하지 않음), `verdict`(널 또는 `state`·`reached`·`verification`·`evidenceAt`·`failureClass`·`note`·`result`. `state` 는 `DONE`·`UNVERIFIED`·`FAILED`·`ABORTED`·`OPERATOR_HOLD` 중 하나), `decision`(널 또는 `decision`·`approverId`·`approverKind`·`at`·`attempt`)입니다 |
+| `units` | 계획 순서대로 단위마다 `unitId`, `attempt`(정수, 시도 번호), `taskId`(이 시도에 낸 태스크 id, 내지 않았으면 빈 문자열), `requestedAt`(요청을 보낸 시각, 설비 대기는 기다리기 시작한 시각, 내지 않았으면 널. 근거 윈도우의 요청 시각과 설비 대기의 기한 시작을 한 칸이 겸합니다), `verifyWindow`(널 또는 `doneAt`·`deadline`, 검증 대기 중이던 단위의 창, 기한은 다시 계산하지 않음), `verdict`(널 또는 `state`·`reached`·`verification`·`evidenceAt`·`failureClass`·`note`·`result`. `state` 는 `DONE`·`UNVERIFIED`·`FAILED`·`ABORTED`·`OPERATOR_HOLD` 중 하나), `decision`(널 또는 `decision`·`approverId`·`approverKind`·`at`·`attempt`), `everHeld`(참거짓, 이 시도에서 쥔 것이 관측됐는가. 버전 3 부터), `heldInEarlierAttempt`(참거짓, 앞 시도에서 쥔 것이 관측됐는가. 버전 3 부터)입니다. `resume` 은 스냅숏이 더 큰 시도를 보이면 기록의 두 값을 `heldInEarlierAttempt` 로 접고 `everHeld` 는 거짓으로 둡니다 |
 | 없음 | §6 과 같습니다. 널 칸도 키를 빼지 않고 `null` 을 적으며 빈 목록은 `[]` 입니다 |
 | 시각 | ISO-8601 입니다 |
 | 읽기 | 전부 읽거나 거부합니다. 모르는 버전·버전 없음, 모르는 칸, 빠진 칸, 종결하지 않은 판정 상태, 모르는 열거 값, 정수가 아닌 수는 전부 예외를 던집니다. 일부만 읽어 리빌드하면 읽지 못한 사실이 조용히 «없었다» 가 되기 때문입니다 |
 | 대조 | `resume` 은 기록의 `jobOrderId`·`orderVersion` 이 넘긴 작업 지시와 다르거나 계획에 없는 단위가 있으면 `RESUME_RECORD_MISMATCH` 로 시작하는 사유로 거부하고 실행을 만들지 않습니다. 스냅숏이 더 큰 시도를 보이면 그 단위의 시각과 판정은 옮기지 않습니다(트레이스 `RESUME_RECORD_SUPERSEDED`). 그 단위는 보류였어도 인시던트를 열지 않습니다 |
 | 세대 | 세대 칸이 없습니다(ADR 51) |
-| 적재 | §6 의 적재 규약과 겹치지 않습니다. 인시던트와 조치 탐색은 이 기록에 들지 않고 그 적재는 §15.166 이 추적합니다. 판정이 `OPERATOR_HOLD`인 단위는 `resume`이 그 인스턴스에서 인시던트를 새로 열고 근거 윈도우에 트레이스 `RESUME_HOLD_REOPENED`를 싣습니다. 그 일로 기록 형식(당시 버전 1)은 바뀌지 않았습니다. 파지·진행률 정체·조회 횟수 같은 관측값도 들지 않습니다. 이빅션한 실행은 `judgmentRecord` 가 널을 내므로, 담는 측은 판단 기록을 이빅션하기 전에 받아 둡니다 |
+| 적재 | §6 의 적재 규약과 겹치지 않습니다. 인시던트와 조치 탐색은 이 기록에 들지 않고 그 적재는 §15.166 이 추적합니다. 판정이 `OPERATOR_HOLD`인 단위는 `resume`이 그 인스턴스에서 인시던트를 새로 열고 근거 윈도우에 트레이스 `RESUME_HOLD_REOPENED`를 싣습니다. 그 일로 기록 형식(당시 버전 1)은 바뀌지 않았습니다. 지금의 파지·진행률 정체·조회 횟수 같은 관측값도 들지 않습니다. 이빅션한 실행은 `judgmentRecord` 가 널을 내므로, 담는 측은 판단 기록을 이빅션하기 전에 받아 둡니다 |
 
 소비자는 picasso-ops 입니다(ADR 9). 첫 소비자로 붙어 판단 기록을 영속합니다(설계 문서 §15.223). 계약 proto, 계약 SemVer 0.9.0, 내보내기 버전 6, 인계 번들은 바뀌지 않습니다.
 
-관련 시험은 `JudgmentRecordWireTest` 의 `판단 기록은 적었다 읽으면 같다`, `모르는 판이나 판이 없는 기록은 읽지 않고 거부한다`, `모르는 칸이나 빠진 칸이 있으면 거부한다`, `판정 칸에 정착하지 않은 상태나 모르는 값이 오면 거부한다`, `버전 1 기록은 건 취소 칸 없이 읽고 취소가 걸리지 않은 기록이 된다` 입니다.
+관련 시험은 `JudgmentRecordWireTest` 의 `판단 기록은 적었다 읽으면 같다`, `모르는 판이나 판이 없는 기록은 읽지 않고 거부한다`, `모르는 칸이나 빠진 칸이 있으면 거부한다`, `판정 칸에 정착하지 않은 상태나 모르는 값이 오면 거부한다`, `버전 1 기록은 건 취소 칸 없이 읽고 취소가 걸리지 않은 기록이 된다`, `버전 2 기록은 단위의 파지 이력 칸 없이 읽고 쥔 것을 본 적 없는 단위가 된다` 입니다.
 
-> 마지막 대조: 2026-11-02 · sha256:6b317da031ef · 열림: §15.143, §15.154, §15.162, §15.163, §15.3, §15.166, §15.173, §15.174, §15.175, §15.176, §15.178, §15.183, §15.184, §15.203
+> 마지막 대조: 2026-11-03 · sha256:393d608a903f · 열림: §15.143, §15.154, §15.162, §15.163, §15.3, §15.166, §15.173, §15.174, §15.175, §15.176, §15.178, §15.183, §15.184, §15.203

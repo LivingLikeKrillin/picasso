@@ -1,10 +1,12 @@
 package dev.picasso.middleware
 
+import dev.picasso.capability.HoldMismatch
 import dev.picasso.capability.Remedy
 import dev.picasso.contracts.v1.CancelTaskResponse
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.HoldKind
+import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
@@ -16,6 +18,7 @@ import java.time.Duration
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -560,6 +563,94 @@ class JudgmentRecordTest {
         }
     }
 
+    // ── 파지 이력(§15.257)
+
+    @Test
+    fun `쥐었다가 재기동 사이에 놓친 단위가 다시 지은 뒤 실패로 끝나면 빈손을 효과 어긋남으로 판정한다`() {
+        World().use { w ->
+            val exec = w.submit(order())
+            w.old.pump()
+            w.robot.holds["$ORDER#s1"] = HoldKind.HOLD_KIND_HOLDING
+            w.old.pump()
+            assertTrue(exec.units.single().everHeld, "시험의 전제: 앞 인스턴스가 쥔 것을 봤다")
+            val record = persisted(w.old.judgmentRecord(exec.executionId))
+            // 재기동 사이에 놓쳤고 그 태스크는 실패로 끝났다 — 다시 지은 인스턴스는 빈손만 본다.
+            w.robot.holds["$ORDER#s1"] = HoldKind.HOLD_KIND_EMPTY
+            w.robot.set("$ORDER#s1", TaskState.TASK_STATE_FAILED)
+
+            val again = w.restart()
+            val resumed = again.resumeWith(order(), record)
+            again.mw.pump()
+            again.mw.pump()
+            val unit = resumed.units.single()
+            assertEquals(HoldKind.HOLD_KIND_HOLDING, unit.holdExpected, "쥔 적 있는 중단의 기대를 잃었다")
+            assertEquals(HoldMismatch.PAYLOAD_LOST, unit.holdMismatch, "놓친 자재를 판정하지 않았다: ${unit.note}")
+
+            // 대조: 기록 없이 다시 지으면 쥔 적을 모르니 기대가 없고 판정도 없다.
+            val bare = w.restart()
+            val rebuilt = bare.resumeWith(order(), null)
+            bare.mw.pump()
+            bare.mw.pump()
+            assertEquals(null, rebuilt.units.single().holdExpected)
+            assertEquals(null, rebuilt.units.single().holdMismatch)
+        }
+    }
+
+    @Test
+    fun `쥔 것을 본 단위가 보류에 선 채 다시 지으면 재할당이 자재를 다룬 단위로 거른다`() {
+        World().use { w ->
+            val exec = w.submit(order(required = Evidence.E2))
+            w.old.pump()
+            w.robot.holds["$ORDER#s1"] = HoldKind.HOLD_KIND_HOLDING
+            w.old.pump()
+            w.robot.holds["$ORDER#s1"] = HoldKind.HOLD_KIND_EMPTY
+            w.robot.set("$ORDER#s1", TaskState.TASK_STATE_FAILED)
+            w.cell.program(slot(1), PART)
+            w.old.pump()
+            assertEquals(UnitState.OPERATOR_HOLD, exec.units.single().state, "시험의 전제: 하류는 실패, 설비에는 있다")
+            val record = persisted(w.old.judgmentRecord(exec.executionId))
+
+            val again = w.restart()
+            val resumed = again.resumeWith(order(required = Evidence.E2), record)
+            val kept = assertIs<Reassignment.Kept>(again.mw.reassign(resumed.executionId, listOf(OTHER)))
+            assertTrue("자재를 다룬 단위가 있다" in kept.reason, kept.reason)
+
+            // 대조: 기록 없이 다시 지은 실행은 쥔 것을 다시 보지 못해 이 사유로 거르지 않는다.
+            val bare = w.restart()
+            val rebuilt = bare.resumeWith(order(required = Evidence.E2), null)
+            bare.mw.pump()
+            bare.mw.pump()
+            val other = bare.mw.reassign(rebuilt.executionId, listOf(OTHER))
+            assertTrue(other !is Reassignment.Kept || "자재를 다룬 단위가 있다" !in other.reason, "$other")
+        }
+    }
+
+    @Test
+    fun `기록이 재작업보다 먼저 적혔으면 그 시도의 파지는 앞 시도의 파지로 접는다`() {
+        World().use { w ->
+            val exec = w.submit(order(required = Evidence.E2))
+            w.old.pump()
+            w.robot.holds["$ORDER#s1"] = HoldKind.HOLD_KIND_HOLDING
+            w.old.pump()
+            w.robot.holds["$ORDER#s1"] = HoldKind.HOLD_KIND_EMPTY
+            w.robot.set("$ORDER#s1", TaskState.TASK_STATE_FAILED)
+            w.cell.program(slot(1), PART)
+            w.old.pump()
+            // 보류일 때 받아 둔 기록(시도 0 에서 쥔 것을 적었다). 그 뒤 재작업을 내 기체에 새 시도가 돈다.
+            val stale = persisted(w.old.judgmentRecord(exec.executionId))
+            assertEquals(0 to true, stale.units.single().let { it.attempt to it.everHeld }, "시험의 전제: 기록은 시도 0 의 파지를 적었다")
+            w.old.resolve(exec.executionId, "s1", OperatorDecision.REWORK, OPERATOR)
+            w.old.pump()
+            assertEquals("$ORDER#s1@r1", exec.units.single().taskId)
+
+            val resumed = w.restart().resumeWith(order(required = Evidence.E2), stale)
+            val unit = resumed.units.single()
+            assertEquals(1, unit.attempt, "시험의 전제: 스냅숏의 시도가 크다")
+            assertTrue(unit.heldInEarlierAttempt, "앞 시도의 파지를 버렸다 — 재할당이 자재를 다룬 단위를 거르지 못한다")
+            assertFalse(unit.everHeld, "앞 시도의 파지를 새 시도의 것으로 옮겼다 — 쥔 적 없는 시도가 든 채를 기대한다")
+        }
+    }
+
     /** 앞 인스턴스가 하류 실패·설비 있음으로 단위를 운영자 보류에 세운 뒤 받아 둔 기록. */
     private fun held(w: World): JudgmentRecord {
         val exec = w.submit(order(required = Evidence.E2))
@@ -633,12 +724,14 @@ class JudgmentRecordTest {
 
     /**
      * 재기동 전 인스턴스가 낸 태스크를 든 기체. 같은 태스크 id 가 다시 오면 기존 핸들을 돌려주고 [created] 를 올리지 않는다.
-     * [lost] 의 태스크는 받되 답을 잃는다(던진다). 갱신은 지금 상태 하나를 돌려주고 그 시각을 지금으로 찍는다.
+     * [lost] 의 태스크는 받되 답을 잃는다(던진다). 갱신은 지금 상태 하나를 돌려주고 그 시각을 지금으로 찍는다. [holds] 에 든
+     * 태스크는 그 파지를 갱신에 싣고, 없으면 싣지 않는다.
      */
     private class Robot(private val now: () -> Instant, override val executionLookup: ExecutionLookup) : RobotPort {
         private val tasks = linkedMapOf<String, TaskState>()
         val starts = mutableListOf<String>()
         val lost = mutableSetOf<String>()
+        val holds = mutableMapOf<String, HoldKind>()
         var faults: List<Fault> = emptyList()
         var created = 0
         var snapshots = 0
@@ -666,6 +759,7 @@ class JudgmentRecordTest {
                     .setHeader(MessageHeader.newBuilder().setStateAsOf(now().toString()))
                     .setState(state)
                     .setRevision(handle.revision)
+                    .apply { holds[handle.taskId]?.let { setHold(HoldState.newBuilder().setKind(it)) } }
                     .build(),
             )
         }
@@ -717,6 +811,7 @@ class JudgmentRecordTest {
 
     private companion object {
         const val ROBOT = "hum-02"
+        const val OTHER = "hum-03"
         const val ORDER = "REC-1"
         const val PATROL = "PATROL-1"
         const val PART = "ENGINE-COVER-A"

@@ -15,7 +15,7 @@ import java.time.format.DateTimeParseException
  * **사실만 든다. 다시 짓기는 옮기기만 하고 다시 판정하지 않는다.** 판정을 다시 하면 그 사이 바뀐 설비 값과 기체 상태로
  * 같은 단위가 다른 답을 받는다 — 이전 인스턴스가 확인한 완료가 불일치가 되고, 사람이 확인한 단위가 다시 보류에 선다.
  *
- * 드는 것은 한계 §15.213 이 «넘어오지 않는다» 고 적은 여섯(그 행은 §15.221 에서 닫혔다)과 건 취소다.
+ * 드는 것은 한계 §15.213 이 «넘어오지 않는다» 고 적은 여섯(그 행은 §15.221 에서 닫혔다)과 건 취소, 파지 이력이다.
  *
  * 1. 운영자 판단 — [UnitRecord.decision]. 판단이 낸 결과(확인한 완료, 재작업의 시도 번호)는 [UnitRecord.verdict] 와
  *    [UnitRecord.attempt] 가 든다. 판단 자체는 누가 언제 무엇을 했는지의 기록이다.
@@ -27,8 +27,12 @@ import java.time.format.DateTimeParseException
  * 6. 이전 근거 확인 결과 — [UnitRecord.verdict] 와 검증 대기 중이던 단위의 [UnitRecord.verifyWindow].
  * 7. 건 취소 — [cancelRequested](§15.253). 이 층이 [Middleware.cancel] 로 받은 취소다. 옮기지 않으면 다시 지은 실행이 그 사이
  *    취소로 끝난 하위 태스크를 요청 없는 취소로 읽어 운영자 보류에 세운다(§15.230).
+ * 8. 파지 이력 — [UnitRecord.everHeld] 와 [UnitRecord.heldInEarlierAttempt](§15.257). 관측이지만 **지난** 관측이다.
+ *    끝난 시도의 파지는 스냅숏에 실리지 않고, 재기동 사이에 놓친 것은 다시 관측해도 «쥔 적 있다» 가 되지 않는다. 옮기지 않으면
+ *    다시 지은 실행이 쥐고 놓친 단위의 중단을 판정하지 않고(효과-관측 대조의 기대가 비어 [ExecutionUnit.holdMismatch] 가 서지
+ *    않는다) 재할당이 자재를 다룬 단위를 거르지 못한다.
  *
- * **들지 않는 것**: 사건 번들, 조치 탐색 대장, 같은 조치의 승인 횟수, 결과 통보 아웃박스, 실행 자취, 파지 관측, 진행률 정체 표시,
+ * **들지 않는 것**: 사건 번들, 조치 탐색 대장, 같은 조치의 승인 횟수, 결과 통보 아웃박스, 실행 자취, 지금의 파지 관측, 진행률 정체 표시,
  * 미확정 조회 횟수. 앞의 넷은 이 층의 다른 장부이고 저마다의 적재가 있거나(§15.166) 이 기록의 소비자가 없다(ADR 9). 뒤의 넷은
  * 판단이 아니라 관측이다 — 다시 지은 실행이 기체에서 다시 관측한다. 종료한 단위의 파지는 정보이지 판정이 아니다(§15.146).
  * 인시던트 번들은 옮기지 않지만, 운영자 보류로 옮긴 단위의 인시던트는 다시 지은 인스턴스가 새로 연다 — 사람이 판단할 자리가
@@ -80,6 +84,9 @@ data class RecordedApproval(
  * @param verifyWindow 하류가 끝났다고 했고 설비 신호를 기다리던 중이면 그 창. 아니면 널.
  * @param verdict 이 층이 이미 내린 판정. 정착하지 않았으면 널.
  * @param decision 이 단위에 운영자가 마지막으로 낸 판단. 없으면 널.
+ * @param everHeld [attempt] 가 도는 동안 쥔 것이 관측됐는가([ExecutionUnit.everHeld]).
+ * @param heldInEarlierAttempt 그 앞 시도에서 쥔 것이 관측됐는가([ExecutionUnit.heldInEarlierAttempt]). 다시 지을 때 스냅숏이 더 큰
+ *   시도를 보이면 [everHeld] 도 앞 시도의 것이라 이 값에 접는다 — 재작업이 새 시도를 낼 때와 같다.
  */
 data class UnitRecord(
     val unitId: String,
@@ -89,6 +96,8 @@ data class UnitRecord(
     val verifyWindow: VerifyWindow?,
     val verdict: UnitVerdict?,
     val decision: RecordedDecision?,
+    val everHeld: Boolean = false,
+    val heldInEarlierAttempt: Boolean = false,
 )
 
 /** 검증 대기의 창 — 하류가 끝났다고 한 시각과 그때 정한 근거 기한. 기한은 다시 계산하지 않는다(뒤 폭이 바뀌었을 수 있다). */
@@ -144,17 +153,21 @@ data class RecordedDecision(
  * 조용히 «없었다» 가 되고, 그것이 이 기록이 막으려는 바로 그 손실이다. 그래서 칸이 하나만 늘어도 판을 올린다 — 모르는 칸을
  * 무시하는 읽는 쪽이 없다.
  *
- * **앞 버전 1 은 읽는다**(§15.253). 그 버전에는 건 취소 칸이 없고, 읽으면 취소가 걸리지 않은 기록이 된다. 그 실행이 다시 지은 뒤
- * 하위의 취소를 만나면 요청 없는 취소로 운영자 보류에 서므로(§15.230) 모르는 사실이 진행 쪽으로 접히지 않는다. 담는 쪽이 이미
- * 적어 둔 버전 1 기록으로도 다시 지을 수 있어야 한다.
+ * **앞 버전 1·2 는 읽는다**(§15.253, §15.257). 버전 1 에는 건 취소 칸이 없고, 읽으면 취소가 걸리지 않은 기록이 된다. 그 실행이 다시
+ * 지은 뒤 하위의 취소를 만나면 요청 없는 취소로 운영자 보류에 서므로(§15.230) 모르는 사실이 진행 쪽으로 접히지 않는다. 두 버전 다
+ * 단위의 파지 이력 칸이 없고, 읽으면 쥔 것을 본 적 없는 단위가 된다 — 버전 3 전의 다시 짓기와 같다. 담는 쪽이 이미 적어 둔 앞
+ * 버전 기록으로도 다시 지을 수 있어야 한다.
  */
 object JudgmentRecordWire {
 
     /** 이 규약의 판. 칸이 늘거나 값이 늘면 올린다. */
-    const val SCHEMA_VERSION: String = "2"
+    const val SCHEMA_VERSION: String = "3"
 
-    /** 읽을 줄 아는 앞 버전. 건 취소 칸([JudgmentRecord.cancelRequested])이 없다. */
+    /** 읽을 줄 아는 앞 버전. 건 취소 칸([JudgmentRecord.cancelRequested])과 단위의 파지 이력 칸이 없다. */
     private const val V1: String = "1"
+
+    /** 읽을 줄 아는 앞 버전. 단위의 파지 이력 칸([UnitRecord.everHeld], [UnitRecord.heldInEarlierAttempt])이 없다. */
+    private const val V2: String = "2"
 
     fun encode(record: JudgmentRecord): String = Obj()
         .str("schemaVersion", SCHEMA_VERSION)
@@ -173,19 +186,21 @@ object JudgmentRecordWire {
             throw IllegalArgumentException("판단 기록을 읽지 못했다: ${e.message}", e)
         }
         val version = root.fieldsMap["schemaVersion"]
-        if (version == null || !version.hasStringValue() || version.stringValue !in setOf(SCHEMA_VERSION, V1)) {
+        if (version == null || !version.hasStringValue() || version.stringValue !in setOf(SCHEMA_VERSION, V2, V1)) {
             throw IllegalArgumentException(
-                "모르는 판단 기록 판이다: ${version?.let { describe(it) } ?: "(없음)"} — 읽는 버전은 $V1 과 $SCHEMA_VERSION 이다",
+                "모르는 판단 기록 판이다: ${version?.let { describe(it) } ?: "(없음)"} — 읽는 버전은 $V1, $V2, $SCHEMA_VERSION 이다",
             )
         }
         val v1 = version.stringValue == V1
+        val held = version.stringValue == SCHEMA_VERSION
         val r = Fields("$", root, if (v1) ROOT - "cancelRequested" else ROOT)
+        val unit = if (held) UNIT else UNIT - HELD
         return JudgmentRecord(
             jobOrderId = r.string("jobOrderId"),
             orderVersion = r.int("orderVersion"),
             acknowledgedFaults = r.list("acknowledgedFaults").mapIndexed { i, v -> stringOf("$.acknowledgedFaults[$i]", v) },
             approval = r.objOrNull("approval", APPROVAL)?.let { approvalOf(it) },
-            units = r.list("units").mapIndexed { i, v -> unitOf(Fields("$.units[$i]", structOf("$.units[$i]", v), UNIT)) },
+            units = r.list("units").mapIndexed { i, v -> unitOf(Fields("$.units[$i]", structOf("$.units[$i]", v), unit), held) },
             cancelRequested = !v1 && r.bool("cancelRequested"),
         )
     }
@@ -213,6 +228,8 @@ object JudgmentRecordWire {
         .raw("verifyWindow", u.verifyWindow?.let { w -> Obj().str("doneAt", w.doneAt.toString()).str("deadline", w.deadline.toString()).done() } ?: "null")
         .raw("verdict", u.verdict?.let { verdict(it) } ?: "null")
         .raw("decision", u.decision?.let { decision(it) } ?: "null")
+        .bool("everHeld", u.everHeld)
+        .bool("heldInEarlierAttempt", u.heldInEarlierAttempt)
         .done()
 
     private fun verdict(v: UnitVerdict): String = Obj()
@@ -248,7 +265,7 @@ object JudgmentRecordWire {
         },
     )
 
-    private fun unitOf(f: Fields) = UnitRecord(
+    private fun unitOf(f: Fields, held: Boolean) = UnitRecord(
         unitId = f.string("unitId"),
         attempt = f.int("attempt"),
         taskId = f.string("taskId"),
@@ -275,13 +292,16 @@ object JudgmentRecordWire {
                 attempt = d.int("attempt"),
             )
         },
+        everHeld = held && f.bool("everHeld"),
+        heldInEarlierAttempt = held && f.bool("heldInEarlierAttempt"),
     )
 
     // 칸 이름 — 읽는 쪽이 모르는 칸을 거부하는 기준이다. 적는 쪽(위)과 한 벌로 고친다.
     private val ROOT = setOf("schemaVersion", "jobOrderId", "orderVersion", "acknowledgedFaults", "approval", "units", "cancelRequested")
     private val APPROVAL = setOf("robotId", "approverId", "approverKind", "at", "wallClockAt", "steps")
     private val STEP = setOf("unitId", "skillType", "parameters")
-    private val UNIT = setOf("unitId", "attempt", "taskId", "requestedAt", "verifyWindow", "verdict", "decision")
+    private val HELD = setOf("everHeld", "heldInEarlierAttempt")
+    private val UNIT = setOf("unitId", "attempt", "taskId", "requestedAt", "verifyWindow", "verdict", "decision") + HELD
     private val WINDOW = setOf("doneAt", "deadline")
     private val VERDICT = setOf("state", "reached", "verification", "evidenceAt", "failureClass", "note", "result")
     private val DECISION = setOf("decision", "approverId", "approverKind", "at", "attempt")
