@@ -561,10 +561,10 @@ class Middleware(
      *
      * 7. **판단 기록을 옮긴다.** 감수한 결함, 승인 소모(조치 열의 걸음은 계획 앞에 다시 서고 승인 장부에 소모로 다시 선다),
      *    단위마다의 시도 번호, 요청 시각(근거 윈도우와 미확정 유예의 기준, 설비 대기의 기한 시작), 검증 대기의 창, 이미 내린
-     *    판정, 운영자 판단, 건 취소다. **다시 판정하지 않는다** — 판정이 있는 단위는 다시 돌리지 않고, 앞선 로봇 단위라도 기록의 근거
+     *    판정, 운영자 판단, 건 취소, 파지 이력이다. **다시 판정하지 않는다** — 판정이 있는 단위는 다시 돌리지 않고, 앞선 로봇 단위라도 기록의 근거
      *    등급을 그대로 쓴다. 시각은 그 시도를 다시 낼 때 쓰므로 기한은 재기동 시각이 아니라 처음 시작한 시각부터 이어 간다.
      *    스냅숏이 기록보다 큰 시도를 보이는 단위는 기록이 그 재작업보다 먼저 적힌 것이라 그 단위의 시각과 판정을 옮기지 않고
-     *    [RESUME_RECORD_SUPERSEDED] 로 남긴다. 기록의 작업 지시 id 나 버전이 넘긴 작업 지시와 다르거나 계획에 없는 단위가 있으면
+     *    [RESUME_RECORD_SUPERSEDED] 로 남긴다. 그 단위의 파지 이력은 버리지 않고 앞 시도의 것으로 접는다. 기록의 작업 지시 id 나 버전이 넘긴 작업 지시와 다르거나 계획에 없는 단위가 있으면
      *    [RESUME_RECORD_MISMATCH] 로 시작하는 사유로 거부하고 실행을 만들지 않는다 — 일부만 옮기면 옮기지 못한 사실이 «없었다» 가
      *    된다. 기록 대조는 스냅숏보다 먼저 한다.
      * 8. **운영자 보류로 옮긴 단위마다 인시던트를 다시 연다.** 인시던트는 기록에 들지 않으므로 이 인스턴스에서 새로 열고, 실행
@@ -631,6 +631,10 @@ class Middleware(
      * 시도 번호는 스냅숏과 기록 가운데 큰 쪽이다. 기록이 크면 재작업 판단이 섰는데 아직 내지 않은 것이고, 스냅숏이 크면 기록이 그
      * 재작업보다 먼저 적힌 것이다 — 그때 그 단위의 시각과 판정은 앞 시도의 것이라 옮기지 않는다.
      *
+     * **파지 이력은 시도에 맞춰 옮긴다**(§15.257). 다시 관측해도 돌아오지 않는 지난 관측이다 — 재기동 사이에 놓쳤으면 기체는 빈손을
+     * 보이고, 끝난 시도의 파지는 스냅숏에 없다. 시도가 같으면 그대로, 스냅숏이 더 크면 [reworkAsNewAttempt] 처럼 앞 시도의 것으로
+     * 접는다. 지금의 파지([ExecutionUnit.hold])는 건드리지 않는다 — 그것은 이 인스턴스가 기체에서 본다.
+     *
      * 돌려주는 것은 운영자 보류를 다시 연 시각이다. 처음 다시 열 때 시계를 한 번 읽고 다시 연 보류 모두에 쓴다. 다시 연 것이
      * 없으면 널이다.
      */
@@ -663,6 +667,8 @@ class Middleware(
             val unit = byId.getValue(r.unitId)
             r.decision?.let { execution.decisions[unit.unitId] = it }
             if (r.attempt < unit.attempt) {
+                // 기록의 «이 시도» 는 스냅숏의 앞 시도다. 새 시도의 파지로 옮기면 쥔 적 없는 시도가 든 채를 기대한다.
+                unit.heldInEarlierAttempt = r.heldInEarlierAttempt || r.everHeld
                 execution.trail(
                     RESUME_RECORD_SUPERSEDED,
                     "${unit.unitId}: 스냅숏의 시도 ${unit.attempt} 가 기록의 시도 ${r.attempt} 보다 크다, 기록의 시각과 판정을 옮기지 않는다",
@@ -670,6 +676,8 @@ class Middleware(
                 return@forEach
             }
             unit.attempt = r.attempt
+            unit.everHeld = r.everHeld
+            unit.heldInEarlierAttempt = r.heldInEarlierAttempt
             r.requestedAt?.let { execution.restoredRequests[unit.unitId] = r.attempt to it }
             r.verifyWindow?.let { execution.restoredWindows[unit.unitId] = r.attempt to it }
             val verdict = r.verdict ?: return@forEach
@@ -754,6 +762,8 @@ class Middleware(
                         UnitVerdict(it.state, it.reached, it.verification, it.evidenceAt, it.failureClass, it.note, it.result)
                     },
                     decision = execution.decisions[unit.unitId],
+                    everHeld = unit.everHeld,
+                    heldInEarlierAttempt = unit.heldInEarlierAttempt,
                 )
             },
             cancelRequested = execution.cancelRequested,

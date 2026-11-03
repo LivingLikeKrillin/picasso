@@ -181,8 +181,10 @@ class ResumeCancelTest {
     fun `건 취소 칸이 없는 버전 1 기록으로 다시 지으면 그 하위 취소를 요청 없는 취소로 읽어 운영자 보류에 세운다`() {
         World().use { w ->
             val text = JudgmentRecordWire.encode(w.cancelThenDie())
-            val v1 = text.replace("\"schemaVersion\":\"2\"", "\"schemaVersion\":\"1\"").replace(",\"cancelRequested\":true", "")
-            assertTrue("cancelRequested" !in v1, "시험의 전제: 버전 1 모양을 못 지었다")
+            val v1 = text.replace("\"schemaVersion\":\"${JudgmentRecordWire.SCHEMA_VERSION}\"", "\"schemaVersion\":\"1\"")
+                .replace(",\"cancelRequested\":true", "")
+                .replace(Regex(",\"everHeld\":(true|false),\"heldInEarlierAttempt\":(true|false)"), "")
+            assertTrue("cancelRequested" !in v1 && "everHeld" !in v1, "시험의 전제: 버전 1 모양을 못 지었다")
 
             val (again, wire) = w.restart()
             val rebuilt = again.rebuild(JudgmentRecordWire.decode(v1))
