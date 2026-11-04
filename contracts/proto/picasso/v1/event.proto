@@ -132,6 +132,25 @@ message GetSnapshotRequest {
   string robot_id = 2;
 }
 
+// 스냅샷의 `faults`가 관측한 것인가(설계 §15.263).
+//
+// 결함 표면이 없는 기체(플릿 API가 기체 결함을 안 나르는 기종)는 결함을
+// *못 본다*. 그것을 빈 `faults`로만 보내면 *결함 없음*으로 읽히고, 스냅샷
+// 자체를 오류로 돌리면 태스크·연결·번호까지 잃는다. 이 열거형이 그 둘을
+// 가른다 — 결함만 모르고 나머지는 현재값이다.
+//
+// **관측됨 값을 따로 두지 않는다.** `UNSPECIFIED`가 그 뜻이다 — 이 필드가
+// 없던 발신자는 결함을 본 것으로 보냈고, 그 의미를 뒤집지 않는다(bool이면
+// 옛 발신자의 기본값이 *못 봤다*가 된다).
+enum FaultObservability {
+  // 옛 발신자이거나 결함을 봤다. `faults`가 현재값이다.
+  FAULT_OBSERVABILITY_UNSPECIFIED = 0;
+
+  // 이 기체의 결함을 지금 못 본다. `faults`는 비어 있고 *없다*는 뜻이
+  // 아니다. 태스크·연결·`sequence`는 그대로 현재값이다.
+  FAULT_OBSERVABILITY_NOT_OBSERVABLE = 1;
+}
+
 message GetSnapshotResponse {
   MessageHeader header = 1;
 
@@ -148,6 +167,9 @@ message GetSnapshotResponse {
   repeated TaskSnapshot tasks = 4;
   repeated Fault faults = 5;
   ConnectionState connection_state = 6;
+
+  // `faults`를 봤는가. 0.10.0에 더했다.
+  FaultObservability fault_observability = 7;
 }
 
 message ReplayEventsRequest {

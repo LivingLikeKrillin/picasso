@@ -116,7 +116,7 @@ class HostedRobot(
     private val book = linkedMapOf<String, HostedTask>()
     private var current: HostedTask? = null
 
-    /** 마지막 [pump] 에서 결함을 봤는가. 거짓이면 [faults] 는 낡은 것이다 — 스냅샷은 그때 `UNAVAILABLE` 이다. */
+    /** 마지막 [pump] 에서 결함을 봤는가. 거짓이면 [faults] 는 낡은 것이다 — 스냅샷은 그때 결함을 비우고 `NOT_OBSERVABLE` 이다. */
     var faultsObservable: Boolean = true
         private set
 

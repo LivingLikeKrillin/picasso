@@ -3107,6 +3107,18 @@ mimic/
 
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
 
+263. **계약 0.10.0에 결함 관측 열거형을 더해 결함을 못 보는 기체의 스냅숏과 리빌드 제약을 다루었다.**
+
+    한계 레지스터의 소비자 대기 행 «§15.241 · 결함 못 보는 기체의 스냅숏»에서 결함 표면이 없는 기체(Orbit 어댑터, `FaultObservation.NotObservable`)에 대해 어댑터 호스트의 `getSnapshot`이 `Status.UNAVAILABLE`을 던졌고 `ClientRobotPort.snapshot`이 이를 null로 접었다. 그래서 `Middleware.resume`이 `RESUME_SNAPSHOT_UNREADABLE`로 늘 거부했고, 리빌드 뒤 취소 부착(§15.231)은 기한 없이 기다렸으며, 연결 끊김 검사는 뷰가 관측 가능할 때만 돌아 `LINK_BROKEN`이 나지 않았다. 2026-10-19 소유자 결정(항목 11)으로 «소비자가 실제 배포를 요청할 때» 계약 0.10.0에 결함 관측 열거형을 넣기로(옵션 A) 미뤄 두었다. 2026-11-04 소유자가 그런 밖의 소비자는 생기지 않는다고 했고, Codex·Fable 자문을 거쳐 지금 짓기로 했다. ADR 9의 소비자라는 용어는 실제로 읽는 표면이며 여기서는 이 저장소 안의 `Middleware.resume`, 리빌드 뒤 취소 부착, 연결 끊김 검사였다. 10/19 결정은 지우지 않고 이 항목에 다시 정한 것을 쌓았다.
+
+    계약 `contracts/proto/picasso/v1/event.proto`에 열거형 `FaultObservability`(`FAULT_OBSERVABILITY_UNSPECIFIED = 0`은 옛 발신자 또는 결함을 봤다는 뜻, `FAULT_OBSERVABILITY_NOT_OBSERVABLE = 1`)를 더하고 `GetSnapshotResponse`에 `fault_observability = 7`을 더했다. 관측됨 값을 따로 두지 않았다(`UNSPECIFIED`가 그 뜻이고, bool이면 옛 발신자의 기본값이 못 봤다가 된다). 계약 SemVer를 0.9.0에서 0.10.0으로 올렸다. 추가뿐이라 major는 그대로였다. `StateMessage`에는 넣지 않았다(그 결함 목록을 읽는 코드가 없다, ADR 9).
+
+    어댑터 호스트의 `HostEventService.getSnapshot`은 결함을 못 보면 던지지 않고 태스크, 연결, `sequence`를 그대로 싣고 결함은 비운 채 `FAULT_OBSERVABILITY_NOT_OBSERVABLE`을 실었다. 마지막으로 본 낡은 결함(`HostedRobot.faults`)은 싣지 않았다. 포트 내부 타입 `RobotSnapshot`에는 `faultsObservable`(기본값 참)을 더했고 `ClientRobotPort.snapshot`이 `NOT_OBSERVABLE`을 거짓으로 읽었다. 기체 뷰 `RobotView`에 `faultsObservable`을 더했고, `sync`는 그런 스냅숏을 읽은 것으로 두었다(태스크, 연결, 세션, 재생은 전처럼). 결함은 비우고, 수용한 결함은 놓지 않았다(못 본 것은 걷혔다는 관측이 아니다). 결함 확인(`blockingFaults`)은 그런 스냅숏을 못 읽은 라운드와 같이 다루어, 이미 막고 있으면 그대로 막고, 아니면 단위에 메모를 한 번 남기고 지나갔다. 다른 기체가 같은 결함을 보이는지 볼 때(`forgetAcknowledged`)도 결함을 본 뷰만 세었다. `RESYNC` 트레이스는 결함 수 대신 `not observable`을 적었다. 이로써 결함을 못 보는 기체에서도 `resume`이 스냅숏의 태스크로 리빌드하고, 리빌드 뒤 취소 부착과 연결 상태에 따른 `LINK_BROKEN`이 도는 동작을 갖추었다. 작업 응답 형식, 내보내기 버전 6, `JudgmentRecordWire` 3은 바뀌지 않았다. 외부 행 «§15.241 · Orbit 기체 연결·결함 표면»은 그대로 열려 있었고(미상, UNKNOWN), 어댑터 호스트는 여전히 `CONNECTION_BROKEN`을 내지 않았다.
+
+    `AdapterHostTest`의 `스냅샷은 결함과 태스크와 ONLINE 을 싣고, 못 봤으면 UNAVAILABLE 이다`를 `스냅샷은 결함과 태스크와 ONLINE 을 싣고, 결함을 못 봤으면 결함만 비우고 NOT_OBSERVABLE 이다`로 바꿨다. `OrbitLauncherTest`의 `런처가 플릿에서 발견한 기체들을 실 포트의 계약 뒤에 세운다`는 `UNAVAILABLE` 대신 `NOT_OBSERVABLE`이고 결함이 비고 태스크 `t-1`이 든 스냅숏을 단언했다. 새 시험 클래스 `FaultBlindSnapshotTest`에 4건(`계약 포트는 NOT_OBSERVABLE 스냅숏을 결함 미관측으로 읽고 태스크는 그대로 든다`, `결함을 못 보는 기체도 연결이 끊기면 LINK_BROKEN 이다`, `결함을 못 본다는 스냅숏은 막고 있던 결함을 걷지 않는다`, `결함을 못 본다는 스냅숏으로는 수용을 놓지 않는다`), `ResumeTest`에 1건(`결함을 못 보는 기체의 스냅숏으로도 다시 짓고 그 태스크에 붙는다`)을 더했다. 계약 버전을 고정한 `GrpcCodegenTest`, `WireTest`의 값을 고쳤다. 전체 시험은 2,285건에서 2,290건이 되었다. 결함 주입 7건(호스트가 다시 `UNAVAILABLE`을 던짐, 못 본 결함 자리에 낡은 결함을 실음, 포트가 `NOT_OBSERVABLE`을 무시함, 결함을 못 본 스냅숏을 못 읽은 것으로 둠, 결함 확인이 결함 미관측을 안 봄, 결함을 못 본 스냅숏으로 수용을 놓음, 리빌드가 결함 미관측 스냅숏을 거부함)을 넣어 각각 해당 시험이 잡았다. 첫 주입은 `AdapterHostTest`와 `OrbitLauncherTest` 둘 다 잡았다. `HandoffFixtureTest`의 `현장 설정 없이 만든 번들의 요약이 설정 칸을 더하기 전과 같다`가 만드는 번들의 계약 버전을 그 요약값을 잰 때의 0.9.0으로 고정했다. 계약 버전이 요약의 재료라서 지금 값을 넣으면 계약을 올릴 때마다 설정 칸과 무관하게 요약이 바뀌기 때문이었다.
+
+    한계 레지스터에서 소비자 대기 행 «§15.241 · 결함 못 보는 기체의 스냅숏»을 닫았다. 미결 한계는 86개에서 85개(내부 32, 소비자 대기 24, 외부 29)가 되었고 의도적 제외 14개는 그대로였다. README의 계약 버전, `docs/contract.md`의 `GetSnapshot` 상세, Orbit 어댑터 README, `docs/vendors/orbit.md`를 고쳤다. 항목 241에 «(닫힘, §15.263)» 문단을 붙였다. 인계본 네 벌(`handoff/narrator/run-1..4`)을 `ExportFixtureTest`로 다시 산출했으며, 매니페스트와 인시던트 줄의 `contractSemver`가 0.10.0이 되어 인시던트 요약 해시가 바뀌었다. 실시계(`wallClockAt`, `writtenAt`), 구동 식별자(`runId`), 계약 버전, 요약 해시를 가리고 맞대면 12개 파일이 모두 같았고 내보내기 버전 6은 그대로였다.
+
 262. **작업 응답 확인 단위를 고치고 시각을 의도적 제외로 옮겼다.**
 
     소비자 대기 행 «§15.242 · 작업 응답의 시각과 확인 단위»에는 둘이 묶여 있었다. (1) 작업 응답(`JobResponse`, 프로세스 안 타입, 계약 proto에 없음)에 시각 칸이 없고 `jobResponseId`는 인스턴스별 카운터(`resp-N`)였으며, 결과 내보내기 줄에도 시각이 없었다. (2) `Middleware.ack`가 응답 하나를 확인하면 더 새 응답이 확인 전이어도 실행의 표시 `Execution.upstreamAck`를 `ACKED`로 바꿨다(`ForgetTest`가 이를 고정했다). 해소 조건이 «소비자가 요구할 때(ADR 9)»였는데, 소유자가 2026-11-04에 그런 밖의 소비자는 생기지 않는다고 했고, Codex·Fable 자문을 거쳐 쪼개기로 했다.
@@ -3376,6 +3388,8 @@ mimic/
     소유자는 2026-10-19 결정(항목 11)을 통해 이를 소비자 대기 한계 행으로 기록하고 당장은 계약 버전을 올리지 않기로 합의했다. 연기된 해결책인 옵션 A는 차기 계약 0.10.0의 `GetSnapshotResponse`에 결함 관측 열거형을 추가하되, 기존 발신자의 의미를 보존하기 위해 `UNSPECIFIED`를 관측됨으로 해석하도록 정의했다(bool을 사용하면 기존 발신자의 의미가 반전된다). 이를 통해 어댑터 호스트가 `Status.UNAVAILABLE` 예외를 던지는 대신 결함 목록을 비우고 `NOT_OBSERVABLE` 상태로 태스크, 연결, 수치 정보를 전송하게 하여 리빌드, 취소 부착, 연결 검사가 태스크와 연결 정보를 바탕으로 수행되도록 조율했다. 반면 어댑터가 "관측됨, 결함 없음"으로 보고하는 옵션 C는 결함이 없는 기체로 허위 보고하게 되므로 기각했다.
 
     이번 변경은 코드, 계약 proto, SemVer 0.9.0, 작업 응답 형식, 내보내기 버전 변경이 일절 없는 순수 문서 작업이었다. `docs/limits.md`에 결함 미관측 기체의 스냅숏을 다루는 소비자 대기 한계 행(§15.241)과 Orbit 기체 연결·결함 표면을 다루는 외부 한계 행(§15.241)을 신설하고, `docs/vendors/orbit.md`의 미결 항목을 갱신하여 관련 제약을 명확히 기록했다.
+
+    (닫힘, §15.263) 이 항목이 남긴 소비자 대기 행 «§15.241 · 결함 못 보는 기체의 스냅숏»은 2026-11-04에 다시 정해 옵션 A대로 계약 0.10.0을 지어 §15.263에서 닫혔고, 외부 행 «§15.241 · Orbit 기체 연결·결함 표면»은 열려 있다.
 
 240. **스냅숏 왕복 기반의 발신자 시계 차 감지와 트레이스 및 메모 보고 체계를 구축했다.**
 

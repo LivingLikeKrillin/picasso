@@ -32,7 +32,11 @@ plugins {
 // 0.9.0 — SkillDeclaration.preconditions(Precondition·PreconditionSubject), 카탈로그의
 // releases_object, REJECTION_CODE_PRECONDITION_UNMET·KEY_PRECONDITION_SUBJECT 추가.
 // 전부 추가 전용이다(설계안 §2·§6).
-val contractSemver = "0.9.0"
+// 0.10.0 — GetSnapshotResponse.fault_observability(FaultObservability) 추가. 결함을
+//          못 보는 기체의 스냅샷이 오류(UNAVAILABLE)로 접혀 태스크·연결까지 잃었고,
+//          그래서 리빌드가 그 기체에서 늘 거부되었다(§15.241·§15.263). UNSPECIFIED 가
+//          관측됨이라 옛 발신자의 의미는 그대로다. 추가이므로 major는 그대로다.
+val contractSemver = "0.10.0"
 
 // 이 모듈은 proto 파일과 거기서 나온 것, 그리고 **그 구조를 채우는 규칙**을
 // 담는다 — §5.5의 헤더 표와 계약 신원이다. 발신자 쪽에만 두면 client가 요청

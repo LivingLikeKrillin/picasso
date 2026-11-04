@@ -426,6 +426,11 @@ data class RobotSnapshot(
      * 널은 못 읽었다는 뜻이고 그때는 재지 않는다.
      */
     val occurredAt: Instant? = null,
+    /**
+     * [faults] 가 관측한 것인가(계약 `GetSnapshotResponse.fault_observability`, 0.10.0). 거짓이면 기체의 결함을 못 본 것이고 [faults] 는
+     * 비어 있되 *결함 없음* 이 아니다. 나머지 칸(태스크·연결·번호)은 그대로 현재값이다. 옛 발신자는 참이다(`UNSPECIFIED`).
+     */
+    val faultsObservable: Boolean = true,
 )
 
 /**

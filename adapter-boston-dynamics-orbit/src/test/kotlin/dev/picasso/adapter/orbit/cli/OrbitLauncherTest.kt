@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.picasso.adapter.orbit.OrbitHttpLink
 import dev.picasso.client.PicassoClient
+import dev.picasso.contracts.v1.FaultObservability
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.StartTaskRequest
 import dev.picasso.contracts.v1.StartTaskResponse
@@ -15,8 +16,6 @@ import dev.picasso.uplink.report.DiscoveryAck
 import dev.picasso.uplink.report.RobotDiscovery
 import io.grpc.ManagedChannel
 import io.grpc.ManagedChannelBuilder
-import io.grpc.Status
-import io.grpc.StatusRuntimeException
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
@@ -28,7 +27,6 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -144,10 +142,13 @@ class OrbitLauncherTest {
                 // **스트림을 먼저 연다.** 열기 전에 일어난 전이는 되짚어 오고, 그 뒤의 것은 밀려 온다.
                 val follower = client.follow("spot-a", handle.handle)
 
-                // **스냅샷은 못 준다.** 플릿이 기체 결함을 안 나르므로 호스트가 `UNAVAILABLE` 로 답한다 —
-                // *결함 없음* 으로 접지 않기로 한 결과가 여기서 계약 면에 그대로 나타난다(§15.99).
-                val blind = assertFailsWith<StatusRuntimeException> { client.snapshot("spot-a") }
-                assertEquals(Status.Code.UNAVAILABLE, blind.status.code)
+                // **스냅샷은 결함만 모른다.** 플릿이 기체 결함을 안 나르므로 결함은 비우고 못 봤다고 적는다 —
+                // *결함 없음* 으로 접지 않기로 한 것(§15.99)이 계약 0.10.0 의 자리에 실린다. 태스크는 그대로 현재값이라
+                // 소비자가 리빌드에 쓸 수 있다(§15.263).
+                val blind = client.snapshot("spot-a")
+                assertEquals(FaultObservability.FAULT_OBSERVABILITY_NOT_OBSERVABLE, blind.faultObservability)
+                assertTrue(blind.faultsList.isEmpty(), blind.faultsList.toString())
+                assertEquals(listOf("t-1"), blind.tasksList.map { it.taskId })
 
                 // 실행이 끝나면 종착이 계약으로 올라온다. 펌프는 **아무 RPC 나** 지나므로 아는 이름 질의로 민다.
                 runEnded = true

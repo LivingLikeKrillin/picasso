@@ -21,6 +21,7 @@ import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.EventServiceGrpc
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
+import dev.picasso.contracts.v1.FaultObservability
 import dev.picasso.contracts.v1.GetCapabilitiesRequest
 import dev.picasso.contracts.v1.GetKnownSiteNamesRequest
 import dev.picasso.contracts.v1.GetSnapshotRequest
@@ -453,13 +454,14 @@ class AdapterHostTest {
     }
 
     @Test
-    fun `스냅샷은 결함과 태스크와 ONLINE 을 싣고, 못 봤으면 UNAVAILABLE 이다`() {
+    fun `스냅샷은 결함과 태스크와 ONLINE 을 싣고, 결함을 못 봤으면 결함만 비우고 NOT_OBSERVABLE 이다`() {
         World().use { w ->
             val handle = w.start().handle
             val fault = classifiedFault("LOCALIZATION_LOST", FailureClass.FAILURE_CLASS_LOCALIZATION_LOST, "", "재측위", canAcceptNewTask = false)
             w.adapter.observedFaults = FaultObservation.Observed(listOf(fault))
             val snapshot = w.events.getSnapshot(GetSnapshotRequest.newBuilder().setHeader(w.header("picasso.v1.GetSnapshotRequest")).setRobotId(ROBOT).build())
             assertEquals(listOf("LOCALIZATION_LOST"), snapshot.faultsList.map { it.errorType })
+            assertEquals(FaultObservability.FAULT_OBSERVABILITY_UNSPECIFIED, snapshot.faultObservability)
             assertEquals(handle.taskId, snapshot.tasksList.single().taskId)
             assertEquals(dev.picasso.contracts.v1.ConnectionState.CONNECTION_STATE_ONLINE, snapshot.connectionState)
 
@@ -468,11 +470,14 @@ class AdapterHostTest {
             assertEquals(listOf("T:TASK_STATE_ACCEPTED", "T:TASK_STATE_RUNNING", "F:LOCALIZATION_LOST"), kinds)
             assertEquals(replay.map { it.event.header.sequence }, replay.map { it.event.header.sequence }.sorted())
 
+            // **못 봤으면 결함만 모른다**(계약 0.10.0). 마지막으로 본 결함을 현재값으로 싣지 않고, 태스크·연결은 그대로 싣는다 —
+            // 오류로 돌리면 소비자가 리빌드·연결 검사에 쓸 태스크와 연결까지 잃는다(§15.263).
             w.adapter.observedFaults = FaultObservation.NotObservable("lowstate 없음")
-            val e = assertFailsWith<StatusRuntimeException> {
-                w.events.getSnapshot(GetSnapshotRequest.newBuilder().setHeader(w.header("picasso.v1.GetSnapshotRequest")).setRobotId(ROBOT).build())
-            }
-            assertEquals(Status.Code.UNAVAILABLE, e.status.code)
+            val blind = w.events.getSnapshot(GetSnapshotRequest.newBuilder().setHeader(w.header("picasso.v1.GetSnapshotRequest")).setRobotId(ROBOT).build())
+            assertEquals(FaultObservability.FAULT_OBSERVABILITY_NOT_OBSERVABLE, blind.faultObservability)
+            assertTrue(blind.faultsList.isEmpty(), "못 본 결함 자리에 낡은 결함을 실었다: ${blind.faultsList.map { it.errorType }}")
+            assertEquals(handle.taskId, blind.tasksList.single().taskId)
+            assertEquals(dev.picasso.contracts.v1.ConnectionState.CONNECTION_STATE_ONLINE, blind.connectionState)
         }
     }
 

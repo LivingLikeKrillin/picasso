@@ -149,7 +149,7 @@ class PortBreakerTest {
 
     @Test
     fun `바로 온 오류에는 차단 창을 걸지 않는다`() {
-        downstream.refusing[STUCK] = Status.UNAVAILABLE.withDescription("기체의 결함을 지금 못 본다")
+        downstream.refusing[STUCK] = Status.UNAVAILABLE.withDescription("벤더 링크 오류")
         assertNull(port.snapshot(STUCK))
         assertNull(port.backingOffUntil(STUCK), "빨리 온 UNAVAILABLE 에 창을 걸었다")
         assertNull(port.snapshot(STUCK))
