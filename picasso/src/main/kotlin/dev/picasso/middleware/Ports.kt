@@ -67,13 +67,22 @@ interface RobotPort {
 
     /** 재생 버퍼(계약 `ReplayEvents`, §4.8) — [from] 부터의 이벤트. 벗어났으면 [Replay.Evicted]. 못 물어봤으면 `null`. */
     fun replay(robotId: String, from: Long): Replay?
+
+    /**
+     * 소비자의 잠금 밖에서 **미리 읽은** 스냅숏과 그 왕복 시각(§15.267). 미들웨어의 동기화가 [snapshot] 대신 이것을 먼저 묻는다.
+     *
+     * 널이면 이 포트는 미리 읽지 않는다 — 미들웨어가 [snapshot] 을 지금 부르고 자기 시계로 보낸 시각·받은 시각을 잰다. 미리 읽는 포트
+     * ([PrefetchingRobotPort])만 값을 준다. 값을 주는 포트는 그 읽기에 이어 물은 재생을 [replay] 로 돌려준다.
+     */
+    fun prefetched(robotId: String): PrefetchedRead? = null
 }
 
 /**
  * [PicassoClient] 위의 [RobotPort]. 태스크마다 받은 갱신을 누적해 들고, 스트림이 닫히면 다시 붙는다([watch]).
  *
  * 태스크별 표는 잠금 없는 맵이다. 호출자는 미들웨어 하나이고 그 미들웨어를 지키는 호스트의 잠금 아래에서
- * 부른다고 전제한다(미들웨어 자체에 스레드가 없다).
+ * 부른다고 전제한다(미들웨어 자체에 스레드가 없다). 차단 창 표만은 동시 맵이다 — [PrefetchingRobotPort] 가 [snapshot]·[replay] 를
+ * 자기 스레드에서 부르는 동안 잠금 아래의 명령이 같은 표를 읽고 쓴다(§15.267).
  *
  * **답하지 않는 기체는 잠시 묻지 않는다**(§15.237). 단건 호출(`GetCapabilities`·`StartTask`·`CancelTask`·`GetSnapshot`·
  * `ReplayEvents`)이 기한을 다 쓰고(`DEADLINE_EXCEEDED`) 끝나면 그 기체의 단건 호출을 [backoff] 동안 하위로 보내지 않고 바로
@@ -97,7 +106,7 @@ class ClientRobotPort(
 ) : RobotPort {
 
     /** 기체마다 차단 창이 끝나는 시각. 창이 지나도 남아 있다가 다음 호출이 답을 받으면 걷힌다. */
-    private val backingOff = mutableMapOf<String, Instant>()
+    private val backingOff = java.util.concurrent.ConcurrentHashMap<String, Instant>()
 
     /** 이 기체의 차단 창이 끝나는 시각. 창이 없으면 `null`. 시험이 창을 보는 문이다. */
     internal fun backingOffUntil(robotId: String): Instant? = backingOff[robotId]
