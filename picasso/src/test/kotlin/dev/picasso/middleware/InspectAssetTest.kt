@@ -218,6 +218,20 @@ class InspectAssetTest {
     }
 
     @Test
+    fun `취소 응답은 관측과 판정에서 온 칸만 든다`() {
+        // 관측 없이 늘 같은 값을 채우는 칸은 하위가 거부했든 받아들였든 같은 말을 한다(§15.258).
+        val fields = CancelReport::class.java.declaredFields
+            .filterNot { java.lang.reflect.Modifier.isStatic(it.modifiers) }.map { it.name }.toSet()
+        assertEquals(
+            setOf(
+                "executionId", "version", "completedUnits", "inProgressUnit", "notStartedUnits",
+                "residualHold", "cleanup", "finalState", "refusal", "stoppedAfter",
+            ),
+            fields,
+        )
+    }
+
+    @Test
     fun `점검 중 취소는 받아들여지고 빈손으로 끝난다`() {
         World().use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
