@@ -65,6 +65,10 @@ internal inline fun <T> reply(observer: StreamObserver<T>, block: () -> T) {
  * 아키텍처 주장이 아니다**(ADR 21). 그리고 **모든 RPC 가 펌프를
  * 먼저 지난다** — 그러지 않으면 열린 `WatchTask` 가 다른 RPC 가 만든 전이를 놓친다.
  *
+ * 펌프는 세 단계로 돈다 — 읽을 자리와 읽은 것을 적는 일만 호스트 잠금 아래이고, 어댑터에 묻는 동안은 링크 잠금만 쥔다. 명령 RPC 는
+ * 호스트 잠금을 쥐지 않고 들어오므로(§15.269) 그 펌프가 호스트 잠금 밖에서 읽는다. 그 기체에 보내는 중인 명령이 있으면 읽지
+ * 않는다([HostedRobot.pumpReleased]).
+ *
  * **[pumpOnRead] 가 거짓이면 링크를 안 쓰는 RPC 는 펌프를 건너뛴다**([AdapterHost.pumpOnRead]). 그때는 펌프 스레드가 전이를
  * 적고 열린 스트림에 민다. 명령(`read` 가 거짓인 것)은 언제나 펌프를 먼저 지난다 — 끝난 태스크를 아직 안 읽은 채 새 접수를
  * «도는 태스크가 있다» 로 거절하지 않으려고.
@@ -87,7 +91,7 @@ internal class Routing(private val robots: Map<String, HostedRobot>, private val
             ?: throw Status.NOT_FOUND.withDescription(
                 "호스팅하지 않는 기체다: ${header.robotId} (있는 것: ${robots.keys.sorted()})",
             ).asRuntimeException()
-        if (!read || pumpOnRead) robot.pump()
+        if (!read || pumpOnRead) robot.pumpReleased()
         return robot
     }
 }
@@ -138,13 +142,14 @@ internal class HostTaskService(robots: Map<String, HostedRobot>, pumpOnRead: Boo
     }
 
     override fun startTask(request: StartTaskRequest, observer: StreamObserver<StartTaskResponse>) = reply(observer) {
+        // 호스트 잠금 없이 들어온다(§15.269) — 기록을 읽는 자리는 [HostedRobot.recorded] 로 감싼다.
         val robot = routing.enter(request.header)
-        val builder = StartTaskResponse.newBuilder().setHeader(robot.header(StartTaskResponse.getDescriptor()))
+        val builder = StartTaskResponse.newBuilder().setHeader(robot.recorded { robot.header(StartTaskResponse.getDescriptor()) })
         identity(request.header, request.robotId)?.let { return@reply builder.setRejection(it).build() }
 
         when (val outcome = robot.start(request.taskId, request.revision, request.skillType, parametersOf(request.parametersList))) {
-            is HostedRobot.StartOutcome.Accepted -> builder.setHandle(handleOf(robot, outcome.task))
-            is HostedRobot.StartOutcome.Idempotent -> builder.setHandle(handleOf(robot, outcome.task))
+            is HostedRobot.StartOutcome.Accepted -> builder.setHandle(robot.recorded { handleOf(robot, outcome.task) })
+            is HostedRobot.StartOutcome.Idempotent -> builder.setHandle(robot.recorded { handleOf(robot, outcome.task) })
             is HostedRobot.StartOutcome.Rejected -> builder.setRejection(rejection(outcome.code, outcome.detail, outcome.references))
             is HostedRobot.StartOutcome.Unavailable -> throw outcome.status.asRuntimeException()
         }
@@ -194,34 +199,34 @@ internal class HostTaskService(robots: Map<String, HostedRobot>, pumpOnRead: Boo
     override fun pauseTask(request: PauseTaskRequest, observer: StreamObserver<PauseTaskResponse>) = reply(observer) {
         val robot = routing.enter(request.header)
         val (state, rejection) = manipulate(robot, request.handle, "pause") { robot.adapter.pause() }
-        PauseTaskResponse.newBuilder().setHeader(robot.header(PauseTaskResponse.getDescriptor()))
+        PauseTaskResponse.newBuilder().setHeader(robot.recorded { robot.header(PauseTaskResponse.getDescriptor()) })
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
 
     override fun resumeTask(request: ResumeTaskRequest, observer: StreamObserver<ResumeTaskResponse>) = reply(observer) {
         val robot = routing.enter(request.header)
         // **지금 파라미터로** 다시 시작한다 — 멈춘 동안 갱신이 왔으면 그것이다(§4.4).
-        val (state, rejection) = manipulate(robot, request.handle, "resume") { robot.adapter.resume(it.parameters) }
-        ResumeTaskResponse.newBuilder().setHeader(robot.header(ResumeTaskResponse.getDescriptor()))
+        val (state, rejection) = manipulate(robot, request.handle, "resume") { robot.adapter.resume(it) }
+        ResumeTaskResponse.newBuilder().setHeader(robot.recorded { robot.header(ResumeTaskResponse.getDescriptor()) })
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
 
     override fun cancelTask(request: CancelTaskRequest, observer: StreamObserver<CancelTaskResponse>) = reply(observer) {
         val robot = routing.enter(request.header)
         val (state, rejection) = manipulate(robot, request.handle, "cancel") { robot.adapter.cancel() }
-        CancelTaskResponse.newBuilder().setHeader(robot.header(CancelTaskResponse.getDescriptor()))
+        CancelTaskResponse.newBuilder().setHeader(robot.recorded { robot.header(CancelTaskResponse.getDescriptor()) })
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
 
     override fun retryTask(request: RetryTaskRequest, observer: StreamObserver<RetryTaskResponse>) = reply(observer) {
         val robot = routing.enter(request.header)
-        val (state, rejection) = manipulate(robot, request.handle, "retry") { robot.adapter.retry(it.parameters) }
-        RetryTaskResponse.newBuilder().setHeader(robot.header(RetryTaskResponse.getDescriptor()))
+        val (state, rejection) = manipulate(robot, request.handle, "retry") { robot.adapter.retry(it) }
+        RetryTaskResponse.newBuilder().setHeader(robot.recorded { robot.header(RetryTaskResponse.getDescriptor()) })
             .also { b -> state?.let(b::setState); rejection?.let(b::setRejection) }.build()
     }
 
     /**
-     * 조작 넷의 공통 — 태스크를 찾고, 종착이면 래치(§4.4), 아니면 어댑터에 시키고 그 답을 계약으로 옮긴다.
+     * 조작 넷의 공통 — 기체가 태스크를 찾고 보내고 적는다([HostedRobot.manipulate]), 여기서는 그 답을 계약으로 옮긴다.
      *
      * 어댑터가 *수단이 없다* 고 하면 그 조작의 코드(`PAUSE_UNSUPPORTED`·`CANCEL_UNSUPPORTED`)다 — 지원하지 않는 것을
      * 지원하는 것처럼 감추지 않는다. 재개·재시도에는 그런 코드가 없어 `INVALID_TRANSITION` 에 사정을 붙인다.
@@ -230,18 +235,13 @@ internal class HostTaskService(robots: Map<String, HostedRobot>, pumpOnRead: Boo
         robot: HostedRobot,
         handle: TaskHandle,
         what: String,
-        apply: (HostedRobot.HostedTask) -> Applied,
-    ): Pair<TaskState?, Rejection?> {
-        val task = robot.task(handle.taskId)
-            ?: throw Status.NOT_FOUND.withDescription("모르는 태스크다: ${handle.taskId}").asRuntimeException()
-        if (task.terminal) {
-            return null to rejection(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, "${task.taskId} 은 이미 ${task.last.state} 다 — 종료는 되돌아가지 않는다(§4.4)")
-        }
-        return when (val applied = apply(task)) {
-            Applied.Ok -> {
-                robot.syncCurrent()
-                task.last.state to null
-            }
+        send: (Map<String, Any>) -> Applied,
+    ): Pair<TaskState?, Rejection?> = when (val manipulated = robot.manipulate(handle.taskId, send)) {
+        HostedRobot.Manipulated.Unknown ->
+            throw Status.NOT_FOUND.withDescription("모르는 태스크다: ${handle.taskId}").asRuntimeException()
+        is HostedRobot.Manipulated.Latched -> null to rejection(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, manipulated.detail)
+        is HostedRobot.Manipulated.Done -> when (val applied = manipulated.applied) {
+            Applied.Ok -> manipulated.state to null
             is Applied.Refused -> when (applied.reason) {
                 Refusal.NO_VENDOR_PRIMITIVE -> when (what) {
                     "pause" -> null to rejection(RejectionCode.REJECTION_CODE_PAUSE_UNSUPPORTED, applied.detail)
@@ -250,10 +250,7 @@ internal class HostTaskService(robots: Map<String, HostedRobot>, pumpOnRead: Boo
                 }
                 Refusal.LINK_ERROR -> throw Status.UNAVAILABLE.withDescription(applied.detail).asRuntimeException()
                 Refusal.VENDOR_SURFACE_ABSENT -> throw Status.UNAVAILABLE.withDescription(applied.detail).asRuntimeException()
-                else -> {
-                    robot.syncCurrent()
-                    null to rejection(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, "$what: ${applied.detail}")
-                }
+                else -> null to rejection(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, "$what: ${applied.detail}")
             }
         }
     }
@@ -359,8 +356,10 @@ internal class HostSkillService(
     }
 
     override fun getKnownSiteNames(request: GetKnownSiteNamesRequest, observer: StreamObserver<GetKnownSiteNamesResponse>) = reply(observer) {
+        // 호스트 잠금 없이 들어온다(§15.269). 어댑터에 묻는 동안은 링크 잠금만 쥔다.
         val robot = routing.enter(request.header)
-        val builder = GetKnownSiteNamesResponse.newBuilder().setHeader(robot.header(GetKnownSiteNamesResponse.getDescriptor()))
+        val builder = GetKnownSiteNamesResponse.newBuilder()
+            .setHeader(robot.recorded { robot.header(GetKnownSiteNamesResponse.getDescriptor()) })
         when (val names = robot.adapter.knownSiteNames()) {
             SiteNames.Unsupported -> builder.setUnsupported(true)
             is SiteNames.Known -> builder
