@@ -528,7 +528,8 @@ class Middleware(
      * 나가지 않지만 그 재전송은 게이트를 지난다.
      *
      * **넘기는 작업 지시는 이전 인스턴스가 받은 마지막 버전이어야 한다.** 리비전은 단위의 `revision` 이 되고 태스크의 멱등은
-     * 같은 `task_id`·`revision` 에만 서므로, 낮은 버전을 넘기면 기체가 기존 태스크에 붙여 주지 않는다.
+     * 같은 `task_id`·`revision` 에만 서므로, 낮은 버전을 넘기면 기체가 기존 태스크에 붙여 주지 않는다. 그래서 스냅숏이 넘긴 버전보다
+     * 높은 리비전으로 이 작업 지시의 태스크를 보이면 [RESUME_STALE_VERSION] 으로 거부한다(2 의 끝).
      *
      * 같은 작업 지시 id 의 실행이 이미 있으면 [submit] 과 같이 리비전 경로로 간다. 같은 버전이면 [Submission.Idempotent] 다.
      * 이 인스턴스가 그 작업 지시를 [forget] 으로 놓았으면 [submit] 과 같이 [FORGOTTEN_JOB_ORDER] 로 거부한다.
@@ -538,7 +539,8 @@ class Middleware(
      * 1. **넘겨받은 정의의 WorkMaster 를 작업 지시와 대조한다.** 다르면 거부한다.
      * 2. **단위가 묶인 기체마다 스냅숏을 한 번 읽는다.** 하나라도 못 읽으면(`null`) 실행을 만들지 않고 [RESUME_SNAPSHOT_UNREADABLE]
      *    로 시작하는 사유로 거부한다(사유에 못 읽은 기체가 실린다). 스냅숏 없이 지으면 첫 pump 가 `@rN` 없는 태스크 id 로 가서 이미 끝난 첫 태스크에 붙고, 도는 재작업 태스크는
-     *    고아가 된다.
+     *    고아가 된다. 스냅숏이 넘긴 버전보다 높은 리비전으로 이 작업 지시의 태스크를 보이면 실행을 만들지 않고
+     *    [RESUME_STALE_VERSION] 으로 시작하는 사유로 거부한다([staleVersionRefusal]).
      * 3. **넘겨받은 정의로 계획한다.** 카탈로그의 지금 활성 버전은 읽지 않는다. 근거 등급 검사만 거치고 **배정 관문을 걸지
      *    않으며 조치 탐색 기록도 남기지 않는다.** 명령이 이미 나간 실행이라 관문이 다시 판정할 대상이 아니고, 관문은 이미 집어 간
      *    자재를 출발 결품으로 읽어 거부할 수 있다.
@@ -603,6 +605,7 @@ class Middleware(
             snapshots[robot] = robots.snapshot(robot)
                 ?: return Submission.Rejected("$RESUME_SNAPSHOT_UNREADABLE: robot=$robot, 재작업 횟수와 지난 설비 대기를 정할 근거가 없다")
         }
+        staleVersionRefusal(order, snapshots)?.let { return it }
         evidenceRefusal(order, mission.capability)?.let { return it }
 
         val execution = create(order, robotId, mission, planned, approvedBy = null)
@@ -612,6 +615,22 @@ class Middleware(
         // 봉인 시각은 다시 연 줄의 시각이다. 따로 읽으면 실제 시계에서 둘이 어긋나 줄 시각 = `at` 으로 가르지 못한다.
         incidentLog.sealIncidents(execution, siteTimings.current(), reopenedAt)
         return Submission.Accepted(execution)
+    }
+
+    /**
+     * 기체가 넘긴 작업 지시보다 높은 리비전으로 그 작업 지시의 태스크를 드는가. 들면 거부의 사유, 아니면 널.
+     *
+     * 들면 넘긴 것은 앞 인스턴스가 받은 마지막 버전이 아니다. 그대로 지으면 그 단위의 재전송이 `OUTDATED_REVISION` 으로 실패로
+     * 적히고, 기체가 아직 그 태스크를 도는 동안 실행이 다음 단위를 낸다(§15.260). 리비전을 안 싣는 포트에서는 볼 수 없다(§15.238).
+     */
+    private fun staleVersionRefusal(order: JobOrder, snapshots: Map<String, RobotSnapshot>): Submission.Rejected? {
+        val prefix = "${order.jobOrderId}#"
+        val ahead = snapshots.flatMap { (robot, snapshot) ->
+            snapshot.revisions.filter { (taskId, revision) -> taskId.startsWith(prefix) && revision > order.version }
+                .map { (taskId, revision) -> "$robot:$taskId@$revision" }
+        }
+        if (ahead.isEmpty()) return null
+        return Submission.Rejected("$RESUME_STALE_VERSION: 작업 지시 버전=${order.version}, 기체가 든 리비전=${ahead.joinToString()}")
     }
 
     /** 판단 기록이 넘긴 작업 지시와 맞는가. 맞지 않으면 거부의 사유, 맞으면 널. */
@@ -3419,6 +3438,12 @@ class Middleware(
          * 나눈다. 뒤에 기체 id 가 붙는다.
          */
         const val RESUME_SNAPSHOT_UNREADABLE = "기체 스냅숏을 못 읽어 리빌드하지 않는다"
+
+        /**
+         * [resume] 이 넘겨받은 작업 지시보다 높은 리비전을 기체에서 보고 거부할 때 사유의 앞머리. 다시 시도해도 같다 — 담는 쪽이
+         * 앞 인스턴스가 받은 마지막 버전을 넘겨야 한다. 뒤에 기체와 태스크, 그 리비전이 붙는다.
+         */
+        const val RESUME_STALE_VERSION = "넘긴 작업 지시보다 높은 리비전을 기체가 들어 리빌드하지 않는다"
 
         /**
          * 이 인스턴스가 [forget] 으로 놓은 작업 지시 id 가 다시 왔을 때 거부 사유의 앞머리. 담는 쪽은 이것으로 «이미 끝나 놓은 일» 과 그 밖의

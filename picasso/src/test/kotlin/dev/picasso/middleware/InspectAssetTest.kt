@@ -232,6 +232,59 @@ class InspectAssetTest {
     }
 
     @Test
+    fun `취소가 닿기 전에 하위가 이미 끝냈으면 거부 코드와 그 뒤에서 멈춘 단위가 취소 응답에 있다`() {
+        World().use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { w.state(taskOf("PUMP-01")) == "RUNNING" }
+            // 이 인스턴스가 끝을 읽기 전에 하위가 점검을 끝낸다 — 시계만 민다.
+            var waited = 0
+            while (w.state(taskOf("PUMP-01")) != "SUCCEEDED" && waited++ < 120) {
+                w.harness.advance(Duration.ofSeconds(10))
+                Thread.sleep(30)
+            }
+            assertEquals(UnitState.RUNNING, exec.units.single { it.unitId == "PUMP-01" }.state, "끝을 이미 읽어 경합이 아니다")
+
+            assertTrue(w.mw.cancel(exec.executionId))
+            w.drive { exec.settled() }
+
+            val report = w.mw.lastCancel(exec.executionId)!!
+            assertEquals("REJECTION_CODE_INVALID_TRANSITION", report.refusal, "끝난 태스크에 건 취소의 거부를 버렸다")
+            assertNull(report.inProgressUnit, "중단된 단위는 없다 — 이미 끝났다")
+            assertEquals("PUMP-01", report.stoppedAfter)
+            assertEquals(4, report.notStartedUnits.size, "다음 경계에서 멈춘다")
+            assertEquals(2, w.tasks().size)
+        }
+    }
+
+    @Test
+    fun `마지막보다 낮은 버전으로 다시 지으려 하면 거부하고 기체에 새 태스크를 내지 않는다`() {
+        // 앞 인스턴스가 버전 2 를 받아 이동을 리비전 2 로 갱신한 뒤 내려갔다. 버전 1 로 그대로 지으면 그 이동의 재전송이
+        // `OUTDATED_REVISION` 으로 실패로 적히고, 기체가 아직 도는 동안 다음 지점의 이동이 나갔다(§15.260).
+        val travel = taskOf("PUMP-01${InspectAsset.TRAVEL_SUFFIX}")
+        World().use { w ->
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT))
+            w.mw.pump()
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(order().copy(version = 2), ROBOT))
+            w.mw.pump()
+            assertEquals("RUNNING", w.state(travel))
+
+            val again = Middleware(ClientRobotPort(w.harness.client()), now = { w.harness.clock.now() })
+            val rejected = assertIs<Middleware.Submission.Rejected>(again.resume(order(), ROBOT, ActiveMission(InspectAsset(), null)))
+            assertTrue(rejected.reason.startsWith(Middleware.RESUME_STALE_VERSION), rejected.reason)
+            assertTrue("$travel@2" in rejected.reason, rejected.reason)
+            assertEquals(emptyList(), again.executions())
+            again.pump()
+            assertEquals(listOf(travel), w.tasks().map { it.taskId }, "거부한 리빌드가 기체에 태스크를 냈다")
+
+            // 마지막 버전을 넘기면 도는 이동에 다시 붙는다.
+            val rebuilt = assertIs<Middleware.Submission.Accepted>(again.resume(order().copy(version = 2), ROBOT, ActiveMission(InspectAsset(), null))).execution
+            again.pump()
+            assertEquals(UnitState.RUNNING, rebuilt.units.first().state)
+            assertEquals(listOf(travel), w.tasks().map { it.taskId })
+        }
+    }
+
+    @Test
     fun `점검 중 취소는 받아들여지고 빈손으로 끝난다`() {
         World().use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
