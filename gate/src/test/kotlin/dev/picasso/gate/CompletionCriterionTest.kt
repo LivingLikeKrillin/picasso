@@ -76,8 +76,8 @@ class CompletionCriterionTest {
     @Test
     fun `README 는 안에서 닫는 열림을 안 든다`() {
         // ★스펙 §4.2. **지어서 닫을 수 있는데 안 지은 것이 저장소의 얼굴에 앉은 채로 완료가 선언되는 것** —
-        // 이 조건의 유일한 치명상이다. 갈래 2 만 막는다 — 1·3·4 는 이 저장소가 지어서 못 닫으므로
-        // 얼굴에 있어도 된다(소비자 대기는 밖이 요구를 들고 와야 열린다).
+        // 이 조건의 유일한 치명상이다. 갈래 2 만 막는다 — 1·4 는 이 저장소가 지어서 못 닫으므로
+        // 얼굴에 있어도 된다(3 소비자 대기는 폐지했다, §15.265).
         val inward = LimitsLedger.of()[LimitsLedger.INTERNAL].orEmpty()
         val readme = ClaimSurface.documents().single { ClaimSurface.relative(it) == "README.md" }
         val offending = (ClaimSurface.stamp(readme)?.openIds ?: emptyList()).filter { it in inward }
