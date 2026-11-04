@@ -36,6 +36,13 @@ import io.grpc.ServerServiceDefinition
  * **호스트 단위다, 기체 단위가 아니다.** 플릿 뒤 기체들은 남쪽 링크 하나를 같이 쓰므로(§15.106) 기체마다 잠그면 그
  * 링크가 다시 동시에 불린다. 대가는 한 기체의 느린 벤더 호출이 같은 프로세스의 다른 기체를 기다리게 하는 것이다.
  * ADR 51 결정 5 의 발신자 세대 대조가 이 층에 들어오면, 대조와 벤더 송신이 한 덩어리로 도는 바닥도 이 잠금이다.
+ *
+ * ## 링크 잠금 — 펌프의 읽기는 이 잠금 밖이다 (§15.268)
+ *
+ * 어댑터 호출은 기체들이 같이 쓰는 링크 잠금 하나 아래로 간다([HostedRobot.adapter]). [pump] 는 무엇을 읽을지와 읽은 것을
+ * 적는 일만 호스트 잠금 아래에서 하고, 어댑터에 묻는 동안은 링크 잠금만 쥔다. 그래서 플릿이 답하지 않아도 그동안 링크를
+ * 안 쓰는 RPC(스냅샷·재생·능력·협상·태스크 관찰)는 기다리지 않는다 — [pumpOnRead] 가 거짓일 때다. 명령은 여전히 호스트
+ * 잠금을 쥔 채 링크 잠금을 기다린다. 잠금 순서는 언제나 호스트 다음 링크다.
  */
 class AdapterHost(
     /**
@@ -46,11 +53,20 @@ class AdapterHost(
     builder: ServerBuilder<*>,
     /** §5.4 의 핸드셰이크 결과 보고. 붙이지 않으면 아무 데도 안 나간다 — 미믹의 `MimicServer` 와 같은 자리다. */
     reporter: HandshakeReporter = HandshakeReporter.NONE,
+    /**
+     * 링크를 안 쓰는 RPC 도 펌프를 먼저 지나는가. 참이면 모든 RPC 가 펌프를 지나고(배치에 펌프 스레드가 없을 때 그것이
+     * 구동이다), 거짓이면 그 RPC 는 펌프가 마지막으로 적은 것으로 답하고 링크를 기다리지 않는다. 명령은 언제나 지난다.
+     */
+    val pumpOnRead: Boolean = true,
 ) {
 
     /** 기체 하나짜리 배치 — 직결 어댑터와 시험이 쓴다. */
-    constructor(robot: HostedRobot, builder: ServerBuilder<*>, reporter: HandshakeReporter = HandshakeReporter.NONE) :
-        this(mapOf(robot.robotId to robot), builder, reporter)
+    constructor(
+        robot: HostedRobot,
+        builder: ServerBuilder<*>,
+        reporter: HandshakeReporter = HandshakeReporter.NONE,
+        pumpOnRead: Boolean = true,
+    ) : this(mapOf(robot.robotId to robot), builder, reporter, pumpOnRead)
 
     /** 기체 하나를 든 호스트의 그 기체. 여럿이면 터진다 — 부르는 쪽이 자기가 무엇을 세웠는지 알아야 한다. */
     val robot: HostedRobot get() = robots.values.single()
@@ -61,14 +77,20 @@ class AdapterHost(
     /** 이 잠금 아래에서 [block] 을 돈다. 같은 프로세스에서 [robots] 의 기록을 읽거나 움직이는 쪽이 쓴다. */
     fun <T> exclusive(block: () -> T): T = synchronized(lock, block)
 
+    init {
+        // 기체들이 링크 잠금 하나를 같이 쓴다 — 플릿 뒤에서는 링크가 하나다(§15.106).
+        val link = Any()
+        robots.values.forEach { it.southbound = link }
+    }
+
     /** [service] 의 모든 호출을 [lock] 아래로 줄 세운다. */
     private fun serialized(service: BindableService): ServerServiceDefinition =
         ServerInterceptors.intercept(service, Serialized(lock))
 
     private val server: Server = builder
-        .addService(serialized(HostSkillService(robots, reporter)))
-        .addService(serialized(HostTaskService(robots)))
-        .addService(serialized(HostEventService(robots)))
+        .addService(serialized(HostSkillService(robots, reporter, pumpOnRead)))
+        .addService(serialized(HostTaskService(robots, pumpOnRead)))
+        .addService(serialized(HostEventService(robots, pumpOnRead)))
         .build()
 
     val port: Int get() = server.port
@@ -80,8 +102,17 @@ class AdapterHost(
         exclusive { robots.values.forEach { it.announceOnline() } }
     }
 
-    /** 어댑터에 묻고 달라진 것을 적어 열린 스트림에 민다. 시험과 스케줄러가 부른다. */
-    fun pump() = exclusive { robots.values.forEach { it.pump() } }
+    /**
+     * 어댑터에 묻고 달라진 것을 적어 열린 스트림에 민다. 시험과 스케줄러가 부른다.
+     *
+     * 기체마다 세 단계다 — 읽을 자리를 호스트 잠금 아래에서 정하고, 어댑터에 링크 잠금 아래에서 묻고, 읽은 것을 다시 호스트
+     * 잠금 아래에서 적는다. 묻는 동안 호스트 잠금을 쥐지 않는다.
+     */
+    fun pump() = robots.values.forEach { robot ->
+        val plan = exclusive { robot.plan() }
+        val reading = robot.read(plan)
+        exclusive { robot.apply(reading) }
+    }
 
     /** `OFFLINE` 을 남기고 닫는다 — 정상 종료는 Last Will 이 안 나가므로 여기서 말해야 한다(§4.7). */
     fun shutdown() {

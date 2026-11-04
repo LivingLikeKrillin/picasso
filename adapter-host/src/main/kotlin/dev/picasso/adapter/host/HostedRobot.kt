@@ -7,6 +7,7 @@ import dev.picasso.adapter.core.SiteBindingCheck
 import dev.picasso.adapter.core.SiteBindingSource
 import dev.picasso.adapter.core.Applied
 import dev.picasso.adapter.core.FaultObservation
+import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
@@ -55,10 +56,17 @@ import java.util.concurrent.atomic.AtomicLong
  * ## 펌프
  *
  * 스레드가 없다. 모든 RPC 가 [pump] 를 먼저 부르고(미믹의 `settle` 과 같은 이유 — 그러지 않으면 열린 `WatchTask` 가
- * 다른 RPC 가 만든 전이를 놓친다), 운영 배치에서는 스케줄러가 부른다. 시각은 [clock] 로만 읽는다.
+ * 다른 RPC 가 만든 전이를 놓친다), 운영 배치에서는 스케줄러가 부른다. 시각은 [clock] 로만 읽는다. 배치에 스케줄러가
+ * 있으면 읽기 RPC 는 펌프를 건너뛸 수 있다([AdapterHost.pumpOnRead]).
  *
- * **이 클래스는 잠그지 않는다.** RPC 스레드들과 스케줄러 스레드를 줄 세우는 것은 [AdapterHost] 의 잠금 하나다 —
- * 그래서 배치는 [pump] 를 직접 부르지 않고 [AdapterHost.pump] 를 부른다.
+ * 펌프 한 번은 세 단계다(§15.268) — [plan] 이 무엇을 읽을지 정하고, [read] 가 어댑터에 묻고, [apply] 가 적는다.
+ * [read] 는 기록을 안 만지므로 호스트 잠금 밖에서 돌 수 있다. [apply] 는 그 사이에 다른 손이 같은 태스크를 적었으면
+ * 그 읽기를 버린다 — 읽기를 시작할 때의 로그 길이가 그 판정이다.
+ *
+ * **기록은 잠그지 않는다.** RPC 스레드들과 스케줄러 스레드를 줄 세우는 것은 [AdapterHost] 의 잠금 하나다 —
+ * 그래서 배치는 [pump] 를 직접 부르지 않고 [AdapterHost.pump] 를 부른다. **어댑터 호출은 [southbound] 아래로 간다** —
+ * [adapter] 가 그 잠금을 쥐고 부르는 껍질이다. 호스트 잠금 밖에서 도는 [read] 와 잠금 아래의 명령이 같은 링크를
+ * 동시에 부르지 않게 한다(§15.106).
  *
  * ## 발행 (§3.5 · §4.7)
  *
@@ -75,7 +83,7 @@ import java.util.concurrent.atomic.AtomicLong
 class HostedRobot(
     val robotId: String,
     val document: ProfileDocument,
-    val adapter: RobotAdapter,
+    adapter: RobotAdapter,
     /** 발행이 나갈 곳. 붙이지 않으면 아무 데도 안 나간다 — 미믹과 같은 기본값(§15.30). */
     private val publisher: Publisher = Publisher.NONE,
     /** §5.5 토픽의 두 번째 레벨. 헤더에는 없다. */
@@ -88,6 +96,16 @@ class HostedRobot(
     /** 마지막 인자다 — 시험이 후행 람다로 시계를 준다. */
     private val clock: () -> Instant = { Instant.now() },
 ) {
+    /**
+     * 사우스바운드 링크의 잠금. 혼자 서면 이 기체의 것이고, [AdapterHost] 가 들면 그 호스트의 기체 전부가 하나를 같이
+     * 쓴다 — 플릿 뒤 기체들은 링크 하나를 같이 쓰기 때문이다(§15.106).
+     */
+    @Volatile
+    internal var southbound: Any = Any()
+
+    /** 어댑터. 모든 호출이 [southbound] 아래로 간다([SouthboundSerialized]). */
+    val adapter: RobotAdapter = SouthboundSerialized(adapter) { southbound }
+
     val capability: Capability = CapabilityProjection.of(document)
 
     /**
@@ -391,15 +409,60 @@ class HostedRobot(
     // ── 펌프
 
     /** 어댑터에 묻고 달라진 것을 적는다. 몇 번 불러도 같다 — 상태 발행만 시계가 정한다. */
-    fun pump() {
-        current?.takeIf { !it.terminal }?.let { task ->
-            val state = adapter.poll(clock())
-            if (state != task.last.state) record(task, state)
+    fun pump() = apply(read(plan()))
+
+    /** 펌프 한 번이 읽을 자리 — 도는 태스크와 그때의 로그 길이. */
+    internal class PumpPlan(val task: HostedTask?, val last: TaskState?, val generation: Int)
+
+    /** 기록할 때 상태와 함께 어댑터에서 읽는 것. [progress] 는 성공 종착이면 묻지 않는다. */
+    internal class Observed(val failure: Fault?, val result: String, val progress: ProgressObservation?, val hold: HoldObservation)
+
+    /** [read] 한 번의 답. [ticket] 은 링크 잠금 아래에서 매긴 차례다. [observed] 는 상태가 달라졌을 때만 있다. */
+    internal class Reading(val plan: PumpPlan, val ticket: Long, val state: TaskState?, val observed: Observed?, val faults: FaultObservation)
+
+    /** 읽기에 매긴 마지막 차례. [southbound] 아래에서만 만진다. */
+    private var readTickets = 0L
+
+    /** 적은 마지막 읽기의 차례. 호스트 잠금 아래에서만 만진다. */
+    private var appliedTicket = 0L
+
+    /** 무엇을 읽을지 정한다. 호스트 잠금 아래에서 부른다. */
+    internal fun plan(): PumpPlan {
+        val task = current?.takeIf { !it.terminal }
+        return PumpPlan(task, task?.last?.state, task?.log?.size ?: 0)
+    }
+
+    /**
+     * 어댑터에 묻는다 — 도는 태스크의 상태, 달라졌으면 함께 적을 것, 결함. **기록을 만지지 않는다.** 링크 잠금을 처음부터
+     * 끝까지 쥐므로 그 사이에 명령이 같은 링크를 부르지 않고, 차례는 실제로 읽은 순서다.
+     */
+    internal fun read(plan: PumpPlan): Reading = synchronized(southbound) {
+        val ticket = ++readTickets
+        val state = plan.task?.let { adapter.poll(clock()) }
+        val observed = state?.takeIf { it != plan.last }?.let(::observe)
+        Reading(plan, ticket, state, observed, adapter.faults())
+    }
+
+    /**
+     * 읽은 것을 적는다. 호스트 잠금 아래에서 부른다.
+     *
+     * - **뒤 읽기를 이미 적었으면 앞 읽기는 버린다.** 링크 잠금 밖에서 끝난 읽기가 호스트 잠금을 기다리는 동안 명령 경로의
+     *   펌프가 더 새 것을 적을 수 있다. 앞 것을 그 뒤에 적으면 결함 표가 옛 값으로 돌아간다.
+     * - **읽는 사이 그 태스크에 무엇이 적혔으면 그 상태는 버린다.** 취소가 종착을 적었는데 그 앞에 읽은 전이를 뒤에 붙이면
+     *   종착 뒤에 줄이 생긴다. 버린 전이는 잃지 않는다 — 어댑터가 같은 상태를 들고 있어 다음 읽기가 다시 본다.
+     */
+    internal fun apply(reading: Reading) {
+        if (reading.ticket <= appliedTicket) return
+        appliedTicket = reading.ticket
+        val task = reading.plan.task
+        val observed = reading.observed
+        if (task != null && observed != null && current === task && task.log.size == reading.plan.generation) {
+            record(task, checkNotNull(reading.state), observed)
         }
-        when (val observed = adapter.faults()) {
+        when (val seen = reading.faults) {
             is FaultObservation.Observed -> {
                 faultsObservable = true
-                val next = observed.faults.associateBy(::faultKey)
+                val next = seen.faults.associateBy(::faultKey)
                 (next.keys - faults.keys).forEach { emit(faultEvent(next.getValue(it), cleared = false)) }
                 (faults.keys - next.keys).forEach { emit(faultEvent(faults.getValue(it), cleared = true)) }
                 faults = next
@@ -509,20 +572,28 @@ class HostedRobot(
         if (state != TaskState.TASK_STATE_UNSPECIFIED && state != task.last.state) record(task, state)
     }
 
-    private fun record(task: HostedTask, state: TaskState) {
+    private fun record(task: HostedTask, state: TaskState) = record(task, state, observe(state))
+
+    /** [state] 를 적을 때 함께 실을 것을 어댑터에서 읽는다. 순서는 실패·결과·진행률·파지다. */
+    private fun observe(state: TaskState): Observed {
         val failure = if (state in FAILURE_STATES) adapter.failure() else null
         val result = if (state == TaskState.TASK_STATE_SUCCEEDED) adapter.result().orEmpty() else ""
+        val progress = if (state == TaskState.TASK_STATE_SUCCEEDED) null else adapter.progress()
+        return Observed(failure, result, progress, adapter.hold())
+    }
+
+    private fun record(task: HostedTask, state: TaskState, observed: Observed) {
         val from = task.log.lastOrNull()?.state ?: TaskState.TASK_STATE_UNSPECIFIED
         val update = TaskUpdate(
             index = task.log.size.toLong(),
             state = state,
             revision = task.revision,
             attempt = 0,
-            progress = progressOf(task, state),
-            progressBasis = basisOf(state),
-            partialResult = result,
-            hold = adapter.hold().toProto(),
-            fault = failure,
+            progress = progressOf(task, state, observed.progress),
+            progressBasis = basisOf(state, observed.progress),
+            partialResult = observed.result,
+            hold = observed.hold.toProto(),
+            fault = observed.failure,
             occurredAt = clock(),
         )
         task.log += update
@@ -548,12 +619,12 @@ class HostedRobot(
      * **못 재는 기종은 0.0 에 머문다.** 계약에 *못 잰다* 를 실을 자리가 없어 [ProgressObservation.NotObservable]
      * 이 여기서 접히며, 그것이 지금의 한계다(§15.108).
      */
-    private fun progressOf(task: HostedTask, state: TaskState): Double {
+    private fun progressOf(task: HostedTask, state: TaskState, progress: ProgressObservation?): Double {
         // **바닥은 같은 구간 안에서만 유효하다.** `revision` 이 오르면(갱신) 진행률은 0 에서 다시 센다(§4.4).
         val floor = task.log.lastOrNull()?.takeIf { it.revision == task.revision }?.progress ?: 0.0
         val measured = when {
             state == TaskState.TASK_STATE_SUCCEEDED -> 1.0
-            else -> (adapter.progress() as? ProgressObservation.Fraction)?.fraction?.coerceIn(0.0, 1.0) ?: 0.0
+            else -> (progress as? ProgressObservation.Fraction)?.fraction?.coerceIn(0.0, 1.0) ?: 0.0
         }
         return maxOf(floor, measured)
     }
@@ -564,12 +635,13 @@ class HostedRobot(
      * 어댑터의 [ProgressObservation] 을 그대로 옮긴다. 종착이 성공이면 셀 것이 없어도 1.0 이 사실이므로
      * 측정된 것으로 낸다 — 그때의 근거는 *종착* 이다.
      */
-    private fun basisOf(state: TaskState): ProgressBasis {
+    private fun basisOf(state: TaskState, progress: ProgressObservation?): ProgressBasis {
         val builder = ProgressBasis.newBuilder()
         if (state == TaskState.TASK_STATE_SUCCEEDED) {
             return builder.setKind(ProgressKind.PROGRESS_KIND_MEASURED).setBasis("성공 종료").build()
         }
-        return when (val observed = adapter.progress()) {
+        // 성공 종착이 아니면 [observe] 가 진행률을 읽었다.
+        return when (val observed = checkNotNull(progress)) {
             is ProgressObservation.Fraction ->
                 builder.setKind(ProgressKind.PROGRESS_KIND_MEASURED).setBasis(observed.basis).build()
 

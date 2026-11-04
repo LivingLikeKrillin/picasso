@@ -64,13 +64,18 @@ internal inline fun <T> reply(observer: StreamObserver<T>, block: () -> T) {
  * 지목한다 — 미믹이 한 프로세스에 여럿을 호스팅하는 것과 같은 편의이며 같은 단서가 붙는다: **PoC 의 편의이지
  * 아키텍처 주장이 아니다**(ADR 21). 그리고 **모든 RPC 가 펌프를
  * 먼저 지난다** — 그러지 않으면 열린 `WatchTask` 가 다른 RPC 가 만든 전이를 놓친다.
+ *
+ * **[pumpOnRead] 가 거짓이면 링크를 안 쓰는 RPC 는 펌프를 건너뛴다**([AdapterHost.pumpOnRead]). 그때는 펌프 스레드가 전이를
+ * 적고 열린 스트림에 민다. 명령(`read` 가 거짓인 것)은 언제나 펌프를 먼저 지난다 — 끝난 태스크를 아직 안 읽은 채 새 접수를
+ * «도는 태스크가 있다» 로 거절하지 않으려고.
  */
-internal class Routing(private val robots: Map<String, HostedRobot>) {
+internal class Routing(private val robots: Map<String, HostedRobot>, private val pumpOnRead: Boolean = true) {
 
     /** 기체 하나짜리 배치 — 시험과 직결 어댑터가 쓴다. */
     constructor(robot: HostedRobot) : this(mapOf(robot.robotId to robot))
 
-    fun enter(header: MessageHeader): HostedRobot {
+    /** @param read 링크를 안 쓰고 기록만 읽는 RPC 인가. */
+    fun enter(header: MessageHeader, read: Boolean = false): HostedRobot {
         val compatibility = RequestHeaders.compatibility(header)
         if (compatibility.blocking) {
             throw Status.FAILED_PRECONDITION.withDescription("계약 리비전이 호환되지 않는다: $compatibility").asRuntimeException()
@@ -82,18 +87,18 @@ internal class Routing(private val robots: Map<String, HostedRobot>) {
             ?: throw Status.NOT_FOUND.withDescription(
                 "호스팅하지 않는 기체다: ${header.robotId} (있는 것: ${robots.keys.sorted()})",
             ).asRuntimeException()
-        robot.pump()
+        if (!read || pumpOnRead) robot.pump()
         return robot
     }
 }
 
 // ── TaskService (§4.4)
 
-internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGrpc.TaskServiceImplBase() {
+internal class HostTaskService(robots: Map<String, HostedRobot>, pumpOnRead: Boolean = true) : TaskServiceGrpc.TaskServiceImplBase() {
 
     constructor(robot: HostedRobot) : this(mapOf(robot.robotId to robot))
 
-    private val routing = Routing(robots)
+    private val routing = Routing(robots, pumpOnRead)
 
     private class Watcher(val observer: StreamObserver<WatchTaskResponse>, var nextIndex: Long) {
         /** 소비자가 스트림을 **취소했는가**. 취소된 쪽은 표에서 빠지기 전이라도 밀지 않는다. */
@@ -163,7 +168,7 @@ internal class HostTaskService(robots: Map<String, HostedRobot>) : TaskServiceGr
         // **괄호가 있어야 한다.** `a to b ?: c` 는 `(a to b) ?: c` 로 읽혀 쌍이 널이 아니므로 엘비스가 안 걸린다 —
         // 그러면 태스크가 널인 채로 흘러간다(실측으로 컴파일러가 잡았다).
         val (robot, task) = try {
-            val hosted = routing.enter(request.header)
+            val hosted = routing.enter(request.header, read = true)
             hosted to (
                 hosted.task(request.handle.taskId)
                     ?: throw Status.NOT_FOUND.withDescription("모르는 태스크다: ${request.handle.taskId}").asRuntimeException()
@@ -302,15 +307,16 @@ internal class HostSkillService(
      * 이 방향을 **런타임 접근**으로 두었기 때문이다: 레지스트리가 없어도 호스트는 돈다.
      */
     private val reporter: HandshakeReporter = HandshakeReporter.NONE,
+    pumpOnRead: Boolean = true,
 ) : SkillServiceGrpc.SkillServiceImplBase() {
 
     constructor(robot: HostedRobot, reporter: HandshakeReporter = HandshakeReporter.NONE) :
         this(mapOf(robot.robotId to robot), reporter)
 
-    private val routing = Routing(robots)
+    private val routing = Routing(robots, pumpOnRead)
 
     override fun getCapabilities(request: GetCapabilitiesRequest, observer: StreamObserver<GetCapabilitiesResponse>) = reply(observer) {
-        val robot = routing.enter(request.header)
+        val robot = routing.enter(request.header, read = true)
         if (request.robotId.isNotBlank() && request.robotId != request.header.robotId) {
             throw Status.INVALID_ARGUMENT.withDescription("헤더와 페이로드의 robot_id가 다르다").asRuntimeException()
         }
@@ -329,7 +335,7 @@ internal class HostSkillService(
      * 다 드는지는 여기서 확인하지 않으며, 갈리면 협상을 통과한 소비자가 `StartTask` 에서 거절당한다(C-3 적합성).
      */
     override fun negotiate(request: NegotiateRequest, observer: StreamObserver<NegotiateResponse>) = reply(observer) {
-        val robot = routing.enter(request.header)
+        val robot = routing.enter(request.header, read = true)
 
         // 판정 불가는 거절이 아니다 — 요구를 못 읽어 답 자체가 없는 것이라 응답이 아니라 gRPC 상태로 나간다.
         val judged = when (val outcome = Negotiator.negotiate(robot.capability, request.header, request.requirement)) {
@@ -369,14 +375,14 @@ internal class HostSkillService(
 
 // ── EventService (§4.8)
 
-internal class HostEventService(robots: Map<String, HostedRobot>) : EventServiceGrpc.EventServiceImplBase() {
+internal class HostEventService(robots: Map<String, HostedRobot>, pumpOnRead: Boolean = true) : EventServiceGrpc.EventServiceImplBase() {
 
     constructor(robot: HostedRobot) : this(mapOf(robot.robotId to robot))
 
-    private val routing = Routing(robots)
+    private val routing = Routing(robots, pumpOnRead)
 
     override fun getSnapshot(request: GetSnapshotRequest, observer: StreamObserver<GetSnapshotResponse>) = reply(observer) {
-        val robot = routing.enter(request.header)
+        val robot = routing.enter(request.header, read = true)
         val builder = GetSnapshotResponse.newBuilder()
             .setHeader(robot.header(GetSnapshotResponse.getDescriptor()))
             .setSequence(robot.sequence)
@@ -399,7 +405,7 @@ internal class HostEventService(robots: Map<String, HostedRobot>) : EventService
 
     override fun replayEvents(request: ReplayEventsRequest, observer: StreamObserver<ReplayEventsResponse>) {
         val robot = try {
-            routing.enter(request.header)
+            routing.enter(request.header, read = true)
         } catch (e: StatusRuntimeException) {
             observer.onError(e); return
         }
