@@ -91,13 +91,15 @@ class HostedRobot(
     val capability: Capability = CapabilityProjection.of(document)
 
     /**
-     * 세션 — 프로세스 안에서 유일하면 족하다(미믹과 같은 이유로 난수가 아니라 카운터).
+     * 세션 — 기동 시각(밀리초)과 프로세스 카운터. 카운터만 쓰면 프로세스를 다시 띄울 때마다 같은 값이 되풀이되어
+     * 소비자가 재시작을 못 보고 낡은 커서로 새 세션의 앞 이벤트를 건너뛴다(§15.259). 난수가 아닌 것은 미믹과 같은
+     * 이유다 — 주입한 시계를 고정하면 같은 값이 난다. 같은 밀리초에 다시 뜨거나 시계가 되감기면 겹칠 수 있다(§15.21).
      *
      * **불변이 아니다.** 재생 버퍼가 넘쳐 **못 보낸** 이벤트를 버렸을 때 새로 발급한다([emit]) — 그 구간은 소비자에게
      * 영영 안 가므로, 세션을 바꿔 스냅샷부터 다시 세우게 하는 것이 유일하게 정직한 답이다(§10.6). 단절만으로 바꾸면
      * 버퍼링이 무의미해지므로 **넘칠 때만** 바꾼다.
      */
-    var sessionId: String = "host-${SESSIONS.incrementAndGet()}"
+    var sessionId: String = newSessionId()
         private set
 
     /** 프로파일이 바뀌지 않는 한 1 이다 — 이 호스트는 아직 런타임 능력 변경을 안 낸다. */
@@ -604,7 +606,7 @@ class HostedRobot(
             evictedUpTo = dropped
             val unsent = unsentFrom
             if (unsent != null && dropped >= unsent) {
-                sessionId = "host-${SESSIONS.incrementAndGet()}"
+                sessionId = newSessionId()
                 buffer.lastOrNull()?.let { evictedUpTo = it.header.sequence }
                 buffer.clear()
                 unsentFrom = null
@@ -640,6 +642,8 @@ class HostedRobot(
 
     private fun faultKey(fault: Fault): String =
         fault.errorType + fault.referencesList.joinToString(prefix = "[", postfix = "]") { "${it.key}=${it.value}" }
+
+    private fun newSessionId(): String = "host-%013d-%06d".format(clock().toEpochMilli(), SESSIONS.incrementAndGet())
 
     private companion object {
         val SESSIONS = AtomicLong()
