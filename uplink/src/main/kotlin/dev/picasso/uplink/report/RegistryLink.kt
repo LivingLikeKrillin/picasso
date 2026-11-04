@@ -24,8 +24,9 @@ import java.time.Duration
  * ## 적재는 발행한 스레드에서 안 보낸다
  *
  * [http] 의 태스크 적재와 생존 보고는 [QueuedIngest] 를 지난다 — 발행은 발신자의 잠금 아래에서 오므로, 거기서
- * 레지스트리 HTTP 를 기다리면 그 잠금을 기다리는 RPC 가 같이 선다(§15.210). 연결을 다 쓰면 [close] 로 큐를 비운다.
- * 핸드셰이크 보고([reporter])는 여전히 부른 스레드에서 보낸다.
+ * 레지스트리 HTTP 를 기다리면 그 잠금을 기다리는 RPC 가 같이 선다(§15.210). 핸드셰이크 보고([reporter])도 같은 큐를
+ * 지난다(§15.266) — `Negotiate` 에 답하는 스레드도 그 잠금 아래에 있다. 그래서 [http] 의 [reporter] 는 던지지 않고,
+ * 레지스트리 실패는 작업 스레드에서 폴백 파일로 넘어간다. 연결을 다 쓰면 [close] 로 큐를 비운다.
  */
 class RegistryLink private constructor(
     /** §5.4의 핸드셰이크 결과 보고. */
@@ -110,9 +111,9 @@ class RegistryLink private constructor(
             val livenessHttp = HttpLiveness(baseUrl, token)
 
             if (fallbackDir == null) {
-                val ingest = QueuedIngest(taskHttp, livenessHttp)
+                val ingest = QueuedIngest(taskHttp, livenessHttp, handshakes = handshakeHttp)
                 return RegistryLink(
-                    reporter = handshakeHttp,
+                    reporter = ingest.handshakeSink,
                     decorate = { p, sw, sn -> IngestBridge(p, ingest.taskSink, ingest.livenessSink, sw, sn) },
                     replay = null,
                     handshakeFallback = null,
@@ -124,11 +125,14 @@ class RegistryLink private constructor(
             val handshakeFile = fallbackDir.resolve("handshake-fallback.jsonl")
             val taskFile = fallbackDir.resolve("task-fallback.jsonl")
             val taskFailures = FileTaskObservations(taskFile)
+            val handshakeFailures = FileHandshakeReporter(handshakeFile)
             // 큐가 차면 같은 폴백 파일로 간다 — 레지스트리가 실패한 것과 같은 자리에서 다시 밀린다.
             val ingest = QueuedIngest(
                 FallbackTaskObservations(taskHttp, taskFailures),
                 livenessHttp,
                 overflow = taskFailures,
+                handshakes = FallbackHandshakeReporter(handshakeHttp, handshakeFailures),
+                handshakeOverflow = handshakeFailures,
             )
 
             val replay = FallbackReplay(
@@ -141,10 +145,7 @@ class RegistryLink private constructor(
             )
 
             return RegistryLink(
-                reporter = FallbackHandshakeReporter(
-                    handshakeHttp,
-                    FileHandshakeReporter(handshakeFile),
-                ),
+                reporter = ingest.handshakeSink,
                 decorate = { p, sw, sn -> IngestBridge(p, ingest.taskSink, ingest.livenessSink, sw, sn) },
                 replay = {
                     val handshakes = replay.replayHandshakes(handshakeFile)

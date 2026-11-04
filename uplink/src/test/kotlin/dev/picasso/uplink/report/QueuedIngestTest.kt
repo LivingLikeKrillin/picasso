@@ -3,6 +3,8 @@ package dev.picasso.uplink.report
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.MessageHeader
+import dev.picasso.contracts.v1.NegotiateRequest
+import dev.picasso.contracts.v1.NegotiateResponse
 import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskSnapshot
 import java.time.Duration
@@ -56,17 +58,36 @@ class QueuedIngestTest {
         }
     }
 
+    /** 받은 핸드셰이크 보고의 사이트를 적는다. [gate] 가 닫혀 있으면 첫 보고에서 선다. */
+    private class Handshakes : HandshakeReporter {
+        val received: MutableList<String> = Collections.synchronizedList(mutableListOf())
+        val entered = CountDownLatch(1)
+        var gate: CountDownLatch? = null
+
+        override fun report(report: HandshakeReport) {
+            entered.countDown()
+            gate?.await(10, TimeUnit.SECONDS)
+            received += report.site
+        }
+    }
+
     private val tasks = Tasks()
     private val live = Live()
     private val failed = Failed()
+    private val handshakes = Handshakes()
+    private val handshakeFailed = RecordingHandshakeReporter()
     private val opened = mutableListOf<QueuedIngest>()
 
     private fun ingest(capacity: Int = QueuedIngest.CAPACITY, nanoTime: () -> Long = System::nanoTime) =
-        QueuedIngest(tasks, live, failed, capacity = capacity, nanoTime = nanoTime).also { opened += it }
+        QueuedIngest(
+            tasks, live, failed, capacity = capacity, nanoTime = nanoTime,
+            handshakes = handshakes, handshakeOverflow = handshakeFailed,
+        ).also { opened += it }
 
     @AfterTest
     fun release() {
         tasks.gate?.countDown()
+        handshakes.gate?.countDown()
         opened.forEach { it.close() }
     }
 
@@ -177,6 +198,47 @@ class QueuedIngestTest {
         queue.taskSink.onState(state("late"))
         assertEquals(listOf<Pair<String, String?>>("state" to QueuedIngest.QUEUE_FULL), failed.received)
     }
+
+    @Test
+    fun `핸드셰이크 보고는 넣기만 하고 레지스트리의 답을 기다리지 않는다`() {
+        // 협상에 답하는 스레드는 호스트 잠금 아래에 있다(§15.266). 보고를 기다리면 그 호스트의 RPC 가 같이 선다.
+        handshakes.gate = CountDownLatch(1)
+        val queue = ingest()
+
+        queue.handshakeSink.report(handshake("line-a"))
+        assertTrue(handshakes.entered.await(5, TimeUnit.SECONDS), "작업 스레드가 꺼내지 않았다")
+
+        val started = System.nanoTime()
+        queue.handshakeSink.report(handshake("line-b"))
+        val waited = Duration.ofNanos(System.nanoTime() - started)
+        assertTrue(waited < Duration.ofMillis(500), "보고하는 쪽이 보내기를 기다렸다: $waited")
+
+        handshakes.gate!!.countDown()
+        assertTrue(queue.drain(Duration.ofSeconds(10)))
+        assertEquals(listOf("line-a", "line-b"), handshakes.received)
+        assertTrue(handshakeFailed.reports.isEmpty(), "${handshakeFailed.reports}")
+    }
+
+    @Test
+    fun `큐가 차면 핸드셰이크 보고는 폴백으로 넘어간다`() {
+        // 보고는 사실이라 늦게 가도 참이다 — 넘친 것을 버리면 원장이 그 소비자를 못 본 채 축소를 승인한다.
+        handshakes.gate = CountDownLatch(1)
+        val queue = ingest(capacity = 1)
+        queue.handshakeSink.report(handshake("line-a"))
+        assertTrue(handshakes.entered.await(5, TimeUnit.SECONDS))
+        queue.handshakeSink.report(handshake("line-b"))
+
+        queue.handshakeSink.report(handshake("line-c"))
+
+        assertEquals(listOf("line-c"), handshakeFailed.reports.map { it.site }, "넘친 보고를 잃었다")
+        assertEquals(1, queue.overflowedHandshakeCount)
+        handshakes.gate!!.countDown()
+        assertTrue(queue.drain(Duration.ofSeconds(10)))
+        assertEquals(listOf("line-a", "line-b"), handshakes.received)
+    }
+
+    private fun handshake(site: String) =
+        HandshakeReport(site, NegotiateRequest.getDefaultInstance(), NegotiateResponse.getDefaultInstance())
 
     private fun header(robot: String) = MessageHeader.newBuilder().setRobotId(robot).build()
 

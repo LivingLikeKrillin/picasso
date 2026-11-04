@@ -24,6 +24,8 @@ import java.nio.file.StandardOpenOption
  */
 class FileHandshakeReporter(private val path: Path) : HandshakeReporter {
 
+    /** 적재 작업 스레드와 큐가 찬 협상 스레드가 함께 쓴다(`QueuedIngest`, §15.266). 줄이 섞이면 재적재가 못 읽는다. */
+    @Synchronized
     override fun report(report: HandshakeReport) {
         val line = buildString {
             append("""{"site":""")
