@@ -63,6 +63,9 @@ class SiteCatalog(private val db: Db) {
      * **활성 바인딩만 본다**(§9.1) — 해제된 것은 이력이라, 세면 이미 라인에서
      * 뺀 기체가 능력을 제공하는 것처럼 보인다.
      *
+     * **퇴역 기체도 안 센다**(§15.264). 퇴역은 바인딩을 풀지 않으므로(되살리면 그 바인딩으로 돌아온다)
+     * 활성 바인딩만 보면 퇴역 기체가 가용 수와 minor 범위, 폐기 예고, 필수 선택 필드에 그대로 남는다.
+     *
      * 폐기 예고의 프로파일 축은 **모든 제공 기체가 예고했을 때만** 값이 있고,
      * 그때 값은 그중 **가장 늦은** 것이다. 한 대라도 예고 없이 제공하고 있으면
      * 사이트는 그 날짜 이후에도 능력을 갖는다 — 여기서 이른 쪽을 취하면
@@ -88,7 +91,7 @@ class SiteCatalog(private val db: Db) {
             JOIN profile_skill ps ON ps.profile_revision_id = b.profile_revision_id
             JOIN skill_type s     ON s.skill_type_id = ps.skill_type_id
             LEFT JOIN skill_type_deprecation std ON std.skill_type_id = s.skill_type_id
-            WHERE b.unbound_at IS NULL AND r.site_id = ?
+            WHERE b.unbound_at IS NULL AND r.retired_at IS NULL AND r.site_id = ?
             GROUP BY s.name, s.major
             ORDER BY s.name, s.major
             """.trimIndent(),
@@ -132,7 +135,7 @@ class SiteCatalog(private val db: Db) {
                 JOIN skill_type s     ON s.skill_type_id = ps.skill_type_id
                 JOIN profile_optional_field f
                      ON f.profile_revision_id = b.profile_revision_id
-                WHERE b.unbound_at IS NULL AND r.site_id = ?
+                WHERE b.unbound_at IS NULL AND r.retired_at IS NULL AND r.site_id = ?
                   AND s.name = ? AND s.major = ? AND f.support = 'REQUIRED'
                 ORDER BY f.parameter_path
                 """.trimIndent(),
