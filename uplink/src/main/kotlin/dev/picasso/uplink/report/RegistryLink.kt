@@ -2,6 +2,7 @@ package dev.picasso.uplink.report
 
 import dev.picasso.uplink.Publisher
 import java.nio.file.Path
+import java.time.Duration
 
 /**
  * 레지스트리와의 연결을 **한 자리에서** 조립한다.
@@ -19,6 +20,12 @@ import java.nio.file.Path
  *
  * §3.2가 이 방향을 **런타임 접근**으로 뒀다 — 상대가 없어도 모듈이 돈다.
  * [none] 이 그 모드이며, `mimic`은 파일 모드로 그대로 기동한다.
+ *
+ * ## 적재는 발행한 스레드에서 안 보낸다
+ *
+ * [http] 의 태스크 적재와 생존 보고는 [QueuedIngest] 를 지난다 — 발행은 발신자의 잠금 아래에서 오므로, 거기서
+ * 레지스트리 HTTP 를 기다리면 그 잠금을 기다리는 RPC 가 같이 선다(§15.210). 연결을 다 쓰면 [close] 로 큐를 비운다.
+ * 핸드셰이크 보고([reporter])는 여전히 부른 스레드에서 보낸다.
  */
 class RegistryLink private constructor(
     /** §5.4의 핸드셰이크 결과 보고. */
@@ -34,7 +41,9 @@ class RegistryLink private constructor(
     private val replay: (() -> ReplayOutcome)?,
     private val handshakeFallback: Path?,
     private val taskFallback: Path?,
-) {
+    /** 적재 큐. [none] 에는 없다. */
+    private val ingest: QueuedIngest? = null,
+) : AutoCloseable {
 
     /**
      * 기동할 때 폴백 파일을 밀어 넣는다.
@@ -59,6 +68,18 @@ class RegistryLink private constructor(
 
     /** 폴백이 쌓이는 자리. 운영자가 볼 수 있게 알린다. */
     fun fallbackPaths(): List<Path> = listOfNotNull(handshakeFallback, taskFallback)
+
+    /**
+     * 적재 큐가 빌 때까지 기다린다. 큐가 없으면 바로 참이다.
+     *
+     * @return 그 안에 비웠으면 참.
+     */
+    fun drain(timeout: Duration): Boolean = ingest?.drain(timeout) ?: true
+
+    /** 적재 큐를 비우고 닫는다([QueuedIngest.close]). 그 뒤 발행된 관측은 큐가 찬 것과 같이 다뤄진다. */
+    override fun close() {
+        ingest?.close()
+    }
 
     companion object {
 
@@ -89,18 +110,26 @@ class RegistryLink private constructor(
             val livenessHttp = HttpLiveness(baseUrl, token)
 
             if (fallbackDir == null) {
+                val ingest = QueuedIngest(taskHttp, livenessHttp)
                 return RegistryLink(
                     reporter = handshakeHttp,
-                    decorate = { p, sw, sn -> IngestBridge(p, taskHttp, livenessHttp, sw, sn) },
+                    decorate = { p, sw, sn -> IngestBridge(p, ingest.taskSink, ingest.livenessSink, sw, sn) },
                     replay = null,
                     handshakeFallback = null,
                     taskFallback = null,
+                    ingest = ingest,
                 )
             }
 
             val handshakeFile = fallbackDir.resolve("handshake-fallback.jsonl")
             val taskFile = fallbackDir.resolve("task-fallback.jsonl")
-            val tasks = FallbackTaskObservations(taskHttp, FileTaskObservations(taskFile))
+            val taskFailures = FileTaskObservations(taskFile)
+            // 큐가 차면 같은 폴백 파일로 간다 — 레지스트리가 실패한 것과 같은 자리에서 다시 밀린다.
+            val ingest = QueuedIngest(
+                FallbackTaskObservations(taskHttp, taskFailures),
+                livenessHttp,
+                overflow = taskFailures,
+            )
 
             val replay = FallbackReplay(
                 handshakes = { s, request, response ->
@@ -116,7 +145,7 @@ class RegistryLink private constructor(
                     handshakeHttp,
                     FileHandshakeReporter(handshakeFile),
                 ),
-                decorate = { p, sw, sn -> IngestBridge(p, tasks, livenessHttp, sw, sn) },
+                decorate = { p, sw, sn -> IngestBridge(p, ingest.taskSink, ingest.livenessSink, sw, sn) },
                 replay = {
                     val handshakes = replay.replayHandshakes(handshakeFile)
                     val taskLines = replay.replayTasks(taskFile)
@@ -128,6 +157,7 @@ class RegistryLink private constructor(
                 },
                 handshakeFallback = handshakeFile,
                 taskFallback = taskFile,
+                ingest = ingest,
             )
         }
     }

@@ -250,7 +250,8 @@ class MimicCliTest {
             assertEquals(0, code, err.toString())
             body(cli.started!!.server.port)
         } finally {
-            cli.started?.server?.shutdown()
+            // 적재 큐까지 비워야 폴백 파일을 읽을 수 있다(§15.210).
+            cli.started?.close()
         }
     }
 
