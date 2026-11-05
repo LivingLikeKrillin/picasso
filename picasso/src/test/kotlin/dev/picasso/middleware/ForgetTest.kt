@@ -114,7 +114,7 @@ class ForgetTest {
 
     @Test
     fun `확인되지 않은 통보가 하나라도 있으면 놓지 않는다`() {
-        // ★앞 통보를 확인하면 실행의 상류 확인 표시가 ACKED 로 바뀐다. 그 표시만 보면 마지막 통보가 확인 전인 채로 빠진다.
+        // 앞 통보만 확인하면 실행의 상류 확인 표시는 아직 ACKED 가 아니다(§15.262). 놓기는 그 표시가 아니라 응답마다의 확인을 본다.
         World(port = { FaultBlindRobotPort(it) }).use { w ->
             val exec = w.partial()
             assertTrue(w.mw.cancel(exec.executionId))
@@ -122,7 +122,7 @@ class ForgetTest {
             val mine = w.mw.pending().filter { it.executionId == exec.executionId }
             assertTrue(mine.size >= 2, "통보가 둘 이상이어야 앞 것만 확인할 수 있다: ${mine.map { it.physicalState }}")
             mine.dropLast(1).forEach { w.mw.ack(it.jobResponseId) }
-            assertEquals(UpstreamAck.ACKED, exec.upstreamAck)
+            assertEquals(UpstreamAck.SENT_UNACKED, exec.upstreamAck, "앞 통보의 확인으로 실행 전체가 확인된 것으로 읽혔다")
 
             val refused = assertIs<ForgetOutcome.Refused>(w.mw.forget(exec.executionId))
             assertTrue(mine.last().jobResponseId in refused.reason, refused.reason)
@@ -130,6 +130,7 @@ class ForgetTest {
             assertEquals(listOf(mine.last()), w.mw.pending(), "거절해 놓고 확인 안 된 통보를 뺐다")
 
             w.mw.ack(mine.last().jobResponseId)
+            assertEquals(UpstreamAck.ACKED, exec.upstreamAck)
             assertEquals(ForgetOutcome.Forgotten, w.mw.forget(exec.executionId))
         }
     }

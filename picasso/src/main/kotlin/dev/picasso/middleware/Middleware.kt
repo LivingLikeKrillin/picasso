@@ -239,6 +239,12 @@ class Middleware(
          * 사람 승인과 따로 잴 수 있다(ADR 43 §4).
          */
         internal var approvedBy: Approver? = null
+
+        /**
+         * 이 실행의 통보가 상류에 어디까지 확인됐는가. 통보를 내면 `SENT_UNACKED`, 그 실행의 통보가 **전부** 확인돼야 `ACKED` 다.
+         * 앞 통보 하나의 확인으로 `ACKED` 가 되면 마지막 통보가 확인 전인데도 확인된 것으로 읽힌다(§15.262). 응답마다의 확인은
+         * [JobResponse.ack] 에 있다.
+         */
         var upstreamAck: UpstreamAck = UpstreamAck.NOT_SENT
             internal set
         internal var active: ExecutionUnit? = null
@@ -3318,11 +3324,17 @@ class Middleware(
         if (current != last) notify(execution)
     }
 
-    /** 상류가 결과를 확정했다 — 두 축 중 둘째가 닫힌다. */
+    /**
+     * 상류가 결과를 확정했다 — 두 축 중 둘째가 닫힌다. 그 응답을 확인하고, 그 실행의 통보가 전부 확인됐으면 실행의
+     * [Execution.upstreamAck] 도 `ACKED` 로 둔다.
+     */
     fun ack(jobResponseId: String): Boolean {
         val response = outbox.firstOrNull { it.jobResponseId == jobResponseId } ?: return false
         response.ack = UpstreamAck.ACKED
-        executions.values.firstOrNull { it.order.jobOrderId == response.jobOrderId }?.upstreamAck = UpstreamAck.ACKED
+        val execution = executions[response.executionId] ?: return true
+        if (outbox.none { it.executionId == execution.executionId && it.ack != UpstreamAck.ACKED }) {
+            execution.upstreamAck = UpstreamAck.ACKED
+        }
         return true
     }
 
