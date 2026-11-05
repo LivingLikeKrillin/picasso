@@ -18,7 +18,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -67,6 +66,7 @@ class RegistryLinkTest {
         val link = RegistryLink.http(unreachable, "t", "line-a", dir)
 
         link.reporter.report(handshake())
+        assertTrue(link.drain(Duration.ofSeconds(10)), "적재 큐가 안 비었다")
 
         val file = dir.resolve("handshake-fallback.jsonl")
         assertEquals(1, Files.readAllLines(file).size, "보고자가 안 붙었거나 폴백이 없다")
@@ -100,15 +100,51 @@ class RegistryLinkTest {
     // ── 폴백 없는 모드
 
     @Test
-    fun `폴백 자리가 없으면 보고자가 던진다`() {
-        // **삼키는 책임은 부르는 쪽에 있다** — 핸드셰이크는
-        // `SkillServiceImpl`이(§5.4), 태스크는 `IngestBridge`가 삼킨다.
-        // 여기서 삼키면 폴백이 붙어 있을 때도 파일로 넘길 기회를 잃는다.
+    fun `폴백 자리가 없으면 보고는 큐에서 실패하고 부른 쪽에 던지지 않는다`() {
+        // 보고자는 큐에 넣기만 한다(§15.266). 레지스트리 실패는 작업 스레드가 삼키고, 폴백이 없으니 남는 곳이 없다.
+        // 폴백이 붙어 있을 때 파일로 넘기는 것은 `FallbackHandshakeReporter` 가 작업 스레드에서 한다.
         val link = RegistryLink.http(unreachable, "t", "line-a", fallbackDir = null)
 
-        assertFailsWith<Exception> { link.reporter.report(handshake()) }
+        link.reporter.report(handshake())
+        assertTrue(link.drain(Duration.ofSeconds(10)), "적재 큐가 안 비었다")
+
         assertEquals(emptyList(), link.fallbackPaths())
         assertEquals(null, link.replayFallbacks())
+    }
+
+    @Test
+    fun `레지스트리가 답하지 않는 동안에도 핸드셰이크 보고는 그 답을 기다리지 않는다`() {
+        // `Negotiate` 에 답하는 스레드는 호스트 잠금 아래에 있다(§15.266). 보고를 기다리면 그 호스트의 RPC 가 같이 선다.
+        val release = CountDownLatch(1)
+        val arrived = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/ingest/handshake") { exchange ->
+                arrived.incrementAndGet()
+                exchange.requestBody.readBytes()
+                release.await(10, TimeUnit.SECONDS)
+                exchange.sendResponseHeaders(200, 2)
+                exchange.responseBody.use { it.write("{}".toByteArray()) }
+            }
+            executor = java.util.concurrent.Executors.newCachedThreadPool()
+            start()
+        }
+        val dir = Files.createTempDirectory("picasso-link")
+        val link = RegistryLink.http("http://127.0.0.1:${server.address.port}", "t", "line-a", dir)
+        try {
+            link.reporter.report(handshake())
+            val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
+            while (arrived.get() == 0 && System.nanoTime() < deadline) Thread.sleep(5)
+            assertTrue(arrived.get() > 0, "보고가 레지스트리에 안 닿았다")
+
+            val started = System.nanoTime()
+            link.reporter.report(handshake())
+            val waited = Duration.ofNanos(System.nanoTime() - started)
+            assertTrue(waited < Duration.ofMillis(500), "보고가 레지스트리의 답을 기다렸다: $waited")
+        } finally {
+            release.countDown()
+            link.close()
+            server.stop(0)
+        }
     }
 
     @Test

@@ -345,7 +345,8 @@ internal class HostSkillService(
             .build()
 
         // **§5.4 — 보고 실패는 핸드셰이크 결과에 영향을 주지 않는다.** 그래서 삼킨다. 삼켜도 잃지 않는 것은
-        // 폴백의 몫이고(`FileHandshakeReporter`), 삼킨 것이 조용하지 않은 것은 워터마크의 몫이다.
+        // 폴백의 몫이고(`FileHandshakeReporter`), 삼킨 것이 조용하지 않은 것은 워터마크의 몫이다. 느린 것도 영향이므로
+        // 레지스트리 연계의 보고자는 큐에 넣기만 한다(`RegistryLink`, §15.266) — 여기는 호스트 잠금 아래다.
         runCatching { reporter.report(HandshakeReport(robot.site, request, response)) }
 
         response

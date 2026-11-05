@@ -48,7 +48,9 @@ import dev.picasso.contracts.v1.WatchTaskResponse
 import dev.picasso.contracts.wire.RequestHeaders
 import dev.picasso.profile.ProfileDocument
 import dev.picasso.uplink.Publication
+import dev.picasso.uplink.report.HandshakeReporter
 import dev.picasso.uplink.report.RecordingHandshakeReporter
+import dev.picasso.uplink.report.RegistryLink
 import dev.picasso.uplink.Publisher
 import dev.picasso.uplink.RecordingPublisher
 import dev.picasso.uplink.Topics
@@ -59,9 +61,16 @@ import io.grpc.inprocess.InProcessChannelBuilder
 import io.grpc.inprocess.InProcessServerBuilder
 import io.grpc.stub.ClientCallStreamObserver
 import io.grpc.stub.ClientResponseObserver
+import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -147,6 +156,8 @@ class AdapterHostTest {
     private class World(
         profileJson: String = Files.readString(PROFILE),
         val bindings: ScriptedBindings = ScriptedBindings(),
+        /** 보고자를 바꿀 때만 준다. 주지 않으면 [handshakes] 가 받는다. */
+        reporter: HandshakeReporter? = null,
     ) : AutoCloseable {
         var now: Instant = Instant.parse("2026-09-10T00:00:00Z")
         val adapter = ScriptedAdapter()
@@ -158,7 +169,7 @@ class AdapterHostTest {
         ) { now }
         val handshakes = RecordingHandshakeReporter()
         private val name = InProcessServerBuilder.generateName()
-        val host = AdapterHost(robot, InProcessServerBuilder.forName(name).directExecutor(), handshakes).start()
+        val host = AdapterHost(robot, InProcessServerBuilder.forName(name).directExecutor(), reporter ?: handshakes).start()
         val channel: ManagedChannel = InProcessChannelBuilder.forName(name).directExecutor().build()
         val tasks: TaskServiceGrpc.TaskServiceBlockingStub = TaskServiceGrpc.newBlockingStub(channel)
         val skills: SkillServiceGrpc.SkillServiceBlockingStub = SkillServiceGrpc.newBlockingStub(channel)
@@ -696,6 +707,46 @@ class AdapterHostTest {
 
             assertEquals(listOf(true, false, false), w.handshakes.reports.map { it.response.accepted }, "성공·실패 둘 다 보고돼야 한다")
             assertEquals(listOf("line-a", "line-a", "line-a"), w.handshakes.reports.map { it.site }, "토픽의 site 가 보고에 실려야 한다")
+        }
+    }
+
+    @Test
+    fun `레지스트리가 답하지 않는 동안에도 협상과 다른 RPC 가 보고를 기다리지 않는다`() {
+        // 협상은 호스트 잠금 아래에서 답한다(§15.220). 보고를 동기로 보내면 레지스트리가 멈춘 동안 이 호스트의 모든 RPC 가
+        // 보고 제한(연결 2초, 요청 3초)만큼 선다. 보고자는 큐에 넣기만 해야 한다(§15.266).
+        val release = CountDownLatch(1)
+        val arrived = AtomicInteger()
+        val registry = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/ingest") { exchange ->
+                arrived.incrementAndGet()
+                exchange.requestBody.readBytes()
+                release.await(10, TimeUnit.SECONDS)
+                exchange.sendResponseHeaders(200, 2)
+                exchange.responseBody.use { it.write("{}".toByteArray()) }
+            }
+            executor = Executors.newCachedThreadPool()
+            start()
+        }
+        val dir = Files.createTempDirectory("picasso-host-registry")
+        val link = RegistryLink.http("http://127.0.0.1:${registry.address.port}", "t", "line-a", dir)
+        try {
+            World(reporter = link.reporter).use { w ->
+                assertTrue(w.negotiate(satisfying()).accepted)
+                val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
+                while (arrived.get() == 0 && System.nanoTime() < deadline) Thread.sleep(5)
+                assertTrue(arrived.get() > 0, "보고가 레지스트리에 안 닿았다")
+
+                // 첫 보고가 레지스트리에 서 있는 동안 협상과 스냅숏을 잰다.
+                val started = System.nanoTime()
+                assertTrue(w.negotiate(satisfying()).accepted)
+                w.snapshot()
+                val waited = Duration.ofNanos(System.nanoTime() - started)
+                assertTrue(waited < Duration.ofMillis(500), "호스트 RPC 가 레지스트리의 답을 기다렸다: $waited")
+            }
+        } finally {
+            release.countDown()
+            link.close()
+            registry.stop(0)
         }
     }
 

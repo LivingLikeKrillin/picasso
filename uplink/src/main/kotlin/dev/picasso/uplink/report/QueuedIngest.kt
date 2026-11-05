@@ -35,10 +35,18 @@ import java.util.concurrent.atomic.AtomicLong
  * 오래 머물렀으면 보내지 않고, 큐가 차도 넘기지 않고 버린다. 안 보낸 생존은 워터마크를 늙게 하고 §9.3 의 조회가
  * 축소를 막는 쪽으로 틀린다(§15.41).
  *
+ * ## 핸드셰이크 보고도 같은 큐로 간다(§15.266)
+ *
+ * `Negotiate` 의 보고(§5.4)도 협상에 답하는 스레드에서, 곧 호스트 잠금 아래에서 온다. 동기로 보내면 레지스트리가
+ * 멈춘 동안 그 호스트의 모든 RPC 가 보고 제한만큼 선다 — §5.4 의 *"보고 실패는 핸드셰이크 결과에 영향을 주지
+ * 않는다"* 는 느린 것까지 덮어야 참이다. 보고는 태스크 관측처럼 **사실**이라 늦게 가도 참이고, 큐가 차면
+ * [handshakeOverflow] 로 넘긴다(폴백 파일, `FileHandshakeReporter`). 레지스트리가 실패한 것은 [handshakes] 쪽이
+ * 폴백으로 넘긴다(`FallbackHandshakeReporter`) — 작업 스레드는 그 실패를 삼킬 뿐이다.
+ *
  * ## 끝낼 때
  *
  * [close] 가 큐가 빌 때까지 기다린다(최대 [CLOSE_TIMEOUT]). 그 안에 못 비우거나 프로세스가 강제로 죽으면 큐에 남은
- * 관측은 레지스트리에도 폴백에도 없다 — 동기로 보낼 때는 없던 손실이다.
+ * 관측과 보고는 레지스트리에도 폴백에도 없다 — 동기로 보낼 때는 없던 손실이다.
  */
 class QueuedIngest(
     private val tasks: TaskObservations,
@@ -48,11 +56,16 @@ class QueuedIngest(
     capacity: Int = CAPACITY,
     private val livenessMaxAge: Duration = LIVENESS_MAX_AGE,
     private val nanoTime: () -> Long = System::nanoTime,
+    /** 핸드셰이크 보고를 보낼 곳. 작업 스레드에서 부르며, 던지면 삼킨다. */
+    private val handshakes: HandshakeReporter = HandshakeReporter.NONE,
+    /** 큐가 찼을 때(또는 닫힌 뒤) 핸드셰이크 보고를 넘길 곳. 없으면 버린다. */
+    private val handshakeOverflow: HandshakeReporter? = null,
 ) : AutoCloseable {
 
     private sealed interface Item {
         data class State(val message: StateMessage) : Item
         data class Transition(val event: Event) : Item
+        data class Handshake(val report: HandshakeReport) : Item
         data class Live(
             val header: MessageHeader,
             val state: ConnectionState,
@@ -72,6 +85,7 @@ class QueuedIngest(
     private val staleLiveness = AtomicLong()
     private val droppedLiveness = AtomicLong()
     private val overflowedTasks = AtomicLong()
+    private val overflowedHandshakes = AtomicLong()
 
     private val worker = Thread(::loop, "picasso-ingest").apply {
         isDaemon = true
@@ -96,6 +110,17 @@ class QueuedIngest(
         }
     }
 
+    /**
+     * 협상에 답하는 스레드에서 부르는 핸드셰이크 보고. 넣기만 하고 던지지 않는다 — 큐가 차면 [handshakeOverflow] 로
+     * 넘긴다(그것도 부른 스레드에서 하는 로컬 파일 쓰기다).
+     */
+    val handshakeSink: HandshakeReporter = HandshakeReporter { report ->
+        if (!offer(Item.Handshake(report))) {
+            overflowedHandshakes.incrementAndGet()
+            handshakeOverflow?.let { sink -> runCatching { sink.report(report) } }
+        }
+    }
+
     /** 꺼낼 때 너무 늦어 안 보낸 생존의 수. */
     val staleLivenessCount: Long get() = staleLiveness.get()
 
@@ -104,6 +129,9 @@ class QueuedIngest(
 
     /** 큐가 차서(또는 닫힌 뒤라서) [overflow] 로 넘긴(없으면 버린) 태스크 관측의 수. */
     val overflowedTaskCount: Long get() = overflowedTasks.get()
+
+    /** 큐가 차서(또는 닫힌 뒤라서) [handshakeOverflow] 로 넘긴(없으면 버린) 핸드셰이크 보고의 수. */
+    val overflowedHandshakeCount: Long get() = overflowedHandshakes.get()
 
     /** 닫힌 뒤에는 넣지 않는다 — 꺼낼 스레드가 없다. */
     private fun offer(item: Item): Boolean {
@@ -143,6 +171,7 @@ class QueuedIngest(
         when (item) {
             is Item.State -> runCatching { tasks.onState(item.message) }
             is Item.Transition -> runCatching { tasks.onEvent(item.event) }
+            is Item.Handshake -> runCatching { handshakes.report(item.report) }
             is Item.Live -> {
                 if (nanoTime() - item.queuedAt > livenessMaxAge.toNanos()) {
                     staleLiveness.incrementAndGet()
