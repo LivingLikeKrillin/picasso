@@ -53,6 +53,11 @@ import io.grpc.ServerServiceDefinition
  * 보내는 동안은 링크 잠금만 쥔다. 보내는 중인 명령은 기체마다 하나이고 그 자리가 배타 검사다 — 같은 접수는 합류하고, 다른 접수는
  * 거부되고, 조작은 기다린다([HostedRobot.start]·[HostedRobot.manipulate]). 그래서 플릿이 명령에 답하지 않는 동안에도 링크를 안
  * 쓰는 RPC 는 기다리지 않는다. 같은 링크를 쓰는 것(다른 기체의 명령, 펌프의 읽기)은 여전히 그 명령을 기다린다.
+ *
+ * ## 생존 보고도 발행할 때 어댑터에 묻지 않는다 (§15.271)
+ *
+ * 상태 발행은 호스트 잠금 아래에서 오고, 그 발행이 싣는 생존 보고(로봇 소프트웨어, 사이트 이름 요약)는 어댑터에서 온다. 펌프가
+ * 상태 발행 차례에 그것을 링크 잠금 아래에서 함께 읽어 두고([HostedRobot.liveness]), 발행은 읽어 둔 것을 싣는다.
  */
 class AdapterHost(
     /**
@@ -108,8 +113,12 @@ class AdapterHost(
 
     val port: Int get() = server.port
 
-    /** 포트를 열고 **그 다음에** `ONLINE` 을 발행한다(§10.2 의 순서 — 붙을 수 없는 기체를 살아 있다고 알리지 않는다). */
+    /**
+     * 포트를 열고 **그 다음에** `ONLINE` 을 발행한다(§10.2 의 순서 — 붙을 수 없는 기체를 살아 있다고 알리지 않는다). 그 앞에
+     * 생존 보고의 내용을 호스트 잠금 밖에서 읽어 둔다([HostedRobot.primeLiveness]) — 발행은 어댑터에 묻지 않는다(§15.271).
+     */
     fun start(): AdapterHost = apply {
+        robots.values.forEach { it.primeLiveness() }
         server.start()
         // 포트가 열린 뒤라 RPC 가 들어올 수 있다. 온라인 발행도 같은 잠금 아래에 둔다 — 순번 축을 RPC 와 같이 쓴다.
         exclusive { robots.values.forEach { it.announceOnline() } }
