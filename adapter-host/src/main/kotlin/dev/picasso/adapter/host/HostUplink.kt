@@ -23,6 +23,12 @@ object HostUplink {
     }
 
     /** 발행자를 레지스트리 적재로 감싼다. 연계가 없으면 그대로 돌려준다(`RegistryLink.none()`). */
-    fun wrap(link: RegistryLink, outbound: Publisher, adapter: RobotAdapter): Publisher =
-        link.wrap(outbound, software = { adapter.robotSoftware() }, siteNames = { siteNames(adapter) })
+    fun wrap(link: RegistryLink, outbound: Publisher, adapter: RobotAdapter): Publisher = wrap(link, outbound) { adapter }
+
+    /**
+     * 어댑터를 **발행할 때** 찾는다. 감싼 발행자를 받는 [HostedRobot] 의 [HostedRobot.adapter] 를 넘기려고 쓴다 — 그 어댑터는
+     * 링크 잠금을 지나므로 펌프의 읽기와 같은 링크를 동시에 부르지 않는다(§15.268).
+     */
+    fun wrap(link: RegistryLink, outbound: Publisher, adapter: () -> RobotAdapter): Publisher =
+        link.wrap(outbound, software = { adapter().robotSoftware() }, siteNames = { siteNames(adapter()) })
 }

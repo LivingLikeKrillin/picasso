@@ -105,14 +105,17 @@ class OrbitLauncher(
                 nickname = robot.nickname,
                 driverId = options.driverId,
             )
-            // **발행자를 적재로 감싼다** — 미믹 CLI 의 `RegistryLink.wrap` 과 같은 자리다.
-            val outbound = HostUplink.wrap(registry, publisher, adapter)
-            robot.nickname to HostedRobot(robot.nickname, document, adapter, publisher = outbound, site = options.site)
+            // **발행자를 적재로 감싼다** — 미믹 CLI 의 `RegistryLink.wrap` 과 같은 자리다. 생존 보고가 묻는 어댑터는 기체의
+            // 것이다 — 링크 잠금을 지나야 펌프의 읽기와 같은 링크를 동시에 부르지 않는다(§15.268). 발행할 때 찾으므로 그때는 기체가 있다.
+            var hostedRobot: HostedRobot? = null
+            val outbound = HostUplink.wrap(registry, publisher) { checkNotNull(hostedRobot).adapter }
+            robot.nickname to HostedRobot(robot.nickname, document, adapter, publisher = outbound, site = options.site).also { hostedRobot = it }
         }
         if (hosted.isEmpty()) throw IllegalStateException("플릿에 기체가 하나도 없다 — 세울 것이 없다")
 
         // ④ 포트를 열고 그 다음에 ONLINE 이 나간다.
-        val host = AdapterHost(hosted, serverBuilder(options.port), registry.reporter).start()
+        // 펌프 스레드가 있으면 읽기 RPC 는 펌프를 건너뛴다 — 링크를 기다리지 않고 펌프가 적어 둔 것으로 답한다(§15.268).
+        val host = AdapterHost(hosted, serverBuilder(options.port), registry.reporter, pumpOnRead = options.pumpMillis <= 0).start()
 
         Running(host, ack.recorded, pumpThread(host))
     }

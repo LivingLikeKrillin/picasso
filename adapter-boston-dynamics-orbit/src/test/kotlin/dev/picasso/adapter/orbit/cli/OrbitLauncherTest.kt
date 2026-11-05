@@ -208,10 +208,22 @@ class OrbitLauncherTest {
     }
 
     @Test
+    fun `펌프 스레드를 세우는 배치만 읽기 RPC 의 펌프를 끈다`() {
+        // 펌프 스레드가 없으면 RPC 의 펌프가 곧 구동이라 끄면 아무도 플릿에 안 묻는다. 있으면 끄고 펌프가 적은 것으로 답한다(§15.268).
+        OrbitLauncher(options().copy(pumpMillis = 1)).start().getOrThrow().use { running ->
+            assertEquals(false, running.host.pumpOnRead, "펌프 스레드가 있는데 읽기 RPC 가 플릿을 기다린다")
+        }
+        OrbitLauncher(options()).start().getOrThrow().use { running ->
+            assertEquals(true, running.host.pumpOnRead, "펌프 스레드가 없는데 읽기 RPC 가 펌프를 건너뛴다")
+        }
+    }
+
+    @Test
     fun `런처의 펌프 스레드는 호스트의 잠금을 지난다`() {
         // 위 시험은 접수끼리의 경합만 본다. 펌프 스레드가 잠금을 비켜 가도(기체의 펌프를 직접 부르면) 접수는 여전히
-        // 서로 줄을 서서 그 시험이 초록이다. 그래서 펌프 스레드 쪽을 따로 묻는다: 잠금을 쥔 동안에는 펌프가 플릿에
-        // 실행을 묻지 않아야 한다. 도는 태스크가 있으면 펌프마다 `GET /runs/` 가 나가므로 그 수가 곧 펌프의 발자국이다.
+        // 서로 줄을 서서 그 시험이 초록이다. 그래서 펌프 스레드 쪽을 따로 묻는다. 도는 태스크가 있으면 펌프마다
+        // `GET /runs/` 가 나가므로 그 수가 곧 펌프의 발자국이다. 펌프의 읽기는 호스트 잠금 밖이지만 읽을 자리를 정하고
+        // 읽은 것을 적는 일은 잠금 아래라(§15.268), 잠금을 쥔 동안에는 이미 들어선 읽기 하나만 끝나고 펌프가 선다.
         OrbitLauncher(options().copy(pumpMillis = 1)).start().getOrThrow().use { running ->
             val channel: ManagedChannel = ManagedChannelBuilder.forAddress("127.0.0.1", running.port).usePlaintext().build()
             try {
@@ -232,7 +244,7 @@ class OrbitLauncherTest {
                     Thread.sleep(200)
                     before to polls()
                 }
-                assertEquals(before, after, "잠금을 쥔 200ms 동안 펌프가 플릿에 ${after - before} 번 물었다 — 잠금을 비켜 간다")
+                assertTrue(after - before <= 1, "잠금을 쥔 200ms 동안 펌프가 플릿에 ${after - before} 번 물었다 — 잠금을 비켜 간다")
             } finally {
                 channel.shutdownNow()
             }
