@@ -105,10 +105,10 @@ class OrbitLauncher(
                 nickname = robot.nickname,
                 driverId = options.driverId,
             )
-            // **발행자를 적재로 감싼다** — 미믹 CLI 의 `RegistryLink.wrap` 과 같은 자리다. 생존 보고가 묻는 어댑터는 기체의
-            // 것이다 — 링크 잠금을 지나야 펌프의 읽기와 같은 링크를 동시에 부르지 않는다(§15.268). 발행할 때 찾으므로 그때는 기체가 있다.
+            // **발행자를 적재로 감싼다** — 에뮬레이터 CLI 의 `RegistryLink.wrap` 과 같은 자리다. 생존 보고는 기체가 펌프에서
+            // 읽어 둔 것을 싣는다 — 발행할 때 어댑터에 묻지 않는다(§15.271). 발행할 때 찾으므로 그때는 기체가 있다.
             var hostedRobot: HostedRobot? = null
-            val outbound = HostUplink.wrap(registry, publisher) { checkNotNull(hostedRobot).adapter }
+            val outbound = HostUplink.wrap(registry, publisher) { checkNotNull(hostedRobot) }
             robot.nickname to HostedRobot(robot.nickname, document, adapter, publisher = outbound, site = options.site).also { hostedRobot = it }
         }
         if (hosted.isEmpty()) throw IllegalStateException("플릿에 기체가 하나도 없다 — 세울 것이 없다")

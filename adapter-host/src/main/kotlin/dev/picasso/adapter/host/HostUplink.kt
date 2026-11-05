@@ -22,13 +22,13 @@ object HostUplink {
         is SiteNames.Unavailable -> null
     }
 
-    /** 발행자를 레지스트리 적재로 감싼다. 연계가 없으면 그대로 돌려준다(`RegistryLink.none()`). */
-    fun wrap(link: RegistryLink, outbound: Publisher, adapter: RobotAdapter): Publisher = wrap(link, outbound) { adapter }
-
     /**
-     * 어댑터를 **발행할 때** 찾는다. 감싼 발행자를 받는 [HostedRobot] 의 [HostedRobot.adapter] 를 넘기려고 쓴다 — 그 어댑터는
-     * 링크 잠금을 지나므로 펌프의 읽기와 같은 링크를 동시에 부르지 않는다(§15.268).
+     * 발행자를 레지스트리 적재로 감싼다. 연계가 없으면 그대로 돌려준다(`RegistryLink.none()`).
+     *
+     * 기체를 **발행할 때** 찾아 그 기체가 읽어 둔 것을 싣는다([HostedRobot.liveness]). 감싼 발행자를 받는 [HostedRobot] 을
+     * 넘기려고 쓴다. 발행은 호스트 잠금 아래에서 오므로 여기서 어댑터에 묻지 않는다 — 묻는 것은 펌프가 링크 잠금 아래에서
+     * 한다(§15.271). 아직 안 읽었으면 둘 다 `null` 이다.
      */
-    fun wrap(link: RegistryLink, outbound: Publisher, adapter: () -> RobotAdapter): Publisher =
-        link.wrap(outbound, software = { adapter().robotSoftware() }, siteNames = { siteNames(adapter()) })
+    fun wrap(link: RegistryLink, outbound: Publisher, robot: () -> HostedRobot): Publisher =
+        link.wrap(outbound, software = { robot().liveness?.software }, siteNames = { robot().liveness?.siteNames })
 }

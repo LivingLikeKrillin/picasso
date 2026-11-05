@@ -38,6 +38,7 @@ import dev.picasso.capability.PreconditionCheck
 import dev.picasso.uplink.Publication
 import dev.picasso.uplink.Publisher
 import dev.picasso.uplink.Topics
+import dev.picasso.uplink.report.SiteNameSummary
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.CompletableFuture
@@ -167,6 +168,20 @@ class HostedRobot(
         private set
 
     private var lastStateAt: Instant? = null
+
+    /** 생존 보고에 실을 것. 둘 다 `null` 일 수 있다 — 소프트웨어는 못 읽는다, 요약은 못 물어봤다는 뜻이다([HostUplink.siteNames]). */
+    class LivenessFacts(val software: String?, val siteNames: SiteNameSummary?)
+
+    /**
+     * 마지막으로 어댑터에서 읽은 생존 보고의 내용(§15.220). 아직 한 번도 안 읽었으면 `null` 이다. 호스트 잠금 아래에서 적고 읽는다.
+     *
+     * **발행할 때 어댑터에 묻지 않는다.** 발행은 호스트 잠금 아래에서 오고, 사이트 이름 조회는 사우스바운드 왕복이다(Spot 은
+     * 그래프를 받고, Orbit 은 미션 목록을 받는다). 그 자리에서 물으면 링크가 답하지 않는 동안 같은 프로세스의 모든 RPC 가 선다.
+     * 그래서 펌프가 상태 발행 차례에 링크 잠금 아래에서 읽어 두고([read]), 생존 보고는 이것을 싣는다. 대가로 보고의 요약은
+     * 그 상태 발행 앞의 읽기 값이다.
+     */
+    var liveness: LivenessFacts? = null
+        private set
 
     /** 태스크 하나의 기록 — 계약의 `WatchTask` 로그. 종착은 래치된다(§4.4). */
     class HostedTask internal constructor(
@@ -647,14 +662,24 @@ class HostedRobot(
         recorded { apply(reading) }
     }
 
-    /** 펌프 한 번이 읽을 자리 — 도는 태스크와 그때의 로그 길이. */
-    internal class PumpPlan(val task: HostedTask?, val last: TaskState?, val generation: Int)
+    /** 펌프 한 번이 읽을 자리 — 도는 태스크와 그때의 로그 길이, 그리고 생존 보고의 내용을 함께 읽을지. */
+    internal class PumpPlan(val task: HostedTask?, val last: TaskState?, val generation: Int, val liveness: Boolean = false)
 
     /** 기록할 때 상태와 함께 어댑터에서 읽는 것. [progress] 는 성공 종착이면 묻지 않는다. */
     internal class Observed(val failure: Fault?, val result: String, val progress: ProgressObservation?, val hold: HoldObservation)
 
-    /** [read] 한 번의 답. [ticket] 은 링크 잠금 아래에서 매긴 차례다. [observed] 는 상태가 달라졌을 때만 있다. */
-    internal class Reading(val plan: PumpPlan, val ticket: Long, val state: TaskState?, val observed: Observed?, val faults: FaultObservation)
+    /**
+     * [read] 한 번의 답. [ticket] 은 링크 잠금 아래에서 매긴 차례다. [observed] 는 상태가 달라졌을 때만 있다. [liveness] 는
+     * [PumpPlan.liveness] 일 때만 있다.
+     */
+    internal class Reading(
+        val plan: PumpPlan,
+        val ticket: Long,
+        val state: TaskState?,
+        val observed: Observed?,
+        val faults: FaultObservation,
+        val liveness: LivenessFacts? = null,
+    )
 
     /** 읽기에 매긴 마지막 차례. [southbound] 아래에서만 만진다. */
     private var readTickets = 0L
@@ -662,10 +687,13 @@ class HostedRobot(
     /** 적은 마지막 읽기의 차례. 호스트 잠금 아래에서만 만진다. */
     private var appliedTicket = 0L
 
-    /** 무엇을 읽을지 정한다. 호스트 잠금 아래에서 부른다. */
+    /**
+     * 무엇을 읽을지 정한다. 호스트 잠금 아래에서 부른다. 상태를 발행할 차례이거나 생존 보고의 내용을 아직 안 읽었으면 그것도
+     * 함께 읽는다 — 상태 발행이 생존 보고를 싣는다(`IngestBridge`).
+     */
     internal fun plan(): PumpPlan {
         val task = current?.takeIf { !it.terminal }
-        return PumpPlan(task, task?.last?.state, task?.log?.size ?: 0)
+        return PumpPlan(task, task?.last?.state, task?.log?.size ?: 0, liveness = liveness == null || stateDue())
     }
 
     /**
@@ -676,7 +704,19 @@ class HostedRobot(
         val ticket = ++readTickets
         val state = plan.task?.let { adapter.poll(clock()) }
         val observed = state?.takeIf { it != plan.last }?.let(::observe)
-        Reading(plan, ticket, state, observed, adapter.faults())
+        Reading(plan, ticket, state, observed, adapter.faults(), if (plan.liveness) readLiveness() else null)
+    }
+
+    /** 생존 보고의 내용을 어댑터에서 읽는다. 링크 잠금 아래로 간다 — 호스트 잠금을 쥐고 부르지 않는다. */
+    private fun readLiveness(): LivenessFacts = LivenessFacts(adapter.robotSoftware(), HostUplink.siteNames(adapter))
+
+    /**
+     * 기동 때 생존 보고의 내용을 읽어 둔다 — 첫 `ONLINE` 보고가 비지 않게 한다. [AdapterHost.start] 가 포트를 열기 전에,
+     * 호스트 잠금 밖에서 부른다.
+     */
+    internal fun primeLiveness() {
+        val facts = readLiveness()
+        recorded { liveness = facts }
     }
 
     /**
@@ -692,6 +732,7 @@ class HostedRobot(
     internal fun apply(reading: Reading) {
         if (reading.ticket <= appliedTicket) return
         appliedTicket = reading.ticket
+        reading.liveness?.let { liveness = it }
         val task = reading.plan.task
         val observed = reading.observed
         if (task != null && observed != null && current === task && task.log.size == reading.plan.generation && sending == null) {
@@ -719,12 +760,16 @@ class HostedRobot(
      * @return 실제로 발행했으면 참.
      */
     fun publishStateIfDue(): Boolean {
-        if (connectionState != ConnectionState.CONNECTION_STATE_ONLINE) return false
-        val now = clock()
-        val due = lastStateAt?.plusSeconds(document.publishIntervalMaxSeconds.toLong())
-        if (due != null && now.isBefore(due)) return false
+        if (!stateDue()) return false
         publishState()
         return true
+    }
+
+    /** `ONLINE` 이고 최대 발행 간격을 넘겼는가. */
+    private fun stateDue(): Boolean {
+        if (connectionState != ConnectionState.CONNECTION_STATE_ONLINE) return false
+        val due = lastStateAt?.plusSeconds(document.publishIntervalMaxSeconds.toLong())
+        return due == null || !clock().isBefore(due)
     }
 
     /** 현재값 — 태스크 스냅샷과 활성 결함. 스킬 상태기계가 없으므로 `skills` 는 비운다(어댑터는 스킬 상태를 안 낸다). */
