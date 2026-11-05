@@ -189,8 +189,15 @@ class Middleware(
         /** [tasks] 의 태스크마다 기체가 든 리비전. 포트가 안 실으면 비어 있다. */
         var taskRevisions: Map<String, Int> = emptyMap()
             internal set
-        /** 마지막 동기화에서 기체를 봤는가. 거짓이면 위의 값은 낡은 것이다. */
+        /** 마지막 동기화에서 기체를 봤는가(스냅숏을 읽었는가). 거짓이면 위의 값은 낡은 것이다. */
         var observable: Boolean = false
+            internal set
+
+        /**
+         * 마지막으로 읽은 스냅숏이 결함을 봤는가(§15.263). 거짓이면 [faults] 는 비어 있되 *결함 없음* 이 아니다 — 결함 표면이 없는
+         * 기체다. 태스크·연결은 [observable] 이 말하는 대로 현재값이다. [observable] 이 거짓이면 의미가 없다.
+         */
+        var faultsObservable: Boolean = false
             internal set
 
         /** 마지막으로 스냅숏을 읽은 시각(미들웨어 시계). 널이면 한 번도 못 읽었다. 연결 끊김의 유예([LogicalCapability.linkLossWindow])를 여기부터 잰다. */
@@ -1297,8 +1304,13 @@ class Middleware(
         view.observable = true
         view.lastObservedAt = receivedAt
         measureClock(robotId, view, snapshot, sentAt, receivedAt, live)
-        view.faults = snapshot.faults.associateBy { faultKey(it) }
-        live.forEach { e -> e.acknowledgedFaults.filter { it !in view.faults }.forEach { e.forgetAcknowledged(robotId, it, "robot=$robotId 의 스냅숏에 없다") } }
+        // **결함을 못 본 스냅숏은 결함이 걷혔다는 관측이 아니다**(§15.263). 수용을 놓지 않고, 낡은 결함도 현재값으로 두지 않는다 —
+        // 막는 관문은 [blockingFaults] 가 못 본 것으로 다룬다.
+        view.faultsObservable = snapshot.faultsObservable
+        view.faults = if (snapshot.faultsObservable) snapshot.faults.associateBy { faultKey(it) } else emptyMap()
+        if (snapshot.faultsObservable) {
+            live.forEach { e -> e.acknowledgedFaults.filter { it !in view.faults }.forEach { e.forgetAcknowledged(robotId, it, "robot=$robotId 의 스냅숏에 없다") } }
+        }
         view.connection = snapshot.connection
         view.tasks = snapshot.tasks
         view.taskRevisions = snapshot.revisions
@@ -1309,7 +1321,8 @@ class Middleware(
         if (cursor == null) {
             view.cursor = snapshot.sequence
             view.resyncs += 1
-            live.forEach { it.trail("RESYNC", "snapshot: next sequence=${snapshot.sequence}, faults=${snapshot.faults.size}, connection=${snapshot.connection.name}") }
+            val faults = if (snapshot.faultsObservable) snapshot.faults.size.toString() else "not observable"
+            live.forEach { it.trail("RESYNC", "snapshot: next sequence=${snapshot.sequence}, faults=$faults, connection=${snapshot.connection.name}") }
             return
         }
         // **세션이 바뀌었으면 커서를 잴 수 없다.** 번호는 세션 안의 것이고 다시 뜬 하위는 번호를 처음부터 센다. 앞 세션의
@@ -1628,11 +1641,14 @@ class Middleware(
      * 통과시키고 그 사실을 단위에 남긴다. 그러나 **이미 막고 있었으면**([Execution.blockedBy]) 그 막음을 그대로 돌려준다. 스냅숏을 한 번
      * 못 읽은 것은 결함이 사라졌다는 관측이 아니다 — 그것을 통과로 읽으면 사람이 세운 기체에 다음 단위가 나간다. 막음은 다시 읽은
      * 스냅숏에 결함이 없거나 사람이 [release] 로 감수할 때 걷힌다.
+     *
+     * **결함을 못 본다는 스냅숏도 못 물어본 것과 같다**(§15.263). 스냅숏은 읽혔지만 [RobotView.faults] 가 비어 있는 것은 결함이 없다는
+     * 관측이 아니다.
      */
     private fun blockingFaults(execution: Execution, next: ExecutionUnit): List<Fault> {
         if (next.route != Route.ROBOT) return emptyList()
         val view = views[execution.robotOf(next)]
-        if (view == null || !view.observable) {
+        if (view == null || !view.observable || !view.faultsObservable) {
             if (execution.blockedBy.isNotEmpty()) return execution.blockedBy
             // 한 번만 적는다 — 허가가 막는 동안 이 관문은 라운드마다 다시 불리고, 같은 메모가 쌓이면 응답의 미완 사유가 넘친다.
             val note = "robot faults not observable before start — proceeding without the gate"
@@ -1651,7 +1667,7 @@ class Middleware(
      */
     private fun Execution.forgetAcknowledged(robotId: String, key: String, why: String) {
         if (key !in acknowledgedFaults) return
-        if (robots.any { it != robotId && views[it]?.let { v -> v.observable && key in v.faults } == true }) return
+        if (robots.any { it != robotId && views[it]?.let { v -> v.observable && v.faultsObservable && key in v.faults } == true }) return
         acknowledgedFaults -= key
         trail(ACKNOWLEDGED_FAULT_CLEARED, "$key: $why — 다시 생기면 새 결함으로 막는다")
     }

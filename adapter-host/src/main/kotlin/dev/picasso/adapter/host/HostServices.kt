@@ -6,6 +6,7 @@ import dev.picasso.adapter.core.SiteNames
 import dev.picasso.contracts.v1.CancelTaskRequest
 import dev.picasso.contracts.v1.CancelTaskResponse
 import dev.picasso.contracts.v1.EventServiceGrpc
+import dev.picasso.contracts.v1.FaultObservability
 import dev.picasso.contracts.v1.GetCapabilitiesRequest
 import dev.picasso.contracts.v1.GetCapabilitiesResponse
 import dev.picasso.contracts.v1.GetKnownSiteNamesRequest
@@ -375,11 +376,7 @@ internal class HostEventService(robots: Map<String, HostedRobot>) : EventService
 
     override fun getSnapshot(request: GetSnapshotRequest, observer: StreamObserver<GetSnapshotResponse>) = reply(observer) {
         val robot = routing.enter(request.header)
-        // **결함을 못 봤으면 없다고 하지 않는다.** 스냅샷에 "모름" 의 자리가 없으므로 gRPC 상태다 — 소비자는 그것을 못 물어본 것으로 다룬다.
-        if (!robot.faultsObservable) {
-            throw Status.UNAVAILABLE.withDescription("기체의 결함을 지금 못 본다 — 없다는 뜻이 아니다").asRuntimeException()
-        }
-        GetSnapshotResponse.newBuilder()
+        val builder = GetSnapshotResponse.newBuilder()
             .setHeader(robot.header(GetSnapshotResponse.getDescriptor()))
             .setSequence(robot.sequence)
             .addAllTasks(
@@ -387,10 +384,16 @@ internal class HostEventService(robots: Map<String, HostedRobot>) : EventService
                     TaskSnapshot.newBuilder().setTaskId(it.taskId).setSkillType(it.skillType).setState(it.last.state).setRevision(it.revision).setAttempt(0).build()
                 },
             )
-            .addAllFaults(robot.faults.values)
             // MQTT connection 스트림과 같은 값이다(미믹의 §15.95 정정과 같은 자리).
             .setConnectionState(robot.connectionState)
-            .build()
+        // **결함을 못 봤으면 없다고 하지 않는다**(계약 0.10.0, §15.263). 결함은 비우고 못 봤다고 적는다 — [HostedRobot.faults] 는
+        // 마지막으로 본 낡은 값이라 싣지 않는다. 태스크·연결·번호는 그대로 현재값이라 스냅샷을 오류로 돌리지 않는다.
+        if (robot.faultsObservable) {
+            builder.addAllFaults(robot.faults.values)
+        } else {
+            builder.setFaultObservability(FaultObservability.FAULT_OBSERVABILITY_NOT_OBSERVABLE)
+        }
+        builder.build()
     }
 
     override fun replayEvents(request: ReplayEventsRequest, observer: StreamObserver<ReplayEventsResponse>) {

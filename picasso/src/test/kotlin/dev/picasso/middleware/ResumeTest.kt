@@ -347,6 +347,21 @@ class ResumeTest {
     }
 
     @Test
+    fun `결함을 못 보는 기체의 스냅숏으로도 다시 짓고 그 태스크에 붙는다`() {
+        // 결함 표면이 없는 기체(§15.241)는 결함만 모른다 — 태스크는 현재값이라 리빌드의 근거가 된다(§15.263).
+        World().use { w ->
+            w.robot.faultsBlind = true
+            w.robot.hold("$ORDER#$SLOT@r1", TaskState.TASK_STATE_RUNNING)
+            val exec = w.resume()
+            assertEquals(1, exec.units.single().attempt)
+
+            w.mw.pump()
+            assertEquals(0, w.robot.created, "기존 핸들에 붙지 않고 새 태스크를 만들었다")
+            assertEquals(UnitState.RUNNING, exec.units.single().state)
+        }
+    }
+
+    @Test
     fun `같은 작업 지시 id 를 두 번 다시 지으면 둘째는 멱등이고 실행이 하나다`() {
         World().use { w ->
             w.robot.hold("$ORDER#$SLOT", TaskState.TASK_STATE_RUNNING)
@@ -401,6 +416,9 @@ class ResumeTest {
         var created = 0
         var unreadable = false
 
+        /** 참이면 스냅숏이 결함을 못 봤다고 싣는다(계약 `FAULT_OBSERVABILITY_NOT_OBSERVABLE`). */
+        var faultsBlind = false
+
         /** 스냅숏이 싣는 태스크마다의 리비전. 비어 있으면 리비전을 안 싣는 포트다. */
         val revisions = mutableMapOf<String, Int>()
 
@@ -434,7 +452,7 @@ class ResumeTest {
         override fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse = CancelTaskResponse.getDefaultInstance()
 
         override fun snapshot(robotId: String): RobotSnapshot? =
-            if (unreadable) null else RobotSnapshot(0, emptyList(), ConnectionState.CONNECTION_STATE_ONLINE, tasks.toMap(), revisions.toMap())
+            if (unreadable) null else RobotSnapshot(0, emptyList(), ConnectionState.CONNECTION_STATE_ONLINE, tasks.toMap(), revisions.toMap(), faultsObservable = !faultsBlind)
 
         override fun replay(robotId: String, from: Long): Replay = Replay.Events(emptyList())
     }

@@ -414,7 +414,9 @@ class HandoffFixtureTest {
                 progressStalled = false,
             ),
             profileRevision = 1,
-            contractSemver = ContractIdentity.semver,
+            // [GOLDEN_DIGEST] 를 잰 때의 계약 버전이다. 계약 버전은 요약의 재료라 지금 값을 넣으면 계약을 올릴 때마다(0.10.0,
+            // §15.263) 이 시험이 설정 칸과 무관하게 빨개진다. 칸 집합을 대는 위 시험은 값을 안 보므로 상관없다.
+            contractSemver = "0.9.0",
             approvedBy = null,
             review = null,
         )

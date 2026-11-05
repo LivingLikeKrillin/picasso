@@ -4,6 +4,7 @@ import dev.picasso.client.PicassoClient
 import dev.picasso.client.TaskFollower
 import dev.picasso.contracts.v1.CancelTaskResponse
 import dev.picasso.contracts.v1.Capability
+import dev.picasso.contracts.v1.FaultObservability
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.StartTaskResponse
@@ -80,7 +81,7 @@ interface RobotPort {
  * 차단 창 동안 그 기체가 라운드에 더하는 지연은 없고, 창이 지나면 한 번 다시 묻는다. 답이 오면(상태든 거부든 gRPC 오류든) 창을 걷는다.
  *
  * - **기한 값은 그대로다.** 적정 예산은 현장 실측 전까지 모른다. 바꾸는 것은 같은 기체에 기한을 되풀이해 쓰는 횟수뿐이다.
- * - **기한 초과에만 건다.** `UNAVAILABLE` 은 어댑터 호스트가 바로 돌려주는 답이기도 하다(벤더 링크 오류, 결함을 못 보는 스냅숏) —
+ * - **기한 초과에만 건다.** `UNAVAILABLE` 은 어댑터 호스트가 바로 돌려주는 답이기도 하다(벤더 링크 오류, 아는 이름을 못 읽은 질의) —
  *   빨리 온 답은 라운드를 늘리지 않는다.
  * - **기체마다 따로다.** 한 기체의 창이 다른 기체의 호출을 막지 않는다.
  * - 갱신 스트림(`WatchTask`)은 비동기라 라운드를 막지 않으므로 창과 상관없다.
@@ -220,6 +221,7 @@ class ClientRobotPort(
             revisions = s.tasksList.associate { it.taskId to it.revision },
             session = s.header.sessionId,
             occurredAt = s.header.occurredAt.takeIf { it.isNotBlank() }?.let { runCatching { Instant.parse(it) }.getOrNull() },
+            faultsObservable = s.faultObservability != FaultObservability.FAULT_OBSERVABILITY_NOT_OBSERVABLE,
         )
     } catch (_: RuntimeException) {
         null
