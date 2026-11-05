@@ -3,9 +3,12 @@ package dev.picasso.adapter.orbit
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.picasso.adapter.core.VendorSurface
+import java.net.ConnectException
 import java.net.URI
 import java.net.URLEncoder
+import java.net.UnknownHostException
 import java.net.http.HttpClient
+import java.net.http.HttpConnectTimeoutException
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
@@ -149,14 +152,25 @@ class OrbitHttpLink private constructor(
             """.trimIndent().replace("\n", "")
 
             val path = "calendar/mission/dispatch/${encode(nickname)}?currentDriverId=${encode(driverId)}"
-            val response = runCatching { send(post(path, payload)) }
-                .getOrElse { return DispatchResult.Unreachable(it.message ?: it::class.java.simpleName) }
+            val response = runCatching { send(post(path, payload)) }.getOrElse { return failed(it) }
 
             if (response.statusCode() / 100 != 2) {
                 // **답이 왔다.** 404 도 여기다 — *이 배포본에 그 경로가 없다* 는 플릿의 답이지 못 닿은 것이 아니다.
                 return DispatchResult.Refused("HTTP ${response.statusCode()} ${response.body().take(ERROR_SNIPPET)}")
             }
             return DispatchResult.Accepted(runCatching { mapper.readTree(response.body()).path("uuid").textOrNull() }.getOrNull())
+        }
+
+        /**
+         * 파견이 답 없이 실패했다. **연결을 못 맺은 것만 못 닿음이다** — 이름을 못 풀었거나, 연결을 거부당했거나, 연결 시간을
+         * 넘겼다. 나머지(응답 시간 초과, 받는 도중 끊김)는 요청이 나간 뒤일 수 있어 미상이다(§15.220).
+         */
+        private fun failed(cause: Throwable): DispatchResult {
+            val detail = cause.message ?: cause::class.java.simpleName
+            return when (cause) {
+                is ConnectException, is HttpConnectTimeoutException, is UnknownHostException -> DispatchResult.Unreachable(detail)
+                else -> DispatchResult.InDoubt(detail)
+            }
         }
     }
 

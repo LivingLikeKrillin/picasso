@@ -133,6 +133,8 @@ class OrbitAdapter(
                 outcome.detail,
             )
             is DispatchResult.Unreachable -> Acceptance.Refused(Refusal.LINK_ERROR, "플릿에 못 닿았다: ${outcome.detail}")
+            // 파견이 나갔을 수 있다 — 도는 태스크로 적지도, 보내지 않은 것으로 접지도 않는다(§15.220).
+            is DispatchResult.InDoubt -> Acceptance.Refused(Refusal.LINK_IN_DOUBT, "파견이 나갔는지 모른다: ${outcome.detail}")
         }
     }
 

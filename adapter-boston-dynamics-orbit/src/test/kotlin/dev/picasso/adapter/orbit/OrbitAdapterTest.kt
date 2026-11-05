@@ -258,6 +258,15 @@ class OrbitAdapterTest {
         )
     }
 
+    @Test
+    fun `파견이 나갔는지 모르면 링크 오류로 접지 않는다`() {
+        val (adapter, _, _) = world(dispatch = FakeDispatch(DispatchResult.InDoubt("request timed out")))
+        val refused = assertIs<Acceptance.Refused>(adapter.accept("t-1", "navigate_to", mapOf("location" to "DOCK-3"), NOW))
+        // 링크 오류는 «보내지 못했다» 로 읽혀 호스트가 다시 보낸다 — 나간 파견이면 같은 미션이 두 번 간다.
+        assertEquals(Refusal.LINK_IN_DOUBT, refused.reason)
+        assertEquals(TaskState.TASK_STATE_UNSPECIFIED, adapter.poll(NOW), "받았는지 모르는 파견을 도는 태스크로 적었다")
+    }
+
     private companion object {
         const val NICKNAME = "spot-a"
         const val DRIVER = "picasso-adapter"
