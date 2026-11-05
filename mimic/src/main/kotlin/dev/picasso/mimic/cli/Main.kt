@@ -34,9 +34,20 @@ class MimicCli {
         val server: MimicServer,
         val robotIds: Set<String>,
         private val instances: Map<String, RobotInstance> = emptyMap(),
-    ) {
+        /** 이 서버의 발행을 감싼 레지스트리 연계. 닫을 때 적재 큐를 비운다. */
+        private val link: RegistryLink = RegistryLink.none(),
+    ) : AutoCloseable {
         /** 이 서버가 띄운 기체. 모르는 id 면 널이다. */
         fun instance(robotId: String): RobotInstance? = instances[robotId]
+
+        /**
+         * 서버를 내리고 적재 큐를 비운다([RegistryLink.close]). 서버만 내리면 큐에 남은 관측이 레지스트리에도 폴백에도
+         * 안 간다(§15.210).
+         */
+        override fun close() {
+            server.shutdown()
+            link.close()
+        }
     }
 
     /** 기동한 서버. 프로세스가 소유하며, 시험은 이것으로 닫는다. */
@@ -221,6 +232,7 @@ class MimicCli {
             ).start(),
             robots.keys,
             built.toMap(),
+            link,
         )
     }
 
@@ -240,6 +252,8 @@ fun main(args: Array<String>) {
     val cli = MimicCli()
     val code = cli.run(args, System.out, System.err)
     if (code != 0) exitProcess(code)
+    // 프로세스가 내려갈 때 적재 큐에 남은 관측을 비운다(§15.210).
+    Runtime.getRuntime().addShutdownHook(Thread { cli.started?.close() })
     // 기동에 성공했으면 프로세스가 살아 있어야 한다.
     cli.started?.server?.awaitTermination()
 }

@@ -76,6 +76,8 @@ class FallbackTaskObservations(
  */
 class FileTaskObservations(private val path: Path) : FailedObservations {
 
+    /** 적재 작업 스레드와 큐가 찬 발행 스레드가 함께 쓴다(`QueuedIngest`). 줄이 섞이면 재적재가 못 읽는다. */
+    @Synchronized
     override fun onFailure(kind: String, json: String, reason: String?) {
         val line = """{"kind":${quote(kind)},"reason":${reason?.let { quote(it) } ?: "null"},""" +
             """"message":$json}"""

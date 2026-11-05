@@ -1,5 +1,6 @@
 package dev.picasso.uplink.report
 
+import com.sun.net.httpserver.HttpServer
 import dev.picasso.contracts.v1.CapabilityRequirement
 import dev.picasso.contracts.v1.MessageHeader
 import dev.picasso.contracts.v1.NegotiateRequest
@@ -8,8 +9,13 @@ import dev.picasso.contracts.v1.StateMessage
 import dev.picasso.contracts.v1.TaskSnapshot
 import dev.picasso.uplink.Publication
 import dev.picasso.uplink.RecordingPublisher
+import java.net.InetSocketAddress
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -73,6 +79,7 @@ class RegistryLinkTest {
         val link = RegistryLink.http(unreachable, "t", "line-a", dir)
 
         link.wrap(downstream).publish(publication())
+        assertTrue(link.drain(Duration.ofSeconds(10)), "적재 큐가 안 비었다")
 
         assertEquals(1, downstream.publications.size, "감싸면서 발행을 삼켰다")
         val file = dir.resolve("task-fallback.jsonl")
@@ -115,6 +122,42 @@ class RegistryLinkTest {
         assertEquals(1, downstream.publications.size, "적재 실패가 발행을 막았다")
     }
 
+    @Test
+    fun `레지스트리가 답하지 않는 동안에도 발행은 그 답을 기다리지 않는다`() {
+        // 발행은 발신자의 잠금 아래에서 온다(§15.210). 여기서 레지스트리를 기다리면 그 잠금을 기다리는 RPC 가 같이 선다.
+        val release = CountDownLatch(1)
+        val arrived = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            createContext("/ingest") { exchange ->
+                arrived.incrementAndGet()
+                exchange.requestBody.readBytes()
+                release.await(10, TimeUnit.SECONDS)
+                exchange.sendResponseHeaders(200, 2)
+                exchange.responseBody.use { it.write("{}".toByteArray()) }
+            }
+            executor = java.util.concurrent.Executors.newCachedThreadPool()
+            start()
+        }
+        val link = RegistryLink.http("http://127.0.0.1:${server.address.port}", "t", "line-a", fallbackDir = null)
+        try {
+            val publisher = link.wrap(RecordingPublisher())
+            publisher.publish(publication())
+            // 첫 적재가 레지스트리에 닿아 서 있는 동안 다음 발행을 잰다.
+            val deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos()
+            while (arrived.get() == 0 && System.nanoTime() < deadline) Thread.sleep(5)
+            assertTrue(arrived.get() > 0, "적재가 레지스트리에 안 닿았다")
+
+            val started = System.nanoTime()
+            publisher.publish(publication())
+            val waited = Duration.ofNanos(System.nanoTime() - started)
+            assertTrue(waited < Duration.ofMillis(500), "발행이 레지스트리의 답을 기다렸다: $waited")
+        } finally {
+            release.countDown()
+            link.close()
+            server.stop(0)
+        }
+    }
+
     // ── 재적재
 
     @Test
@@ -124,6 +167,7 @@ class RegistryLinkTest {
         val link = RegistryLink.http(unreachable, "t", "line-a", dir)
         link.reporter.report(handshake())
         link.wrap(RecordingPublisher()).publish(publication())
+        assertTrue(link.drain(Duration.ofSeconds(10)), "적재 큐가 안 비었다")
 
         val outcome = requireNotNull(link.replayFallbacks())
 
