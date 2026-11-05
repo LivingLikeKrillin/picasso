@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # ubuntu-latest 가 26.04 로 넘어간 뒤 Testcontainers 1.20.4 가 컨테이너를 못 띄운다 — 통과하던 이미지에 고정한다.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
