@@ -114,6 +114,37 @@ class SiteCatalogTest {
         assertEquals(1, pickPlace("line-a")?.availableRobots, "이력까지 세면 한 대가 두 대가 된다")
     }
 
+    @Test
+    fun `퇴역 기체는 바인딩이 남아 있어도 안 센다`() {
+        // 퇴역은 바인딩을 풀지 않는다(§15.264). 활성 바인딩만 보면 라인에서 뺀 기체가 능력을 주는 것처럼 보인다.
+        val rev = activate()
+        bind("r1", rev)
+        bind("r2", rev)
+
+        retire("r2")
+
+        assertEquals(1, pickPlace("line-a")?.availableRobots, "퇴역 기체가 가용 수에 세어졌다")
+        retire("r1")
+        assertEquals(emptyList(), catalog.capabilities("line-a"), "모두 퇴역했는데 능력이 남았다")
+    }
+
+    @Test
+    fun `퇴역 기체의 필수 선택 필드는 안 싣는다`() {
+        val kept = activate()
+        val gone = activate(model = "second")
+        bind("r1", kept)
+        bind("r2", gone)
+        renameRequiredField(gone, "task.parameters.retired_only")
+
+        retire("r2")
+
+        assertEquals(
+            listOf("task.parameters.verify_grasp"),
+            requireNotNull(pickPlace("line-a")).requiredOptionalFields,
+            "퇴역 기체의 리비전 필드가 실렸다",
+        )
+    }
+
     // ── §9.6이 요구하는 나머지 둘
 
     @Test
@@ -331,6 +362,11 @@ class SiteCatalogTest {
     private fun unbind(robot: String) = PostgresSupport.execute(
         "UPDATE robot_binding SET unbound_at = now() " +
             "WHERE robot_id = '$robot' AND unbound_at IS NULL",
+    )
+
+    /** 운영의 퇴역(`RobotRegistration.retire`)과 같은 칸을 채운다. 바인딩은 건드리지 않는다. */
+    private fun retire(robot: String) = PostgresSupport.execute(
+        "UPDATE robot SET retired_at = now(), retired_by = 'op', retired_reason = 'sold' WHERE robot_id = '$robot'",
     )
 
     /** 그 개정판에서 스킬 하나를 뺀다. 파라미터가 FK로 물려 있어 먼저 지운다. */
