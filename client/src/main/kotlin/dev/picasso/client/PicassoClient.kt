@@ -34,7 +34,9 @@ import dev.picasso.contracts.wire.RequestHeaders
 import dev.picasso.profile.RequirementSet
 import io.grpc.Channel
 import io.grpc.stub.StreamObserver
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 계약을 두드리는 얇은 소비자(§3.3).
@@ -67,13 +69,19 @@ class PicassoClient(
     private val tasksAsync = TaskServiceGrpc.newStub(channel)
     private val events = EventServiceGrpc.newBlockingStub(channel)
 
-    /** 능력 캐시와 그때 본 세대. §5.5의 `capability_epoch`가 ETag다. */
-    private val cache = mutableMapOf<String, Capability>()
-    private val epochs = mutableMapOf<String, Long>()
+    /**
+     * 능력 캐시와 그때 본 세대. §5.5의 `capability_epoch`가 ETag다.
+     *
+     * 동시 맵이다. 모든 응답이 세대를 적으므로([note]) 스냅숏·재생을 다른 스레드에서 읽는 소비자(미들웨어의 `PrefetchingRobotPort`)가
+     * 있으면 두 스레드가 이 표를 함께 쓴다.
+     */
+    private val cache = ConcurrentHashMap<String, Capability>()
+    private val epochs = ConcurrentHashMap<String, Long>()
+
+    private val capabilityRpcs = AtomicInteger()
 
     /** 시험이 "두 번째 호출은 RPC를 안 낸다"를 확인하는 데 쓴다. */
-    var capabilityRpcCount: Int = 0
-        private set
+    val capabilityRpcCount: Int get() = capabilityRpcs.get()
 
     private fun header(schemaId: String, robotId: String): MessageHeader =
         RequestHeaders.build(schemaId, robotId, identityOverride ?: clientId)
@@ -106,7 +114,7 @@ class PicassoClient(
     // ── 능력 (§7.3)
 
     fun capabilities(robotId: String): Capability = cache.getOrPut(robotId) {
-        capabilityRpcCount += 1
+        capabilityRpcs.incrementAndGet()
         val response = skills.withDeadlineAfter(deadlineSeconds, TimeUnit.SECONDS).getCapabilities(
             GetCapabilitiesRequest.newBuilder()
                 .setHeader(header("picasso.v1.GetCapabilitiesRequest", robotId))

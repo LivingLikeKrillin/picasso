@@ -1285,18 +1285,26 @@ class Middleware(
     /**
      * 기체 하나를 동기화한다 — 스냅샷(현재값) + 재생(그 사이의 사실). 이벤트는 관계있는 실행의 자취에 남긴다:
      * 태스크 전이는 그 태스크를 든 실행에, 결함·능력 변경은 그 기체의 실행 전부에.
+     *
+     * 미리 읽는 포트([RobotPort.prefetched])면 그 읽기를 받는다(§15.267). 시각은 그 읽기가 실제로 보낸·받은 시각이다 — 받아 든 시각으로
+     * 찍으면 낡은 값이 방금 본 값이 되고, 끊김 유예와 시계 차가 그만큼 어긋난다. 읽는 중이면 뷰를 그대로 둔다.
      */
     private fun sync(robotId: String, live: List<Execution>) {
         val view = views.getOrPut(robotId) { RobotView() }
-        // 던지는 포트도 «못 물어봤다» 다 — 낡은 값을 관측한 값으로 두지 않는다. 던진 사실은 부른 쪽이 트레이스에 남긴다.
-        val sentAt = now()
-        val snapshot = try {
-            robots.snapshot(robotId)
-        } catch (e: RuntimeException) {
-            view.observable = false
-            throw e
+        val read = robots.prefetched(robotId) ?: readNow(robotId)
+        val (snapshot, sentAt, receivedAt) = when (read) {
+            PrefetchedRead.Pending -> return
+            PrefetchedRead.Unread -> {
+                view.observable = false
+                return
+            }
+            // 던지는 포트도 «못 물어봤다» 다 — 낡은 값을 관측한 값으로 두지 않는다. 던진 사실은 부른 쪽이 트레이스에 남긴다.
+            is PrefetchedRead.Failed -> {
+                view.observable = false
+                throw read.failure
+            }
+            is PrefetchedRead.Read -> Triple(read.snapshot, read.sentAt, read.receivedAt)
         }
-        val receivedAt = now()
         if (snapshot == null) {
             view.observable = false
             return
@@ -1346,6 +1354,17 @@ class Middleware(
                 replay.events.lastOrNull()?.let { view.cursor = it.header.sequence + 1 }
             }
         }
+    }
+
+    /** 미리 읽지 않는 포트에는 지금 묻는다. 보낸 시각과 받은 시각은 미들웨어 시계다. */
+    private fun readNow(robotId: String): PrefetchedRead {
+        val sentAt = now()
+        val snapshot = try {
+            robots.snapshot(robotId)
+        } catch (e: RuntimeException) {
+            return PrefetchedRead.Failed(e)
+        }
+        return PrefetchedRead.Read(snapshot, sentAt, now())
     }
 
     /**
