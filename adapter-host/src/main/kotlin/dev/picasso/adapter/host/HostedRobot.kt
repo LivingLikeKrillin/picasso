@@ -40,6 +40,7 @@ import dev.picasso.uplink.Publisher
 import dev.picasso.uplink.Topics
 import java.time.Instant
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -102,6 +103,16 @@ class HostedRobot(
      */
     @Volatile
     internal var southbound: Any = Any()
+
+    /**
+     * 기록의 잠금. 혼자 서면 이 기체의 것이고, [AdapterHost] 가 들면 그 호스트의 잠금이다. 명령([start]·[manipulate])은 장부를
+     * 보고 적을 때만 이것을 쥐고, 어댑터에 보내는 동안은 [southbound] 만 쥔다(§15.269). 잠금 순서는 언제나 이것 다음 링크다.
+     */
+    @Volatile
+    internal var host: Any = Any()
+
+    /** [host] 아래에서 [block] 을 돈다. 호스트 잠금을 쥐지 않고 들어오는 명령 RPC 가 응답 머리말과 핸들을 이것으로 읽는다. */
+    internal fun <T> recorded(block: () -> T): T = synchronized(host, block)
 
     /** 어댑터. 모든 호출이 [southbound] 아래로 간다([SouthboundSerialized]). */
     val adapter: RobotAdapter = SouthboundSerialized(adapter) { southbound }
@@ -220,49 +231,180 @@ class HostedRobot(
 
     // ── 접수 (§4.4 — 같은 (task_id, revision) 은 같은 핸들, 종착은 래치)
 
+    /**
+     * 받는다. 세 단계다(§15.269) — 호스트 잠금 아래에서 장부와 배타를 보고 **보낼 자리를 잡고**, 그 잠금을 놓고 링크 잠금만 쥔 채
+     * 어댑터에 보내고, 다시 호스트 잠금 아래에서 적는다. 그래서 보내는 동안 이 호스트의 기록을 읽는 RPC 는 기다리지 않는다.
+     *
+     * 보낼 자리는 기체마다 하나다([sending]). 그 사이 같은 `(task_id, revision)` 이 또 오면 같은 결과를 기다려 받는다(합류).
+     * 다른 접수는 기다리지 않고 거부한다 — 실제 하드웨어는 배타적 제어 모델이다(§4.9).
+     */
     fun start(taskId: String, revision: Int, skillType: String, parameters: Map<String, Any>): StartOutcome {
-        book[taskId]?.let { existing ->
-            return when {
-                revision == existing.revision -> StartOutcome.Idempotent(existing)
-                revision < existing.revision -> StartOutcome.Rejected(
-                    RejectionCode.REJECTION_CODE_OUTDATED_REVISION,
-                    "받은 revision=$revision, 현재=${existing.revision}",
-                )
-                existing.terminal -> StartOutcome.Rejected(
-                    RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                    "${existing.taskId} 은 이미 ${existing.last.state} 다 — 종료는 되돌아가지 않는다(§4.4)",
-                )
-                else -> update(existing, revision, skillType, parameters)
+        var preconditionChecked = false
+        while (true) {
+            when (val step = recorded { admit(taskId, revision, skillType, parameters, preconditionChecked) }) {
+                is Admission.Decided -> return step.outcome
+                is Admission.Join -> return joined(step.sending)
+                Admission.Precondition -> {
+                    // 사전 조건의 관측은 링크를 쓴다 — 호스트 잠금 밖에서 보고 다시 들어간다.
+                    precondition(skillType)?.let { return it }
+                    preconditionChecked = true
+                }
+                is Admission.Send -> return step.send()
             }
         }
+    }
+
+    /** [admit] 이 정한 다음 걸음. */
+    private sealed interface Admission {
+        class Decided(val outcome: StartOutcome) : Admission
+        class Join(val sending: Sending) : Admission
+        data object Precondition : Admission
+        class Send(val send: () -> StartOutcome) : Admission
+    }
+
+    /** 보내는 중인 명령 하나. [key] 가 같은 접수는 [done] 을 기다려 같은 결과를 받는다. */
+    private class Sending(val key: Any) {
+        val done = CompletableFuture<Result<Any?>>()
+    }
+
+    private data class StartKey(val taskId: String, val revision: Int)
+
+    /**
+     * 보내는 중인 명령. 호스트 잠금 아래에서만 만진다. 있는 동안 펌프는 태스크 전이를 적지 않는다([apply]) — 그 사이 적는 손은
+     * 그 명령의 확정 하나다.
+     */
+    private var sending: Sending? = null
+
+    /** 장부·배타·검증을 보고 다음 걸음을 정한다. 호스트 잠금 아래에서 부른다. 어댑터를 부르지 않는다. */
+    private fun admit(
+        taskId: String,
+        revision: Int,
+        skillType: String,
+        parameters: Map<String, Any>,
+        preconditionChecked: Boolean,
+    ): Admission {
+        val key = StartKey(taskId, revision)
+        sending?.takeIf { it.key == key }?.let { return Admission.Join(it) }
+
+        book[taskId]?.let { existing ->
+            return when {
+                revision == existing.revision -> Admission.Decided(StartOutcome.Idempotent(existing))
+                revision < existing.revision -> Admission.Decided(
+                    StartOutcome.Rejected(
+                        RejectionCode.REJECTION_CODE_OUTDATED_REVISION,
+                        "받은 revision=$revision, 현재=${existing.revision}",
+                    ),
+                )
+                existing.terminal -> Admission.Decided(
+                    StartOutcome.Rejected(
+                        RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
+                        "${existing.taskId} 은 이미 ${existing.last.state} 다 — 종료는 되돌아가지 않는다(§4.4)",
+                    ),
+                )
+                else -> update(existing, key, revision, skillType, parameters)
+            }
+        }
+
+        // **보내는 중이면 사전 조건보다 먼저 거부한다.** 사전 조건의 관측도 링크를 쓰므로, 보려면 그 명령의 남쪽 왕복을
+        // 기다려야 한다.
+        busy()?.let { return Admission.Decided(it) }
 
         // 사전 조건이 배타 실행 검사보다 먼저다 — 도는 태스크가 든 채인데 새 요청이 오면 «이미 도는 태스크» 보다
         // «무엇이 걸렸나» 가 계약이다. 미믹은 배타 검사가 없어 그렇게 답하고, 둘이 같은 말을 해야 한다(리뷰 C9).
-        precondition(skillType)?.let { return it }
+        if (!preconditionChecked && preconditioned(skillType)) return Admission.Precondition
 
         current?.takeIf { !it.terminal }?.let {
-            return StartOutcome.Rejected(
-                RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                "이미 도는 태스크가 있다: ${it.taskId} — 실제 하드웨어는 배타적 제어 모델이다(§4.9)",
+            return Admission.Decided(
+                StartOutcome.Rejected(
+                    RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
+                    "이미 도는 태스크가 있다: ${it.taskId} — 실제 하드웨어는 배타적 제어 모델이다(§4.9)",
+                ),
             )
         }
 
-        validate(skillType, parameters)?.let { return it }
+        validate(skillType, parameters)?.let { return Admission.Decided(it) }
         // **푸는 것보다 먼저 묻는다.** 뒤에 두면 이미 옛 좌표로 움직인 뒤에 판을 보게 된다.
-        binding(skillType, parameters)?.let { return it }
+        binding(skillType, parameters)?.let { return Admission.Decided(it) }
 
-        return when (val accepted = adapter.accept(taskId, skillType, parameters, clock())) {
-            is Acceptance.Accepted -> {
-                val task = HostedTask(taskId, revision, skillType, parameters)
-                book[taskId] = task
-                current = task
-                record(task, TaskState.TASK_STATE_ACCEPTED)
-                syncCurrent()
-                StartOutcome.Accepted(task)
-            }
+        val reserved = reserve(key)
+        return Admission.Send { sendStart(reserved, taskId, revision, skillType, parameters) }
+    }
 
-            is Acceptance.Refused -> refused(accepted)
+    /** 보내는 중인 명령이 있으면 거부. 기다리지 않는다 — 기다리면 그 명령의 남쪽 왕복만큼 이 RPC 도 선다. */
+    private fun busy(): StartOutcome.Rejected? = sending?.let {
+        StartOutcome.Rejected(
+            RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
+            "이 기체에 보내는 중인 명령이 있다 — 그 답이 난 뒤 다시 요청하라(§4.9)",
+        )
+    }
+
+    private fun reserve(key: Any): Sending = Sending(key).also { sending = it }
+
+    /** 합류 — 같은 접수의 결과를 기다려 받는다. 어떤 잠금도 쥐지 않고 기다린다. */
+    private fun joined(s: Sending): StartOutcome =
+        when (val outcome = s.done.get().getOrThrow() as StartOutcome) {
+            is StartOutcome.Accepted -> StartOutcome.Idempotent(outcome.task)
+            else -> outcome
         }
+
+    /**
+     * [link] 를 호스트 잠금 밖에서 돌고(어댑터를 부르는 동안 링크 잠금을 쥔다), 그것이 돌려준 확정을 호스트 잠금 아래에서 돈다.
+     * 확정 전에 자리가 그 명령의 것인지 보고, 같은 잠금 구간에서 자리를 비운다. 합류한 쪽은 같은 결과를 받는다.
+     *
+     * **보냈는지 모르는 실패를 가르지 않는다.** [link] 가 던지면 자리를 비우고 그 예외를 내며, 같은 요청이 다시 오면 다시 보낸다.
+     * 어댑터의 링크 오류도 보내지 못한 것으로 읽는다(§15.220).
+     */
+    private fun <T> sent(s: Sending, link: () -> () -> T): T {
+        val result = runCatching {
+            val commit = link()
+            recorded {
+                check(sending === s) { "보낼 자리가 그 명령의 것이 아니다" }
+                try {
+                    commit()
+                } finally {
+                    sending = null
+                }
+            }
+        }
+        if (result.isFailure) recorded { if (sending === s) sending = null }
+        s.done.complete(result)
+        return result.getOrThrow()
+    }
+
+    /**
+     * 접수를 보낸다. 받았으면 적을 것 — 접수의 관측과, 어댑터가 지금 말하는 상태가 접수와 다르면 그 상태와 관측 — 도 같은 링크
+     * 잠금 구간에서 읽는다. 그 사이 펌프의 읽기가 끼지 않는다.
+     */
+    private fun sendStart(
+        s: Sending,
+        taskId: String,
+        revision: Int,
+        skillType: String,
+        parameters: Map<String, Any>,
+    ): StartOutcome = sent(s) {
+        val (acceptance, seen) = synchronized(southbound) {
+            val acceptance = adapter.accept(taskId, skillType, parameters, clock())
+            acceptance to (acceptance as? Acceptance.Accepted)?.let {
+                val first = observe(TaskState.TASK_STATE_ACCEPTED)
+                val then = adapter.state.takeIf { it != TaskState.TASK_STATE_UNSPECIFIED && it != TaskState.TASK_STATE_ACCEPTED }
+                Triple(first, then, then?.let(::observe))
+            }
+        }
+        val commit: () -> StartOutcome = {
+            when (acceptance) {
+                is Acceptance.Accepted -> {
+                    val (first, then, thenObserved) = checkNotNull(seen)
+                    val task = HostedTask(taskId, revision, skillType, parameters)
+                    book[taskId] = task
+                    current = task
+                    record(task, TaskState.TASK_STATE_ACCEPTED, first)
+                    if (then != null) record(task, then, checkNotNull(thenObserved))
+                    StartOutcome.Accepted(task)
+                }
+                is Acceptance.Refused -> refused(acceptance)
+            }
+        }
+        commit
     }
 
     /**
@@ -281,39 +423,120 @@ class HostedRobot(
      * 하는데, 그러려면 호스트가 대기 파라미터를 들고 [RobotAdapter.resume]·[RobotAdapter.retry] 에 실어야 하고
      * 그 자리가 포트에 없다. **로봇이 못 하는 것이 아니므로 `UPDATE_UNSUPPORTED` 로 답하지 않는다.**
      */
-    private fun update(task: HostedTask, revision: Int, skillType: String, parameters: Map<String, Any>): StartOutcome {
+    private fun update(task: HostedTask, key: StartKey, revision: Int, skillType: String, parameters: Map<String, Any>): Admission {
         if (skillType != task.skillType) {
-            return StartOutcome.Rejected(
-                RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                "갱신은 파라미터를 갈는 것이지 스킬을 바꾸는 것이 아니다: ${task.skillType} → $skillType — 새 task_id 로 요청하라",
+            return Admission.Decided(
+                StartOutcome.Rejected(
+                    RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
+                    "갱신은 파라미터를 갈는 것이지 스킬을 바꾸는 것이 아니다: ${task.skillType} → $skillType — 새 task_id 로 요청하라",
+                ),
             )
         }
         val state = task.last.state
         if (state !in UPDATABLE_STATES && state !in DEFERRED_UPDATE_STATES) {
-            return StartOutcome.Rejected(
-                RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
-                "$state 에서는 파라미터를 바꿀 자리가 없다 — 정리 중이거나 종료이다(§4.4)",
+            return Admission.Decided(
+                StartOutcome.Rejected(
+                    RejectionCode.REJECTION_CODE_INVALID_TRANSITION,
+                    "$state 에서는 파라미터를 바꿀 자리가 없다 — 정리 중이거나 종료이다(§4.4)",
+                ),
             )
         }
-        validate(skillType, parameters)?.let { return it }
+        validate(skillType, parameters)?.let { return Admission.Decided(it) }
+        busy()?.let { return Admission.Decided(it) }
 
         // **지금 안 보내는 상태가 있다**(§4.4). 멈췄거나 재시도를 기다리거나 사람을 기다리는 태스크는
         // 파라미터만 갈아 두고 그 상태를 유지한다 — 재개·재시도가 그때 새 파라미터로 다시 시작한다.
-        // 로봇에 아무것도 안 보내므로 **어댑터가 갱신을 못 들어도 이 경로는 된다.**
-        if (state in DEFERRED_UPDATE_STATES) return applied(task, revision, parameters, state)
-
-        return when (val applied = adapter.update(task.taskId, skillType, parameters, clock())) {
-            Applied.Ok -> applied(task, revision, parameters, state)
-            is Applied.Refused -> StartOutcome.Rejected(RejectionCode.REJECTION_CODE_UPDATE_UNSUPPORTED, applied.detail)
+        // 로봇에 아무것도 안 보내므로 **어댑터가 갱신을 못 들어도 이 경로는 된다.** 적을 관측은 그래도 링크로 읽는다.
+        val deferred = state in DEFERRED_UPDATE_STATES
+        val reserved = reserve(key)
+        return Admission.Send {
+            sent(reserved) {
+                val (answer, observed) = synchronized(southbound) {
+                    val answer = if (deferred) Applied.Ok else adapter.update(task.taskId, skillType, parameters, clock())
+                    answer to (if (answer == Applied.Ok) observe(state) else null)
+                }
+                val commit: () -> StartOutcome = {
+                    when (answer) {
+                        Applied.Ok -> applied(task, revision, parameters, state, checkNotNull(observed))
+                        is Applied.Refused -> StartOutcome.Rejected(RejectionCode.REJECTION_CODE_UPDATE_UNSUPPORTED, answer.detail)
+                    }
+                }
+                commit
+            }
         }
     }
 
     /** 갱신을 적는다 — 파라미터를 갈고 `revision` 을 올리고 **로그 한 줄**(§4.4). 상태는 안 바뀐다. */
-    private fun applied(task: HostedTask, revision: Int, parameters: Map<String, Any>, state: TaskState): StartOutcome {
+    private fun applied(task: HostedTask, revision: Int, parameters: Map<String, Any>, state: TaskState, observed: Observed): StartOutcome {
         task.parameters = parameters
         task.revision = revision
-        record(task, state)
+        record(task, state, observed)
         return StartOutcome.Accepted(task)
+    }
+
+    /** 조작 하나의 답. */
+    sealed interface Manipulated {
+        /** 모르는 태스크다. */
+        data object Unknown : Manipulated
+
+        /** 이미 종착했다(§4.4 의 래치). */
+        data class Latched(val detail: String) : Manipulated
+
+        /** 어댑터의 답과, 적고 난 뒤 그 태스크의 상태. */
+        data class Done(val applied: Applied, val state: TaskState) : Manipulated
+    }
+
+    private sealed interface Turn {
+        class Answer(val manipulated: Manipulated) : Turn
+        class Wait(val sending: Sending) : Turn
+        class Go(val sending: Sending, val task: HostedTask, val last: TaskState, val parameters: Map<String, Any>) : Turn
+    }
+
+    /**
+     * 조작 넷(일시정지·재개·취소·재시도)의 공통 — 접수와 같은 세 단계다(§15.269). 보내는 중인 명령이 있으면 **그것이 끝날 때까지
+     * 기다린다**. 취소를 일시적인 사정으로 거부하지 않으려는 것이고, 기다리는 동안 호스트 잠금도 링크 잠금도 쥐지 않는다.
+     *
+     * 어댑터가 받았거나 상태로 답할 거절이면 어댑터가 지금 말하는 상태를 같은 링크 잠금 구간에서 읽어 함께 적는다.
+     *
+     * @param send 지금 파라미터를 받아 어댑터에 시킨다 — 재개·재시도는 멈춘 동안 갈아 둔 파라미터로 다시 시작한다(§4.4).
+     */
+    internal fun manipulate(taskId: String, send: (Map<String, Any>) -> Applied): Manipulated {
+        while (true) {
+            val turn = recorded {
+                val task = book[taskId] ?: return@recorded Turn.Answer(Manipulated.Unknown)
+                if (task.terminal) {
+                    return@recorded Turn.Answer(
+                        Manipulated.Latched("${task.taskId} 은 이미 ${task.last.state} 다 — 종료는 되돌아가지 않는다(§4.4)"),
+                    )
+                }
+                sending?.let { return@recorded Turn.Wait(it) }
+                Turn.Go(reserve(Any()), task, task.last.state, task.parameters)
+            }
+            when (turn) {
+                is Turn.Answer -> return turn.manipulated
+                // 앞 명령이 끝나기를 기다린다. 그 결과는 그 명령의 것이라 여기서 보지 않는다. 그 사이 끝난 태스크를 읽고 다시 본다.
+                is Turn.Wait -> {
+                    runCatching { turn.sending.done.get() }
+                    pumpReleased()
+                }
+                is Turn.Go -> return sent(turn.sending) {
+                    val (applied, then) = synchronized(southbound) {
+                        val applied = send(turn.parameters)
+                        val now = if (syncsAfter(applied)) {
+                            adapter.state.takeIf { it != TaskState.TASK_STATE_UNSPECIFIED && it != turn.last }
+                        } else {
+                            null
+                        }
+                        applied to now?.let { it to observe(it) }
+                    }
+                    val commit: () -> Manipulated = {
+                        if (then != null && current === turn.task && !turn.task.terminal) record(turn.task, then.first, then.second)
+                        Manipulated.Done(applied, turn.task.last.state)
+                    }
+                    commit
+                }
+            }
+        }
     }
 
     /**
@@ -325,6 +548,9 @@ class HostedRobot(
      * 평가기는 미믹과 같은 `capability` 의 것이다(§15.100). 조건이 없는 스킬은 묻지도 않는다 — 선언하지 않은
      * 조건은 제약 없음이다. 갱신([update])에는 걸지 않는다: 도는 태스크 자신이 들고 있는 것이 정상이다.
      */
+    private fun preconditioned(skillType: String): Boolean =
+        (capability.skillsList.firstOrNull { it.skillType == skillType }?.preconditionsCount ?: 0) > 0
+
     private fun precondition(skillType: String): StartOutcome.Rejected? {
         val declared = capability.skillsList.firstOrNull { it.skillType == skillType } ?: return null
         if (declared.preconditionsCount == 0) return null
@@ -411,6 +637,16 @@ class HostedRobot(
     /** 어댑터에 묻고 달라진 것을 적는다. 몇 번 불러도 같다 — 상태 발행만 시계가 정한다. */
     fun pump() = apply(read(plan()))
 
+    /**
+     * [pump] 와 같되 읽을 자리와 적는 일만 [host] 아래에서 하고 읽는 동안은 링크 잠금만 쥔다. **보내는 중인 명령이 있으면 읽지
+     * 않는다** — 그 명령이 링크를 쥐고 있어 읽으려면 그 남쪽 왕복을 기다려야 하고, 그동안 적지도 못한다([apply]).
+     */
+    internal fun pumpReleased() {
+        val plan = recorded { if (sending == null) plan() else null } ?: return
+        val reading = read(plan)
+        recorded { apply(reading) }
+    }
+
     /** 펌프 한 번이 읽을 자리 — 도는 태스크와 그때의 로그 길이. */
     internal class PumpPlan(val task: HostedTask?, val last: TaskState?, val generation: Int)
 
@@ -450,13 +686,15 @@ class HostedRobot(
      *   펌프가 더 새 것을 적을 수 있다. 앞 것을 그 뒤에 적으면 결함 표가 옛 값으로 돌아간다.
      * - **읽는 사이 그 태스크에 무엇이 적혔으면 그 상태는 버린다.** 취소가 종착을 적었는데 그 앞에 읽은 전이를 뒤에 붙이면
      *   종착 뒤에 줄이 생긴다. 버린 전이는 잃지 않는다 — 어댑터가 같은 상태를 들고 있어 다음 읽기가 다시 본다.
+     * - **보내는 중인 명령이 있으면 그 상태는 버린다**(§15.269). 확정이 그 앞에 읽은 상태로 갱신 한 줄을 적으므로, 그 사이 펌프가
+     *   종착을 먼저 적으면 종착 뒤에 줄이 생긴다. 이것도 다음 읽기가 다시 본다.
      */
     internal fun apply(reading: Reading) {
         if (reading.ticket <= appliedTicket) return
         appliedTicket = reading.ticket
         val task = reading.plan.task
         val observed = reading.observed
-        if (task != null && observed != null && current === task && task.log.size == reading.plan.generation) {
+        if (task != null && observed != null && current === task && task.log.size == reading.plan.generation && sending == null) {
             record(task, checkNotNull(reading.state), observed)
         }
         when (val seen = reading.faults) {
@@ -724,6 +962,15 @@ class HostedRobot(
 
         /** 갱신을 받아 **어댑터까지 보내는** 상태 — 로봇이 지금 그 파라미터로 움직이고 있다. */
         val UPDATABLE_STATES = setOf(TaskState.TASK_STATE_ACCEPTED, TaskState.TASK_STATE_RUNNING)
+
+        /**
+         * 조작 뒤 어댑터의 지금 상태를 함께 적는 답. 수단이 없다·못 닿았다·표면이 없다는 로봇에 아무 일도 안 일어난 것이라
+         * 읽지 않는다.
+         */
+        fun syncsAfter(applied: Applied): Boolean = when (applied) {
+            Applied.Ok -> true
+            is Applied.Refused -> applied.reason !in setOf(Refusal.NO_VENDOR_PRIMITIVE, Refusal.LINK_ERROR, Refusal.VENDOR_SURFACE_ABSENT)
+        }
 
         /**
          * 갱신을 받되 **갈아만 두는** 상태(§4.4). 재개·재시도가 그때 새 파라미터로 다시 시작한다.

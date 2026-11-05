@@ -4,7 +4,9 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.picasso.adapter.orbit.OrbitHttpLink
 import dev.picasso.client.PicassoClient
+import dev.picasso.contracts.v1.EventServiceGrpc
 import dev.picasso.contracts.v1.FaultObservability
+import dev.picasso.contracts.v1.GetSnapshotRequest
 import dev.picasso.contracts.v1.ParameterValue
 import dev.picasso.contracts.v1.StartTaskRequest
 import dev.picasso.contracts.v1.StartTaskResponse
@@ -19,6 +21,7 @@ import io.grpc.ManagedChannelBuilder
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
+import java.time.Duration
 import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -55,6 +58,10 @@ class OrbitLauncherTest {
     /** 파견 뒤에 실행이 끝난 것으로 답할지. 벤더의 시간 축을 시험이 쥔다. */
     private var runEnded = false
 
+    /** 있으면 파견 응답을 이것이 열릴 때까지 붙든다. 들어서면 [dispatchEntered] 가 내려간다. */
+    @Volatile private var dispatchHeld: CountDownLatch? = null
+    private val dispatchEntered = CountDownLatch(1)
+
     @BeforeTest
     fun startOrbit() {
         orbit = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
@@ -78,6 +85,12 @@ class OrbitLauncherTest {
     private fun handle(exchange: HttpExchange) {
         received += "${exchange.requestMethod} ${exchange.requestURI.path}"
         if (exchange.requestURI.path == "/api/v0/missions/" && missionsDelayMillis > 0) Thread.sleep(missionsDelayMillis)
+        if (exchange.requestURI.path == "/api/v0/calendar/mission/dispatch/spot-a") {
+            dispatchHeld?.let {
+                dispatchEntered.countDown()
+                it.await(8, TimeUnit.SECONDS)
+            }
+        }
         if (exchange.requestURI.path == "/") {
             exchange.responseHeaders.add("Set-Cookie", "x-csrf-token=csrf-1; Path=/")
         }
@@ -202,6 +215,45 @@ class OrbitLauncherTest {
                 val dispatched = synchronized(received) { received.count { it == "POST /api/v0/calendar/mission/dispatch/spot-a" } }
                 assertEquals(1, dispatched, "같은 기체에 파견이 $dispatched 번 나갔다")
             } finally {
+                channel.shutdownNow()
+            }
+        }
+    }
+
+    @Test
+    fun `플릿이 파견에 답하지 않는 동안에도 스냅숏은 그 파견을 기다리지 않는다`() {
+        // 운영 배치의 모양(실 포트와 펌프 스레드)에서 파견 POST 의 응답을 붙든다. 그 접수는 링크 잠금만 쥐고 서므로(§15.269),
+        // 링크를 안 쓰는 스냅숏은 그 기체의 것이든 같은 플릿 뒤 다른 기체의 것이든 기다리지 않는다.
+        val held = CountDownLatch(1)
+        dispatchHeld = held
+        OrbitLauncher(options().copy(pumpMillis = 1)).start().getOrThrow().use { running ->
+            val channel: ManagedChannel = ManagedChannelBuilder.forAddress("127.0.0.1", running.port).usePlaintext().build()
+            val sender = thread(name = "sender") {
+                runCatching {
+                    PicassoClient(channel, "line-controller").start(
+                        "spot-a", "t-1", revision = 1, skillType = "navigate_to",
+                        parameters = listOf(ParameterValue.newBuilder().setKey("location").setStringValue("DOCK-3").build()),
+                    )
+                }
+            }
+            try {
+                assertTrue(dispatchEntered.await(5, TimeUnit.SECONDS), "파견이 플릿에 닿지 않았다")
+                val events = EventServiceGrpc.newBlockingStub(channel)
+                listOf("spot-a", "spot-b").forEach { robot ->
+                    val started = System.nanoTime()
+                    val failure = runCatching {
+                        events.withDeadlineAfter(2, TimeUnit.SECONDS).getSnapshot(
+                            GetSnapshotRequest.newBuilder()
+                                .setHeader(RequestHeaders.build("picasso.v1.GetSnapshotRequest", robot, "line-controller"))
+                                .setRobotId(robot).build(),
+                        )
+                    }.exceptionOrNull()
+                    val waited = Duration.ofNanos(System.nanoTime() - started)
+                    assertTrue(failure == null && waited < Duration.ofMillis(500), "$robot 스냅숏이 붙든 파견을 기다렸다: $waited ($failure)")
+                }
+            } finally {
+                held.countDown()
+                sender.join(10_000)
                 channel.shutdownNow()
             }
         }
