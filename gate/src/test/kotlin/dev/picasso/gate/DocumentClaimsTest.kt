@@ -227,8 +227,8 @@ class DocumentClaimsTest {
         // ★**행을 센다. id 를 세지 않는다** — 한 칸에 id 를 `·` 로 이어 적은 행이 있어서 둘이 다르다.
         val rows = LimitsLedger.rows(Repo.read("docs/limits.md"))
         // ★**열린 갈래를 이름으로 든다.** «의도적 제외가 아닌 전부» 로 세면 나중에 절이 하나 늘 때
-        // 그 표가 조용히 미결로 셈된다.
-        val openBranches = setOf(LimitsLedger.INTERNAL, LimitsLedger.CONSUMER, LimitsLedger.EXTERNAL)
+        // 그 표가 조용히 미결로 셈된다. 소비자 대기는 폐지했다(§15.265) — 행이 없다는 것은 아래 시험이 댄다.
+        val openBranches = setOf(LimitsLedger.INTERNAL, LimitsLedger.EXTERNAL)
         val open = rows.count { it.first in openBranches }
         assertEquals(open, claimed("""미결 한계 항목 (\S+)개"""), "미결 항목이 늘었는데 README 가 그대로다")
 
@@ -236,7 +236,10 @@ class DocumentClaimsTest {
         // 다른 쪽은 37). 센 자리만 안 낡는다 — 그러니 갈래별 수까지 여기서 센다.
         assertEquals(open, claimed("""등록된 미결 항목은 \*\*(\S+?)개\*\*"""), "미결 합을 README 가 두 값으로 적는다")
         assertEquals(rows.count { it.first == LimitsLedger.INTERNAL }, claimed("""내부 (\S+?)개"""), "내부 미결 수가 대장과 다르다")
-        assertEquals(rows.count { it.first == LimitsLedger.CONSUMER }, claimed("""소비자 대기 (\S+?)개"""), "소비자 대기 수가 대장과 다르다")
+        // 수요 없음은 의도적 제외 안의 한 표다. 표시가 마지막 칸에 있는 행을 센다 — 표시를 지운 행은 비목표로 셈되어 수가 어긋난다.
+        val noDemand = LimitsLedger.cells(Repo.read("docs/limits.md"))
+            .count { (branch, _, reason) -> branch == LimitsLedger.SCOPED_OUT && LimitsLedger.NO_DEMAND in reason }
+        assertEquals(noDemand, claimed("""수요 없음 (\S+?)개"""), "수요 없음 수가 레지스터와 다르다")
         assertEquals(rows.count { it.first == LimitsLedger.EXTERNAL }, claimed("""외부 (\S+?)개"""), "외부 미결 수가 대장과 다르다")
         assertEquals(rows.count { it.first == LimitsLedger.SCOPED_OUT }, claimed("""의도적 제외 (\S+?)개"""), "의도적 제외 수가 대장과 다르다")
     }
@@ -257,18 +260,25 @@ class DocumentClaimsTest {
         assertTrue(ledger.size > 50, "대장을 못 읽었다: ${ledger.size}")
 
         val outside = listOf("받는 쪽", "읽는 쪽", "소비자", "상류", "실물", "벤더", "현장")
-        val world = listOf("실물", "벤더", "현장")
         val misfiled = ledger.mapNotNull { (branch, id, condition) ->
             val named = when (branch) {
                 // 이 저장소가 혼자 닫는다는 갈래인데 해소 조건이 밖의 주어를 부른다.
                 LimitsLedger.INTERNAL -> outside.filter { it in condition }
-                // 소비자가 요구하면 열린다는 갈래인데 실물이나 벤더를 기다린다 — 그쪽은 외부다.
-                LimitsLedger.CONSUMER -> world.filter { it in condition }
                 else -> emptyList()
             }
             if (named.isEmpty()) null else "$id(갈래 $branch) → ${named.joinToString("·")}"
         }
         assertEquals(emptyList(), misfiled, "해소 조건이 밖의 주어를 대는데 갈래는 그렇지 않다")
+    }
+
+    @Test
+    fun `폐지한 소비자 대기 하위 범주에 행이 없다`() {
+        // ★2026-11-04 소유자가 밖의 소비자는 생기지 않는다고 했다(§15.265). 소비자를 기다리는 행은 의도적 제외의
+        //   수요 없음 표에 다시 여는 조건과 함께 둔다. 이 절에 행이 다시 서면 «언젠가 올 소비자» 가 미결로 셈된다.
+        val ledger = LimitsLedger.cells(Repo.read("docs/limits.md"))
+        assertTrue(ledger.size > 50, "레지스터를 못 읽었다: ${ledger.size}")
+        val parked = ledger.filter { it.first == LimitsLedger.CONSUMER }.map { it.second }
+        assertEquals(emptyList(), parked, "폐지한 소비자 대기에 행이 있다 — 지어서 닫거나 수요 없음 표로 옮겨라")
     }
 
     @Test
