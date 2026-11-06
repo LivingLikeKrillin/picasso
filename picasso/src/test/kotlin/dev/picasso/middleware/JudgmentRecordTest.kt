@@ -370,6 +370,31 @@ class JudgmentRecordTest {
         }
     }
 
+    @Test
+    fun `재기동 뒤 첫 출발을 보내지 못해도 넘겨받은 요청 시각을 잃지 않는다`() {
+        World().use { w ->
+            w.robot.unreached += "$ORDER#s1"
+            val exec = w.submit(order())
+            w.old.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.units.single().state, "시험의 전제: 첫 요청이 닿지 않고 답도 잃었다")
+            val record = persisted(w.old.judgmentRecord(exec.executionId))
+            assertEquals(T0, record.units.single().requestedAt)
+
+            w.t = T0.plusSeconds(50)
+            w.robot.unreached.clear()
+            w.robot.unsent += "$ORDER#s1"
+            val again = w.restart()
+            val resumed = again.resumeWith(order(), record)
+            again.mw.pump()
+            assertEquals(UnitState.PENDING, resumed.units.single().state, "시험의 전제: 재기동 뒤의 출발을 보내지 못했다")
+            assertEquals(T0, again.mw.judgmentRecord(resumed.executionId)!!.units.single().requestedAt, "보내지 못한 출발이 넘겨받은 요청 시각을 지웠다")
+
+            w.robot.unsent.clear()
+            again.mw.pump()
+            assertEquals(T0, resumed.units.single().requestedAt, "다시 낸 출발이 처음 요청 시각을 잃었다 — 앞 인스턴스의 요청이 닿았을 수 있다")
+        }
+    }
+
     // ── 운영자 보류의 인시던트
 
     @Test
@@ -731,6 +756,12 @@ class JudgmentRecordTest {
         private val tasks = linkedMapOf<String, TaskState>()
         val starts = mutableListOf<String>()
         val lost = mutableSetOf<String>()
+
+        /** 받지 못하고 답도 잃는 태스크 — 기체는 그 태스크를 모른다. */
+        val unreached = mutableSetOf<String>()
+
+        /** 포트가 하위로 보내지 않았다고 답하는 태스크([CommandNotSent]). */
+        val unsent = mutableSetOf<String>()
         val holds = mutableMapOf<String, HoldKind>()
         var faults: List<Fault> = emptyList()
         var created = 0
@@ -741,7 +772,9 @@ class JudgmentRecordTest {
         }
 
         override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse {
+            if (taskId in unsent) throw CommandNotSent("시험: 하위로 보내지 않았다")
             starts += taskId
+            if (taskId in unreached) throw IllegalStateException("닿지 않았다")
             if (taskId !in tasks) {
                 tasks[taskId] = TaskState.TASK_STATE_RUNNING
                 created += 1

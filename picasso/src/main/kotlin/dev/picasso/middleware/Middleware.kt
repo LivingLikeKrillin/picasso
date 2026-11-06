@@ -1180,6 +1180,12 @@ class Middleware(
                     unit.failureClass = response.rejection.code.name
                 }
             }
+        } catch (_: CommandNotSent) {
+            // **보내지 않았다**(§15.237). 기체에서 도는 것은 여전히 [previous] 다 — 미확정으로 두지 않고 갱신을 미룬다. 허가가 막은
+            // 갱신과 같은 자리라 다음 라운드의 [pumpRound] 가 발행 게이트를 다시 지나 보낸다. 미확정 단위면 미룰 것이 없다 — 다음 조회가
+            // 새 리비전으로 나간다.
+            if (unit.state == UnitState.RUNNING) execution.deferredUpdate = execution.deferredUpdate ?: previous
+            unit.annotateOnce(UPDATE_NOT_SENT)
         } catch (_: RuntimeException) {
             // 갱신의 답을 못 받았다 — 적용됐는지 모른다. 도는 중이었더라도 이제는 미확정이다.
             unit.state = UnitState.IN_DOUBT
@@ -1934,6 +1940,12 @@ class Middleware(
             unit.lastLookupAt = now()
             val found = try {
                 lookupDownstream(execution, unit)
+            } catch (_: CommandNotSent) {
+                // **조회가 나가지 않았다**(§15.237) — 허가가 막은 조회처럼 횟수를 쓰지 않는다. 안 그러면 한 번도 못 물은 채 유예가
+                // 다 가서 «하류가 답하지 않았다» 가 아닌 것이 그렇게 적힌다. 간격은 쓴다 — 다음 시도는 [LOOKUP_INTERVAL] 뒤다.
+                unit.lookups -= 1
+                execution.physicalState = PhysicalState.IN_DOUBT
+                return false
             } catch (_: RuntimeException) {
                 false
             }
@@ -2429,6 +2441,13 @@ class Middleware(
     }
 
     private fun startUnit(execution: Execution, unit: ExecutionUnit) {
+        // 보내지 못하면 이 시도 앞의 자리로 되돌린다. 판단 기록([judgmentRecord])은 태스크 id 가 있으면 낸 것으로 읽어 요청 시각을
+        // 남긴다 — 되돌리지 않으면 보내지 않은 시각이 재기동 뒤 미확정 유예의 기준이 된다. 재기동 뒤 다시 세운 실행의 요청 시각과 붙지 않은
+        // 태스크는 다음 출발이 다시 쓴다.
+        val taskBefore = unit.taskId
+        val requestedBefore = unit.requestedAt
+        val restored = execution.restoredRequests[unit.unitId]
+        val unattached = execution.unattached[unit.unitId]
         unit.taskId = taskIdOf(execution, unit)
         unit.requestedAt = requestedAtOf(execution, unit)
         unit.lookups = 0
@@ -2440,6 +2459,16 @@ class Middleware(
         execution.active = unit
         val accepted = try {
             lookupDownstream(execution, unit)
+        } catch (_: CommandNotSent) {
+            // **보내지 않았다**(§15.237) — 포트가 하위로 보내지 않은 것을 안다. 미확정이 아니다. 단위는 `PENDING` 그대로 두고 도는
+            // 단위를 비운다. 다음 라운드가 결함·허가 게이트를 다시 지나 처음부터 낸다 — 요청 시각도 그때 다시 찍혀 실제로 보낸 시각이 된다.
+            execution.active = null
+            unit.taskId = taskBefore
+            unit.requestedAt = requestedBefore
+            restored?.let { execution.restoredRequests[unit.unitId] = it }
+            unattached?.let { execution.unattached[unit.unitId] = it }
+            unit.annotateOnce(START_NOT_SENT)
+            return
         } catch (_: RuntimeException) {
             // **요청은 갔는데 답이 없다.** 접수됐는지 모른다 — 다시 보내지 않는다(물리 작업이 둘이 될 수 있다).
             // 해소는 13.2 의 순서로 [resolveDoubt] 가 한다. 상류에는 미확정이라는 사실을 드러낸다(16장).
@@ -3436,6 +3465,11 @@ class Middleware(
         note = if (note.isNullOrBlank()) message else "$note; $message"
     }
 
+    /** [annotate] 와 같되 이미 든 사정이면 다시 덧붙이지 않는다 — 라운드마다 되풀이되는 사정(보내지 못한 명령)이 사유를 덮지 않게. */
+    private fun ExecutionUnit.annotateOnce(message: String) {
+        if (note?.contains(message) != true) annotate(message)
+    }
+
     /** 계약의 정준 분류 이름(접두사 없이). 결함이 없거나 분류가 비어 있으면 [UNCLASSIFIED]. */
     private fun canonicalClass(update: WatchTaskResponse): String =
         if (update.hasFault()) canonicalClassOf(update.fault) else UNCLASSIFIED
@@ -3550,6 +3584,12 @@ class Middleware(
          * 조건이 아니다.
          */
         internal val LOOKUP_INTERVAL: Duration = Duration.ofSeconds(2)
+
+        /** 포트가 하위로 보내지 않았다고 답한 첫 출발([CommandNotSent])의 단위 사정. 단위는 `PENDING` 에 남아 다시 나간다(§15.237). */
+        internal const val START_NOT_SENT = "start not sent; reissued after the gates"
+
+        /** 포트가 하위로 보내지 않았다고 답한 개정 갱신([CommandNotSent])의 단위 사정. 갱신은 미뤄져 다시 나간다(§15.237). */
+        internal const val UPDATE_NOT_SENT = "revision update not sent; deferred"
 
         /** 미확정 단위가 기체의 스냅숏에 보이는 태스크에 `StartTask` 없이 붙어 풀렸다는 실행 트레이스의 종류(§15.238). */
         const val DOUBT_ATTACHED = "DOUBT_ATTACHED"
