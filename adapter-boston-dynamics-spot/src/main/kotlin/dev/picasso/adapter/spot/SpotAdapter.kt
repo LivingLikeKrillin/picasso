@@ -7,6 +7,7 @@ import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.sendFailure
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.adapter.core.classifiedFault
@@ -160,7 +161,7 @@ class SpotAdapter(
                 vendorDetail = "AcquireDataResponse.status=${result.status.name}",
             )
 
-            is AcquireResult.Failed -> Acceptance.Refused(Refusal.LINK_ERROR, "AcquireData 가 실패했다: ${result.cause.message}")
+            is AcquireResult.Failed -> Acceptance.Refused(sendFailure(result.cause), "AcquireData 가 실패했다: ${result.cause.message}")
         }
     }
 
@@ -312,6 +313,7 @@ class SpotAdapter(
             authorityLost = result.status
             Acceptance.Refused(Refusal.CONTROL_AUTHORITY_LOST, "미션 적재가 리스로 거부됐다: ${result.status}")
         }
+        // 적재만으로는 로봇이 움직이지 않는다 — 나갔는지 몰라도 다시 적재하면 같은 미션을 다시 올릴 뿐이라 링크 오류로 둔다(§15.220).
         is LeaseResult.Failed ->
             Acceptance.Refused(Refusal.LINK_ERROR, "미션 적재가 실패했다: ${result.cause.message}")
     }
@@ -329,7 +331,7 @@ class SpotAdapter(
         }
 
         is LeaseResult.Failed ->
-            Acceptance.Refused(Refusal.LINK_ERROR, "사우스바운드 호출이 실패했다: ${result.cause.message}")
+            Acceptance.Refused(sendFailure(result.cause), "사우스바운드 호출이 실패했다: ${result.cause.message}")
 
         is LeaseResult.Ok -> {
             task = RunningTask(taskId, startedAt, layer, durationSeconds, TaskState.TASK_STATE_RUNNING)
@@ -658,7 +660,12 @@ class SpotAdapter(
                 else -> FailureClass.FAILURE_CLASS_UNCLASSIFIED
             },
             vendorDetail = refusal.detail,
-            errorHint = "$what — 로봇은 멈춰 있고 아무 미션도 돌지 않습니다. 현장을 확인한 뒤 새 태스크로 다시 시키십시오.",
+            // 나갔는지 모르면 새 미션이 돌고 있을 수도 있다 — «아무 미션도 돌지 않는다» 고 적지 않는다(§15.220).
+            errorHint = if (refusal.reason == Refusal.LINK_IN_DOUBT) {
+                "$what — 요청이 로봇에 닿았는지 모릅니다. 새 미션이 돌고 있을 수 있으니 현장을 확인한 뒤 새 태스크로 다시 시키십시오."
+            } else {
+                "$what — 로봇은 멈춰 있고 아무 미션도 돌지 않습니다. 현장을 확인한 뒤 새 태스크로 다시 시키십시오."
+            },
             canAcceptNewTask = true,
         )
         return applied
@@ -704,7 +711,7 @@ class SpotAdapter(
         val acquisition = link.acquisition
             ?: return Applied.Refused(Refusal.VENDOR_SURFACE_ABSENT, "취득 계층이 사라졌다")
         val answer = acquisition.cancel(current.requestId!!).getOrElse {
-            return Applied.Refused(Refusal.LINK_ERROR, "CancelAcquisition 이 실패했다: ${it.message}")
+            return Applied.Refused(sendFailure(it), "CancelAcquisition 이 실패했다: ${it.message}")
         }
         return when (answer) {
             CancelAcquisitionStatus.STATUS_OK -> {
@@ -783,7 +790,7 @@ class SpotAdapter(
 
         is LeaseResult.Failed -> {
             onReject()
-            Applied.Refused(Refusal.LINK_ERROR, "사우스바운드 호출이 실패했다: ${result.cause.message}")
+            Applied.Refused(sendFailure(result.cause), "사우스바운드 호출이 실패했다: ${result.cause.message}")
         }
     }
 

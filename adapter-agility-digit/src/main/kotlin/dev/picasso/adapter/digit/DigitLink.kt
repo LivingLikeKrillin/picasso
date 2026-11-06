@@ -34,6 +34,10 @@ import dev.picasso.adapter.core.VendorSurface
  * SDK 릴리스가 2021년판이다. **"있다"는 확실하고 "없다"는 그 시점 기준이다.**
  * 그리고 여전히 실물에 붙여 보지 못했다(§9.7 ④·C-3).
  */
+/**
+ * 쓰기 메서드([moveFor]·[gotoNamed]·[pickAndPlace]·[removeAction])는 메시지를 보낸 뒤 답을 못 받으면
+ * [dev.picasso.adapter.core.SouthboundInDoubt] 로 실패한다. 보내기 전의 실패는 다른 예외다(§15.220).
+ */
 interface DigitLink {
 
     /**

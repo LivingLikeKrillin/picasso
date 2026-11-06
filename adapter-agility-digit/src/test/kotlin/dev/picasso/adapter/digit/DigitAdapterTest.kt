@@ -8,6 +8,7 @@ import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.adapter.core.SouthboundInDoubt
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
@@ -586,6 +587,45 @@ class DigitAdapterTest {
         assertEquals(TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED, a.state)
     }
 
+    // ── 나갔는지 모르는 송신(§15.220)
+
+    @Test
+    fun `액션이 나갔는지 모르면 미상으로 거부하고 태스크를 적지 않는다`() {
+        val link = FakeLink().apply { sendFails = true; inDoubt = true }
+        val a = DigitAdapter(link, identity)
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Acceptance.Refused>(a.accept("t-1", "navigate_to", navigate, t0)).reason)
+        assertEquals(TaskState.TASK_STATE_UNSPECIFIED, a.state, "받았는지 모르는 액션을 도는 태스크로 적었다")
+    }
+
+    @Test
+    fun `액션을 보내지 못했으면 링크 오류다`() {
+        val link = FakeLink().apply { sendFails = true }
+        assertEquals(Refusal.LINK_ERROR, assertIs<Acceptance.Refused>(DigitAdapter(link, identity).accept("t-1", "navigate_to", navigate, t0)).reason)
+    }
+
+    @Test
+    fun `지우기가 나갔는지 모르면 미상으로 답한다`() {
+        val link = FakeLink(removeFails = true).apply { inDoubt = true }
+        val a = DigitAdapter(link, identity)
+        a.accept("t-1", "navigate_to", navigate, t0)
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Applied.Refused>(a.cancel()).reason)
+    }
+
+    @Test
+    fun `지운 뒤 새 액션이 나갔는지 모르면 아무것도 안 한다고 적지 않는다`() {
+        val link = FakeLink()
+        val a = DigitAdapter(link, identity)
+        a.accept("t-1", "navigate_to", navigate, t0)
+
+        link.sendFails = true
+        link.inDoubt = true
+        val refused = assertIs<Applied.Refused>(a.update("t-1", "navigate_to", mapOf("location" to "bay-7"), t0))
+        assertEquals(Refusal.LINK_IN_DOUBT, refused.reason)
+        assertEquals(TaskState.TASK_STATE_NEEDS_INTERVENTION, a.state)
+        val hint = a.failure()!!.errorHint
+        assertTrue("닿았는지 모릅니다" in hint, "나갔는지 모르는 액션을 로봇이 아무것도 안 하는 것으로 적었다: $hint")
+    }
+
     private class FakeLink(
         override var privilege: PrivilegeState = PrivilegeState.HELD,
         var reported: ActionStatus? = null,
@@ -613,8 +653,13 @@ class DigitAdapterTest {
         /** **다음 전송부터 실패한다.** 지우기는 됐는데 새 액션을 못 보낸 상태를 만드는 자리다. */
         var sendFails = false
 
+        /** 실패가 **보낸 뒤 답이 없는 것**인가(§15.220). 아니면 보내기 전의 실패다. */
+        var inDoubt = false
+
+        private fun lost(): Throwable = if (inDoubt) SouthboundInDoubt("응답 시간 초과") else IllegalStateException("소켓 끊김")
+
         private fun issue(): Result<ActionRef> {
-            if (sendFails) return Result.failure(IllegalStateException("소켓 끊김"))
+            if (sendFails) return Result.failure(lost())
             next += 1
             return Result.success(ActionRef(next))
         }
@@ -640,7 +685,7 @@ class DigitAdapterTest {
         }
 
         override fun removeAction(ref: ActionRef): Result<Unit> {
-            if (removeFails) return Result.failure(IllegalStateException("소켓 끊김"))
+            if (removeFails) return Result.failure(lost())
             removed += 1
             removedRefs += ref
             return Result.success(Unit)

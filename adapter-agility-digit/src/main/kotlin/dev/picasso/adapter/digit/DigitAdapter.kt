@@ -7,6 +7,7 @@ import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.HoldObservation
 import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
+import dev.picasso.adapter.core.sendFailure
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
 import dev.picasso.adapter.core.classifiedFault
@@ -88,7 +89,7 @@ class DigitAdapter(
         }
 
         val ref = send(skillType, parameters).getOrElse {
-            return Acceptance.Refused(Refusal.LINK_ERROR, "액션 전송이 실패했다: ${it.message}")
+            return Acceptance.Refused(sendFailure(it), "액션 전송이 실패했다: ${it.message}")
         }
 
         task = RunningTask(
@@ -243,7 +244,7 @@ class DigitAdapter(
         }
 
         link.removeAction(current.ref).exceptionOrNull()?.let {
-            return Applied.Refused(Refusal.LINK_ERROR, "remove-action 이 실패했다: ${it.message}")
+            return Applied.Refused(sendFailure(it), "remove-action 이 실패했다: ${it.message}")
         }
         if (link.status() == ActionStatus.RUNNING) {
             // **여기서 멈춘다.** 새 액션을 얹으면 지워지지 않은 것과 함께 돈다.
@@ -255,16 +256,21 @@ class DigitAdapter(
 
         val sent = send(skillType, parameters)
         val ref = sent.getOrElse {
-            // 지웠는데 새것을 못 보냈다. 로봇은 아무것도 안 한다.
+            // 지웠는데 새것을 못 보냈다. 로봇은 아무것도 안 한다 — 나갔는지 모르면 새 액션이 돌고 있을 수도 있다(§15.220).
+            val reason = sendFailure(it)
             current.state = TaskState.TASK_STATE_NEEDS_INTERVENTION
             current.failure = classifiedFault(
                 errorType = "X_AGILITYROBOTICS_UPDATE_HALF_APPLIED",
                 failureClass = FailureClass.FAILURE_CLASS_UNCLASSIFIED,
                 vendorDetail = it.message ?: "",
-                errorHint = "앞 액션은 지웠는데 새 액션을 보내지 못했습니다. 로봇은 아무것도 하지 않습니다 — 현장을 확인한 뒤 새 태스크로 다시 시키십시오.",
+                errorHint = if (reason == Refusal.LINK_IN_DOUBT) {
+                    "앞 액션은 지웠는데 새 액션이 로봇에 닿았는지 모릅니다. 새 액션이 돌고 있을 수 있으니 현장을 확인한 뒤 새 태스크로 다시 시키십시오."
+                } else {
+                    "앞 액션은 지웠는데 새 액션을 보내지 못했습니다. 로봇은 아무것도 하지 않습니다 — 현장을 확인한 뒤 새 태스크로 다시 시키십시오."
+                },
                 canAcceptNewTask = true,
             )
-            return Applied.Refused(Refusal.LINK_ERROR, "액션 전송이 실패했다: ${it.message}")
+            return Applied.Refused(reason, "액션 전송이 실패했다: ${it.message}")
         }
         current.ref = ref
         current.objectName = if (skillType == PICK_PLACE) text(parameters, P_OBJECT) else null
@@ -288,7 +294,7 @@ class DigitAdapter(
         current.state = TaskState.TASK_STATE_CANCELLING
         link.removeAction(current.ref).exceptionOrNull()?.let {
             current.state = TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
-            return Applied.Refused(Refusal.LINK_ERROR, "remove-action 이 실패했다: ${it.message}")
+            return Applied.Refused(sendFailure(it), "remove-action 이 실패했다: ${it.message}")
         }
 
         if (link.status() == ActionStatus.RUNNING) {

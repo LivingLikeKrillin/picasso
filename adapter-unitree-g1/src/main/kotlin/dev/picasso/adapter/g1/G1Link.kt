@@ -81,6 +81,9 @@ interface SportService {
         "JsonizeVelocityCommand.velocity",
         "JsonizeVelocityCommand.duration",
     )
+    /**
+     * 요청을 보낸 뒤 답을 못 받으면 [dev.picasso.adapter.core.SouthboundInDoubt] 로 실패한다. 보내기 전의 실패는 다른 예외다(§15.220).
+     */
     fun setVelocity(vx: Double, vy: Double, omega: Double, durationSeconds: Double): Result<Unit>
 }
 

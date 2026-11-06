@@ -8,6 +8,7 @@ import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.adapter.core.SouthboundInDoubt
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
@@ -409,16 +410,83 @@ class SpotAdapterTest {
         assertEquals(emptyList(), observed.faults.map { it.errorType })
     }
 
+    // ── 나갔는지 모르는 송신(§15.220)
+
+    @Test
+    fun `이동 지시가 나갔는지 모르면 미상으로 거부하고 태스크를 적지 않는다`() {
+        val a = adapter(command = FakeCommand(fail = SouthboundInDoubt("응답 시간 초과")))
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Acceptance.Refused>(a.accept("t-1", "move_relative", move, t0)).reason)
+        assertEquals(TaskState.TASK_STATE_UNSPECIFIED, a.state, "받았는지 모르는 지시를 도는 태스크로 적었다")
+    }
+
+    @Test
+    fun `이동 지시를 보내지 못했으면 링크 오류다`() {
+        val a = adapter(command = FakeCommand(fail = IllegalStateException("연결 거부")))
+        assertEquals(Refusal.LINK_ERROR, assertIs<Acceptance.Refused>(a.accept("t-1", "move_relative", move, t0)).reason)
+    }
+
+    @Test
+    fun `미션 재생이 나갔는지 모르면 미상으로 거부한다`() {
+        val a = adapter(mission = FakeMission().apply { failAt = 2 })
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Acceptance.Refused>(a.accept("t-1", "navigate_to", navigate, t0)).reason)
+    }
+
+    @Test
+    fun `미션 적재가 나갔는지 몰라도 링크 오류다 — 적재만으로는 움직이지 않는다`() {
+        val a = adapter(mission = FakeMission().apply { failAt = 1 })
+        assertEquals(Refusal.LINK_ERROR, assertIs<Acceptance.Refused>(a.accept("t-1", "navigate_to", navigate, t0)).reason)
+    }
+
+    @Test
+    fun `취득 요청이 나갔는지 모르면 미상으로 거부한다`() {
+        val a = adapter(acquisition = FakeAcquisition(acquireFails = SouthboundInDoubt("응답 시간 초과")))
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Acceptance.Refused>(a.accept("t-1", "inspect", inspect, t0)).reason)
+    }
+
+    @Test
+    fun `멈춤이 나갔는지 모르면 미상으로 답한다`() {
+        val mission = FakeMission()
+        val a = adapter(mission = mission)
+        a.accept("t-1", "navigate_to", navigate, t0)
+        mission.failAt = 3
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Applied.Refused>(a.cancel()).reason)
+    }
+
+    @Test
+    fun `취득 취소가 나갔는지 모르면 미상으로 답한다`() {
+        val acquisition = FakeAcquisition()
+        val a = adapter(acquisition = acquisition)
+        a.accept("t-1", "inspect", inspect, t0)
+        acquisition.cancelFails = SouthboundInDoubt("응답 시간 초과")
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Applied.Refused>(a.cancel()).reason)
+    }
+
+    @Test
+    fun `갱신의 재생이 나갔는지 모르면 미션이 안 돈다고 적지 않는다`() {
+        val mission = FakeMission()
+        val a = adapter(mission = mission, graph = FakeGraph("wp-1" to "dock-3", "wp-2" to "bay-7"))
+        a.accept("t-1", "navigate_to", navigate, t0)
+
+        // 접수가 적재·재생으로 둘, 갱신이 멈춤·적재·재생으로 셋을 쓴다. 다섯째가 갱신의 재생이다.
+        mission.failAt = 5
+        val refused = assertIs<Applied.Refused>(a.update("t-1", "navigate_to", mapOf("location" to "bay-7"), t0))
+        assertEquals(Refusal.LINK_IN_DOUBT, refused.reason)
+        assertEquals(TaskState.TASK_STATE_NEEDS_INTERVENTION, a.state)
+        val hint = a.failure()!!.errorHint
+        assertTrue("닿았는지 모릅니다" in hint, "나갔는지 모르는 재생을 미션이 안 도는 것으로 적었다: $hint")
+    }
+
     // ── 가짜 남쪽
 
     private data class Velocity(val vx: Double, val vy: Double, val omega: Double, val endTime: Instant)
 
-    private class FakeCommand(var reject: LeaseStatus? = null) : CommandLayer {
+    private class FakeCommand(var reject: LeaseStatus? = null, private val fail: Throwable? = null) : CommandLayer {
         val velocities = mutableListOf<Velocity>()
         var stopped = 0
 
         override fun se2Velocity(vx: Double, vy: Double, omega: Double, endTime: Instant): LeaseResult {
             reject?.let { return LeaseResult.Rejected(it) }
+            fail?.let { return LeaseResult.Failed(it) }
             velocities += Velocity(vx, vy, omega, endTime)
             return LeaseResult.Ok
         }
@@ -441,11 +509,15 @@ class SpotAdapterTest {
 
         /** **이 호출 번호부터 리스가 거절한다.** 반만 적용된 갱신(멈췄는데 다시 못 시킴)을 만드는 자리다. */
         var rejectFrom: Int? = null
+
+        /** **이 호출 번호 하나가 답 없이 끝난다** — 요청은 나갔고 답을 못 받았다(§15.220). */
+        var failAt: Int? = null
         private var calls = 0
 
         private fun gate(body: () -> Unit): LeaseResult {
             calls += 1
             reject?.let { return LeaseResult.Rejected(it) }
+            if (calls == failAt) return LeaseResult.Failed(SouthboundInDoubt("응답 시간 초과"))
             rejectFrom?.let { if (calls >= it) return LeaseResult.Rejected(LeaseStatus.STATUS_OLDER) }
             body()
             return LeaseResult.Ok
@@ -495,6 +567,8 @@ class SpotAdapterTest {
         var saved: List<DataRef> = emptyList(),
         var errors: List<String> = emptyList(),
         var cancelAnswer: CancelAcquisitionStatus = CancelAcquisitionStatus.STATUS_OK,
+        private val acquireFails: Throwable? = null,
+        var cancelFails: Throwable? = null,
     ) : AcquisitionLayer {
         val acquired = mutableListOf<Triple<String, String, List<ImageSourceRef>>>()
         var cancels = 0
@@ -503,6 +577,7 @@ class SpotAdapterTest {
         override fun imageSources(): Result<List<ImageSourceRef>> = Result.success(sources)
 
         override fun acquire(actionName: String, groupName: String, captures: List<ImageSourceRef>): AcquireResult {
+            acquireFails?.let { return AcquireResult.Failed(it) }
             if (acceptWith != AcquireStatus.STATUS_OK) return AcquireResult.Rejected(acceptWith)
             acquired += Triple(actionName, groupName, captures)
             next += 1
@@ -512,6 +587,7 @@ class SpotAdapterTest {
         override fun status(requestId: Int): Result<AcquisitionStatus> = Result.success(AcquisitionStatus(state, saved, errors))
 
         override fun cancel(requestId: Int): Result<CancelAcquisitionStatus> {
+            cancelFails?.let { return Result.failure(it) }
             cancels += 1
             if (cancelAnswer == CancelAcquisitionStatus.STATUS_OK) state = AcquisitionState.STATUS_CANCEL_IN_PROGRESS
             return Result.success(cancelAnswer)
