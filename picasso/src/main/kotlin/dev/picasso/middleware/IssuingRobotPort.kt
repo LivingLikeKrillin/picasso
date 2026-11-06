@@ -1,5 +1,6 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.TaskHandle
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executor
@@ -8,19 +9,22 @@ import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 
 /**
- * 출발(`StartTask`)을 **소비자의 잠금 밖에서** 보내는 [RobotPort](§15.237).
+ * 명령(`StartTask`·`CancelTask`)을 **소비자의 잠금 밖에서** 보내는 [RobotPort](§15.237).
  *
- * 미들웨어는 자체 스레드가 없고 소비자의 잠금 아래에서 돈다. 그 아래에서 [start] 를 동기로 부르면 답하지 않는 기체 하나가 라운드를
- * 기한만큼 늘리고, 그동안 소비자의 다른 일(HTTP 엔드포인트 등)도 같은 잠금을 기다린다. 이 데코레이터는 [issue] 로 받은 출발을 자기
- * 스레드에서 위임 포트의 [start] 로 보내고, 미들웨어는 다음 라운드에 같은 키로 다시 물어 결과를 받는다. 잠금 아래에서는 기다리지 않는다.
+ * 미들웨어는 자체 스레드가 없고 소비자의 잠금 아래에서 돈다. 그 아래에서 [start]·[cancel] 을 동기로 부르면 답하지 않는 기체 하나가
+ * 라운드를 기한만큼 늘리고, 그동안 소비자의 다른 일(HTTP 엔드포인트 등)도 같은 잠금을 기다린다. 이 데코레이터는 [issue]·[issueCancel] 로
+ * 받은 명령을 자기 스레드에서 위임 포트의 [start]·[cancel] 로 보내고, 미들웨어는 다음 라운드에 같은 키로 다시 물어 결과를 받는다.
+ * 잠금 아래에서는 기다리지 않는다.
  *
- * - **기체마다 차선은 하나다.** 한 출발이 차선을 쥐면 결과를 줄 때까지 같은 기체의 다른 출발은 걸지 않고 [Issue.NotSent] 로 답한다 —
- *   보내지 않았으니 미들웨어가 다음 라운드에 게이트를 다시 지나 낸다. 같은 기체에 명령 둘이 함께 나가 순서가 뒤바뀌지 않게 한다.
- *   답하지 않는 기체는 제 차선만 붙들고 다른 기체의 송신을 늦추지 않는다.
- * - **결과는 한 번만 주고, 줄 때까지 든다.** 받아 간 뒤에 차선을 놓는다. 같은 키로 다시 물으면 새 송신이다.
+ * - **기체마다 차선은 하나다.** 출발과 취소가 같은 차선을 쓴다. 한 명령이 차선을 쥐면 결과를 줄 때까지 같은 기체의 다른 명령은 걸지
+ *   않는다 — 출발은 [Issue.NotSent], 취소는 [CancelIssue.Failed] 로 답한다. 보내지 않았으니 미들웨어가 다음 라운드에 다시 낸다. 같은
+ *   기체에 명령 둘이 함께 나가 순서가 뒤바뀌지 않게 한다. 답하지 않는 기체는 제 차선만 붙들고 다른 기체의 송신을 늦추지 않는다.
+ * - **결과는 한 번만 주고, 줄 때까지 든다.** 받아 간 뒤에 차선을 놓는다. 같은 키로 다시 물으면 새 송신이다. 받아 가지 않으면 차선이
+ *   풀리지 않는다 — 미들웨어 인스턴스를 버리고 이 포트를 계속 쓰면 그 기체의 차선이 막힌다. 미들웨어를 새로 만들면 포트도 새로 만든다.
  * - **보낸 시각은 실제로 보낸 시각이다.** 미들웨어는 그것으로 요청 시각을 적는다 — 미확정 유예와 근거 창이 송신 대기만큼 밀리지 않는다.
- * - **송신의 실패를 가른다.** 위임 포트가 [CommandNotSent] 를 던지면 [Issue.NotSent], 그 밖의 예외는 [Issue.InDoubt] 다.
- * - **취소와 읽기는 그대로 위임한다.** [cancel]·[watch]·[snapshot] 등은 위임 포트로 바로 간다. 취소를 잠금 밖으로 옮기는 것은 다음 조각이다.
+ * - **출발의 실패를 가른다.** 위임 포트가 [CommandNotSent] 를 던지면 [Issue.NotSent], 그 밖의 예외는 [Issue.InDoubt] 다. 취소는 가르지
+ *   않는다 — 두 번 나가도 물리 작업이 둘이 되지 않아 모두 [CancelIssue.Failed] 다.
+ * - **읽기는 그대로 위임한다.** [watch]·[snapshot] 등은 위임 포트로 바로 간다.
  *
  * 위임 포트는 두 스레드에서 불린다 — 이 데코레이터의 송신과 잠금 아래의 나머지 호출. [ClientRobotPort] 는 그것을 견딘다.
  *
@@ -36,15 +40,17 @@ class IssuingRobotPort(
     private val owned: ExecutorService? = if (executor == null) Executors.newVirtualThreadPerTaskExecutor() else null
     private val executor: Executor = executor ?: checkNotNull(owned)
 
-    private data class Key(val taskId: String, val revision: Int)
+    private enum class Kind { START, CANCEL }
+
+    private data class Key(val kind: Kind, val taskId: String, val revision: Int)
 
     /** 기체 하나의 송신 차선. 모든 칸은 이 객체의 모니터 아래에서 읽고 쓴다. */
     private class Lane {
         /** 차선을 쥔 송신 — 보내는 중이거나 결과를 아직 주지 않았다. 널이면 비었다. */
         var key: Key? = null
 
-        /** 끝났고 아직 주지 않은 결과. */
-        var result: Issue? = null
+        /** 끝났고 아직 주지 않은 결과([Issue] 또는 [CancelIssue]). */
+        var result: Any? = null
     }
 
     private val lanes = ConcurrentHashMap<String, Lane>()
@@ -53,46 +59,80 @@ class IssuingRobotPort(
     internal fun sending(robotId: String): Boolean =
         lanes[robotId]?.let { synchronized(it) { it.key != null && it.result == null } } ?: false
 
-    override fun issue(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): Issue {
+    override fun issue(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): Issue = claim(
+        robotId, Key(Kind.START, taskId, revision), Issue.Pending,
+        busy = { Issue.NotSent("robot=$robotId 의 차선에 다른 명령(${it.kind} ${it.taskId} 리비전 ${it.revision})이 있다") },
+        rejected = { Issue.NotSent("실행기가 robot=$robotId 의 송신을 받지 않았다") },
+        lost = { Issue.InDoubt(IllegalStateException("robot=$robotId 의 송신이 결과 없이 끝났다"), it) },
+    ) { sentAt ->
+        try {
+            Issue.Answered(delegate.start(robotId, taskId, revision, skillType, parameters), sentAt)
+        } catch (e: CommandNotSent) {
+            Issue.NotSent(e.message ?: "robot=$robotId 에 보내지 않았다")
+        } catch (e: RuntimeException) {
+            Issue.InDoubt(e, sentAt)
+        }
+    }
+
+    override fun issueCancel(robotId: String, handle: TaskHandle): CancelIssue = claim(
+        robotId, Key(Kind.CANCEL, handle.taskId, handle.revision), CancelIssue.Pending,
+        busy = { CancelIssue.Failed(CommandNotSent("robot=$robotId 의 차선에 다른 명령(${it.kind} ${it.taskId} 리비전 ${it.revision})이 있다")) },
+        rejected = { CancelIssue.Failed(CommandNotSent("실행기가 robot=$robotId 의 송신을 받지 않았다")) },
+        lost = { CancelIssue.Failed(IllegalStateException("robot=$robotId 의 취소 송신이 결과 없이 끝났다")) },
+    ) {
+        try {
+            CancelIssue.Answered(delegate.cancel(robotId, handle))
+        } catch (e: RuntimeException) {
+            CancelIssue.Failed(e)
+        }
+    }
+
+    /** 끝난 송신 하나. [value] 가 널이면 결과 없이 끝났다. */
+    private class Done(val value: Any?, val sentAt: Instant)
+
+    /**
+     * 차선을 묻는다. 비었으면 [key] 로 쥐고 [send] 를 실행기에 건다. 같은 키가 쥐고 있으면 결과를 한 번 주거나 [pending] 을, 다른 키가
+     * 쥐고 있으면 [busy] 를 준다. 결과 없이 끝난 송신은 [lost] 로 감싼다.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun <R : Any> claim(
+        robotId: String,
+        key: Key,
+        pending: R,
+        busy: (Key) -> R,
+        rejected: () -> R,
+        lost: (Instant) -> R,
+        send: (Instant) -> R,
+    ): R {
         val lane = lanes.computeIfAbsent(robotId) { Lane() }
-        val key = Key(taskId, revision)
         synchronized(lane) {
             val held = lane.key
-            if (held != null && held != key) {
-                return Issue.NotSent("robot=$robotId 의 차선에 다른 출발(${held.taskId} 리비전 ${held.revision})이 있다")
-            }
+            if (held != null && held != key) return busy(held)
             if (held == key) {
-                val done = lane.result ?: return Issue.Pending
+                val done = lane.result as Done? ?: return pending
                 lane.key = null
                 lane.result = null
-                return done
+                return done.value as R? ?: lost(done.sentAt)
             }
             lane.key = key
         }
         return try {
-            executor.execute { send(robotId, lane, taskId, revision, skillType, parameters) }
-            Issue.Pending
+            executor.execute { run(lane, send) }
+            pending
         } catch (_: RejectedExecutionException) {
             synchronized(lane) { lane.key = null }
-            Issue.NotSent("실행기가 robot=$robotId 의 송신을 받지 않았다")
+            rejected()
         }
     }
 
     /** 송신 한 번. 잠금 밖에서 돈다. 무엇으로 끝나든 결과를 남긴다 — 안 남기면 그 기체의 차선이 영영 비지 않는다. */
-    private fun send(robotId: String, lane: Lane, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>) {
-        var result: Issue? = null
+    private fun run(lane: Lane, send: (Instant) -> Any) {
         val sentAt = now()
+        var value: Any? = null
         try {
-            result = try {
-                Issue.Answered(delegate.start(robotId, taskId, revision, skillType, parameters), sentAt)
-            } catch (e: CommandNotSent) {
-                Issue.NotSent(e.message ?: "robot=$robotId 에 보내지 않았다")
-            } catch (e: RuntimeException) {
-                Issue.InDoubt(e, sentAt)
-            }
+            value = send(sentAt)
         } finally {
-            val done = result ?: Issue.InDoubt(IllegalStateException("robot=$robotId 의 송신이 결과 없이 끝났다"), sentAt)
-            synchronized(lane) { lane.result = done }
+            synchronized(lane) { lane.result = Done(value, sentAt) }
         }
     }
 
