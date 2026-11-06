@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
+import java.time.Duration
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -189,6 +190,21 @@ class OrbitHttpLinkTest {
         server.stop(0)
         val unreachable = assertIs<DispatchResult.Unreachable>(link.dispatch.dispatch("spot-a", "m-1", "picasso"))
         assertNull(unreachable.detail.toIntOrNull(), "상태 코드가 아니라 전송 실패여야 한다")
+    }
+
+    @Test
+    fun `파견 요청이 나간 뒤 답이 없으면 못 닿음이 아니라 미상이다`() {
+        // 플릿이 요청을 받고 답하지 않는다 — 응답 시간을 넘긴다.
+        server.createContext("/api/v0/calendar/mission/dispatch/") { exchange ->
+            received += Recorded(exchange.requestMethod, exchange.requestURI.path, exchange.requestURI.query, emptyMap(), "")
+            Thread.sleep(1_000)
+            exchange.close()
+        }
+        val link = OrbitHttpLink.connect(baseUrl, TOKEN, timeout = Duration.ofMillis(200)).getOrThrow()
+
+        val outcome = link.dispatch.dispatch("spot-a", "m-1", "picasso")
+        assertTrue(received.any { it.method == "POST" && it.path == "/api/v0/calendar/mission/dispatch/spot-a" }, "파견이 플릿에 닿지 않았다")
+        assertIs<DispatchResult.InDoubt>(outcome, "나간 파견을 못 닿음으로 접었다: $outcome")
     }
 
     private companion object {

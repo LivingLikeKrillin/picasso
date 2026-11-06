@@ -141,8 +141,14 @@ sealed interface DispatchResult {
     /** 플릿이 거절했다. [detail] 은 벤더의 말 그대로다. */
     data class Refused(val detail: String) : DispatchResult
 
-    /** 플릿에 못 닿았다. **거절과 다르다** — 앞은 답이고 뒤는 답이 없는 것이다. */
+    /** 플릿에 못 닿았다 — 요청이 나가기 전에 실패했다. **거절과 다르다** — 앞은 답이고 뒤는 답이 없는 것이다. */
     data class Unreachable(val detail: String) : DispatchResult
+
+    /**
+     * 요청은 나갔고 답을 못 받았다. [Unreachable] 과 다르다 — 플릿이 파견을 받았을 수 있다. 다시 보내면 같은 미션을 두 번
+     * 파견할 수 있다(§15.220).
+     */
+    data class InDoubt(val detail: String) : DispatchResult
 }
 
 /** 실행 관측(`GET /runs/`·`GET /run_events/`). */

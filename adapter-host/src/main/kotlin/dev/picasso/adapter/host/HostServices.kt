@@ -249,6 +249,7 @@ internal class HostTaskService(robots: Map<String, HostedRobot>, pumpOnRead: Boo
                     else -> null to rejection(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, "$what: ${applied.detail}")
                 }
                 Refusal.LINK_ERROR -> throw Status.UNAVAILABLE.withDescription(applied.detail).asRuntimeException()
+                Refusal.LINK_IN_DOUBT -> throw Status.UNKNOWN.withDescription(applied.detail).asRuntimeException()
                 Refusal.VENDOR_SURFACE_ABSENT -> throw Status.UNAVAILABLE.withDescription(applied.detail).asRuntimeException()
                 else -> null to rejection(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, "$what: ${applied.detail}")
             }

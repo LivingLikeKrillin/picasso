@@ -290,6 +290,12 @@ class HostedRobot(
      */
     private var sending: Sending? = null
 
+    /**
+     * 나갔는지 모르는 접수와 그 답(§15.220). 호스트 잠금 아래에서만 만진다. 같은 접수가 다시 오면 **보내지 않고** 같은 답을 준다 —
+     * 다시 보내면 로봇에 같은 일을 두 번 시킬 수 있다. 장부에는 안 오른다 — 받았는지 모르는 것을 도는 태스크로 적지 않는다.
+     */
+    private val inDoubt = mutableMapOf<StartKey, StartOutcome>()
+
     /** 장부·배타·검증을 보고 다음 걸음을 정한다. 호스트 잠금 아래에서 부른다. 어댑터를 부르지 않는다. */
     private fun admit(
         taskId: String,
@@ -300,6 +306,7 @@ class HostedRobot(
     ): Admission {
         val key = StartKey(taskId, revision)
         sending?.takeIf { it.key == key }?.let { return Admission.Join(it) }
+        inDoubt[key]?.let { return Admission.Decided(it) }
 
         book[taskId]?.let { existing ->
             return when {
@@ -366,8 +373,8 @@ class HostedRobot(
      * [link] 를 호스트 잠금 밖에서 돌고(어댑터를 부르는 동안 링크 잠금을 쥔다), 그것이 돌려준 확정을 호스트 잠금 아래에서 돈다.
      * 확정 전에 자리가 그 명령의 것인지 보고, 같은 잠금 구간에서 자리를 비운다. 합류한 쪽은 같은 결과를 받는다.
      *
-     * **보냈는지 모르는 실패를 가르지 않는다.** [link] 가 던지면 자리를 비우고 그 예외를 내며, 같은 요청이 다시 오면 다시 보낸다.
-     * 어댑터의 링크 오류도 보내지 못한 것으로 읽는다(§15.220).
+     * [link] 가 던지면 자리를 비우고 그 예외를 내며, 같은 요청이 다시 오면 다시 보낸다. 어댑터의 링크 오류도 보내지 못한 것으로
+     * 읽는다. 보냈는지 모르는 것은 어댑터가 [Refusal.LINK_IN_DOUBT] 로 가른다 — 그 답은 [inDoubt] 에 남는다(§15.220).
      */
     private fun <T> sent(s: Sending, link: () -> () -> T): T {
         val result = runCatching {
@@ -416,7 +423,9 @@ class HostedRobot(
                     if (then != null) record(task, then, checkNotNull(thenObserved))
                     StartOutcome.Accepted(task)
                 }
-                is Acceptance.Refused -> refused(acceptance)
+                is Acceptance.Refused -> refused(acceptance).also {
+                    if (acceptance.reason == Refusal.LINK_IN_DOUBT) inDoubt[StartKey(taskId, revision)] = it
+                }
             }
         }
         commit
@@ -645,6 +654,10 @@ class HostedRobot(
         Refusal.CONTROL_AUTHORITY_LOST -> StartOutcome.Rejected(RejectionCode.REJECTION_CODE_INVALID_TRANSITION, refusal.detail)
         Refusal.IDENTITY_UNSET -> StartOutcome.Unavailable(io.grpc.Status.FAILED_PRECONDITION.withDescription(refusal.detail))
         Refusal.LINK_ERROR -> StartOutcome.Unavailable(io.grpc.Status.UNAVAILABLE.withDescription(refusal.detail))
+        // `UNAVAILABLE` 은 «다시 보내도 된다» 로 읽힌다. 나갔는지 모르는 것은 그렇게 답하지 않는다.
+        Refusal.LINK_IN_DOUBT -> StartOutcome.Unavailable(
+            io.grpc.Status.UNKNOWN.withDescription("${refusal.detail} — 같은 접수는 다시 보내지 않는다(§15.220)"),
+        )
     }
 
     // ── 펌프
