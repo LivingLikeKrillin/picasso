@@ -108,9 +108,9 @@ class PortBreakerTest {
 
         val spent = millis {
             assertNull(port.snapshot(STUCK))
-            val e = assertFailsWith<StatusRuntimeException> { port.cancel(STUCK, handle(STUCK)) }
-            assertEquals(Status.Code.UNAVAILABLE, e.status.code)
-            assertFailsWith<StatusRuntimeException> { port.start(STUCK, "t-2", 1, "pick_place", emptyMap()) }
+            // 보내지 않은 것을 아는 자리다 — 미들웨어가 미확정으로 읽지 않게 [CommandNotSent] 로 던진다.
+            assertFailsWith<CommandNotSent> { port.cancel(STUCK, handle(STUCK)) }
+            assertFailsWith<CommandNotSent> { port.start(STUCK, "t-2", 1, "pick_place", emptyMap()) }
             assertNull(port.replay(STUCK, 0))
         }
         assertTrue(spent < 500, "차단 창 안인데 기한을 또 썼다: ${spent}ms")

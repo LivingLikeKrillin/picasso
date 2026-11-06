@@ -39,6 +39,12 @@ interface RobotPort {
      */
     fun capabilities(robotId: String): Capability? = null
 
+    /**
+     * 태스크를 낸다(계약 `StartTask`). 같은 `(task_id, revision)` 이면 조회다(위 [executionLookup]).
+     *
+     * **던지는 예외는 둘로 읽힌다**(§15.237). 요청이 하위로 나가지 않았음을 구현이 알면 [CommandNotSent] 를 던진다 — 미들웨어는 그
+     * 명령을 보내지 않은 것으로 읽고 다음 라운드에 발행 게이트를 다시 지나 보낸다. 그 밖의 예외는 나갔는지 모르는 것이다(미확정).
+     */
     fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse
     fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse>
 
@@ -78,6 +84,16 @@ interface RobotPort {
 }
 
 /**
+ * **명령이 하위로 나가지 않았다**(§15.237) — [RobotPort] 구현이 그것을 알 때만 던진다. 미들웨어가 미확정(`IN_DOUBT`)과 가르는 유일한
+ * 표식이다. 미들웨어는 이것을 받으면 그 명령을 보내지 않은 것으로 읽는다. 첫 출발은 단위를 `PENDING` 에 두어 다음 라운드에 다시
+ * 내고, 개정 갱신은 미뤄 두며, 미확정 조회는 조회 횟수를 쓰지 않는다.
+ *
+ * 나갔는지 모르면 던지지 않는다. 요청을 보낸 뒤 답을 못 받은 실패를 이것으로 접으면 같은 명령이 두 번 나가 물리 작업이 둘이 될 수 있다.
+ * 그래서 gRPC `UNAVAILABLE` 이라는 것만으로는 이것이 아니다 — 연결이 요청을 보낸 뒤 끊겨도 같은 코드가 온다.
+ */
+class CommandNotSent(message: String) : RuntimeException(message)
+
+/**
  * [PicassoClient] 위의 [RobotPort]. 태스크마다 받은 갱신을 누적해 들고, 스트림이 닫히면 다시 붙는다([watch]).
  *
  * 태스크별 표는 잠금 없는 맵이다. 호출자는 미들웨어 하나이고 그 미들웨어를 지키는 호스트의 잠금 아래에서
@@ -86,7 +102,7 @@ interface RobotPort {
  *
  * **답하지 않는 기체는 잠시 묻지 않는다**(§15.237). 단건 호출(`GetCapabilities`·`StartTask`·`CancelTask`·`GetSnapshot`·
  * `ReplayEvents`)이 기한을 다 쓰고(`DEADLINE_EXCEEDED`) 끝나면 그 기체의 단건 호출을 [backoff] 동안 하위로 보내지 않고 바로
- * `UNAVAILABLE` 로 실패시킨다. 호출자의 잠금 아래에서 도는 라운드가 답하지 않는 기체 하나 때문에 라운드마다 기한만큼 늘지 않게 —
+ * [CommandNotSent] 로 실패시킨다 — 보내지 않은 것을 아는 자리라 미들웨어가 미확정으로 읽지 않는다. 호출자의 잠금 아래에서 도는 라운드가 답하지 않는 기체 하나 때문에 라운드마다 기한만큼 늘지 않게 —
  * 차단 창 동안 그 기체가 라운드에 더하는 지연은 없고, 창이 지나면 한 번 다시 묻는다. 답이 오면(상태든 거부든 gRPC 오류든) 창을 걷는다.
  *
  * - **기한 값은 그대로다.** 적정 예산은 현장 실측 전까지 모른다. 바꾸는 것은 같은 기체에 기한을 되풀이해 쓰는 횟수뿐이다.
@@ -111,11 +127,11 @@ class ClientRobotPort(
     /** 이 기체의 차단 창이 끝나는 시각. 창이 없으면 `null`. 시험이 창을 보는 문이다. */
     internal fun backingOffUntil(robotId: String): Instant? = backingOff[robotId]
 
-    /** [call] 을 [robotId] 의 차단 창 아래에서 부른다. 창 안이면 하위로 보내지 않고 `UNAVAILABLE` 로 던진다. */
+    /** [call] 을 [robotId] 의 차단 창 아래에서 부른다. 창 안이면 하위로 보내지 않고 [CommandNotSent] 로 던진다. */
     private fun <T> guarded(robotId: String, call: () -> T): T {
         backingOff[robotId]?.let { until ->
             if (now().isBefore(until)) {
-                throw Status.UNAVAILABLE.withDescription("robot=$robotId 가 기한 안에 답하지 않아 $until 까지 묻지 않는다").asRuntimeException()
+                throw CommandNotSent("robot=$robotId 가 기한 안에 답하지 않아 $until 까지 묻지 않는다")
             }
         }
         val result = try {
