@@ -63,9 +63,10 @@ class OffLockStartTest {
         }
     }
 
-    private class World : AutoCloseable {
+    /** [blind] 면 스냅숏을 못 읽는 기체다 — 미확정 태스크가 스냅숏에 안 보여 조회(`StartTask` 재전송)로만 풀린다. */
+    private class World(blind: Boolean = false) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to Path.of("..", "profile", "profiles", "quadruped-b.json").normalize()))
-        val wire = Wire(ClientRobotPort(harness.client()))
+        val wire = Wire(ClientRobotPort(harness.client()).let { if (blind) FaultBlindRobotPort(it) else it })
         val manual = Manual()
         val port = IssuingRobotPort(wire, now = { harness.clock.now() }, executor = manual)
         val mw = Middleware(port, now = { harness.clock.now() })
@@ -210,6 +211,28 @@ class OffLockStartTest {
             assertEquals(InFlight.Kind.UPDATE, exec.inFlight?.kind, "보내는 중인 갱신을 다음 단위의 출발이 덮었다")
             assertEquals(UnitState.RUNNING, first.state, "갱신을 보내는 라운드에 단위를 읽어 넘겼다 — 끝난 단위가 바로 종결하면 다음 출발이 보내는 중인 갱신을 덮는다")
             assertEquals(emptyList(), w.wire.delivered.filter { it.first == taskOf(INSPECT) })
+        }
+    }
+
+    @Test
+    fun `보내는 중인 미확정 조회는 다음 라운드에 결과를 받아 풀린다`() {
+        World(blind = true).use { w ->
+            w.wire.lost = 1
+            val exec = w.submit(1)
+            val first = exec.units.first()
+            w.mw.pump()
+            w.manual.run()
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, first.state, "시험의 전제: 첫 출발의 답을 잃었다")
+
+            w.mw.pump()
+            assertEquals(InFlight.Kind.LOOKUP, exec.inFlight?.kind, "시험의 전제: 조회가 보내는 중이다")
+            w.manual.run()
+            w.mw.pump()
+            assertEquals(UnitState.RUNNING, first.state, "보내는 중인 조회의 결과를 받지 않았다: ${first.note}")
+            assertNull(exec.inFlight)
+            assertEquals(1, first.lookups)
+            assertEquals(1, w.tasks().count { it.taskId == taskOf(first.unitId) }, "조회가 물리 작업을 다시 만들었다")
         }
     }
 

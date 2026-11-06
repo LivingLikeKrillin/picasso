@@ -1581,8 +1581,8 @@ class Middleware(
             }
         }
         // 갱신이 보내는 중이면 이 라운드는 여기까지다(§15.237). 이어서 단위를 읽으면 태스크가 이미 끝난 경우 다음 단위의 출발이 나가
-        // 보내는 중인 갱신을 덮는다 — 그 결과를 받을 자리가 사라진다.
-        if (execution.inFlight != null) return
+        // 보내는 중인 갱신을 덮는다 — 그 결과를 받을 자리가 사라진다. 보내는 중인 조회는 막지 않는다 — 그 결과는 아래 [resolveDoubt] 가 받는다.
+        if (execution.inFlight?.kind == InFlight.Kind.UPDATE) return
 
         val active = execution.active
         if (active != null) {
