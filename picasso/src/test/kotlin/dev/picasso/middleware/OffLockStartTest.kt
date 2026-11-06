@@ -145,6 +145,8 @@ class OffLockStartTest {
 
             w.manual.run()
             w.mw.pump()
+            assertNotNull(exec.cancelInFlight, "접수를 본 뒤 취소를 걸지 않았다")
+            w.manual.run() // 취소도 같은 차선으로 잠금 밖에서 나간다(§15.276)
             assertEquals(listOf(taskOf(first.unitId)), w.wire.cancels, "접수를 본 뒤 취소를 보내지 않았다")
             w.drive { !exec.physicalState.pumps }
             assertEquals(emptyList(), w.wire.delivered.filter { it.first == taskOf(INSPECT) }, "취소한 실행이 다음 단위를 냈다")
@@ -165,6 +167,8 @@ class OffLockStartTest {
             assertEquals(emptyList(), w.wire.cancels, "갱신을 보내는 중에 같은 기체에 취소를 함께 냈다")
             w.manual.run()
             w.mw.pump()
+            assertNotNull(exec.cancelInFlight, "갱신의 결과 뒤에 취소를 걸지 않았다")
+            w.manual.run()
             assertEquals(listOf(taskOf(first.unitId)), w.wire.cancels, "갱신의 결과 뒤에 취소를 보내지 않았다")
         }
     }

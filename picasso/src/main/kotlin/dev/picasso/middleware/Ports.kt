@@ -76,6 +76,16 @@ interface RobotPort {
     fun cancel(robotId: String, handle: TaskHandle): CancelTaskResponse
 
     /**
+     * 취소(`CancelTask`)를 **소비자의 잠금 밖에서** 보낸다(§15.237). 미들웨어가 취소를 보내는 네 자리(도는 단위의 취소·키로 만든 핸들의
+     * 취소·운영자 보류 중 다시 보내기·재기동 뒤 붙기 전의 취소)가 [cancel] 대신 이것을 먼저 묻는다. 널이면 이 포트는 잠금 밖에서 보내지
+     * 않는다 — 미들웨어가 [cancel] 을 지금 부른다.
+     *
+     * 같은 `(robotId, handle)` 로 다시 물으면 같은 송신의 처지를 준다. 처음 물으면 송신을 걸고 [CancelIssue.Pending] 을, 보내는 동안은
+     * [CancelIssue.Pending] 을, 끝나면 그 결과를 **한 번** 준다. 결과를 준 뒤 같은 키로 다시 물으면 새 송신이다.
+     */
+    fun issueCancel(robotId: String, handle: TaskHandle): CancelIssue? = null
+
+    /**
      * 기체의 현재값(계약 `GetSnapshot`, §4.8) — 활성 결함·연결 상태·태스크 상태·다음 이벤트 번호. **`null` 은 못
      * 물어봤다는 뜻**이지 결함이 없다는 뜻이 아니다 — 둘을 접으면 관측 실패가 정상으로 읽힌다(원장의
      * `Observed`/`NotObservable` 과 같은 이유).
@@ -112,6 +122,23 @@ sealed interface Issue {
 
     /** 나갔는지 모른다 — 보낸 뒤 답을 못 받았다. */
     data class InDoubt(val failure: RuntimeException, val sentAt: Instant?) : Issue
+}
+
+/**
+ * 취소 송신 하나의 처지([RobotPort.issueCancel], §15.237). 미들웨어가 [RobotPort.cancel] 을 동기로 부른 결과도 같은 셋으로 감싼다.
+ *
+ * 출발과 달리 미확정을 따로 두지 않는다. 취소는 두 번 나가도 물리 작업이 둘이 되지 않는다 — 미들웨어는 실패를 «닿지 않았다» 로 읽고
+ * 다시 보낸다.
+ */
+sealed interface CancelIssue {
+    /** 보내는 중이다. 이 라운드에는 결과가 없다. */
+    data object Pending : CancelIssue
+
+    /** 하위가 답했다(상태든 거부든). */
+    data class Answered(val response: CancelTaskResponse) : CancelIssue
+
+    /** 닿았는지 모른다 — 보내지 않았거나([CommandNotSent]) 답을 못 받았다. 같은 기체의 다른 명령이 보내는 중이어서 걸지 못한 것도 이것이다. */
+    data class Failed(val failure: RuntimeException) : CancelIssue
 }
 
 /**
