@@ -177,6 +177,21 @@ enum class Refusal {
 }
 
 /**
+ * 남쪽 쓰기 호출이 **요청을 보낸 뒤** 답을 못 받았다(§15.220).
+ *
+ * 링크 구현이 이 예외로 실패를 알린다 — 응답 시간 초과, 받는 도중 끊긴 연결. 연결을 못 맺은 것처럼 요청이 나가기 전의 실패는
+ * 이 예외가 아니다. 어댑터는 쓰기 호출의 실패를 [sendFailure] 로 옮겨 [Refusal.LINK_IN_DOUBT] 를 낸다.
+ */
+class SouthboundInDoubt(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
+
+/**
+ * 남쪽 **쓰기** 호출의 실패를 거부 사유로 옮긴다. [SouthboundInDoubt] 면 [Refusal.LINK_IN_DOUBT], 그 밖은 [Refusal.LINK_ERROR] 다.
+ *
+ * 읽기 호출에는 쓰지 않는다 — 읽기는 다시 물어도 로봇이 두 번 움직이지 않으므로 늘 [Refusal.LINK_ERROR] 다.
+ */
+fun sendFailure(cause: Throwable): Refusal = if (cause is SouthboundInDoubt) Refusal.LINK_IN_DOUBT else Refusal.LINK_ERROR
+
+/**
  * 결함을 봤는가, 아니면 못 봤는가.
  *
  * **빈 목록과 "모른다"를 나눈다.** 관측 경로가 죽었을 때 결함 없음을 답하면

@@ -233,6 +233,7 @@ sealed interface AcquireResult {
     /** `AcquireDataResponse.Status` 가 `STATUS_OK` 가 아니었다. */
     data class Rejected(val status: AcquireStatus) : AcquireResult
 
+    /** 전송이 실패했다. 요청을 보낸 뒤 답을 못 받았으면 [cause] 가 [dev.picasso.adapter.core.SouthboundInDoubt] 다(§15.220). */
     data class Failed(val cause: Throwable) : AcquireResult
 }
 
@@ -642,7 +643,10 @@ sealed interface LeaseResult {
     /** `LeaseUseResult.Status`가 `STATUS_OK`가 아니었다. */
     data class Rejected(val status: LeaseStatus) : LeaseResult
 
-    /** 전송 자체가 실패했다. 리스와 무관하다. */
+    /**
+     * 전송 자체가 실패했다. 리스와 무관하다. 요청을 보낸 뒤 답을 못 받았으면 [cause] 가
+     * [dev.picasso.adapter.core.SouthboundInDoubt] 다(§15.220).
+     */
     data class Failed(val cause: Throwable) : LeaseResult
 }
 

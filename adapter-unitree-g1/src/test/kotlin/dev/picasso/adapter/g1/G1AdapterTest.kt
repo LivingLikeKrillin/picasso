@@ -8,6 +8,7 @@ import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.FaultObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.adapter.core.SouthboundInDoubt
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.TaskState
 import java.time.Instant
@@ -342,8 +343,33 @@ class G1AdapterTest {
 
     private data class Velocity(val vx: Double, val vy: Double, val omega: Double, val duration: Double)
 
+    // ── 나갔는지 모르는 송신(§15.220)
+
+    @Test
+    fun `속도 지시가 나갔는지 모르면 미상으로 거부하고 태스크를 적지 않는다`() {
+        val a = adapter(sport = FakeSport(failFrom = 0, inDoubt = true))
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Acceptance.Refused>(a.accept("t-1", "move_relative", move, t0)).reason)
+        assertEquals(TaskState.TASK_STATE_UNSPECIFIED, a.state, "받았는지 모르는 지시를 도는 태스크로 적었다")
+    }
+
+    @Test
+    fun `멈춤이 나갔는지 모르면 미상으로 답한다`() {
+        val a = adapter(sport = FakeSport(failFrom = 1, inDoubt = true))
+        a.accept("t-1", "move_relative", move, t0)
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Applied.Refused>(a.cancel()).reason)
+    }
+
+    @Test
+    fun `갱신이 나갔는지 모르면 미상으로 답한다`() {
+        val a = adapter(sport = FakeSport(failFrom = 1, inDoubt = true))
+        a.accept("t-1", "move_relative", move, t0)
+        assertEquals(Refusal.LINK_IN_DOUBT, assertIs<Applied.Refused>(a.update("t-1", "move_relative", move, t0.plusSeconds(1))).reason)
+    }
+
     private class FakeSport(
         private val failFrom: Int = Int.MAX_VALUE,
+        /** 실패가 **보낸 뒤 답이 없는 것**인가(§15.220). 아니면 보내기 전의 실패다. */
+        private val inDoubt: Boolean = false,
         /** 널이 아니면 로봇이 이 코드로 거절한다 — 전송 실패([failFrom])와 다른 것. 정수는 시험이 모른다(0). */
         private val apiError: UnitreeError? = null,
     ) : SportService {
@@ -359,7 +385,9 @@ class G1AdapterTest {
 
         override fun setVelocity(vx: Double, vy: Double, omega: Double, durationSeconds: Double): Result<Unit> {
             apiError?.let { return Result.failure(UnitreeApiException(it, rawCode = 0)) }
-            if (velocities.size >= failFrom) return Result.failure(IllegalStateException("링크 끊김"))
+            if (velocities.size >= failFrom) {
+                return Result.failure(if (inDoubt) SouthboundInDoubt("응답 시간 초과") else IllegalStateException("링크 끊김"))
+            }
             velocities += Velocity(vx, vy, omega, durationSeconds)
             return Result.success(Unit)
         }

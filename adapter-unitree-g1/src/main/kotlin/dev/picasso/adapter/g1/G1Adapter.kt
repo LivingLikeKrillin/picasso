@@ -9,6 +9,7 @@ import dev.picasso.adapter.core.ProgressObservation
 import dev.picasso.adapter.core.Refusal
 import dev.picasso.adapter.core.RobotAdapter
 import dev.picasso.adapter.core.SiteNames
+import dev.picasso.adapter.core.sendFailure
 import dev.picasso.contracts.v1.FailureClass
 import dev.picasso.contracts.v1.Fault
 import dev.picasso.contracts.v1.TaskState
@@ -112,7 +113,7 @@ class G1Adapter(
             // **전송 실패와 로봇의 거절은 다르다.** 코드가 왔으면 로봇이 답한 것이고 그 뜻을
             // 정준 분류로 옮긴다 — 이 기종은 태스크가 시계로 성공하므로 코드가 나올 자리가 여기뿐이다.
             if (it is UnitreeApiException) return vendorRejected(it)
-            return Acceptance.Refused(Refusal.LINK_ERROR, "SetVelocity 가 실패했다: ${it.message}")
+            return Acceptance.Refused(sendFailure(it), "SetVelocity 가 실패했다: ${it.message}")
         }
 
         // 계약의 task_id 가 곧 이 어댑터의 식별자다 — 정체성 열(15.1)의 하류 작업 ID 를 새로 만들지 않는다.
@@ -205,7 +206,7 @@ class G1Adapter(
             // 나가므로(호스트가 그것만 옮긴다) 로봇이 준 코드를 사정에 붙인다. 접수 쪽 거절과 다른 점이다.
             val refused = if (it is UnitreeApiException) vendorRejected(it) else null
             return Applied.Refused(
-                refused?.reason ?: Refusal.LINK_ERROR,
+                refused?.reason ?: sendFailure(it),
                 refused?.detail ?: "SetVelocity 가 실패했다: ${it.message}",
             )
         }
@@ -248,7 +249,7 @@ class G1Adapter(
             // 사라지고, `CANCELLED`로 넘기면 거짓말이 된다. 계약이 그 자리를
             // 위해 `CANCELLED_RECOVERY_FAILED`를 따로 두었다.
             current.state = TaskState.TASK_STATE_CANCELLED_RECOVERY_FAILED
-            return Applied.Refused(Refusal.LINK_ERROR, "StopMove 가 실패했다: ${it.message}")
+            return Applied.Refused(sendFailure(it), "StopMove 가 실패했다: ${it.message}")
         }
 
         current.state = TaskState.TASK_STATE_CANCELLED
