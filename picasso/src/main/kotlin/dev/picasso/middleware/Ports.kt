@@ -46,6 +46,17 @@ interface RobotPort {
      * 명령을 보내지 않은 것으로 읽고 다음 라운드에 발행 게이트를 다시 지나 보낸다. 그 밖의 예외는 나갔는지 모르는 것이다(미확정).
      */
     fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse
+
+    /**
+     * 출발(`StartTask`)을 **소비자의 잠금 밖에서** 보낸다(§15.237). 미들웨어의 첫 출발·개정 갱신·미확정 조회가 [start] 대신 이것을 먼저
+     * 묻는다. 널이면 이 포트는 잠금 밖에서 보내지 않는다 — 미들웨어가 [start] 를 지금 부른다. 잠금 밖에서 보내는 포트
+     * ([IssuingRobotPort])만 값을 준다.
+     *
+     * 같은 `(robotId, taskId, revision)` 으로 다시 물으면 같은 송신의 처지를 준다. 처음 물으면 송신을 걸고 [Issue.Pending] 을, 보내는
+     * 동안은 [Issue.Pending] 을, 끝나면 그 결과를 **한 번** 준다. 결과를 준 뒤 같은 키로 다시 물으면 새 송신이다.
+     */
+    fun issue(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): Issue? = null
+
     fun watch(robotId: String, handle: TaskHandle): List<WatchTaskResponse>
 
     /**
@@ -81,6 +92,26 @@ interface RobotPort {
      * ([PrefetchingRobotPort])만 값을 준다. 값을 주는 포트는 그 읽기에 이어 물은 재생을 [replay] 로 돌려준다.
      */
     fun prefetched(robotId: String): PrefetchedRead? = null
+}
+
+/**
+ * 출발 송신 하나의 처지([RobotPort.issue], §15.237). 미들웨어가 [RobotPort.start] 를 동기로 부른 결과도 같은 넷으로 감싼다.
+ *
+ * 보낸 시각([Answered.sentAt]·[InDoubt.sentAt])은 잠금 밖에서 보낸 포트가 **실제로 보낸 시각**이다. 미들웨어가 동기로 감싼 것은 널이다 —
+ * 부른 쪽이 제 시계로 잰다.
+ */
+sealed interface Issue {
+    /** 보내는 중이다. 이 라운드에는 결과가 없다. */
+    data object Pending : Issue
+
+    /** 하위가 답했다(핸들이든 거부든). */
+    data class Answered(val response: StartTaskResponse, val sentAt: Instant?) : Issue
+
+    /** 하위로 나가지 않았다([CommandNotSent]). 같은 기체의 다른 출발이 보내는 중이어서 걸지 못한 것도 이것이다. */
+    data class NotSent(val reason: String) : Issue
+
+    /** 나갔는지 모른다 — 보낸 뒤 답을 못 받았다. */
+    data class InDoubt(val failure: RuntimeException, val sentAt: Instant?) : Issue
 }
 
 /**
