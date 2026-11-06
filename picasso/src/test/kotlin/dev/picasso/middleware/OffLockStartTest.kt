@@ -39,10 +39,15 @@ class OffLockStartTest {
     /** 하위로 나간 `StartTask`·`CancelTask` 를 세고, [lost] 만큼 다음 `StartTask` 를 하위에 닿게 한 뒤 답을 잃는다. */
     private class Wire(private val delegate: RobotPort) : RobotPort by delegate {
         var lost = 0
+        var unsent = 0
         val delivered = mutableListOf<Pair<String, Int>>()
         val cancels = mutableListOf<String>()
 
         override fun start(robotId: String, taskId: String, revision: Int, skillType: String, parameters: Map<String, String>): StartTaskResponse {
+            if (unsent > 0) {
+                unsent -= 1
+                throw CommandNotSent("시험: 하위로 보내지 않았다")
+            }
             delivered += taskId to revision
             val response = delegate.start(robotId, taskId, revision, skillType, parameters)
             if (lost > 0) {
@@ -180,6 +185,31 @@ class OffLockStartTest {
             assertEquals(listOf(1, 2), w.wire.delivered.filter { it.first == taskOf(first.unitId) }.map { it.second }, "접수 뒤 새 리비전을 갱신으로 보내지 않았다")
             assertNull(exec.deferredUpdate)
             assertEquals(UnitState.RUNNING, first.state)
+        }
+    }
+
+    @Test
+    fun `미룬 갱신을 보내는 라운드는 단위를 더 진행하지 않는다`() {
+        World().use { w ->
+            val exec = w.submit(1)
+            val first = exec.units.first()
+            w.drive { first.state == UnitState.RUNNING }
+            w.wire.unsent = 1
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(2), ROBOT))
+            w.manual.run()
+            repeat(30) {
+                if (w.state(taskOf(first.unitId)) == "SUCCEEDED") return@repeat
+                w.harness.advance(Duration.ofSeconds(10))
+                Thread.sleep(30)
+            }
+            assertEquals("SUCCEEDED", w.state(taskOf(first.unitId)), "시험의 전제: 앞 단위의 태스크가 끝났다")
+            w.mw.pump()
+            assertEquals(1, exec.deferredUpdate, "시험의 전제: 보내지 않은 갱신을 미뤘다")
+
+            w.mw.pump()
+            assertEquals(InFlight.Kind.UPDATE, exec.inFlight?.kind, "보내는 중인 갱신을 다음 단위의 출발이 덮었다")
+            assertEquals(UnitState.RUNNING, first.state, "갱신을 보내는 라운드에 단위를 읽어 넘겼다 — 끝난 단위가 바로 종결하면 다음 출발이 보내는 중인 갱신을 덮는다")
+            assertEquals(emptyList(), w.wire.delivered.filter { it.first == taskOf(INSPECT) })
         }
     }
 

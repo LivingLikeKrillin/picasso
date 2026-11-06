@@ -7,7 +7,7 @@
 기본 결선 `MissionHostApplication.robotPort`를 `IssuingRobotPort(ClientRobotPort(...), now = 미들웨어와 같은 시계)`로 감싸고 종료 때 `close`를 호출하면 된다. `PrefetchingRobotPort`와 함께 쓰면 두 데코레이터 모두 나머지 호출을 위임하므로 어느 쪽으로 겹쳐 감싸도 된다.
 
 ## 확인할 것
-출발의 결과는 다음 pump에서 받으므로 출발 하나에 pump가 최소 한 번 더 필요하다. 하네스 기반 `ClientRobotPort`를 쓰는 `MockRunner`를 이 데코레이터로 감쌀 때 `PrefetchingRobotPort` 안내에 적힌 하네스 잠금 순서 제약을 만나는지는 picasso에서 확인하지 않았다(picasso의 시험은 송신을 시험 스레드에서 손으로 돌렸다). 답하지 않는 기체를 둔 채 HTTP 엔드포인트가 대기하지 않는지 보는 picasso-ops 쪽 통합 시험의 추가 여부와 구성은 picasso-ops가 정한다.
+출발의 결과는 다음 pump에서 받으므로 출발 하나에 pump가 최소 한 번 더 필요하다. 하네스 기반 `ClientRobotPort`를 쓰는 `MockRunner`를 이 데코레이터로 감쌀 때 `PrefetchingRobotPort` 안내에 적힌 하네스 잠금 순서 제약을 만나는지는 picasso에서 확인하지 않았다(picasso의 시험은 송신을 시험 스레드에서 손으로 돌렸다). 답하지 않는 기체를 둔 채 HTTP 엔드포인트가 대기하지 않는지 보는 picasso-ops 쪽 통합 시험의 추가 여부와 구성은 picasso-ops가 정한다. `IssuingRobotPort`의 차선은 결과를 받아 가야 풀리고 결과를 버리고 차선을 풀면 같은 출발이 두 번 나갈 수 있어 풀지 않았으므로, 담는 쪽이 송신 중에 미들웨어 인스턴스를 버리고 포트를 계속 쓰면 같은 키로 다시 묻기 전까지 그 기체의 차선이 막힌다. 따라서 미들웨어 인스턴스를 새로 만들 때는 포트도 새로 만드는 편이 차선이 막히지 않는다.
 
 ## 남는 것
 취소(`cancel`, 취소 재전송, 키로 만든 핸들의 취소)와 플릿 포트는 여전히 소비자 잠금 아래 동기이며, 적정 기한 예산은 현장 실측 전까지 UNKNOWN이다. 이 데코레이터의 반입 여부와 시점은 picasso-ops가 정한다.
