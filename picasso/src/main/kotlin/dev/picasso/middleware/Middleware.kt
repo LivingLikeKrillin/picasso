@@ -12,6 +12,7 @@ import dev.picasso.contracts.v1.HoldState
 import dev.picasso.contracts.v1.ProgressKind
 import dev.picasso.contracts.v1.RejectionCode
 import dev.picasso.contracts.v1.Reference
+import dev.picasso.contracts.v1.StartTaskResponse
 import dev.picasso.contracts.v1.TaskHandle
 import dev.picasso.contracts.v1.TaskState
 import dev.picasso.contracts.v1.WatchTaskResponse
@@ -324,6 +325,13 @@ class Middleware(
          * 허가가 돌아오면 [pump] 가 보낸다. 그 전에 옛 리비전으로 끝나면 보통의 지연 이벤트 길(새 판의 기대에 대고 설비로 확인)을 탄다.
          */
         internal var deferredUpdate: Int? = null
+
+        /**
+         * 보내는 중인 출발(§15.237). 포트가 잠금 밖에서 보내는 동안만 있다([RobotPort.issue]). 있는 동안 이 실행은 다른 로봇 명령을
+         * 내지 않는다 — 취소는 요청만 남고, 개정의 갱신은 미뤄진다. 결과는 [pumpRound] 머리(첫 출발·개정 갱신)나 [resolveDoubt](미확정
+         * 조회)가 받는다.
+         */
+        internal var inFlight: InFlight? = null
 
         /**
          * 운영자가 [release] 로 감수한 결함의 열쇠 — 같은 결함은 다시 막지 않는다. 새 결함은 막는다. 결함이 걷히면 열쇠를 놓으므로
@@ -1090,7 +1098,23 @@ class Middleware(
                 } else {
                     unit
                 }
-                UnitState.PENDING -> unit.replannedAs(replanned[unit.unitId]).also { it.revision = order.version }
+                // **보내는 중인 첫 출발의 단위는 바꾸지 않고 고친다**(§15.237). 바꾸면 그 출발의 결과가 받을 단위를 잃는다. 새 판의 계획과
+                // 기대는 그 단위에 싣고 갱신은 접수를 본 뒤로 미룬다 — 기체에서 돌 것은 보내는 중인 리비전이다. 취소가 걸렸으면 그대로 둔다.
+                UnitState.PENDING -> if (execution.inFlight?.unitId == unit.unitId) {
+                    val fresh = replanned[unit.unitId]
+                    if (fresh != null && !execution.cancelRequested) {
+                        val sending = checkNotNull(execution.inFlight).revision
+                        unit.revision = order.version
+                        unit.parameters = fresh.parameters
+                        unit.expectedIdentity = fresh.expectedIdentity
+                        unit.source = fresh.source
+                        unit.destination = fresh.destination
+                        execution.deferredUpdate = execution.deferredUpdate ?: sending
+                    }
+                    unit
+                } else {
+                    unit.replannedAs(replanned[unit.unitId]).also { it.revision = order.version }
+                }
                 // 도는 단위와 답을 못 받은 단위는 같은 길이다 — 새 버전을 보내는 것이 계약에서는 갱신이자 조회다(같은
                 // task_id: 접수돼 있었으면 갱신, 아니었으면 새 접수. 어느 쪽이든 핸들이 돌아오면 이제 추적한다).
                 UnitState.RUNNING, UnitState.IN_DOUBT -> {
@@ -1115,7 +1139,12 @@ class Middleware(
                         // **갱신도 새 로봇 명령이다** — 같은 발행 관문을 지난다(ADR 51 결정 6). 막히면 단위의 리비전과 기대는
                         // 이미 새 판의 것으로 두고 보내기만 미룬다. 그래야 옛 리비전으로 끝난 결과가 지연 이벤트로 읽혀 새 판의
                         // 기대에 대고 확인된다 — 보내지 못한 갱신이 «옛 판대로 끝남» 을 새 판의 완료로 적게 하지 않는다.
-                        if (issuable(execution, unit, WithheldIssue.REVISION_UPDATE)) {
+                        val sending = execution.inFlight?.takeIf { it.unitId == unit.unitId }
+                        if (sending != null) {
+                            // **보내는 중인 출발이 있으면 갱신을 그 결과 뒤로 미룬다**(§15.237). 같은 기체에 명령 둘을 함께 내지 않는다.
+                            // 결과가 접수면 기체에서 도는 것은 보내는 중인 리비전이고, 미룬 갱신이 다음 라운드에 이 리비전으로 나간다.
+                            execution.deferredUpdate = execution.deferredUpdate ?: sending.revision
+                        } else if (issuable(execution, unit, WithheldIssue.REVISION_UPDATE)) {
                             // 앞 판의 갱신이 미뤄져 있었으면 이 갱신이 그것까지 싣는다 — 기체에서 도는 것은 그 앞 판이다.
                             val running = execution.deferredUpdate ?: previous
                             execution.deferredUpdate = null
@@ -1154,47 +1183,65 @@ class Middleware(
      * @param previous 기체에서 지금 도는 리비전. 거절 사유에 «어느 판으로 끝났나» 로 남는다.
      */
     private fun sendRevisionUpdate(execution: Execution, unit: ExecutionUnit, previous: Int) {
-        val revision = unit.revision
-        try {
-            val response = robots.start(
-                execution.robotOf(unit), unit.taskId, revision, unit.skillType,
-                withOptionals(execution, unit, unit.parameters),
-            )
-            when {
-                response.hasHandle() -> if (unit.state == UnitState.IN_DOUBT) {
-                    execution.handle = response.handle
-                    unit.state = UnitState.RUNNING
-                    // 실행 상태도 함께 되돌린다 — 안 되돌리면 이 판의 작업 응답이 미확정 단위 없이 `IN_DOUBT` 를 든다.
-                    execution.physicalState = PhysicalState.RUNNING
-                    execution.notedDoubt = null
-                    unit.annotate("IN_DOUBT resolved by revision $revision update")
-                }
+        val flight = InFlight(
+            InFlight.Kind.UPDATE, unit.unitId, execution.robotOf(unit), unit.taskId, unit.revision, unit.skillType,
+            withOptionals(execution, unit, unit.parameters), previous = previous, restore = null,
+        )
+        settleIssue(execution, flight, issueStart(flight))
+    }
 
-                // **이미 종착한 태스크다** — 갱신이 닿기 전에 끝났다(계약의 래치, §4.4). 그 종착은 옛 버전의
-                // 것이고 pump 가 **지연 이벤트**로 받는다(15.1). 여기서 실패로 적으면 물리 결과를 잃는다.
-                response.rejection.code == RejectionCode.REJECTION_CODE_INVALID_TRANSITION ->
-                    unit.annotate("revision $revision update rejected: task already terminal under revision $previous")
+    /**
+     * 개정 갱신의 결과. **보내는 중에 걸린 취소는 이 결과 뒤에 보낸다**(§15.237) — 갱신이 닿았든 안 나갔든 기체에서 도는 태스크의 핸들은
+     * 그대로다. 미확정이면 [resolveDoubt] 의 취소 길로 간다.
+     */
+    private fun settleUpdate(execution: Execution, unit: ExecutionUnit, flight: InFlight, issue: Issue) {
+        val revision = flight.revision
+        val previous = flight.previous
+        when (issue) {
+            Issue.Pending -> return
+            is Issue.Answered -> {
+                val response = issue.response
+                when {
+                    response.hasHandle() -> if (unit.state == UnitState.IN_DOUBT) {
+                        execution.handle = response.handle
+                        unit.state = UnitState.RUNNING
+                        // 실행 상태도 함께 되돌린다 — 안 되돌리면 이 판의 작업 응답이 미확정 단위 없이 `IN_DOUBT` 를 든다.
+                        execution.physicalState = PhysicalState.RUNNING
+                        execution.notedDoubt = null
+                        unit.annotate("IN_DOUBT resolved by revision $revision update")
+                    }
 
-                else -> {
-                    unit.state = UnitState.FAILED
-                    unit.failureClass = response.rejection.code.name
+                    // **이미 종착한 태스크다** — 갱신이 닿기 전에 끝났다(계약의 래치, §4.4). 그 종착은 옛 버전의
+                    // 것이고 pump 가 **지연 이벤트**로 받는다(15.1). 여기서 실패로 적으면 물리 결과를 잃는다.
+                    response.rejection.code == RejectionCode.REJECTION_CODE_INVALID_TRANSITION ->
+                        unit.annotate("revision $revision update rejected: task already terminal under revision $previous")
+
+                    else -> {
+                        unit.state = UnitState.FAILED
+                        unit.failureClass = response.rejection.code.name
+                    }
                 }
             }
-        } catch (_: CommandNotSent) {
-            // **보내지 않았다**(§15.237). 기체에서 도는 것은 여전히 [previous] 다 — 미확정으로 두지 않고 갱신을 미룬다. 허가가 막은
-            // 갱신과 같은 자리라 다음 라운드의 [pumpRound] 가 발행 게이트를 다시 지나 보낸다. 미확정 단위면 미룰 것이 없다 — 다음 조회가
-            // 새 리비전으로 나간다.
-            if (unit.state == UnitState.RUNNING) execution.deferredUpdate = execution.deferredUpdate ?: previous
-            unit.annotateOnce(UPDATE_NOT_SENT)
-        } catch (_: RuntimeException) {
-            // 갱신의 답을 못 받았다 — 적용됐는지 모른다. 도는 중이었더라도 이제는 미확정이다.
-            unit.state = UnitState.IN_DOUBT
-            unit.requestedAt = now()
-            unit.lookups = 0
-            unit.lastLookupAt = null
-            unit.annotate("revision $revision update unanswered")
-            execution.physicalState = PhysicalState.IN_DOUBT
+            is Issue.NotSent -> {
+                // **보내지 않았다**(§15.237). 기체에서 도는 것은 여전히 [previous] 다 — 미확정으로 두지 않고 갱신을 미룬다. 허가가 막은
+                // 갱신과 같은 자리라 다음 라운드의 [pumpRound] 가 발행 게이트를 다시 지나 보낸다. 미확정 단위면 미룰 것이 없다 — 다음 조회가
+                // 새 리비전으로 나간다. 보내는 중에 개정이 또 왔어도 기체에서 도는 것은 [previous] 다.
+                if (unit.state == UnitState.RUNNING) execution.deferredUpdate = previous
+                unit.annotateOnce(UPDATE_NOT_SENT)
+            }
+            is Issue.InDoubt -> {
+                // 갱신의 답을 못 받았다 — 적용됐는지 모른다. 도는 중이었더라도 이제는 미확정이다. 미룰 것도 없다 — 다음 조회가 단위의
+                // 지금 리비전으로 나간다.
+                unit.state = UnitState.IN_DOUBT
+                unit.requestedAt = issue.sentAt ?: now()
+                unit.lookups = 0
+                unit.lastLookupAt = null
+                unit.annotate("revision $revision update unanswered")
+                execution.physicalState = PhysicalState.IN_DOUBT
+                execution.deferredUpdate = null
+            }
         }
+        if (execution.cancelRequested && unit.state == UnitState.RUNNING) sendCancel(execution)
     }
 
     /**
@@ -1479,6 +1526,13 @@ class Middleware(
 
     private fun pumpRound(execution: Execution) {
         if (!execution.physicalState.pumps) return
+
+        // **보내는 중인 출발이 있으면 그 결과부터 받는다**(§15.237). 첫 출발과 개정 갱신은 결과를 받기 전까지 이 실행의 다른 일을 하지
+        // 않는다 — 취소·미룬 갱신·다음 단위가 그 결과에 달렸다. 미확정 조회는 [resolveDoubt] 가 받는다.
+        execution.inFlight?.takeIf { it.kind != InFlight.Kind.LOOKUP }?.let { flight ->
+            settleIssue(execution, flight, issueStart(flight))
+            return
+        }
 
         // **닿지 못한 취소는 닿을 때까지 다시 보낸다.** 도는 단위의 태스크에만 의미가 있다 — 이미 끝난 태스크(검증 대기)에는 보내지
         // 않고, 그대로 끝나면 취소 응답이 닿지 못했다고 말한다([abort]). 미확정 중에는 핸들이 없고, [resolveDoubt] 가 붙으면서 보낸다.
@@ -1911,6 +1965,13 @@ class Middleware(
      * @return 단위가 이 펌프에서 종착(운영자 보류 포함)했는가.
      */
     private fun resolveDoubt(execution: Execution, unit: ExecutionUnit): Boolean {
+        // **보내는 중인 조회가 있으면 그 결과부터 받는다**(§15.237). 그동안 스냅숏 부착도 키 취소도 하지 않는다 — 조회의 답이 이 단위를
+        // 붙이거나 거부로 끝낼 수 있다.
+        execution.inFlight?.takeIf { it.kind == InFlight.Kind.LOOKUP && it.unitId == unit.unitId }?.let { flight ->
+            val settled = settleIssue(execution, flight, issueStart(flight))
+            if (execution.inFlight != null) execution.physicalState = PhysicalState.IN_DOUBT
+            return settled
+        }
         val lookup = lookupOf(unit.route)
         // ⓪ 스냅숏 부착 — 붙었으면 이 라운드는 여기까지다. 다음 라운드의 [pumpRobotUnit] 이 처음부터 되짚는다.
         if (unit.route == Route.ROBOT && attachFromSnapshot(execution, unit)) return false
@@ -1938,32 +1999,23 @@ class Middleware(
             }
             unit.lookups += 1
             unit.lastLookupAt = now()
+            if (unit.route == Route.ROBOT) {
+                val flight = InFlight(
+                    InFlight.Kind.LOOKUP, unit.unitId, execution.robotOf(unit), unit.taskId, unit.revision, unit.skillType,
+                    withOptionals(execution, unit, unit.parameters), previous = unit.revision, restore = null,
+                )
+                val settled = settleIssue(execution, flight, issueStart(flight))
+                if (execution.inFlight != null) execution.physicalState = PhysicalState.IN_DOUBT
+                return settled
+            }
             val found = try {
                 lookupDownstream(execution, unit)
             } catch (_: CommandNotSent) {
-                // **조회가 나가지 않았다**(§15.237) — 허가가 막은 조회처럼 횟수를 쓰지 않는다. 안 그러면 한 번도 못 물은 채 유예가
-                // 다 가서 «하류가 답하지 않았다» 가 아닌 것이 그렇게 적힌다. 간격은 쓴다 — 다음 시도는 [LOOKUP_INTERVAL] 뒤다.
-                unit.lookups -= 1
-                execution.physicalState = PhysicalState.IN_DOUBT
-                return false
+                return lookupNotSent(execution, unit)
             } catch (_: RuntimeException) {
                 false
             }
-            if (found) {
-                unit.state = UnitState.RUNNING
-                // 풀린 것은 라운드 끝의 대조가 알린다([noteAttention]). 표시를 걷어야 재작업한 같은 단위가 다시 미확정이 될 때 알린다.
-                execution.notedDoubt = null
-                unit.annotate("IN_DOUBT resolved by client-reference lookup after ${unit.lookups} lookup(s)")
-                execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
-                if (execution.cancelRequested) sendCancel(execution)
-                return false
-            }
-            if (unit.state == UnitState.FAILED) { // 하류가 이 요청을 거절했다 — 미실행이 확인된 것이고 그 사유는 우리 어휘다
-                execution.notedDoubt = null
-                return true
-            }
-            execution.physicalState = PhysicalState.IN_DOUBT
-            return false
+            return lookupFound(execution, unit, found)
         }
 
         // ② 물리 관측 — 요청 시각부터의 신호만 이 요청의 것이다.
@@ -2144,35 +2196,81 @@ class Middleware(
     private fun handleFor(robot: String, taskId: String, revision: Int): TaskHandle =
         TaskHandle.newBuilder().setTaskId(taskId).setRevision(revision).setRobotId(robot).build()
 
+    /**
+     * 미확정 조회의 결과([resolveDoubt]). 찾지 못했으면 보내는 중에 미룬 갱신을 걷는다 — 다음 조회가 단위의 지금 리비전으로 나간다.
+     *
+     * @return 단위가 이 라운드에 종료했는가.
+     */
+    private fun settleLookup(execution: Execution, unit: ExecutionUnit, issue: Issue): Boolean {
+        val found = when (issue) {
+            Issue.Pending -> return false
+            is Issue.NotSent -> return lookupNotSent(execution, unit)
+            is Issue.InDoubt -> false
+            is Issue.Answered -> applyStartResponse(execution, unit, issue.response)
+        }
+        if (!found) execution.deferredUpdate = null
+        return lookupFound(execution, unit, found)
+    }
+
+    /**
+     * **조회가 나가지 않았다**(§15.237) — 허가가 막은 조회처럼 횟수를 쓰지 않는다. 안 그러면 한 번도 못 물은 채 유예가 다 가서
+     * «하류가 답하지 않았다» 가 아닌 것이 그렇게 적힌다. 간격은 쓴다 — 다음 시도는 [LOOKUP_INTERVAL] 뒤다.
+     */
+    private fun lookupNotSent(execution: Execution, unit: ExecutionUnit): Boolean {
+        unit.lookups -= 1
+        execution.physicalState = PhysicalState.IN_DOUBT
+        return false
+    }
+
+    /** 조회가 기존 실행을 찾았으면 이어서 추적하고, 하류가 거부했으면 종료로, 아니면 미확정인 채 둔다. */
+    private fun lookupFound(execution: Execution, unit: ExecutionUnit, found: Boolean): Boolean {
+        if (found) {
+            unit.state = UnitState.RUNNING
+            // 풀린 것은 라운드 끝의 대조가 알린다([noteAttention]). 표시를 걷어야 재작업한 같은 단위가 다시 미확정이 될 때 알린다.
+            execution.notedDoubt = null
+            unit.annotate("IN_DOUBT resolved by client-reference lookup after ${unit.lookups} lookup(s)")
+            execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+            if (execution.cancelRequested) sendCancel(execution)
+            return false
+        }
+        if (unit.state == UnitState.FAILED) { // 하류가 이 요청을 거절했다 — 미실행이 확인된 것이고 그 사유는 우리 어휘다
+            execution.notedDoubt = null
+            return true
+        }
+        execution.physicalState = PhysicalState.IN_DOUBT
+        return false
+    }
+
+    /** [lookupDownstream] 의 로봇 경로가 받은 답을 적는다 — 핸들이면 잡고 참, 거부면 단위를 실패나 운영자 보류로 적고 거짓. */
+    private fun applyStartResponse(execution: Execution, unit: ExecutionUnit, response: StartTaskResponse): Boolean =
+        if (response.hasHandle()) {
+            execution.handle = response.handle
+            true
+        } else {
+            val rejection = response.rejection
+            if (rejection.code == RejectionCode.REJECTION_CODE_PRECONDITION_UNMET) {
+                // 발신자가 사전 조건으로 거절했다 — 요청이 틀린 것이 아니라 **지금 못 받는** 것이다. 계약은 «기다리거나
+                // 앞 단위를 바꾼다» 고 했고, 그 판단은 밖(운영자)에 있다. FAILED 로 접어 다음 단위로 넘어가면 그 판단이
+                // 실행되지 않는다(리뷰 C10). 사유와 주어를 단위에 남긴다 — 응답만 보고 무엇이 걸렸는지 알 수 있게.
+                unit.state = UnitState.OPERATOR_HOLD
+                unit.failureClass = rejection.code.name
+                unit.preconditionSubjects = rejection.referencesList
+                    .filter { it.key == Reference.Key.KEY_PRECONDITION_SUBJECT }.map { it.value }
+                unit.note = "sender refused: ${rejection.detail} [subject=${unit.preconditionSubjects.joinToString()}]"
+            } else {
+                unit.state = UnitState.FAILED
+                unit.failureClass = rejection.code.takeIf { it != RejectionCode.REJECTION_CODE_UNSPECIFIED }?.name ?: "REJECTED"
+            }
+            execution.markIncident(unit)
+            false
+        }
+
     /** 13.2 ① — 같은 참조로 다시 묻는다. 돌아오면 핸들을 잡고 참, 거절이면 단위를 실패로 적고 거짓, 답이 없으면 던진다. */
     private fun lookupDownstream(execution: Execution, unit: ExecutionUnit): Boolean = when (unit.route) {
-        Route.ROBOT -> {
-            val response = robots.start(
-                execution.robotOf(unit), unit.taskId, unit.revision, unit.skillType,
-                withOptionals(execution, unit, unit.parameters),
-            )
-            if (response.hasHandle()) {
-                execution.handle = response.handle
-                true
-            } else {
-                val rejection = response.rejection
-                if (rejection.code == RejectionCode.REJECTION_CODE_PRECONDITION_UNMET) {
-                    // 발신자가 사전 조건으로 거절했다 — 요청이 틀린 것이 아니라 **지금 못 받는** 것이다. 계약은 «기다리거나
-                    // 앞 단위를 바꾼다» 고 했고, 그 판단은 밖(운영자)에 있다. FAILED 로 접어 다음 단위로 넘어가면 그 판단이
-                    // 실행되지 않는다(리뷰 C10). 사유와 주어를 단위에 남긴다 — 응답만 보고 무엇이 걸렸는지 알 수 있게.
-                    unit.state = UnitState.OPERATOR_HOLD
-                    unit.failureClass = rejection.code.name
-                    unit.preconditionSubjects = rejection.referencesList
-                        .filter { it.key == Reference.Key.KEY_PRECONDITION_SUBJECT }.map { it.value }
-                    unit.note = "sender refused: ${rejection.detail} [subject=${unit.preconditionSubjects.joinToString()}]"
-                } else {
-                    unit.state = UnitState.FAILED
-                    unit.failureClass = rejection.code.takeIf { it != RejectionCode.REJECTION_CODE_UNSPECIFIED }?.name ?: "REJECTED"
-                }
-                execution.markIncident(unit)
-                false
-            }
-        }
+        Route.ROBOT -> applyStartResponse(
+            execution, unit,
+            robots.start(execution.robotOf(unit), unit.taskId, unit.revision, unit.skillType, withOptionals(execution, unit, unit.parameters)),
+        )
 
         Route.FLEET -> {
             val handle = fleet.dispatch(transportOrderOf(unit))
@@ -2444,10 +2542,13 @@ class Middleware(
         // 보내지 못하면 이 시도 앞의 자리로 되돌린다. 판단 기록([judgmentRecord])은 태스크 id 가 있으면 낸 것으로 읽어 요청 시각을
         // 남긴다 — 되돌리지 않으면 보내지 않은 시각이 재기동 뒤 미확정 유예의 기준이 된다. 재기동 뒤 다시 세운 실행의 요청 시각과 붙지 않은
         // 태스크는 다음 출발이 다시 쓴다.
-        val taskBefore = unit.taskId
-        val requestedBefore = unit.requestedAt
-        val restored = execution.restoredRequests[unit.unitId]
-        val unattached = execution.unattached[unit.unitId]
+        val restore = StartRestore(
+            taskId = unit.taskId,
+            requestedAt = unit.requestedAt,
+            restored = execution.restoredRequests[unit.unitId],
+            unattached = execution.unattached[unit.unitId],
+            restoredUsed = execution.restoredRequests[unit.unitId]?.first == unit.attempt,
+        )
         unit.taskId = taskIdOf(execution, unit)
         unit.requestedAt = requestedAtOf(execution, unit)
         unit.lookups = 0
@@ -2457,27 +2558,21 @@ class Middleware(
         // 같은 태스크 id 로 보내면 기체에 있던 태스크에 붙는다 — 이제 이 인스턴스가 든 태스크다.
         execution.unattached.remove(unit.unitId)
         execution.active = unit
+        if (unit.route == Route.ROBOT) {
+            val flight = InFlight(
+                InFlight.Kind.START, unit.unitId, execution.robotOf(unit), unit.taskId, unit.revision, unit.skillType,
+                withOptionals(execution, unit, unit.parameters), previous = unit.revision, restore = restore,
+            )
+            settleIssue(execution, flight, issueStart(flight))
+            return
+        }
         val accepted = try {
             lookupDownstream(execution, unit)
         } catch (_: CommandNotSent) {
-            // **보내지 않았다**(§15.237) — 포트가 하위로 보내지 않은 것을 안다. 미확정이 아니다. 단위는 `PENDING` 그대로 두고 도는
-            // 단위를 비운다. 다음 라운드가 결함·허가 게이트를 다시 지나 처음부터 낸다 — 요청 시각도 그때 다시 찍혀 실제로 보낸 시각이 된다.
-            execution.active = null
-            unit.taskId = taskBefore
-            unit.requestedAt = requestedBefore
-            restored?.let { execution.restoredRequests[unit.unitId] = it }
-            unattached?.let { execution.unattached[unit.unitId] = it }
-            unit.annotateOnce(START_NOT_SENT)
+            startNotSent(execution, unit, restore)
             return
         } catch (_: RuntimeException) {
-            // **요청은 갔는데 답이 없다.** 접수됐는지 모른다 — 다시 보내지 않는다(물리 작업이 둘이 될 수 있다).
-            // 해소는 13.2 의 순서로 [resolveDoubt] 가 한다. 상류에는 미확정이라는 사실을 드러낸다(16장).
-            unit.state = UnitState.IN_DOUBT
-            execution.physicalState = PhysicalState.IN_DOUBT
-            if (execution.notedDoubt != unit.unitId) {
-                execution.notedDoubt = unit.unitId
-                notify(execution)
-            }
+            startInDoubt(execution, unit)
             return
         }
         if (!accepted) {
@@ -2486,6 +2581,102 @@ class Middleware(
         }
         unit.state = UnitState.RUNNING
         execution.physicalState = PhysicalState.RUNNING
+    }
+
+    /**
+     * 로봇 단위의 출발(`StartTask`)을 보낸다 — 첫 출발·개정 갱신·미확정 조회가 함께 쓴다(§15.237). 포트가 잠금 밖에서 보내면
+     * ([RobotPort.issue]) 기다리지 않고 그 처지를 돌려주고, 아니면 [RobotPort.start] 를 지금 불러 그 결과를 같은 넷으로 감싼다. 보내는
+     * 중인 출발의 결과를 다시 물을 때도 이것을 부른다 — 같은 키면 포트가 같은 송신의 처지를 준다.
+     */
+    private fun issueStart(flight: InFlight): Issue =
+        robots.issue(flight.robot, flight.taskId, flight.revision, flight.skillType, flight.parameters) ?: try {
+            Issue.Answered(robots.start(flight.robot, flight.taskId, flight.revision, flight.skillType, flight.parameters), sentAt = null)
+        } catch (e: CommandNotSent) {
+            Issue.NotSent(e.message ?: "not sent")
+        } catch (e: RuntimeException) {
+            Issue.InDoubt(e, sentAt = null)
+        }
+
+    /**
+     * 출발 송신의 처지를 적는다. 보내는 중이면 [Execution.inFlight] 에 두고, 결과면 그 종류의 정리로 넘긴다.
+     *
+     * @return 단위가 이 라운드에 종료(운영자 보류 포함)했는가 — 미확정 조회([resolveDoubt])만 쓴다.
+     */
+    private fun settleIssue(execution: Execution, flight: InFlight, issue: Issue): Boolean {
+        if (issue is Issue.Pending) {
+            execution.inFlight = flight
+            return false
+        }
+        execution.inFlight = null
+        val unit = execution.units.first { it.unitId == flight.unitId }
+        return when (flight.kind) {
+            InFlight.Kind.START -> {
+                settleStart(execution, unit, flight, issue)
+                false
+            }
+            InFlight.Kind.UPDATE -> {
+                settleUpdate(execution, unit, flight, issue)
+                false
+            }
+            InFlight.Kind.LOOKUP -> settleLookup(execution, unit, issue)
+        }
+    }
+
+    /**
+     * 첫 출발의 결과. 요청 시각은 포트가 실제로 보낸 시각으로 고친다 — 재기동 전 요청 시각을 넘겨받은 시도면 그대로 둔다(§15.221).
+     * **보내는 중에 걸린 취소는 접수를 본 뒤 보낸다**(§15.237). 미확정이면 [resolveDoubt] 의 취소 길로, 보내지 않았으면 지울 것이 없다.
+     */
+    private fun settleStart(execution: Execution, unit: ExecutionUnit, flight: InFlight, issue: Issue) {
+        val restore = checkNotNull(flight.restore)
+        when (issue) {
+            Issue.Pending -> Unit
+            is Issue.NotSent -> {
+                execution.deferredUpdate = null
+                startNotSent(execution, unit, restore)
+            }
+            is Issue.InDoubt -> {
+                if (!restore.restoredUsed) issue.sentAt?.let { unit.requestedAt = it }
+                execution.deferredUpdate = null
+                startInDoubt(execution, unit)
+            }
+            is Issue.Answered -> {
+                if (!restore.restoredUsed) issue.sentAt?.let { unit.requestedAt = it }
+                if (!applyStartResponse(execution, unit, issue.response)) {
+                    execution.active = null
+                    execution.deferredUpdate = null
+                    return
+                }
+                unit.state = UnitState.RUNNING
+                execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+                if (execution.cancelRequested) sendCancel(execution)
+            }
+        }
+    }
+
+    /**
+     * **보내지 않았다**(§15.237) — 포트가 하위로 보내지 않은 것을 안다. 미확정이 아니다. 단위는 `PENDING` 그대로 두고 도는 단위를
+     * 비운다. 다음 라운드가 결함·허가 게이트를 다시 지나 처음부터 낸다 — 요청 시각도 그때 다시 찍혀 실제로 보낸 시각이 된다.
+     */
+    private fun startNotSent(execution: Execution, unit: ExecutionUnit, restore: StartRestore) {
+        execution.active = null
+        unit.taskId = restore.taskId
+        unit.requestedAt = restore.requestedAt
+        restore.restored?.let { execution.restoredRequests[unit.unitId] = it }
+        restore.unattached?.let { execution.unattached[unit.unitId] = it }
+        unit.annotateOnce(START_NOT_SENT)
+    }
+
+    /**
+     * **요청은 갔는데 답이 없다.** 접수됐는지 모른다 — 다시 보내지 않는다(물리 작업이 둘이 될 수 있다). 해소는 13.2 의 순서로
+     * [resolveDoubt] 가 한다. 상류에는 미확정이라는 사실을 드러낸다(16장).
+     */
+    private fun startInDoubt(execution: Execution, unit: ExecutionUnit) {
+        unit.state = UnitState.IN_DOUBT
+        execution.physicalState = PhysicalState.IN_DOUBT
+        if (execution.notedDoubt != unit.unitId) {
+            execution.notedDoubt = unit.unitId
+            notify(execution)
+        }
     }
 
     /**
@@ -3243,6 +3434,9 @@ class Middleware(
      * 보낼 핸들도 운반도 없으면 아무것도 하지 않고 표시를 그대로 둔다.
      */
     private fun sendCancel(execution: Execution) {
+        // **보내는 중인 출발이 있으면 보내지 않는다**(§15.237). 그 결과를 받은 쪽이 보낸다 — 지금 보내면 기체에 아직 없는 태스크나 앞
+        // 단위의 핸들로 나간다. 취소 요청([Execution.cancelRequested])은 그대로 남는다.
+        if (execution.inFlight != null) return
         var failure: RuntimeException? = null
         var attempted = false
         val handle = execution.handle
@@ -3674,3 +3868,32 @@ class Middleware(
         private val RETRY_SUFFIX = Regex("""@r([1-9]\d*)""")
     }
 }
+
+/**
+ * 보내는 중인 출발 하나(§15.237, [Middleware.Execution.inFlight]). 포트에 다시 물을 때 같은 키와 같은 인자를 쓴다.
+ *
+ * @property previous 개정 갱신이면 기체에서 지금 도는 리비전. 다른 종류는 [revision] 과 같다.
+ * @property restore 첫 출발이면 그 시도 앞의 자리. 보내지 못하면 이것으로 되돌린다.
+ */
+internal class InFlight(
+    val kind: Kind,
+    val unitId: String,
+    val robot: String,
+    val taskId: String,
+    val revision: Int,
+    val skillType: String,
+    val parameters: Map<String, String>,
+    val previous: Int,
+    val restore: StartRestore?,
+) {
+    enum class Kind { START, UPDATE, LOOKUP }
+}
+
+/** 첫 출발 앞의 단위 자리. [restoredUsed] 면 이 시도의 요청 시각이 재기동 전 것이라 보낸 시각으로 고치지 않는다(§15.221). */
+internal class StartRestore(
+    val taskId: String,
+    val requestedAt: Instant?,
+    val restored: Pair<Int, Instant>?,
+    val unattached: Int?,
+    val restoredUsed: Boolean,
+)
