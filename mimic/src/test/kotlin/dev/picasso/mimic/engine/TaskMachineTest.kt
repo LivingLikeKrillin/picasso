@@ -253,4 +253,41 @@ class TaskMachineTest {
         assertEquals(TaskState.SUCCEEDED, machine.state)
         assertEquals(SkillState.READY, machine.skillMachine!!.state)
     }
+
+    // ── 일시정지 중 진행률 (§15.26)
+
+    @Test
+    fun `일시정지 동안은 진행률이 흐르지 않고 재개하면 멈춘 자리부터 센다`() {
+        val clock = VirtualClock(Instant.EPOCH)
+        val machine = TaskMachineFixtures.forSkill("pick_place", clock = clock)
+        machine.apply(TaskCommand.START)
+        clock.advance(Duration.ofSeconds(9))
+
+        machine.apply(TaskCommand.PAUSE)
+        clock.advance(Duration.ofSeconds(100))
+        assertEquals(9.0 / 45.0, machine.progress(), 1e-9, "멈춘 동안 진행률이 흘렀다")
+
+        machine.apply(TaskCommand.RESUME)
+        assertEquals(9.0 / 45.0, machine.progress(), 1e-9, "재개하자 멈춘 구간이 진행률에 들어갔다")
+        clock.advance(Duration.ofSeconds(9))
+        assertEquals(18.0 / 45.0, machine.progress(), 1e-9, "재개 뒤 진행률이 다시 흐르지 않았다")
+    }
+
+    @Test
+    fun `멈춘 채 갱신하면 0에서 멈춘 채로 다시 센다`() {
+        val clock = VirtualClock(Instant.EPOCH)
+        val machine = TaskMachineFixtures.forSkill("pick_place", clock = clock)
+        machine.apply(TaskCommand.START)
+        clock.advance(Duration.ofSeconds(10))
+        machine.apply(TaskCommand.PAUSE)
+        clock.advance(Duration.ofSeconds(10))
+
+        machine.update(machine.revision + 1, machine.parameters)
+        clock.advance(Duration.ofSeconds(10))
+        assertEquals(0.0, machine.progress(), 1e-9, "멈춘 채 갱신한 뒤 진행률이 흘렀다")
+
+        machine.apply(TaskCommand.RESUME)
+        clock.advance(Duration.ofSeconds(9))
+        assertEquals(9.0 / 45.0, machine.progress(), 1e-9, "갱신 앞의 멈춤 구간이 새 리비전의 진행률을 깎았다")
+    }
 }
