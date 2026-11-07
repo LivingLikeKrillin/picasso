@@ -156,7 +156,7 @@ data class ApprovedStep(val skillType: String, val parameters: Map<String, Strin
  * 제안 하나가 **소모된 기록**(ADR 46) — 승인이 접수로 이어져 그 제안이 지워질 때 (기체, 주문)마다 하나 남는다.
  *
  * 같은 열쇠가 다시 소모되면 덮어쓴다. 부르는 쪽이 묻는 것은 «지금 왜 없는가» 이고, 한 열쇠에 서 있는
- * 제안은 많아야 하나다. 프로세스 수명과 같이 살고 줄지 않는다(§15.166).
+ * 제안은 많아야 하나다. 보존 상한([Retention.consumedApprovals])을 넘으면 오래된 것부터 내린다(§15.166).
  *
  * @param steps 그 승인의 답이 돌려준 `steps` 와 같은 것 — 걸음마다 조치 유형과 실린 값.
  */

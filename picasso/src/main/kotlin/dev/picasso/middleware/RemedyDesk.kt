@@ -22,7 +22,18 @@ internal class RemedyDesk(
     private val wallClock: () -> Instant,
     /** 기체에서 지금 도는 단위들의 파지 관측([AdmissionGate.liveHold]). 자동 승인의 값을 채울 때 다시 본다. */
     private val liveHold: (String) -> HoldState?,
+    /** 보존 상한(§15.166). */
+    private val retention: Retention = Retention(),
+    /** 이 실행을 아직 구동이 돌리는가. 그 실행의 소모 기록은 상한을 넘어도 내리지 않는다. */
+    private val live: (String) -> Boolean = { false },
 ) {
+
+    private var searchesEvicted = 0L
+    private var proposalsEvicted = 0L
+    private var consumedEvicted = 0L
+
+    /** 상한으로 내린 탐색 기록·제안·소모 기록의 수. 번들 수는 [IncidentLog] 가 센다. */
+    fun evictions(incidents: Long) = RetentionEvictions(incidents, searchesEvicted, proposalsEvicted, consumedEvicted)
 
     /**
      * 서 있는 제안 — (기체, 주문) 하나에 하나. **승인은 이 표에 있는 것만 받는다.** 없는 제안을 승인으로
@@ -116,6 +127,7 @@ internal class RemedyDesk(
 
         val key = proposalKey(robotId, jobOrderId)
         proposals[key] = Proposal(order, remedy)
+        trimProposals(key)
         proposalsMade += 1
         // **가릴 차례인가.** 이미 사람이 진단을 적어 둔 건은 다시 가리지 않는다 — 같은 값을
         // 두 번 요구하면 그것은 학습이 아니라 절차다.
@@ -147,6 +159,41 @@ internal class RemedyDesk(
             wallClockAt = wallClock(),
             outcome = outcome,
         )
+        // 탐색 기록은 조회만 하는 이력이라 오래된 것부터 그냥 내린다.
+        while (remedyLog.size > retention.remedySearches) {
+            remedyLog.removeAt(0)
+            searchesEvicted += 1
+        }
+    }
+
+    /**
+     * 제안이 상한을 넘으면 **가장 오래 선 것부터** 내린다 — 방금 세운 [keep] 은 빼고. 내린 제안의 가림과 진단도 같이 내린다.
+     * 내린 제안을 승인하면 «제안이 없다» 로 거부된다.
+     */
+    private fun trimProposals(keep: String) {
+        val over = proposals.size - retention.proposals
+        if (over <= 0) return
+        proposals.keys.filter { it != keep }.take(over).forEach { key ->
+            proposals.remove(key)
+            withheld.remove(key)
+            diagnoses.remove(key)
+            proposalsEvicted += 1
+        }
+    }
+
+    /** 소모 기록을 적고 상한을 넘으면 오래된 것부터 내린다. 구동이 돌리는 실행의 기록은 건너뛴다([Retention]). */
+    private fun rememberConsumed(key: String, record: ConsumedApproval) {
+        consumed[key] = record
+        var over = consumed.size - retention.consumedApprovals
+        if (over <= 0) return
+        val drop = consumed.entries.filter { (k, c) -> k != key && !live(c.executionId) }.map { it.key }
+        for (k in drop) {
+            if (over <= 0) break
+            consumed.remove(k)
+            if (k !in proposals) diagnoses.remove(k)
+            consumedEvicted += 1
+            over -= 1
+        }
     }
 
     /**
@@ -260,7 +307,15 @@ internal class RemedyDesk(
                     c,
                 )
             }
-            ?: Judgment.No(ApprovalRefusal.NO_PROPOSAL, "승인할 제안이 없다 — 이 프로세스가 뜬 뒤로 선 적이 없다: $key")
+            ?: Judgment.No(
+                ApprovalRefusal.NO_PROPOSAL,
+                if (proposalsEvicted + consumedEvicted == 0L) {
+                    "승인할 제안이 없다 — 이 프로세스가 뜬 뒤로 선 적이 없다: $key"
+                } else {
+                    // 상한으로 내린 기록이 있으면 «선 적이 없다» 고 단정하지 못한다(§15.166).
+                    "승인할 제안이 없다 — 선 적이 없거나 보존 상한으로 내린 기록이다: $key"
+                },
+            )
         val steps = standing.remedy.steps
 
         // 읽은 뒤 제안이 바뀌었으면 부르는 쪽은 **자기가 못 본 것**을 승인하는 중이다.
@@ -363,7 +418,7 @@ internal class RemedyDesk(
             executionId = executionId,
             steps = go.prefix.map { ApprovedStep(it.skillType, it.parameters, it.unitId) },
         )
-        consumed[go.key] = record
+        rememberConsumed(go.key, record)
         // **승인자 종류로 가르지 않는다**(ADR 43 §4). 이 수가 재는 것은 «같은 조치가 몇 번 반복됐나» 이고
         // 근본 원인은 누가 눌렀는지 모른다. 가르면 사람 다섯 번과 에이전트 다섯 번이 열이 아니라
         // 다섯과 다섯이 되어 한도에 안 걸린다 — 지표가 자기 집계 방식에 진다.
@@ -381,7 +436,7 @@ internal class RemedyDesk(
     fun restore(robotId: String, jobOrderId: String, record: ConsumedApproval) {
         val key = proposalKey(robotId, jobOrderId)
         proposals.remove(key)
-        consumed[key] = record
+        rememberConsumed(key, record)
     }
 }
 
