@@ -36,6 +36,13 @@ import java.nio.file.Path
  * 알아낼 방법이 없다** — Orbit 의 `Robot` 자원에 기종을 말하는 칸이 없다(일련번호가 없는 것과 같은 자리, §15.103).
  * 섞인 사이트에서는 런처를 기종별로 나눠 띄우고 각각 발견 결과를 걸러야 하는데, 걸를 근거가 플릿에 없다.
  *
+ * ## 발견이 주기로 다시 돈다 (§15.292)
+ *
+ * [Options.rediscoverMillis] 가 0 보다 크면 그 주기마다 발견을 다시 돌려 적재 문으로 올리고, 플릿에 새로 나타난 기체를
+ * 같은 프로파일로 세워 호스트에 더한다([AdapterHost.admit]). **플릿에서 빠진 기체는 내리지 않는다** — 계약에 기체가 사라졌다고
+ * 말하는 자리가 없고, 그 기체의 RPC 는 플릿의 답을 그대로 따른다. 기체를 퇴역으로 적는 것은 레지스트리의 조작이다.
+ * 다시 발견이 실패하면 이미 든 기체는 그대로 두고 다음 주기에 다시 묻는다.
+ *
  * ## 스케줄러가 여기 있다
  *
  * 호스트는 스레드가 없다 — 모든 RPC 가 펌프를 지나므로 소비자가 폴링하면 그것이 곧 구동이다. 다만 **아무도 안
@@ -59,16 +66,29 @@ class OrbitLauncher(
         val driverId: String = "picasso",
         /** 펌프 주기(밀리초). 0 이면 스케줄러를 안 돌린다 — 시험이 걸음을 직접 센다. */
         val pumpMillis: Long = 1_000,
+        /** 다시 발견하는 주기(밀리초). 0 이면 기동 때 한 번만 발견한다 — 시험은 [Running.rediscover] 를 직접 부른다. */
+        val rediscoverMillis: Long = 0,
     )
 
-    class Running(
+    class Running internal constructor(
         val host: AdapterHost,
         val discovered: List<String>,
         private val pump: Thread?,
+        private val sweep: () -> List<String>,
     ) : AutoCloseable {
         val port: Int get() = host.port
 
+        /** 다시 발견하는 스레드. [Options.rediscoverMillis] 가 0 이면 없다. */
+        internal var rediscovery: Thread? = null
+
+        /**
+         * 발견을 다시 돌려 적재 문으로 올리고, 플릿에 새로 나타난 기체를 세워 호스트에 더한다. 더한 기체의 id 를 낸다.
+         * 플릿에 못 물으면 실패로 내고 이미 든 기체는 그대로 둔다.
+         */
+        fun rediscover(): Result<List<String>> = runCatching { sweep() }
+
         override fun close() {
+            rediscovery?.interrupt()
             pump?.interrupt()
             host.shutdown()
         }
@@ -98,26 +118,54 @@ class OrbitLauncher(
         val document = ProfileDocument.parse(options.profile.toString(), Files.readString(options.profile)).getOrThrow()
 
         // ③ 기체마다 어댑터 하나. 링크는 공유한다.
-        val hosted = robots.associate { robot ->
+        fun hostedOf(nickname: String): HostedRobot {
             val adapter = OrbitAdapter(
                 link,
-                AdapterIdentity("boston-dynamics", "orbit", robot.nickname),
-                nickname = robot.nickname,
+                AdapterIdentity("boston-dynamics", "orbit", nickname),
+                nickname = nickname,
                 driverId = options.driverId,
             )
             // **발행자를 적재로 감싼다** — 에뮬레이터 CLI 의 `RegistryLink.wrap` 과 같은 자리다. 생존 보고는 기체가 펌프에서
             // 읽어 둔 것을 싣는다 — 발행할 때 어댑터에 묻지 않는다(§15.271). 발행할 때 찾으므로 그때는 기체가 있다.
             var hostedRobot: HostedRobot? = null
             val outbound = HostUplink.wrap(registry, publisher) { checkNotNull(hostedRobot) }
-            robot.nickname to HostedRobot(robot.nickname, document, adapter, publisher = outbound, site = options.site).also { hostedRobot = it }
+            return HostedRobot(nickname, document, adapter, publisher = outbound, site = options.site).also { hostedRobot = it }
         }
+        val hosted = robots.associate { it.nickname to hostedOf(it.nickname) }
         if (hosted.isEmpty()) throw IllegalStateException("플릿에 기체가 하나도 없다 — 세울 것이 없다")
 
         // ④ 포트를 열고 그 다음에 ONLINE 이 나간다.
         // 펌프 스레드가 있으면 읽기 RPC 는 펌프를 건너뛴다 — 링크를 기다리지 않고 펌프가 적어 둔 것으로 답한다(§15.268).
         val host = AdapterHost(hosted, serverBuilder(options.port), registry.reporter, pumpOnRead = options.pumpMillis <= 0).start()
 
-        Running(host, ack.recorded, pumpThread(host))
+        // 다시 발견. 기동 때와 같은 문으로 올리고, 새로 나타난 기체만 세운다 — 이미 든 기체는 [AdapterHost.admit] 이 거른다.
+        val sweep: () -> List<String> = {
+            OrbitDiscovery(link, options.site, options.instance, discovery).sweep().getOrThrow()
+            fleet.robots().getOrThrow()
+                .filter { it.nickname !in host.robots }
+                .mapNotNull { robot -> robot.nickname.takeIf { host.admit(hostedOf(it)) } }
+        }
+        Running(host, ack.recorded, pumpThread(host), sweep).also { it.rediscovery = rediscoveryThread(it) }
+    }
+
+    /** [Options.rediscoverMillis] 마다 [Running.rediscover] 를 부른다. 데몬이다 — 펌프 스레드와 같은 이유다. */
+    private fun rediscoveryThread(running: Running): Thread? {
+        if (options.rediscoverMillis <= 0) return null
+        return Thread {
+            while (!Thread.currentThread().isInterrupted) {
+                try {
+                    Thread.sleep(options.rediscoverMillis)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
+                running.rediscover()
+            }
+        }.apply {
+            isDaemon = true
+            name = "orbit-rediscovery"
+            start()
+        }
     }
 
     /**

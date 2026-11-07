@@ -8,6 +8,16 @@
 // 하나이고, Spot proto·G1 DDS 처럼 라이선스가 걸린 산출물이 없다(ADR 31 의 격리가
 // 여기서는 저절로 지켜진다). 그래도 규율은 같다: 벤더 원문은 저장소에 안 들이고
 // `@VendorSurface` + `vendor-manifest.txt` 로 이름만 대조한다.
+plugins {
+    application
+}
+
+application {
+    mainClass.set("dev.picasso.adapter.orbit.cli.OrbitCliKt")
+    // Windows 콘솔 코드페이지에서 한글 기동 거부 메시지가 깨진다(mimic 과 같은 자리).
+    applicationDefaultJvmArgs = listOf("-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
+}
+
 dependencies {
     implementation(project(":contracts"))
     implementation(project(":adapter-core"))

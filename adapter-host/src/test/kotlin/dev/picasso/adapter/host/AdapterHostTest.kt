@@ -465,6 +465,39 @@ class AdapterHostTest {
     }
 
     @Test
+    fun `기동 뒤에 들인 기체도 ONLINE 을 알리고 WatchTask 스트림에 갱신을 민다`() {
+        // §15.292 — 플릿에 기체가 늘면 런처가 기동한 호스트에 그 기체를 더한다. 맵에만 넣으면 라우팅은 찾지만, 열린 스트림에
+        // 미는 쪽이 그 기체에 안 매달려 갱신이 소비자에게 안 간다.
+        World().use { w ->
+            val second = ScriptedAdapter()
+            val other = HostedRobot(
+                OTHER, ProfileDocument.parse("test", Files.readString(PROFILE)).getOrThrow(), second,
+                publisher = w.published, site = "line-a",
+            ) { w.now }
+            assertTrue(w.host.admit(other))
+            assertFalse(w.host.admit(other), "이미 든 기체를 다시 들였다")
+
+            val online = w.published.topic(Topics.robot(dev.picasso.contracts.wire.ContractIdentity.major, "line-a", OTHER, Topics.Stream.connection))
+                .map { (it.message as ConnectionMessage).state }
+            assertEquals(listOf(ConnectionState.CONNECTION_STATE_ONLINE), online)
+
+            fun header(schema: String) = RequestHeaders.build(schema, OTHER, "test-client")
+            val handle = w.tasks.startTask(
+                StartTaskRequest.newBuilder().setHeader(header("picasso.v1.StartTaskRequest"))
+                    .setTaskId("T-9").setRevision(1).setRobotId(OTHER).setSkillType("pick_place")
+                    .addAllParameters(World.pick.map { (k, v) -> ParameterValue.newBuilder().setKey(k).setStringValue(v).build() })
+                    .build(),
+            ).handle
+            val request = WatchTaskRequest.newBuilder().setHeader(header("picasso.v1.WatchTaskRequest")).setHandle(handle).build()
+            val stream = Following().also { TaskServiceGrpc.newStub(w.channel).watchTask(request, it) }
+
+            second.next = TaskState.TASK_STATE_SUCCEEDED
+            w.events.getSnapshot(GetSnapshotRequest.newBuilder().setHeader(header("picasso.v1.GetSnapshotRequest")).setRobotId(OTHER).build())
+            assertEquals(TaskState.TASK_STATE_SUCCEEDED, stream.received.lastOrNull()?.state, "들인 기체의 갱신이 스트림에 안 밀렸다: ${stream.received.map { it.state }}")
+        }
+    }
+
+    @Test
     fun `스냅샷은 결함과 태스크와 ONLINE 을 싣고, 결함을 못 봤으면 결함만 비우고 NOT_OBSERVABLE 이다`() {
         World().use { w ->
             val handle = w.start().handle
@@ -936,6 +969,7 @@ class AdapterHostTest {
 
     private companion object {
         const val ROBOT = "fake-01"
+        const val OTHER = "fake-02"
         val PROFILE: Path = Path.of("..", "profile", "fixtures", "minimal.json").normalize()
         /** minimal 에 `navigate_to: HOLD requires EMPTY` 를 더한 것 — 사전 조건 시험의 프로파일. */
         val PRECOND: Path = Path.of("..", "profile", "fixtures", "precondition.json").normalize()

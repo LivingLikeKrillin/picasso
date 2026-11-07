@@ -304,6 +304,55 @@ class OrbitLauncherTest {
     }
 
     @Test
+    fun `다시 발견이 플릿에 새로 나타난 기체를 세워 실 포트의 계약 뒤에 더한다`() {
+        val sweeps = mutableListOf<List<String>>()
+        val sink = RobotDiscovery { _, _, robots ->
+            sweeps += robots.map { it.robotId }
+            DiscoveryAck(robots.map { it.robotId }, emptyMap())
+        }
+        val published = RecordingPublisher()
+
+        OrbitLauncher(options()).start(publisher = published, discovery = sink).getOrThrow().use { running ->
+            assertEquals(listOf("spot-a", "spot-b"), running.host.robots.keys.sorted())
+
+            // 플릿에 기체가 하나 는다.
+            routes["/api/v0/robots/"] = 200 to """[
+                {"hostname":"spot-a.line-a","nickname":"spot-a","robotIndex":0,"username":"admin"},
+                {"hostname":"spot-b.line-a","nickname":"spot-b","robotIndex":1,"username":"admin"},
+                {"hostname":"spot-c.line-a","nickname":"spot-c","robotIndex":2,"username":"admin"}]"""
+
+            // 새로 나타난 기체만 세운다. 발견은 기동 때와 같은 적재 문으로 다시 올라간다.
+            assertEquals(listOf("spot-c"), running.rediscover().getOrThrow())
+            assertEquals(listOf("spot-a", "spot-b", "spot-c"), sweeps.last())
+            assertEquals(listOf("spot-a", "spot-b", "spot-c"), running.host.robots.keys.sorted())
+            // 더한 기체도 살아 있다고 알린다. 기체마다 하나씩.
+            assertEquals(3, published.publications.count { it.retained })
+
+            val channel: ManagedChannel = ManagedChannelBuilder.forAddress("127.0.0.1", running.port).usePlaintext().build()
+            try {
+                // 같은 포트에서 새 기체를 지목할 수 있다.
+                assertTrue(PicassoClient(channel, "line-controller").capabilities("spot-c").skillsList.isNotEmpty())
+            } finally {
+                channel.shutdownNow()
+            }
+
+            // 이미 든 기체는 다시 세우지 않는다.
+            assertEquals(emptyList(), running.rediscover().getOrThrow())
+            assertEquals(3, published.publications.count { it.retained })
+        }
+    }
+
+    @Test
+    fun `다시 발견이 플릿에 못 물으면 실패로 내고 이미 든 기체는 그대로 둔다`() {
+        OrbitLauncher(options()).start().getOrThrow().use { running ->
+            routes["/api/v0/robots/"] = 500 to """{"error":"down"}"""
+
+            assertTrue(running.rediscover().isFailure)
+            assertEquals(listOf("spot-a", "spot-b"), running.host.robots.keys.sorted())
+        }
+    }
+
+    @Test
     fun `플릿에 못 붙으면 포트를 열지 않는다`() {
         routes["/api/v0/api_token/authenticate/"] = 401 to """{"error":"bad token"}"""
 
