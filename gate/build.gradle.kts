@@ -66,6 +66,9 @@ tasks.withType<Test>().configureEach {
         rootProject.file("profile/schema"),
         rootProject.file("gate/negative"),
         rootProject.file("contracts/proto"),
+        // 제어 채널의 buf 모듈. 음성 하네스가 검사 1·2번을 이 자리에서도 돌린다(§15.287).
+        rootProject.file("mimic/buf.yaml"),
+        rootProject.file("mimic/src/main/proto"),
         rootProject.file("contracts/build.gradle.kts"),
         rootProject.file("build.gradle.kts"),
         // **`KotlinLanguageVersionTest` 가 고정한 언어 판과 플러그인 판을 댄다.** 카탈로그가

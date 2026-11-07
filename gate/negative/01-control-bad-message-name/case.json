@@ -1,0 +1,8 @@
+{
+  "targets": "1",
+  "needs": [
+    "BUF"
+  ],
+  "expect": "PascalCase",
+  "reason": "제어 채널 메시지 이름이 명명 규칙을 어긴다 — mimic/buf.yaml의 lint.use STANDARD"
+}

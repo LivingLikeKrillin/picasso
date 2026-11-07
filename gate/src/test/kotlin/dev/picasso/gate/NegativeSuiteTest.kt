@@ -320,6 +320,7 @@ class NegativeSuiteTest {
             descriptorFile = work.resolve("contracts/build/descriptor.binpb"),
             baselineDirs = ProfileDirectories.ALL.map { work.resolve("$BASELINE_DIR/$it") },
             contractBaseline = "../$BASELINE_DIR/contracts",
+            controlBaseline = "../$BASELINE_DIR/mimic",
             buf = bufFor(work),
             // **null이 아니라 빈 목록이다.** null이면 검사 8이 건너뛰고,
             // 그러면 `원본 트리는 모든 검사를 통과한다`가 허용되지 않은

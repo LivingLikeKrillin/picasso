@@ -50,6 +50,11 @@ class GateCommand : CliktCommand(name = "picasso-gate") {
         help = "buf breaking --against 에 그대로 넘어간다. contracts/ 기준 경로다",
     )
 
+    private val controlBaseline by option(
+        "--control-baseline",
+        help = "제어 채널 모듈의 buf breaking --against 에 그대로 넘어간다. mimic/ 기준 경로다",
+    )
+
     private val bufCommand by option(
         "--buf",
         help = "buf 실행기. 절대 경로여야 한다. 여러 번 주면 인자로 이어진다",
@@ -109,6 +114,7 @@ class GateCommand : CliktCommand(name = "picasso-gate") {
             descriptorFile = root.resolve(descriptor),
             baselineDirs = baselineDirs.map(root::resolve),
             contractBaseline = contractBaseline,
+            controlBaseline = controlBaseline,
             buf = bufCommand.takeIf { it.isNotEmpty() }?.let { ProcessBufRunner(it) },
             changed = changedFiles(root),
         )

@@ -45,6 +45,11 @@ jobs:
           if git cat-file -e "$BASE:contracts/buf.yaml" 2>/dev/null; then
             echo "contract=../.git#ref=$BASE,subdir=contracts" >> "$GITHUB_OUTPUT"
           fi
+          # 제어 채널의 buf 모듈도 같다. 베이스에 없으면(모듈 도입 PR) 넘기지 않고
+          # 검사 2번이 그쪽만 부분 건너뜀으로 낸다(§15.287).
+          if git cat-file -e "$BASE:mimic/buf.yaml" 2>/dev/null; then
+            echo "control=../.git#ref=$BASE,subdir=mimic" >> "$GITHUB_OUTPUT"
+          fi
 
           # **기준선 쪽에서 열거한다.** head 파일 목록을 돌면 삭제된 프로파일이
           # 맵에 안 들어와 검사 6번의 삭제 판정이 영영 발화하지 않는다.
@@ -103,6 +108,9 @@ jobs:
           REQUIRE="REPO,PROFILE_DOCUMENT,PROFILE_SCHEMA,CONTRACT_DESCRIPTOR,BUF"
           if [ -n "${{ steps.baseline.outputs.contract }}" ]; then
             ARGS="$ARGS --contract-baseline '${{ steps.baseline.outputs.contract }}'"
+          fi
+          if [ -n "${{ steps.baseline.outputs.control }}" ]; then
+            ARGS="$ARGS --control-baseline '${{ steps.baseline.outputs.control }}'"
           fi
           if [ -n "${{ steps.baseline.outputs.profiles }}" ]; then
             ARGS="$ARGS --baseline-dir /tmp/baseline-fixtures --baseline-dir /tmp/baseline-profiles"

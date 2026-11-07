@@ -1,0 +1,401 @@
+syntax = "proto3";
+
+package picasso.control.v1;
+
+option java_multiple_files = true;
+option java_package = "dev.picasso.mimic.control.v1";
+
+// ---------------------------------------------------------------------------
+// 설계 §10.5의 제어 채널.
+//
+// **contracts/ 에 들어가지 않는다.** 표준 계약과 같은 표면에 두면 프로덕션
+// 소비자가 손댈 수 있고 목이 계약을 오염시킨다. 별도 포트에 두며 루프백에만
+// 바인딩한다(§6.3).
+//
+// 그래서 buf 모듈이 따로 있다(mimic/buf.yaml). 게이트 검사 1·2번이 계약과
+// 같은 규칙으로 이 파일의 lint 와 breaking 을 본다(§15.287).
+// ---------------------------------------------------------------------------
+
+enum ClockMode {
+  CLOCK_MODE_UNSPECIFIED = 0;
+  CLOCK_MODE_REAL = 1;
+  CLOCK_MODE_VIRTUAL = 2;
+}
+
+message SetClockModeRequest {
+  ClockMode mode = 1;
+}
+
+message SetClockModeResponse {
+  ClockMode mode = 1;
+}
+
+message AdvanceClockRequest {
+  string duration_millis = 1;
+}
+
+message AdvanceClockResponse {
+  // RFC3339. 전진 뒤의 시각.
+  string now = 1;
+}
+
+message DumpInternalStateRequest {
+  string robot_id = 1;
+}
+
+// 엔진 내부의 태스크 하나.
+//
+// **상태를 문자열로 싣는다.** 계약의 enum을 쓰면 이 덤프가 계약 표면의
+// 투영이 되고, 그러면 §12.2의 A-2 오라클이 투영을 투영과 비교하는 순환이
+// 된다. 오라클은 엔진의 어휘로 말해야 한다.
+message InternalTask {
+  string task_id = 1;
+  string skill_type = 2;
+  string task_state = 3;
+  uint32 revision = 4;
+  uint32 attempt = 5;
+  double progress = 6;
+
+  // 스킬 인스턴스가 없으면 빈 문자열(태스크가 아직 ACCEPTED다).
+  string skill_state = 7;
+
+  uint64 log_size = 8;
+
+  // §4.4의 래치 위반을 관측했는가. **이것이 없으면 완료 기준 8c의 오라클이
+  // 없다** — 결함 목록만으로는 "그 태스크에 대해" 관측했다는 사실을 태스크
+  // 쪽에서 확인할 수 없다.
+  bool terminal_violation_seen = 9;
+}
+
+// 기체가 지금 안고 있는 결함 하나(설계 §4.6).
+//
+// **여기서는 "엔진 어휘"라는 말이 InternalTask만큼 강하지 않다.** 결함
+// 레지스트리가 드는 것이 계약의 `Fault` 그 자체이기 때문이다 — 태스크 상태와
+// 달리 엔진 쪽 표현이 따로 없다. 그래도 스칼라로 펴서 싣는 이유는 같다:
+// 시험이 `GetSnapshot`이 만든 `Fault`를 **같은 코드가 만든 `Fault`**와
+// 비교하면 그 코드가 틀려도 양쪽이 똑같이 틀린다. 여기서는 레지스트리를
+// 직접 읽고 필드를 하나씩 펴므로, 투영이 필드를 빠뜨리면 그 자리가 벌어진다.
+message InternalFault {
+  string error_type = 1;
+  bool can_continue_current_task = 2;
+  bool can_accept_new_task = 3;
+
+  // Lifetime.Kind 의 이름. 빈 문자열이 아니다 — UNSPECIFIED도 이름이 있다.
+  string lifetime_kind = 4;
+
+  // RFC3339. lifetime_kind 가 UNTIL_TIMESTAMP 일 때만 찬다.
+  string lifetime_until = 5;
+
+  // references 를 편 것. 없으면 빈 문자열이고, **그것이 로봇 수준이라는
+  // 뜻이다**(§4.6 — 등급을 별도 컬렉션으로 나누지 않는다).
+  string skill_id = 6;
+  string task_id = 7;
+
+  string error_hint = 8;
+
+  // FailureClass 의 이름(접두사 포함). UNSPECIFIED 도 이름이 있다.
+  string failure_class = 9;
+  string vendor_detail = 10;
+}
+
+message DumpInternalStateResponse {
+  string robot_id = 1;
+  string session_id = 2;
+
+  // 다음에 붙을 sequence. 스냅샷이 싣는 것과 같은 값이어야 한다.
+  uint64 next_sequence = 3;
+
+  uint64 capability_epoch = 4;
+  repeated InternalTask tasks = 5;
+  uint64 buffered_events = 6;
+
+  // 발생 순서를 지킨다. 소비자가 이벤트로 본 순서와 달라지면 재구성한
+  // 목록과 대조할 수 없다.
+  repeated InternalFault faults = 7;
+}
+
+message SetSeedRequest {
+  string robot_id = 1;
+  int64 seed = 2;
+}
+
+message SetSeedResponse {
+  int64 seed = 1;
+}
+
+// §10.5. 프로파일이 선언한 실패 모드 하나를 **지금** 일으킨다.
+//
+// **선언되지 않은 error_type은 거절한다** — §4.5 전파 규칙 1의 입력인
+// resolution이 프로파일에서만 오므로, 허용하면 태스크 종착 판정이 미정의가
+// 된다. 어댑터 전용 둘(TERMINAL_STATE_VIOLATED·CONTROL_AUTHORITY_LOST)도
+// 여기로 못 들어온다 — 전용 RPC가 따로 있다.
+message ForceFaultRequest {
+  string robot_id = 1;
+  string error_type = 2;
+
+  // 비우면 로봇 수준이다. 채우면 그 태스크가 §4.5 전파 규칙 1을 탄다.
+  string task_id = 3;
+}
+
+message ForceFaultResponse {
+  // 실제로 새로 선 결함이면 참. 이미 같은 결함이 있었으면 거짓이다(§4.6 —
+  // 같은 결함을 두 번 내면 소비자의 목록이 부푼다).
+  bool raised = 1;
+
+  // 결함이 태스크를 보낸 곳. 로봇 수준이면 빈 문자열이다.
+  string task_state = 2;
+}
+
+message SetSingleStepRequest {
+  string robot_id = 1;
+  bool enabled = 2;
+}
+
+message SetSingleStepResponse {
+  bool enabled = 1;
+}
+
+message StepRequest {
+  string robot_id = 1;
+}
+
+message StepResponse {
+  // 이번 걸음에서 상태가 바뀐 태스크 수.
+  uint32 moved = 1;
+}
+
+// §4.4의 래치 위반. **종착 확정 후에도 로봇이 그 태스크를 계속 수행 중임을
+// 어댑터가 관측한** 상황을 만든다.
+//
+// 실물 중에 종착을 래치하지 않는 것이 있다(Digit의 action-status 는 매뉴얼이
+// "does not latch once reached"라고 명시한다). 그런 로봇에서는 어댑터가 래치
+// 책임을 지되, **흡수했다는 사실을 숨기지 않는다** — 계약의 단순함은 지키고
+// 계약이 실물과 어긋나 있다는 사실은 관측 가능하게 만든다.
+message ForceTerminalViolationRequest {
+  string robot_id = 1;
+  string task_id = 2;
+}
+
+message ForceTerminalViolationResponse {
+  // 위반을 관측한 뒤의 태스크 상태. **종착에 머물러야 한다.**
+  string task_state = 1;
+
+  // 실제로 새로 선 결함이면 참. 같은 태스크에 두 번 관측하면 거짓이다.
+  bool raised = 2;
+}
+
+// §4.9의 제어 권한 상실.
+//
+// **권한의 획득과 협상은 계약 밖이다** — 우선순위를 누가 갖는지는 판단이고
+// 그 주인은 미션 계층이다. 그러나 **상실은 사실이고 태스크 결과를 좌우하므로
+// 계약 안이다.**
+//
+// exclusive_control_required 가 거짓인 기종은 거절한다. 프로파일이 "이 로봇은
+// 배타 제어 모델이 아니다"라고 선언했으면 빼앗길 권한이 없고, 허용하면
+// 프로파일이 부정한 상황을 에뮬레이터가 만들어 §10.1이 깨진다.
+message ForceControlAuthorityLossRequest {
+  string robot_id = 1;
+}
+
+// §10.5의 전송 장애 다섯. **번호가 붙은 뒤에 끼어든다** — 붙기 전에
+// 버리면 나머지가 새로 매겨져 소비자가 결손을 아예 못 본다.
+//
+// 난수를 안 쓴다(§12.1) — 어느 발행이 희생될지는 세는 것으로 정한다.
+message InjectTransportFaultRequest {
+  string robot_id = 1;
+
+  // TransportFaults.Kind 의 이름: NONE·DISCONNECT·DELAY·EVENT_LOSS·
+  // DUPLICATE·REORDER. 모르는 이름은 거절한다.
+  string kind = 2;
+
+  // EVENT_LOSS 가 몇 번째마다 버리는가. 0이면 기본값(3)을 쓴다.
+  // 1이면 거절한다 — 매번 버리면 그것은 DISCONNECT 다.
+  uint32 loss_every = 3;
+}
+
+// §10.3의 폴링을 **한 번** 돌린다.
+//
+// 운영에서는 5초 주기지만 시험은 배경 스레드를 못 쓴다 — 가상 시계와
+// 충돌해 §12.1의 결정성이 깨진다. `AdvanceClock`이 시계를 명시적으로 미는
+// 것과 같은 이유로, 당김도 명시적으로 한 번 돌린다.
+message PullRegistryRequest {
+  string robot_id = 1;
+}
+
+message PullRegistryResponse {
+  // 실제로 바뀌었으면 참. 레지스트리가 이 기체를 모르거나 같은 개정판이면
+  // 거짓이며 아무 일도 안 일어난다.
+  bool changed = 1;
+
+  // 반영 뒤의 개정판. 파일 모드면 0이다.
+  uint64 profile_revision_id = 2;
+
+  uint64 capability_epoch = 3;
+}
+
+message InjectTransportFaultResponse {
+  string kind = 1;
+  uint32 loss_every = 2;
+}
+
+// §8.2의 **로봇 유래 능력 축소**를 흉내낸다.
+//
+// 선언한 적 없는 스킬은 거절한다 — 그것은 축소가 아니라 오타이고, 허용하면
+// 소비자가 "있었는데 사라졌다"로 읽는다.
+message RemoveCapabilityRequest {
+  string robot_id = 1;
+  string skill_type = 2;
+}
+
+message RestoreCapabilityRequest {
+  string robot_id = 1;
+  string skill_type = 2;
+}
+
+message RemoveCapabilityResponse {
+  // 바뀐 뒤의 세대. **되돌려도 또 오른다**(§5.5의 ETag는 되돌아가지 않는다).
+  uint64 capability_epoch = 1;
+
+  // 실제로 바뀌었으면 참. 이미 그 상태면 거짓이며 세대가 안 오른다 —
+  // 유령 세대는 소비자의 캐시를 헛되이 무효화한다.
+  bool changed = 2;
+
+  // 지금 쓸 수 있는 스킬들.
+  repeated string available_skills = 3;
+}
+
+message RestoreCapabilityResponse {
+  // RemoveCapabilityResponse 와 같은 칸이다. RPC 마다 응답 타입을 따로
+  // 두는 것은 buf lint STANDARD 의 규칙이다.
+  // 바뀐 뒤의 세대. **되돌려도 또 오른다**(§5.5의 ETag는 되돌아가지 않는다).
+  uint64 capability_epoch = 1;
+
+  // 실제로 바뀌었으면 참. 이미 그 상태면 거짓이며 세대가 안 오른다 —
+  // 유령 세대는 소비자의 캐시를 헛되이 무효화한다.
+  bool changed = 2;
+
+  // 지금 쓸 수 있는 스킬들.
+  repeated string available_skills = 3;
+}
+
+// §4.7의 연결 상태를 강제한다. **§4.3의 값을 그대로 쓴다** — 제어 채널이
+// 자기 어휘를 만들면 시험과 소비자가 다른 말을 하게 된다.
+// 기체가 보고하는 로봇 소프트웨어 식별자를 바꾼다.
+//
+// **불일치를 만들 수 없으면 대조를 시험할 수 없다.** 프로파일의
+// derived_from.software_version 과 기체가 말하는 값이 갈라진 상황이 진단에
+// 보여야 하는데, 에뮬레이터는 기본적으로 선언대로 행동하므로(§10.1) 둘이
+// 언제나 같다.
+//
+// **필드 번호를 재사용하지 않는다.** 처음에는 제어 채널 proto 가 buf
+// lint·breaking 밖이라 번호 규율을 사람이 지켰고, 이 두 메시지가 그 관례를
+// 세운 첫 자리다. 이제 게이트 검사 2번이 이 파일의 파괴도 보지만(§15.287)
+// 관례는 그대로다 — 필드를 지우면 지운 번호를 reserved 로 남긴다.
+// 이 기체가 아는 **사이트 이름들**을 정한다(ADR 35).
+//
+// 사이트 이름은 프로파일에 없다 — 프로파일은 기종을 기술하고 이름은 사이트가
+// 저작한다. 그래서 이것은 **런타임 사실**이고, 제어 채널이 그 자리다(§10.5).
+// 프로파일에 넣으면 같은 기종이 사이트마다 다른 문서를 갖게 된다.
+message SetKnownSiteNamesRequest {
+  string robot_id = 1;
+
+  // 이 기체가 알게 할 이름들.
+  repeated string known = 2;
+
+  // **이름을 호스팅하지 못하는 기종으로 만든다.** 빈 목록과 구별해야
+  // 하며(§2.3의 Unitree 는 등록할 자리가 아예 없다) 그 상태를 만들 수
+  // 없으면 "0개"와 "못 함"을 가르는 진단을 시험할 수 없다.
+  bool unsupported = 3;
+}
+message SetKnownSiteNamesResponse {
+  repeated string known = 1;
+  bool unsupported = 2;
+}
+
+message SetRobotSoftwareRequest {
+  string robot_id = 1;
+
+  // 빈 문자열은 **못 읽는 기종**을 뜻한다 — 신원 질의가 아예 없는 실물이
+  // 있고(§2.3), 그 상태를 만들 수 없으면 "모름"과 "불일치"를 가르는 진단을
+  // 시험할 수 없다.
+  string version = 2;
+}
+
+message SetRobotSoftwareResponse {
+  // 바꾼 뒤의 값. 못 읽는 기종이면 비어 있다.
+  string version = 1;
+}
+
+message SetConnectionRequest {
+  string robot_id = 1;
+
+  // picasso.v1.ConnectionState 의 이름. 제어 채널은 contracts 에 의존하지
+  // 않으므로(§10.5) 문자열로 받는다 — 모르는 이름은 거절한다.
+  string state = 2;
+}
+
+message SetConnectionResponse {
+  string state = 1;
+
+  // 실제로 바뀌었으면 참. 같은 상태를 두 번 넣으면 거짓이며 아무것도
+  // 안 나간다 — 유령 전이는 소비자가 재연결로 오해한다.
+  bool changed = 2;
+}
+
+message ForceControlAuthorityLossResponse {
+  // 실제로 새로 선 결함이면 참.
+  bool raised = 1;
+
+  // 이 상실로 종착한 태스크들. 진행 중이던 것이 없으면 빈다 —
+  // **그래도 결함은 선다.**
+  repeated string terminated_task_ids = 2;
+}
+
+// §10.5의 열셋이 전부 있다.
+service ControlService {
+  rpc SetClockMode(SetClockModeRequest) returns (SetClockModeResponse);
+  rpc AdvanceClock(AdvanceClockRequest) returns (AdvanceClockResponse);
+
+  // §12.2의 A-2 오라클. 없으면 "재구성한 상태가 내부 상태와 일치"를 확인할
+  // 방법이 GetSnapshot뿐인데 그것은 계약 표면의 투영이라 순환이 된다.
+  rpc DumpInternalState(DumpInternalStateRequest) returns (DumpInternalStateResponse);
+
+  // §12.1 — 시드가 결정성을 만든다는 주장을 시험이 흔들어 보는 문이다.
+  rpc SetSeed(SetSeedRequest) returns (SetSeedResponse);
+
+  // §10.4 ②의 명령 주입. 추첨을 기다리지 않고 결함을 지금 세운다.
+  rpc ForceFault(ForceFaultRequest) returns (ForceFaultResponse);
+
+  // 걸음을 사람이 센다. 켜면 RPC 진입이 tick을 돌리지 않고 Step만 돌린다.
+  rpc SetSingleStep(SetSingleStepRequest) returns (SetSingleStepResponse);
+  rpc Step(StepRequest) returns (StepResponse);
+
+  // §4.4의 래치 위반. 프로파일이 선언할 수 없는 결함이라 전용 RPC다.
+  rpc ForceTerminalViolation(ForceTerminalViolationRequest)
+      returns (ForceTerminalViolationResponse);
+
+  // §4.9의 제어 권한 상실. 역시 프로파일이 선언할 수 없다.
+  rpc ForceControlAuthorityLoss(ForceControlAuthorityLossRequest)
+      returns (ForceControlAuthorityLossResponse);
+
+  // §4.7의 연결 상태. 침묵의 세 원인을 강제한다.
+  rpc SetConnection(SetConnectionRequest) returns (SetConnectionResponse);
+
+  // §8.2의 런타임 축소와 복원.
+  rpc RemoveCapability(RemoveCapabilityRequest) returns (RemoveCapabilityResponse);
+  rpc RestoreCapability(RestoreCapabilityRequest) returns (RestoreCapabilityResponse);
+
+  // §10.5의 전송 장애 다섯.
+  rpc InjectTransportFault(InjectTransportFaultRequest)
+      returns (InjectTransportFaultResponse);
+
+  // §10.3의 폴링을 한 번 돌린다.
+  rpc PullRegistry(PullRegistryRequest) returns (PullRegistryResponse);
+
+  // 기체가 보고하는 로봇 소프트웨어를 바꾼다. 프로파일 선언과의 불일치를
+  // 만드는 유일한 방법이다.
+  rpc SetRobotSoftware(SetRobotSoftwareRequest) returns (SetRobotSoftwareResponse);
+
+  // 사이트 이름을 심는다(ADR 35). 프로파일이 아니라 런타임 사실이다.
+  rpc SetKnownSiteNames(SetKnownSiteNamesRequest) returns (SetKnownSiteNamesResponse);
+}

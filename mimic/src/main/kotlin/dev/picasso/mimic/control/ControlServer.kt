@@ -3,7 +3,6 @@ package dev.picasso.mimic.control
 import dev.picasso.mimic.control.v1.AdvanceClockRequest
 import dev.picasso.mimic.control.v1.AdvanceClockResponse
 import dev.picasso.mimic.control.v1.ClockMode
-import dev.picasso.mimic.control.v1.CapabilityChangeResponse
 import dev.picasso.mimic.control.v1.ControlServiceGrpc
 import dev.picasso.mimic.control.v1.SetKnownSiteNamesRequest
 import dev.picasso.mimic.control.v1.SetKnownSiteNamesResponse
@@ -22,7 +21,9 @@ import dev.picasso.mimic.control.v1.InternalTask
 import dev.picasso.mimic.control.v1.PullRegistryRequest
 import dev.picasso.mimic.control.v1.PullRegistryResponse
 import dev.picasso.mimic.control.v1.RemoveCapabilityRequest
+import dev.picasso.mimic.control.v1.RemoveCapabilityResponse
 import dev.picasso.mimic.control.v1.RestoreCapabilityRequest
+import dev.picasso.mimic.control.v1.RestoreCapabilityResponse
 import dev.picasso.mimic.control.v1.SetClockModeRequest
 import dev.picasso.mimic.control.v1.SetConnectionRequest
 import dev.picasso.mimic.control.v1.SetConnectionResponse
@@ -326,23 +327,34 @@ class ControlServer(
          */
         override fun removeCapability(
             request: RemoveCapabilityRequest,
-            observer: StreamObserver<CapabilityChangeResponse>,
-        ) = changeCapability(request.robotId, request.skillType, observer) { instance, skill ->
-            instance.withdraw(skill)
-        }
+            observer: StreamObserver<RemoveCapabilityResponse>,
+        ) = changeCapability(
+            request.robotId, request.skillType, observer,
+            change = { instance, skill -> instance.withdraw(skill) },
+            response = { epoch, changed, skills ->
+                RemoveCapabilityResponse.newBuilder()
+                    .setCapabilityEpoch(epoch).setChanged(changed).addAllAvailableSkills(skills).build()
+            },
+        )
 
         override fun restoreCapability(
             request: RestoreCapabilityRequest,
-            observer: StreamObserver<CapabilityChangeResponse>,
-        ) = changeCapability(request.robotId, request.skillType, observer) { instance, skill ->
-            instance.restore(skill)
-        }
+            observer: StreamObserver<RestoreCapabilityResponse>,
+        ) = changeCapability(
+            request.robotId, request.skillType, observer,
+            change = { instance, skill -> instance.restore(skill) },
+            response = { epoch, changed, skills ->
+                RestoreCapabilityResponse.newBuilder()
+                    .setCapabilityEpoch(epoch).setChanged(changed).addAllAvailableSkills(skills).build()
+            },
+        )
 
-        private fun changeCapability(
+        private fun <T> changeCapability(
             robotId: String,
             skillType: String,
-            observer: StreamObserver<CapabilityChangeResponse>,
+            observer: StreamObserver<T>,
             change: (dev.picasso.mimic.RobotInstance, String) -> Boolean,
+            response: (epoch: Long, changed: Boolean, skills: List<String>) -> T,
         ) {
             val hosted = hosted(robotId, observer) ?: return
             val changed = try {
@@ -357,13 +369,11 @@ class ControlServer(
             }
             reply(
                 observer,
-                CapabilityChangeResponse.newBuilder()
-                    .setCapabilityEpoch(hosted.instance.capabilityEpoch)
-                    .setChanged(changed)
-                    .addAllAvailableSkills(
-                        hosted.instance.capability.skillsList.map { it.skillType },
-                    )
-                    .build(),
+                response(
+                    hosted.instance.capabilityEpoch,
+                    changed,
+                    hosted.instance.capability.skillsList.map { it.skillType },
+                ),
             )
             if (changed) mimic.push(hosted)
         }
