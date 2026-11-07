@@ -3109,6 +3109,16 @@ mimic/
 
     (의도적 제외로 옮김, §15.265) «§15.156» 행은 picasso 와 picasso-ops 어디에도 그 값을 쓰는 면이 없어 의도적 제외의 새 표 «수요 없음» 으로 옮겼다.
 
+281. **`HeartbeatFreshness.kt`의 최상위 상수 `HEARTBEAT_FRESHNESS`로 하트비트 신선도 상수를 한 자리로 모으고 `RegistryLedgerQuery`와 `RobotObservability`의 동반 객체 상수를 지운다.**
+
+    한계 레지스터 행 §15.41은 하트비트 신선도 유효기간이 24시간 상수로 고정되어 있고, 그 상수가 `RegistryLedgerQuery`와 `RobotObservability`의 동반 객체에 각각 `DEFAULT_FRESHNESS`(`Duration.ofHours(24)`)로 따로 선언되어 있으며 `DiagnosticsService`의 `LIVENESS_WINDOW`는 뒤엣것을 건너가 읽는다고 적었다(2026-09-23 재측에서 나옴). 한쪽만 바뀌면 진단이 «보고 중»이라 적은 기체 때문에 축소가 막힌다. 소유자가 2026-11-07에 이 상수를 한 자리로 모으는 조각을 골랐다.
+
+    `registry` 모듈 ledger 패키지에 새 파일 `HeartbeatFreshness.kt`를 두고 최상위 상수 `HEARTBEAT_FRESHNESS`(`Duration.ofHours(24)`)를 선언했다. 24시간의 이유(가동 중인 라인이 하루 한 번도 협상하지 않거나 태스크 하나 안 움직이는 일은 없다)를 그 KDoc에 옮겼다. `RegistryLedgerQuery`와 `RobotObservability`의 동반 객체 상수 `DEFAULT_FRESHNESS` 둘을 지우고 두 생성자의 `freshness` 기본값을 이 상수로 바꾸었으며, `DiagnosticsService.LIVENESS_WINDOW`도 이 상수를 읽는다. 값과 동작은 바뀌지 않았다. 변경 이력의 앞 항목들이 적은 `RobotObservability.DEFAULT_FRESHNESS`라는 이름은 이제 없다.
+
+    남는 것은 한 가지다. 기종이나 사이트마다 다른 만료 값은 아직 받지 않고 각 생성자의 `freshness` 인자로만 바꾼다. 소비자가 없어 두지 않는다(ADR 9). 그래서 행 §15.41은 닫지 않고 상수가 두 자리에 있다는 부분만 지워 좁힌다. 오픈 항목 수는 그대로 61개다.
+
+    새 시험은 없다. 상수가 한 자리에만 선언되어 컴파일러가 두 자리의 어긋남을 막으며, 값과 동작이 그대로라 기존 시험이 덮는다. 전체 시험 수는 2,389건 그대로다. `registry` 모듈 시험은 Docker가 필요해 로컬 표준 빌드에서 빠지고 CI가 돌린다. 계약 proto와 계약 SemVer 0.10.0, 작업 응답 형식, 판단 기록 형식은 바뀌지 않았다.
+
 280. **기체의 높은 리비전을 `holdRevisionAhead`로 운영자 보류에 두고, 리비전을 싣지 않는 포트는 `startedRevision`이 단위 리비전과 같을 때만 스냅숏에 붙인다.**
 
     항목 238(§15.238)이 미확정 로봇 단위의 스냅숏 부착을 들이며 스냅숏 리비전이 단위 리비전과 같을 때만 붙게 했고, 내부 행 «§15.238 · 같은 리비전 부착»을 열었다. 소유자가 2026-11-07에 확장 둘을 정했다: 기체가 단위보다 높은 리비전을 들면 운영자 보류로 보내고, 리비전을 싣지 않는 포트에서는 그 태스크를 한 리비전으로만 보낸 단위만 붙인다.

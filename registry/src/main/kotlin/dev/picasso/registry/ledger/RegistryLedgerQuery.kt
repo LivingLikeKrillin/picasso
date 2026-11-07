@@ -68,7 +68,7 @@ class RegistryLedgerQuery(
      * "모른다"가 나오는데, 그 오답은 축소를 막을 뿐이라 안전한 쪽이다 —
      * 그래도 매번 막히면 사람이 창을 늘리는 대신 검사를 끄게 된다.
      */
-    private val freshness: Duration = DEFAULT_FRESHNESS,
+    private val freshness: Duration = HEARTBEAT_FRESHNESS,
     private val now: () -> Instant = Instant::now,
 ) : LedgerQuery {
 
@@ -152,8 +152,4 @@ class RegistryLedgerQuery(
                 rs.getTimestamp(1)?.toInstant()
             }
         }
-
-    companion object {
-        val DEFAULT_FRESHNESS: Duration = Duration.ofHours(24)
-    }
 }
