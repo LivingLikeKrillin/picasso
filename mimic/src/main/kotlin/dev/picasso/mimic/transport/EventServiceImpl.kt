@@ -67,7 +67,12 @@ class EventServiceImpl(
         // 문구에서 버퍼의 마지막을 집으면 그 자리에서 터진다 — 소비자는 거절이 아니라
         // 정체를 본다.
         val evicted = hosted.instance.events.evictedUpTo
-        if (evicted != null && request.fromSequence <= evicted) {
+        // **아직 나지 않은 번호도 축출로 답한다**(§15.288). 그런 커서는 이 프로세스가 준 것이
+        // 아니라 다시 뜨기 전의 것이다. 세션이 되풀이되면(같은 밀리초 재기동, 가상 시계) 소비자가
+        // 재시작을 못 보는데, 빈 응답을 주면 그 커서가 새 세션의 앞 이벤트를 조용히 건너뛴다.
+        val next = hosted.instance.events.nextSequence
+        val ahead = request.fromSequence > next
+        if (ahead || (evicted != null && request.fromSequence <= evicted)) {
             observer.onNext(
                 ReplayEventsResponse.newBuilder()
                     .setHeader(hosted.headers.forResponse(ReplayEventsResponse.getDescriptor()))
@@ -75,9 +80,14 @@ class EventServiceImpl(
                         Rejection.newBuilder()
                             .setCode(RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED)
                             .setDetail(
-                                "재생 버퍼를 벗어났다: 요청=${request.fromSequence}, " +
-                                    "버퍼=[$oldest, ${buffered.lastOrNull()?.header?.sequence}] " +
-                                    "— GetSnapshot부터 다시 세워라",
+                                if (ahead) {
+                                    "아직 나지 않은 번호다: 요청=${request.fromSequence}, 다음=$next " +
+                                        "— 발신자가 다시 떴을 수 있다. GetSnapshot부터 다시 세워라"
+                                } else {
+                                    "재생 버퍼를 벗어났다: 요청=${request.fromSequence}, " +
+                                        "버퍼=[$oldest, ${buffered.lastOrNull()?.header?.sequence}] " +
+                                        "— GetSnapshot부터 다시 세워라"
+                                },
                             ),
                     )
                     .build(),

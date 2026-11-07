@@ -493,6 +493,21 @@ class AdapterHostTest {
     }
 
     @Test
+    fun `아직 나지 않은 번호를 물으면 SEQUENCE_EVICTED 다`() {
+        // §15.288 — 그런 커서는 다시 뜨기 전 호스트의 것이다. 세션이 되풀이되면 소비자가
+        // 재시작을 못 보므로, 빈 응답을 주면 새 세션의 앞 이벤트를 조용히 건너뛴다.
+        World(Files.readString(PROFILE)).use { w ->
+            w.start()
+            val next = w.robot.sequence
+            fun replay(from: Long) = w.events.replayEvents(ReplayEventsRequest.newBuilder().setHeader(w.header("picasso.v1.ReplayEventsRequest")).setRobotId(ROBOT).setFromSequence(from).build()).asSequence().toList()
+            assertTrue(replay(next).none { it.hasRejection() }, "다음 번호는 축출이 아니다")
+            val ahead = replay(next + 1)
+            assertEquals(RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED, ahead.single().rejection.code)
+            assertTrue(ahead.single().rejection.detail.contains("아직 나지 않은 번호"), ahead.single().rejection.detail)
+        }
+    }
+
+    @Test
     fun `재생 버퍼를 벗어나면 SEQUENCE_EVICTED 다`() {
         val small = Files.readString(PROFILE).replace("\"replay_buffer_size\": 256", "\"replay_buffer_size\": 2")
         World(small).use { w ->

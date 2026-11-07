@@ -416,7 +416,13 @@ internal class HostEventService(robots: Map<String, HostedRobot>, pumpOnRead: Bo
                     .setHeader(robot.header(ReplayEventsResponse.getDescriptor()))
                     .setRejection(
                         Rejection.newBuilder().setCode(RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED)
-                            .setDetail("재생 버퍼를 벗어났다: 요청=${request.fromSequence}, 버린 것 ≤ ${robot.evictedUpTo} — GetSnapshot부터 다시 세워라"),
+                            .setDetail(
+                                if (request.fromSequence > robot.sequence) {
+                                    "아직 나지 않은 번호다: 요청=${request.fromSequence}, 다음=${robot.sequence} — 발신자가 다시 떴을 수 있다. GetSnapshot부터 다시 세워라"
+                                } else {
+                                    "재생 버퍼를 벗어났다: 요청=${request.fromSequence}, 버린 것 ≤ ${robot.evictedUpTo} — GetSnapshot부터 다시 세워라"
+                                },
+                            ),
                     )
                     .build(),
             )
