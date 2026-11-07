@@ -182,6 +182,38 @@ class Check04CrossRefTest {
     }
 
     @Test
+    fun `깨진 계약 정의가 있어도 나머지 스킬의 대조 결과를 함께 낸다`() {
+        // §15.13. 깨진 정의 하나가 색인을 통째로 실패시키면 pick_place의
+        // 타입 불일치가 함께 사라진다.
+        val bytes = dev.picasso.gate.model.DescriptorMutation.dropMajor(descriptor, "NavigateToV1")
+        val r = run(
+            mutate(
+                "\"key\": \"verify_grasp\", \"value_type\": \"BOOL\"",
+                "\"key\": \"verify_grasp\", \"value_type\": \"STRING\"",
+            ),
+            bytes,
+        )
+        r as CheckResult.Failed
+        val messages = r.findings.map { it.message }
+        assertTrue(
+            r.findings.any { it.message.contains("skill_type_major") && it.location?.endsWith(":NavigateToV1") == true },
+            "깨진 정의를 계약의 자리로 짚지 않았다: $messages",
+        )
+        assertTrue(
+            messages.any { it.contains("verify_grasp") && it.contains("BOOL") },
+            "나머지 스킬의 대조 결과를 잃었다: $messages",
+        )
+        assertTrue(
+            messages.any { it.contains("navigate_to 정의가 깨져") },
+            "깨진 정의를 선언한 프로파일 항목을 따로 말하지 않았다: $messages",
+        )
+        assertTrue(
+            messages.none { it.contains("계약에 없는 케이퍼빌리티") },
+            "깨진 정의를 프로파일 탓으로 돌렸다: $messages",
+        )
+    }
+
+    @Test
     fun `optional_fields가 없는 파라미터를 가리키면 실패한다`() {
         // 스키마는 점표기 패턴만 강제하므로 오타가 그대로 통과한다.
         val r = run(mutate("task.parameters.grip_force", "task.parameters.grip_forse"))

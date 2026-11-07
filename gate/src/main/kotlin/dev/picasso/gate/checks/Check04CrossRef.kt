@@ -28,13 +28,27 @@ class Check04CrossRef : GateCheck {
     override fun run(input: GateInput): CheckResult {
         val index = ContractIndex.from(input.descriptor!!)
 
-        catalogIntegrity(index)?.let { return it }
+        emptyCatalog(index)?.let { return it }
 
-        val findings = mutableListOf<Finding>()
+        val findings = catalogFindings(index).toMutableList()
+        // 중복이 있으면 find가 죽는다. 대조는 그 뒤에 의미가 없다.
+        if (index.duplicates().isNotEmpty()) return CheckResult.Failed(id, findings)
+
+        // 깨진 정의의 이름. 그 스킬을 선언한 프로파일을 "계약에 없다"로 탓하지 않는다.
+        val brokenNames = index.broken.mapNotNull { it.skillName }.toSet()
 
         input.profiles.forEach { doc ->
             doc.skills.forEachIndexed { i, s ->
                 val def = index.find(s.skillType, s.major)
+                if (def == null && s.skillType in brokenNames) {
+                    findings += Finding(
+                        id, Severity.ERROR,
+                        "계약의 ${s.skillType} 정의가 깨져 대조하지 못했다. " +
+                            "프로파일이 아니라 계약을 고쳐야 한다",
+                        doc.locationOf("/skills/$i"),
+                    )
+                    return@forEachIndexed
+                }
                 if (def == null) {
                     findings += Finding(
                         id, Severity.ERROR,
@@ -58,12 +72,12 @@ class Check04CrossRef : GateCheck {
     }
 
     /**
-     * 카탈로그 자체가 성하지 않으면 아래 판정이 전부 의심스러워진다.
-     * 특히 **빈 카탈로그를 그냥 두면 소견이 프로파일을 탓한다** — "계약이
+     * **빈 카탈로그를 그냥 두면 소견이 프로파일을 탓한다** — "계약이
      * 아는 것: "(뒤가 빔)을 보고 사람이 프로파일을 들여다보게 된다.
+     * 깨진 정의만 있어서 빈 것은 여기가 아니라 [catalogFindings]가 말한다.
      */
-    private fun catalogIntegrity(index: ContractIndex): CheckResult? {
-        if (index.isEmpty()) {
+    private fun emptyCatalog(index: ContractIndex): CheckResult? {
+        if (index.isEmpty() && index.broken.isEmpty()) {
             return CheckResult.Failed(
                 id,
                 listOf(
@@ -77,8 +91,23 @@ class Check04CrossRef : GateCheck {
                 ),
             )
         }
+        return null
+    }
 
+    /**
+     * 카탈로그 자체의 결함. **대조를 멈추지 않는다**(§15.13). 깨진 정의나
+     * 도달 불가능한 파라미터가 있어도 나머지 스킬의 대조 결과는 함께 낸다.
+     */
+    private fun catalogFindings(index: ContractIndex): List<Finding> {
         val findings = mutableListOf<Finding>()
+
+        index.broken.forEach { b ->
+            findings += Finding(
+                id, Severity.ERROR,
+                "계약의 스킬 정의가 깨졌다: ${b.reason}",
+                b.protoMessage,
+            )
+        }
 
         index.duplicates().forEach { (name, major) ->
             findings += Finding(
@@ -100,7 +129,7 @@ class Check04CrossRef : GateCheck {
             }
         }
 
-        return if (findings.isEmpty()) null else CheckResult.Failed(id, findings)
+        return findings
     }
 
     /**

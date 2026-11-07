@@ -226,8 +226,9 @@ class ContractIndexTest {
         // 접으면 프로파일이 그것을 평범한 STRING으로 선언해도 검사 4번이
         // 통과시키고 카디널리티 불일치가 런타임까지 간다.
         val bytes = DescriptorMutation.makeRepeated(descriptorBytes(), "PickPlaceV1", "object_id")
-        val e = assertFailsWith<IllegalStateException> { ContractIndex.from(bytes) }
-        assertTrue(e.message!!.contains("object_id"))
+        val broken = ContractIndex.from(bytes).broken.single()
+        assertEquals("pick_place", broken.skillName)
+        assertTrue(broken.reason.contains("object_id"), broken.reason)
     }
 
     @Test
@@ -236,8 +237,9 @@ class ContractIndexTest {
         // 어긋나 find가 못 찾고, 검사 4번은 "proto에 없는 스킬"이라며
         // 프로파일을 지목한다 — 진짜 버그는 proto에 있는데.
         val bytes = DescriptorMutation.dropMajor(descriptorBytes(), "NavigateToV1")
-        val e = assertFailsWith<IllegalStateException> { ContractIndex.from(bytes) }
-        assertTrue(e.message!!.contains("skill_type_major"))
+        val broken = ContractIndex.from(bytes).broken.single()
+        assertEquals("navigate_to", broken.skillName)
+        assertTrue(broken.reason.contains("skill_type_major"), broken.reason)
     }
 
     @Test
@@ -254,8 +256,30 @@ class ContractIndexTest {
     @Test
     fun `중첩된 스킬 메시지를 조용히 무시하지 않는다`() {
         val bytes = DescriptorMutation.nestSkill(descriptorBytes(), "NavigateToV1")
-        val e = assertFailsWith<IllegalStateException> { ContractIndex.from(bytes) }
-        assertTrue(e.message!!.contains("최상위"))
+        val broken = ContractIndex.from(bytes).broken.single()
+        assertTrue(broken.protoMessage.endsWith(":Wrapper"), broken.protoMessage)
+        assertTrue(broken.reason.contains("최상위"), broken.reason)
+    }
+
+    // ── 저작 실수의 격리 (§15.13)
+
+    @Test
+    fun `깨진 정의 하나가 다른 스킬의 색인을 막지 않는다`() {
+        // 메시지 하나가 나쁘다고 색인이 통째로 실패하면 검사 4번이 나머지
+        // 스킬의 대조 결과를 함께 잃는다.
+        val index = ContractIndex.from(DescriptorMutation.dropMajor(descriptorBytes(), "NavigateToV1"))
+        assertNotNull(index.find("pick_place", 1), "깨지지 않은 스킬이 색인에서 빠졌다")
+        assertEquals(null, index.find("navigate_to", 1), "깨진 정의가 색인에 들어갔다")
+    }
+
+    @Test
+    fun `깨진 정의가 있으면 그대로 옮겨 적는 쪽은 실패한다`() {
+        // 레지스트리 동기화가 깨진 메시지를 빼고 적으면 그 스킬이 계약에서
+        // 사라진 것처럼 보인다.
+        val index = ContractIndex.from(DescriptorMutation.dropMajor(descriptorBytes(), "NavigateToV1"))
+        val e = assertFailsWith<IllegalStateException> { index.requireIntact() }
+        assertTrue(e.message!!.contains("NavigateToV1"), e.message)
+        assertEquals(ContractIndex.from(descriptorBytes()).all().size, ContractIndex.from(descriptorBytes()).requireIntact().all().size)
     }
 
     @Test
