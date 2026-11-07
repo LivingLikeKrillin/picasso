@@ -84,12 +84,8 @@ protobuf {
             // 헤더에 실린다 — Gradle이 암묵 의존으로 잡아 준 실측이다.
             if (sourceSet.name != "main") return@configureEach
 
-            // 헤더의 contract_digest가 이 파일의 SHA-256이다.
-            //
-            // §5.5는 buf 모듈 다이제스트라고 했으나 buf는 Docker 래퍼이고
-            // 게이트는 CI가 buf build를 먼저 돌리는 **순서**에 기대고 있다.
-            // 런타임 헤더까지 그 순서에 매달면 mimic이 Docker 없이 기동하지
-            // 못한다. 목적(계약의 신원)은 같고 계산 방법만 다르다(§15).
+            // 헤더의 contract_digest가 이 파일에서 나온다. 셈법은 아래
+            // `contractIdentity` 태스크에 있다(§15.22, §15.291).
             //
             // includeSourceInfo를 켜면 **주석 한 줄에 다이제스트가 변하고**
             // 전 소비자가 CONTRACT_REVISION_MISMATCH 경보를 받는다.
@@ -121,9 +117,48 @@ val contractIdentity = tasks.register("contractIdentity") {
 
     doLast {
         val bytes = descriptor.get().asFile.readBytes()
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(bytes)
-            .joinToString("") { b -> "%02x".format(b) }
+
+        // **다이제스트는 `picasso/` 파일만 센다(§15.291).** 디스크립터 셋 통째의 SHA-256 이면
+        // `includeImports` 가 끌고 오는 `google/protobuf/descriptor.proto` 가 섞여, protobuf 판만
+        // 올려도 계약이 그대로인데 전 소비자가 CONTRACT_REVISION_MISMATCH 경보를 받는다.
+        // 셋을 원소(필드 1, FileDescriptorProto)로 가르고 이름이 `picasso/` 로 시작하는 것만
+        // 이름 순으로 다시 이어 붙인다 — 그 바이트열도 그대로 FileDescriptorSet 이다.
+        // 순서를 이름으로 고정하는 것은 protoc 이 내는 위상 순서가 판마다 같다는 보장이 없어서다.
+        //
+        // `buf` 모듈 다이제스트는 쓰지 않는다. 그것은 .proto 원문 바이트를 세므로 주석 한 줄에도
+        // 바뀌고(위의 includeSourceInfo 를 끈 이유와 같다), Docker 래퍼라 mimic 이 Docker 없이
+        // 기동하지 못하게 된다. 시험은 `ContractIdentityTest` 에 있다.
+        fun varint(at: Int): Pair<Long, Int> {
+            var value = 0L
+            var shift = 0
+            var i = at
+            while (true) {
+                val b = bytes[i++].toInt() and 0xff
+                value = value or ((b and 0x7f).toLong() shl shift)
+                if (b < 0x80) return value to i
+                shift += 7
+            }
+        }
+        val files = mutableListOf<Pair<String, ByteArray>>()
+        var at = 0
+        while (at < bytes.size) {
+            val start = at
+            val (tag, afterTag) = varint(at)
+            check(tag == 10L) { "FileDescriptorSet 에 file 이 아닌 필드가 있다: $tag" }
+            val (length, body) = varint(afterTag)
+            val end = body + length.toInt()
+            // FileDescriptorProto 의 필드 1 이 name 이다. protoc 은 그것을 맨 앞에 쓴다.
+            check(bytes[body] == 10.toByte()) { "FileDescriptorProto 가 name 으로 시작하지 않는다" }
+            val (nameLength, nameAt) = varint(body + 1)
+            val name = String(bytes, nameAt, nameLength.toInt(), Charsets.UTF_8)
+            files += name to bytes.copyOfRange(start, end)
+            at = end
+        }
+        val own = files.filter { it.first.startsWith("picasso/") }.sortedBy { it.first }
+        check(own.isNotEmpty()) { "디스크립터 셋에 picasso/ 파일이 없다" }
+        val sha = MessageDigest.getInstance("SHA-256")
+        own.forEach { sha.update(it.second) }
+        val digest = sha.digest().joinToString("") { b -> "%02x".format(b) }
 
         val file = outDir.get().file("picasso-contract.properties").asFile
         file.parentFile.mkdirs()

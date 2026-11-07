@@ -1,11 +1,16 @@
 package dev.picasso.contracts.wire
 
+import com.google.protobuf.CodedInputStream
+import com.google.protobuf.CodedOutputStream
+import com.google.protobuf.DescriptorProtos
 import dev.picasso.contracts.v1.MessageHeader
 import java.io.ByteArrayInputStream
+import java.security.MessageDigest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class ContractIdentityTest {
@@ -18,6 +23,35 @@ class ContractIdentityTest {
             "다이제스트가 SHA-256 16진수가 아니다: ${ContractIdentity.digest}",
         )
         assertEquals(0, ContractIdentity.major)
+    }
+
+    @Test
+    fun `다이제스트는 끌려 들어온 google 파일을 빼고 picasso 파일만 이름 순으로 센다`() {
+        // 함께 구운 디스크립터를 원소로 갈라 셈법을 다시 댄다. 셋 통째의 SHA-256 과도 달라야
+        // `descriptor.proto` 가 실제로 빠졌다는 뜻이 된다 — protobuf 판을 올려도 계약 신원이 안 바뀐다.
+        val bytes = checkNotNull(javaClass.getResourceAsStream("/picasso.desc")) { "picasso.desc 가 없다" }
+            .use { it.readBytes() }
+        val input = CodedInputStream.newInstance(bytes)
+        val files = mutableListOf<Pair<String, ByteArray>>()
+        while (!input.isAtEnd) {
+            assertEquals(10, input.readTag())
+            val entry = input.readByteArray()
+            val name = DescriptorProtos.FileDescriptorProto.parseFrom(entry).name
+            val framed = java.io.ByteArrayOutputStream().also { out ->
+                val o = CodedOutputStream.newInstance(out)
+                o.writeByteArray(1, entry)
+                o.flush()
+            }.toByteArray()
+            files += name to framed
+        }
+        assertTrue(files.any { it.first.startsWith("google/") }, "끌려 들어온 import 가 없다 — 시험이 빼는 것을 확인하지 못한다")
+        val sha = MessageDigest.getInstance("SHA-256")
+        files.filter { it.first.startsWith("picasso/") }.sortedBy { it.first }.forEach { sha.update(it.second) }
+        val expected = sha.digest().joinToString("") { "%02x".format(it) }
+        val whole = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+        assertEquals(expected, ContractIdentity.digest)
+        assertNotEquals(whole, ContractIdentity.digest)
     }
 
     @Test
