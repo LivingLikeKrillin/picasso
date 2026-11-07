@@ -6,6 +6,7 @@ import dev.picasso.harness.Harness
 import dev.picasso.mimic.control.v1.DumpInternalStateRequest
 import java.nio.file.Path
 import java.time.Duration
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -55,9 +56,9 @@ class OptionalParameterTest {
             EquipmentRequirement(BIN, EquipmentUse.SOURCE, mapOf(EquipmentUse.PROP_MATERIAL to PART)),
     )
 
-    private class World(profile: Path, wrap: (RobotPort) -> RobotPort = { it }) : AutoCloseable {
+    private class World(profile: Path, wrap: (RobotPort, () -> Instant) -> RobotPort = { port, _ -> port }) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to profile))
-        val port = RecordingRobotPort(wrap(ClientRobotPort(harness.client())))
+        val port = RecordingRobotPort(wrap(ClientRobotPort(harness.client())) { harness.clock.now() })
         val mw = Middleware(port, now = { harness.clock.now() })
 
         fun tasks() = harness.oracle.dumpInternalState(DumpInternalStateRequest.newBuilder().setRobotId(ROBOT).build()).tasksList
@@ -111,13 +112,40 @@ class OptionalParameterTest {
 
     @Test
     fun `능력을 못 물어보면 안 붙인다 — 모름은 없음이 아니다`() {
-        World(MINIMAL, wrap = { CapabilityBlindPort(it) }).use { w ->
+        World(MINIMAL, wrap = { port, _ -> CapabilityBlindPort(port) }).use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
             w.drive { w.port.sent.isNotEmpty() }
 
             assertNull(w.port.sent.single().second["verify_grasp"], "모르는 채로 붙였다")
             val note = exec.eventTrail.single { it.kind == "OPTIONAL_NOT_SENT" }
             assertTrue("못 물어봤다" in note.detail, note.detail)
+        }
+    }
+
+    @Test
+    fun `미리 읽는 포트면 선언을 라운드 안에서 묻지 않고 스냅숏 읽기에 이어 받은 선언으로 붙인다`() {
+        val queued = ArrayDeque<Runnable>()
+        var asked = 0
+        World(MINIMAL, wrap = { inner, now ->
+            val counting = object : RobotPort by inner {
+                override fun capabilities(robotId: String): Capability? {
+                    asked += 1
+                    return inner.capabilities(robotId)
+                }
+            }
+            PrefetchingRobotPort(counting, now = now, maxAge = Duration.ofMinutes(1), executor = { queued += it })
+        }).use { w ->
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT))
+            for (round in 1..20) {
+                val before = asked
+                w.mw.pump()
+                assertEquals(before, asked, "라운드 안에서 기체의 선언을 물었다")
+                if (w.port.sent.isNotEmpty()) break
+                while (queued.isNotEmpty()) queued.removeFirst().run()
+                w.harness.advance(Duration.ofSeconds(5))
+                Thread.sleep(20)
+            }
+            assertEquals("true", w.port.sent.single().second["verify_grasp"], "미리 읽은 선언으로 붙이지 않았다: ${w.port.sent}")
         }
     }
 

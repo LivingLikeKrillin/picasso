@@ -1720,8 +1720,14 @@ class Middleware(
             pumpRound(execution)
             return
         }
+        // 기체의 선언을 아직 읽는 중이면 이 라운드에는 내지 않는다(§15.237). 허가가 막을 때처럼 단위는 `PENDING` 그대로 기다린다.
+        if (next.route == Route.ROBOT && optionalsPending(execution, next)) return
         startUnit(execution, next)
     }
+
+    /** 선택 파라미터를 바라는데 [unit] 기체의 선언을 아직 읽는 중인가([RobotPort.capabilitiesPending]). */
+    private fun optionalsPending(execution: Execution, unit: ExecutionUnit): Boolean =
+        execution.capability.preferredOptionals.isNotEmpty() && robots.capabilitiesPending(execution.robotOf(unit))
 
     /**
      * [unit] 의 선행 단위([ExecutionUnit.after])가 종료했는데 `DONE` 이 아니면 [unit] 을 태스크 없이 `FAILED` 로 두고 참을 돌려준다.
