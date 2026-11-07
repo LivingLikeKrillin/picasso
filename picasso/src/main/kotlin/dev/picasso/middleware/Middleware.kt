@@ -150,9 +150,17 @@ class Middleware(
     /**
      * 놓은 작업 지시 — 작업 지시 id 마다 그 실행의 id·판·종착 상태 하나([forget]). 같은 작업 지시 id 가 다시 오면 이것으로 거부한다.
      *
-     * 실행을 통째로 들지 않고 이 셋만 든다. 지우지 않으므로 놓은 작업 지시 수만큼 는다 — 지우면 같은 id 의 재전송이 새 실행으로 선다.
+     * 실행을 통째로 들지 않고 이 셋만 든다. 넣은 순서를 지키고 [Retention.forgottenOrders] 를 넘으면 오래된 것부터 내린다(§15.296) —
+     * 내린 id 의 재전송은 새 실행으로 서므로 그 막음은 담는 쪽의 기록 몫이 된다.
      */
-    private val forgotten = mutableMapOf<String, ForgottenOrder>()
+    private val forgotten = linkedMapOf<String, ForgottenOrder>()
+
+    /** 보존 상한(§15.166, §15.296). 생성자 인자 `retention` 을 속성으로 든다. */
+    private val caps = retention
+
+    /** 상한으로 놓은 실행과 내린 놓은 작업 지시 표시의 수([retentionEvictions]). */
+    private var executionsEvicted = 0L
+    private var forgottenEvicted = 0L
 
     private data class ForgottenOrder(val executionId: String, val version: Int, val state: PhysicalState)
 
@@ -1386,6 +1394,23 @@ class Middleware(
             }
         }
         executions.values.forEach { pump(it) }
+        trimSettled()
+    }
+
+    /**
+     * 실행 표가 [Retention.executions] 를 넘으면 놓을 수 있는 실행을 오래된 것부터 놓는다(§15.296). 놓는 규칙은 [forget] 그대로다 —
+     * 구동이 돌리거나 확인 안 된 통보가 있는 실행은 거부되어 남는다. 담는 쪽이 [forget] 을 부르지 않아도 표가 끝없이 늘지 않는다.
+     */
+    private fun trimSettled() {
+        var excess = executions.size - caps.executions
+        if (excess <= 0) return
+        for (id in executions.keys.toList()) {
+            if (excess <= 0) return
+            if (forget(id) == ForgetOutcome.Forgotten) {
+                executionsEvicted++
+                excess--
+            }
+        }
     }
 
     /** 포트가 던진 것을 이 실행의 트레이스에 남긴다. [source] 마다 같은 까닭은 한 번만 남는다. */
@@ -3611,7 +3636,7 @@ class Middleware(
     fun incident(incidentId: String): IncidentBundle? = incidentLog.incident(incidentId)
 
     /** 보존 상한으로 내린 기록의 수(§15.166, [Retention]). */
-    fun retentionEvictions(): RetentionEvictions = desk.evictions(incidentLog.evicted)
+    fun retentionEvictions(): RetentionEvictions = desk.evictions(incidentLog.evicted, executionsEvicted, forgottenEvicted)
 
     /**
      * 사람이 사건을 읽고 판정을 남긴다 — [IncidentLog.reviewIncident].
@@ -3966,7 +3991,7 @@ class Middleware(
 
     /**
      * 담는 쪽이 **끝난 실행을 놓는다.** 실행 표([executions])와 아웃박스([responses])에서 그 실행과 그 통보를 빼고, 작업 지시 id 하나만
-     * 남긴다. 부르지 않으면 실행은 이 인스턴스가 사는 동안 남는다 — 언제 놓을지는 그 실행의 사실을 다 옮겨 적었는지 아는 담는 쪽이 정한다.
+     * 남긴다. 언제 놓을지는 그 실행의 사실을 다 옮겨 적었는지 아는 담는 쪽이 정한다 — 부르지 않으면 실행 표 상한까지 남는다(아래).
      *
      * 놓는 것은 둘이 다 섰을 때뿐이다.
      *
@@ -3988,7 +4013,10 @@ class Middleware(
      *   답한다. 놓기 전에 받아 둘 것은 받아 둔다. 아웃박스가 그 인스턴스의 전체 이력이 아니게 되므로, 통보를 [responses] 로 통째로 다시
      *   쓰는 담는 쪽은 놓기 전에 이어 붙이는 쪽으로 바꿔야 한다.
      *
-     * 놓은 작업 지시 id 는 이 인스턴스의 메모리에만 있다. 다시 뜬 인스턴스는 모르므로 그 사이의 재전송은 담는 쪽의 기록이 막는다.
+     * 놓은 작업 지시 id 는 이 인스턴스의 메모리에만 있고 [Retention.forgottenOrders] 를 넘으면 오래된 것부터 내린다. 다시 뜬 인스턴스와
+     * 내린 표시는 모르므로 그 재전송은 담는 쪽의 기록이 막는다.
+     *
+     * 부르지 않아도 실행 표가 [Retention.executions] 를 넘으면 [pump] 가 라운드 끝에 같은 규칙으로 오래된 실행부터 놓는다(§15.296).
      */
     fun forget(executionId: String): ForgetOutcome {
         val execution = executions[executionId] ?: return ForgetOutcome.Unknown
@@ -4012,6 +4040,10 @@ class Middleware(
         executions.remove(executionId)
         outbox.removeAll { it.executionId == executionId }
         forgotten[execution.order.jobOrderId] = ForgottenOrder(executionId, execution.version, state)
+        while (forgotten.size > caps.forgottenOrders) {
+            forgotten.remove(forgotten.keys.first())
+            forgottenEvicted++
+        }
         return ForgetOutcome.Forgotten
     }
 

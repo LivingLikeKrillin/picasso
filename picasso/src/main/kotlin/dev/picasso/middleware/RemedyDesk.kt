@@ -33,7 +33,8 @@ internal class RemedyDesk(
     private var consumedEvicted = 0L
 
     /** 상한으로 내린 탐색 기록·제안·소모 기록의 수. 번들 수는 [IncidentLog] 가 센다. */
-    fun evictions(incidents: Long) = RetentionEvictions(incidents, searchesEvicted, proposalsEvicted, consumedEvicted)
+    fun evictions(incidents: Long, executions: Long, forgottenOrders: Long) =
+        RetentionEvictions(incidents, searchesEvicted, proposalsEvicted, consumedEvicted, executions, forgottenOrders)
 
     /**
      * 서 있는 제안 — (기체, 주문) 하나에 하나. **승인은 이 표에 있는 것만 받는다.** 없는 제안을 승인으로

@@ -129,7 +129,7 @@ class RetentionTest {
         val no = judge(desk, "PATROL-1")
         assertEquals(ApprovalRefusal.NO_PROPOSAL, no.refusal)
         assertTrue("보존 상한" in no.reason, "내린 제안을 선 적이 없다고 단정했다: ${no.reason}")
-        assertEquals(1, desk.evictions(0).proposals)
+        assertEquals(1, desk.evictions(0, 0, 0).proposals)
     }
 
     @Test
@@ -139,7 +139,7 @@ class RetentionTest {
         propose(desk, "PATROL-2")
 
         assertEquals(listOf("PATROL-2"), desk.remedySearches().map { it.jobOrderId })
-        assertEquals(1, desk.evictions(0).remedySearches)
+        assertEquals(1, desk.evictions(0, 0, 0).remedySearches)
     }
 
     @Test
@@ -152,7 +152,7 @@ class RetentionTest {
         assertEquals(ApprovalRefusal.NO_PROPOSAL, gone.refusal)
         assertTrue("보존 상한" in gone.reason, gone.reason)
         assertEquals(ApprovalRefusal.CONSUMED, judge(desk, "PATROL-2").refusal, "방금 적은 소모 기록을 내렸다")
-        assertEquals(1, desk.evictions(0).consumedApprovals)
+        assertEquals(1, desk.evictions(0, 0, 0).consumedApprovals)
     }
 
     @Test
@@ -163,7 +163,7 @@ class RetentionTest {
 
         assertEquals(ApprovalRefusal.CONSUMED, judge(desk, "PATROL-1").refusal, "도는 실행의 소모 기록을 내렸다")
         assertEquals(ApprovalRefusal.CONSUMED, judge(desk, "PATROL-2").refusal)
-        assertEquals(0, desk.evictions(0).consumedApprovals)
+        assertEquals(0, desk.evictions(0, 0, 0).consumedApprovals)
     }
 
     @Test

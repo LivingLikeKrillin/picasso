@@ -1,9 +1,9 @@
 package dev.picasso.middleware
 
 /**
- * 이 층이 메모리에 드는 기록의 보존 상한(§15.166).
+ * 이 층이 메모리에 드는 기록의 보존 상한(§15.166, §15.296).
  *
- * 인시던트 번들, 탐색 기록, 서 있는 제안, 승인 소모 기록은 프로세스 안의 목록이고, 상한이 없으면 오래 도는 인스턴스에서 끝없이
+ * 인시던트 번들, 탐색 기록, 서 있는 제안, 승인 소모 기록, 실행 표, 놓은 작업 지시 표시는 프로세스 안의 목록이고, 상한이 없으면 오래 도는 인스턴스에서 끝없이
  * 는다. **상한은 메모리를 묶는 것이지 보존 규약이 아니다** — 오래 둘 기록은 담는 쪽이 내보내기(§6)로 가져가고, 적재의 소유자가
  * 정해지면 보존 기간은 그쪽 규약이 정한다.
  *
@@ -22,9 +22,21 @@ data class Retention(
     val proposals: Int = 10_000,
     /** 승인 소모 기록(ADR 46) — (기체, 주문)마다. 함께 든 진단도 같이 내린다. */
     val consumedApprovals: Int = 10_000,
+    /**
+     * 실행 표(§15.296). 넘치면 라운드 끝에 **놓을 수 있는 실행**([Middleware.forget] 이 받는 실행 — 구동이 더는 돌리지 않고 통보가
+     * 전부 확인된 것)을 오래된 것부터 놓는다. 놓을 수 없는 실행은 남기므로 상한은 그만큼 넘을 수 있다.
+     */
+    val executions: Int = 10_000,
+    /**
+     * 놓은 작업 지시 표시(§15.296). 넘치면 오래된 표시부터 내린다. 내린 작업 지시 id 는 이 층이 더는 거부하지 못한다 — 그 뒤의
+     * 재전송은 다시 뜬 인스턴스와 같이 담는 쪽의 기록이 막는다.
+     */
+    val forgottenOrders: Int = 100_000,
 ) {
     init {
-        require(incidents > 0 && remedySearches > 0 && proposals > 0 && consumedApprovals > 0) {
+        require(
+            incidents > 0 && remedySearches > 0 && proposals > 0 && consumedApprovals > 0 && executions > 0 && forgottenOrders > 0,
+        ) {
             "보존 상한은 양수여야 한다: $this"
         }
     }
@@ -36,4 +48,8 @@ data class RetentionEvictions(
     val remedySearches: Long,
     val proposals: Long,
     val consumedApprovals: Long,
+    /** 상한으로 놓은 실행 — 담는 쪽이 부른 [Middleware.forget] 은 세지 않는다. */
+    val executions: Long,
+    /** 내린 놓은 작업 지시 표시. */
+    val forgottenOrders: Long,
 )
