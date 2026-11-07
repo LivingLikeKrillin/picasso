@@ -689,6 +689,21 @@ class AdapterHostTest {
     }
 
     @Test
+    fun `세션은 프로세스 기동 난수를 들어 같은 밀리초에 다시 띄워도 앞 세션과 겹치지 않는다`() {
+        // 기동 시각과 카운터만이면 같은 밀리초에 다시 뜨거나 시계가 되감길 때 앞 세션이 되풀이된다(§15.21). 한 JVM 에서는
+        // 다시 띄움을 흉내 낼 수 없으므로 세션 끝에 난수가 붙고, 한 프로세스 안에서는 그 값이 같은지 본다.
+        val shape = Regex("""host-\d{13}-\d{6}-([0-9a-f]{16})""")
+        World().use { a ->
+            World().use { b ->
+                val first = assertNotNull(shape.matchEntire(a.robot.sessionId), "세션 ${a.robot.sessionId} 이 기동 난수를 안 든다")
+                val second = assertNotNull(shape.matchEntire(b.robot.sessionId), "세션 ${b.robot.sessionId} 이 기동 난수를 안 든다")
+                assertEquals(first.groupValues[1], second.groupValues[1], "한 프로세스 안에서 기동 난수가 바뀌었다")
+                assertNotEquals(a.robot.sessionId, b.robot.sessionId, "같은 시계의 두 호스트가 세션을 겹쳐 썼다")
+            }
+        }
+    }
+
+    @Test
     fun `이미 나간 구간이 밀려나는 것으로는 세션을 안 바꾼다`() {
         // 단절만으로, 또는 다 나간 구간을 버린 것으로 세션을 바꾸면 **버퍼링이 무의미해진다** — 소비자가 매번
         // 스냅샷부터 다시 세우게 된다. 넘칠 때만, 그리고 **못 보낸 것을** 버릴 때만 바꾼다.
