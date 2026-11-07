@@ -10,6 +10,7 @@ import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -44,6 +45,12 @@ class OptionalParameterTest {
     /** 능력을 **못 물어보는** 포트. 널은 *아무것도 안 든다* 가 아니라 *모른다* 다. */
     private class CapabilityBlindPort(private val delegate: RobotPort) : RobotPort by delegate {
         override fun capabilities(robotId: String): Capability? = null
+    }
+
+    /** 선언 조회가 [fail] 이면 던진다 — 계약을 어기는 포트다(§15.295). */
+    private class CapabilityThrowPort(private val delegate: RobotPort) : RobotPort by delegate {
+        var fail = false
+        override fun capabilities(robotId: String): Capability? = if (fail) error("선언 조회가 던졌다") else delegate.capabilities(robotId)
     }
 
     private fun order(slots: List<String> = listOf(SLOT)) = JobOrder(
@@ -114,6 +121,21 @@ class OptionalParameterTest {
     fun `능력을 못 물어보면 안 붙인다 — 모름은 없음이 아니다`() {
         World(MINIMAL, wrap = { port, _ -> CapabilityBlindPort(port) }).use { w ->
             val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            w.drive { w.port.sent.isNotEmpty() }
+
+            assertNull(w.port.sent.single().second["verify_grasp"], "모르는 채로 붙였다")
+            val note = exec.eventTrail.single { it.kind == "OPTIONAL_NOT_SENT" }
+            assertTrue("못 물어봤다" in note.detail, note.detail)
+        }
+    }
+
+    @Test
+    fun `선언 조회가 던져도 못 물어본 것으로 읽고 출발을 보낸다`() {
+        // 출발 요청을 만드는 도중에 던지면 나가지도 않은 명령이 미확정으로 읽힌다.
+        var port: CapabilityThrowPort? = null
+        World(MINIMAL, wrap = { inner, _ -> CapabilityThrowPort(inner).also { port = it } }).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(order(), ROBOT)).execution
+            assertNotNull(port).fail = true
             w.drive { w.port.sent.isNotEmpty() }
 
             assertNull(w.port.sent.single().second["verify_grasp"], "모르는 채로 붙였다")

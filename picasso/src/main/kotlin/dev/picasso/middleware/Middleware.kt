@@ -2597,7 +2597,8 @@ class Middleware(
         if (wanted.isEmpty()) return base
 
         val robot = execution.robotOf(unit)
-        val declared = robots.capabilities(robot)
+        // **던져도 «못 물어봤다» 다**(§15.295). 여기는 출발 요청을 만드는 도중이라, 던지면 나가지도 않은 명령이 미확정으로 읽힌다.
+        val declared = runCatching { robots.capabilities(robot) }.getOrNull()
             ?.skillsList?.firstOrNull { it.skillType == unit.skillType }
             ?.parametersList?.map { it.key }?.toSet()
 

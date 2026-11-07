@@ -1,5 +1,6 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.HoldKind
 import dev.picasso.contracts.v1.RejectionCode
@@ -91,6 +92,27 @@ class IncidentBundleTest {
             EquipmentRequirement("PUMP-01", EquipmentUse.INSPECTION_TARGET, mapOf(EquipmentUse.PROP_LOCATION to "PUMP-ROOM-1")),
         ),
     )
+
+    /** 선언 조회가 [fail] 이면 던진다 — 계약을 어기는 포트다(§15.295). */
+    private class CapabilitiesThrow(private val delegate: RobotPort) : RobotPort by delegate {
+        var fail = false
+        override fun capabilities(robotId: String): Capability? = if (fail) error("선언 조회가 던졌다") else delegate.capabilities(robotId)
+    }
+
+    @Test
+    fun `선언 조회가 던져도 번들은 봉해지고 다음 라운드에 겹치지 않는다`() {
+        // 봉인 도중에 던지면 앞 단위의 번들만 들어가고 표시가 안 비어 다음 봉인이 같은 인시던트를 또 연다.
+        var port: CapabilitiesThrow? = null
+        World(MINIMAL, port = { inner -> CapabilitiesThrow(PreconditionRefusingRobotPort(inner)).also { port = it } }).use { w ->
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(inspection(), ROBOT)).execution
+            assertNotNull(port).fail = true
+            w.drive { exec.units.first().state == UnitState.OPERATOR_HOLD }
+            repeat(3) { w.mw.pump() }
+
+            val bundle = assertNotNull(w.mw.incidents().singleOrNull(), "인시던트가 하나로 안 봉해졌다: ${w.mw.incidents()}")
+            assertEquals(0, bundle.profileRevision, "못 물어본 선언을 다른 값으로 적었다")
+        }
+    }
 
     // ── 번들이 담는 사실
 
