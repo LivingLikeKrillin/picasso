@@ -122,8 +122,10 @@ class HostedRobot(
 
     /**
      * 세션 — 기동 시각(밀리초)과 프로세스 카운터. 카운터만 쓰면 프로세스를 다시 띄울 때마다 같은 값이 되풀이되어
-     * 소비자가 재시작을 못 보고 낡은 커서로 새 세션의 앞 이벤트를 건너뛴다(§15.259). 난수가 아닌 것은 미믹과 같은
-     * 이유다 — 주입한 시계를 고정하면 같은 값이 난다. 같은 밀리초에 다시 뜨거나 시계가 되감기면 겹칠 수 있다(§15.21).
+     * 소비자가 재시작을 못 보고 낡은 커서로 새 세션의 앞 이벤트를 건너뛴다(§15.259). 끝에 **프로세스마다 한 번 뽑는 난수**를
+     * 붙인다(§15.297, §15.21) — 기동 시각과 카운터만으로는 같은 밀리초에 다시 뜨거나 시계가 되감기면 앞 세션이
+     * 되풀이된다. 이것은 현장 호스트라 미믹과 달리 결정성(§12.1)을 지킬 까닭이 없고, 한 프로세스 안에서는 그 값이 같아
+     * 주입한 시계를 고정한 시험은 여전히 기동 시각과 카운터로 세션을 가른다.
      *
      * **불변이 아니다.** 재생 버퍼가 넘쳐 **못 보낸** 이벤트를 버렸을 때 새로 발급한다([emit]) — 그 구간은 소비자에게
      * 영영 안 가므로, 세션을 바꿔 스냅샷부터 다시 세우게 하는 것이 유일하게 정직한 답이다(§10.6). 단절만으로 바꾸면
@@ -1017,10 +1019,13 @@ class HostedRobot(
     private fun faultKey(fault: Fault): String =
         fault.errorType + fault.referencesList.joinToString(prefix = "[", postfix = "]") { "${it.key}=${it.value}" }
 
-    private fun newSessionId(): String = "host-%013d-%06d".format(clock().toEpochMilli(), SESSIONS.incrementAndGet())
+    private fun newSessionId(): String = "host-%013d-%06d-%s".format(clock().toEpochMilli(), SESSIONS.incrementAndGet(), BOOT)
 
     private companion object {
         val SESSIONS = AtomicLong()
+
+        /** 이 프로세스의 기동 난수 — 세션 끝에 붙는다([sessionId]). 다시 뜬 프로세스는 다른 값을 뽑는다. */
+        val BOOT: String = "%016x".format(java.security.SecureRandom().nextLong())
         val ISO: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
         val FAILURE_STATES = setOf(TaskState.TASK_STATE_FAILED, TaskState.TASK_STATE_RETRIABLE, TaskState.TASK_STATE_NEEDS_INTERVENTION)
 
