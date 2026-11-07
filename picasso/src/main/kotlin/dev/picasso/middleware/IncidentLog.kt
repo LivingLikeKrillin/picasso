@@ -155,7 +155,9 @@ internal class IncidentLog(
                     progressObservable = unit.progressObservable,
                     progressStalled = unit.progressStalled,
                 ),
-                profileRevision = robots.capabilities(execution.robotOf(unit))?.profileRevision ?: 0,
+                // **던져도 «못 물어봤다» 다**(§15.295). 봉인 도중에 던지면 앞 단위의 번들만 들어가고 표시가 안 비어, 다음 봉인이
+                // 같은 인시던트를 또 연다. 널과 같은 0 으로 적는다.
+                profileRevision = runCatching { robots.capabilities(execution.robotOf(unit)) }.getOrNull()?.profileRevision ?: 0,
                 contractSemver = ContractIdentity.semver,
                 approvedBy = execution.approvedBy,
             )
