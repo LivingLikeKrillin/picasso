@@ -121,6 +121,18 @@ class GateLedgerWiringTest {
     }
 
     @Test
+    fun `원장이 모른다고 답하면 축소 개정판이 거부된다`() {
+        // 원장이 붙어 있는데 관측선이 죽었다. 경고로 지나가면 쓰는 소비자가 남은 능력의 제거가 검증된다(§15.14).
+        val stored = submitShrunk()
+
+        assertEquals(RevisionStatus.DRAFT, stored.status, "모름이 검증으로 접혔다: $stored")
+        assertTrue(
+            stored.reasons.any { "축소가 거부됐다" in it && "원장이 관측하지 못했다" in it },
+            "관측 실패가 사유로 안 남았다: ${stored.reasons}",
+        )
+    }
+
+    @Test
     fun `원장이 비면 승인이 아니라 관측 실패로 남는다`() {
         // **여기가 접히면 안 되는 자리다.** 빈 원장은 0을 돌려주지만
         // 그 0은 "쓰는 사람이 없다"가 아니라 "모른다"다.
