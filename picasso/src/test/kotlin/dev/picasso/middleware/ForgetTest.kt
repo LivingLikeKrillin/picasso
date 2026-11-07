@@ -21,9 +21,9 @@ import kotlin.test.assertTrue
  */
 class ForgetTest {
 
-    private class World(port: (RobotPort) -> RobotPort = { it }) : AutoCloseable {
+    private class World(port: (RobotPort) -> RobotPort = { it }, retention: Retention = Retention()) : AutoCloseable {
         val harness = Harness(mapOf(ROBOT to Path.of("..", "profile", "profiles", "quadruped-b.json").normalize()))
-        val mw = Middleware(port(ClientRobotPort(harness.client())), now = { harness.clock.now() })
+        val mw = Middleware(port(ClientRobotPort(harness.client())), now = { harness.clock.now() }, retention = retention)
 
         fun tasks() = harness.oracle.dumpInternalState(DumpInternalStateRequest.newBuilder().setRobotId(ROBOT).build()).tasksList
 
@@ -204,6 +204,52 @@ class ForgetTest {
                 exec.executionId
             }
             assertEquals(ids.size, ids.toSet().size, "놓고 세운 실행들이 id 를 겹쳐 썼다: $ids")
+        }
+    }
+
+    // ── 보존 상한(§15.296) — 담는 쪽이 놓지 않아도 표가 끝없이 늘지 않는다
+
+    @Test
+    fun `실행 표가 상한을 넘으면 끝나고 확인된 실행부터 이빅션한다`() {
+        World(retention = Retention(executions = 1)).use { w ->
+            val first = w.settled(patrol("PATROL-1"))
+            w.ackAll()
+            val second = w.settled(patrol("PATROL-2"))
+
+            assertNull(w.mw.execution(first.executionId), "상한을 넘었는데 끝나고 확인된 실행이 남았다")
+            assertNotNull(w.mw.execution(second.executionId), "확인 안 된 통보가 있는 실행을 놓았다")
+            assertEquals(1, w.mw.retentionEvictions().executions)
+            val again = assertIs<Middleware.Submission.Rejected>(w.mw.submit(patrol("PATROL-1"), ROBOT))
+            assertTrue(again.reason.startsWith(Middleware.FORGOTTEN_JOB_ORDER), again.reason)
+        }
+    }
+
+    @Test
+    fun `확인 안 된 통보가 있는 실행은 상한을 넘어도 이빅션하지 않는다`() {
+        World(retention = Retention(executions = 1)).use { w ->
+            val first = w.settled(patrol("PATROL-1"))
+            val second = w.settled(patrol("PATROL-2"))
+
+            assertNotNull(w.mw.execution(first.executionId), "나르지 않은 통보와 함께 실행을 놓았다")
+            assertNotNull(w.mw.execution(second.executionId))
+            assertEquals(0, w.mw.retentionEvictions().executions)
+        }
+    }
+
+    @Test
+    fun `이빅션한 작업 지시 표시가 상한을 넘으면 오래된 것부터 내린다`() {
+        World(retention = Retention(forgottenOrders = 1)).use { w ->
+            listOf("PATROL-1", "PATROL-2").forEach { id ->
+                val exec = w.settled(patrol(id))
+                w.ackAll()
+                assertEquals(ForgetOutcome.Forgotten, w.mw.forget(exec.executionId))
+            }
+
+            assertEquals(1, w.mw.retentionEvictions().forgottenOrders)
+            // 내린 표시의 id 는 이 층이 더는 막지 못한다 — 그 막음은 담는 쪽의 기록 몫이다.
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol("PATROL-1"), ROBOT))
+            val kept = assertIs<Middleware.Submission.Rejected>(w.mw.submit(patrol("PATROL-2"), ROBOT))
+            assertTrue(kept.reason.startsWith(Middleware.FORGOTTEN_JOB_ORDER), kept.reason)
         }
     }
 }
