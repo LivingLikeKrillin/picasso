@@ -267,6 +267,12 @@ data class ExecutionUnit(
     var state: UnitState = UnitState.PENDING,
     var taskId: String = "",
     var revision: Int = 0,
+    /**
+     * 이 인스턴스가 지금 태스크 id 를 처음 보낸 리비전(§15.238). 개정 갱신을 보냈으면 [revision] 과 다르고, 보내지 않은 단위나 재기동 뒤
+     * 스냅숏으로 붙은 단위는 널이다. 리비전을 싣지 않는 포트의 스냅숏에 태스크가 보일 때, 이 값이 [revision] 과 같으면 그 태스크는 이
+     * 리비전으로만 나간 것이라 붙을 수 있다.
+     */
+    var startedRevision: Int? = null,
     /** 재작업 횟수. 하류 태스크의 정체성이 갈리는 자리다 — 같은 `task_id` 는 계약이 같은 핸들로 돌려준다. */
     var attempt: Int = 0,
     var reached: Evidence = Evidence.E0,

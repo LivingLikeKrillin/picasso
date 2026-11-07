@@ -96,6 +96,8 @@ class UnitRobotBindingTest {
             w.mw.pump()
             val exec = w.mw.executions().single()
             assertEquals(UnitState.IN_DOUBT, exec.units[1].state, "시험의 전제: 첫 요청의 답을 잃었다")
+            // 스냅숏이 보이면 한 리비전으로만 보낸 태스크에 조회 없이 붙는다(§15.238). 조회의 기체를 보려면 스냅숏을 닫는다.
+            w.robots.unreadable += B
 
             w.mw.pump()
             assertEquals(listOf(B, B), w.robots.calls.filter { it.task == "$ORDER#u2" && it.op == "start" }.map { it.robot })

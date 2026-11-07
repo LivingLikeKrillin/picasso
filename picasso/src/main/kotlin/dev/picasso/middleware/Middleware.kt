@@ -388,6 +388,13 @@ class Middleware(
          */
         internal val unattached: MutableMap<String, Int> = mutableMapOf()
 
+        /**
+         * [resume] 이 다시 세운 로봇 단위와 그때의 시도(§15.238). 그 시도의 태스크는 앞 인스턴스가 어느 리비전으로 보냈는지 모른다 — 스냅숏이
+         * 안 보였거나 기록이 없어도 그렇다. [startUnit] 은 이 시도에 [ExecutionUnit.startedRevision] 을 적지 않는다. 재작업으로 시도가
+         * 바뀌면 새 태스크라 대상이 아니다.
+         */
+        internal val inherited: MutableMap<String, Int> = mutableMapOf()
+
         /** [attachForCancel] 이 기다리는 까닭을 자취에 남긴 마지막 값. 같은 까닭을 라운드마다 되풀이하지 않는다. */
         internal var notedUnattached: String? = null
 
@@ -649,6 +656,7 @@ class Middleware(
         val execution = create(order, robotId, mission, planned, approvedBy = null)
         rebuildFrom(execution, snapshots)
         val reopenedAt = record?.let { restore(execution, it) }
+        execution.units.filter { it.route == Route.ROBOT }.forEach { execution.inherited[it.unitId] = it.attempt }
         // 8 이 다시 연 인시던트를 지금 봉한다. 지금의 현장 시간값으로 — 라운드의 값([round])은 [pump] 의 것이라 건드리지 않는다.
         // 봉인 시각은 다시 연 줄의 시각이다. 따로 읽으면 실제 시계에서 둘이 어긋나 줄 시각 = `at` 으로 가르지 못한다.
         incidentLog.sealIncidents(execution, siteTimings.current(), reopenedAt)
@@ -2016,7 +2024,9 @@ class Middleware(
             return settled
         }
         val lookup = lookupOf(unit.route)
-        // ⓪ 스냅숏 부착 — 붙었으면 이 라운드는 여기까지다. 다음 라운드의 [pumpRobotUnit] 이 처음부터 되짚는다.
+        // ⓪ 스냅숏 부착 — 붙었으면 이 라운드는 여기까지다. 다음 라운드의 [pumpRobotUnit] 이 처음부터 되짚는다. 기체가 더 높은
+        // 리비전을 들었으면 붙지도 묻지도 않고 운영자에게 간다.
+        if (unit.route == Route.ROBOT && !execution.cancelRequested && holdRevisionAhead(execution, unit)) return true
         if (unit.route == Route.ROBOT && attachFromSnapshot(execution, unit)) return false
         // ⓪′ 키로 지은 핸들로 취소 — 받으면 붙는다. 기체가 모른다고 해도 쉬고 있다는 증거가 아니다 — 아래 관측과 운영자로 간다.
         val cancelling = unit.route == Route.ROBOT && execution.cancelRequested
@@ -2226,7 +2236,9 @@ class Middleware(
      *
      * - **읽기뿐이라 발행 게이트([issuable])를 묻지 않는다.** 붙는 데 새 로봇 명령이 없다([attachForCancel] 과 같은 이유).
      * - **리비전이 단위의 것과 같아야 한다.** 개정 갱신의 미확정은 태스크가 원래 있고, 기체가 아직 옛 리비전이면 갱신이 안 닿은 것이라
-     *   붙지 않고 조회가 갱신을 다시 보낸다. 포트가 리비전을 안 싣거나 이 태스크의 것이 비어 있어도 붙지 않는다.
+     *   붙지 않고 조회가 갱신을 다시 보낸다. 더 높으면 [holdRevisionAhead] 가 먼저 운영자에게 보낸다.
+     * - **포트가 이 태스크의 리비전을 안 실으면** 이 태스크를 한 리비전으로만 보낸 단위([ExecutionUnit.startedRevision])만 붙는다 — 보이는
+     *   태스크가 곧 그 리비전이다. 갱신을 보냈거나 재기동 뒤라 모르면 붙지 않고 조회가 맡는다.
      * - **스냅숏을 못 읽었으면 붙지 않는다.** 못 읽은 것은 태스크가 없다는 관측이 아니다. 조회가 맡는다.
      *
      * @return 붙었는가.
@@ -2235,7 +2247,9 @@ class Middleware(
         val robot = execution.robotOf(unit)
         val view = views[robot]?.takeIf { it.observable } ?: return false
         val state = view.tasks[unit.taskId] ?: return false
-        if (view.taskRevisions[unit.taskId] != unit.revision) return false
+        val held = view.taskRevisions[unit.taskId]
+        if (held == null && unit.startedRevision != unit.revision) return false
+        if (held != null && held != unit.revision) return false
 
         execution.handle = handleFor(robot, unit.taskId, unit.revision)
         unit.state = UnitState.RUNNING
@@ -2245,6 +2259,26 @@ class Middleware(
         execution.trail(DOUBT_ATTACHED, "${unit.unitId}: 스냅숏의 ${unit.taskId}=${state.name}(리비전 ${unit.revision})에 StartTask 없이 붙었다")
         execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
         if (execution.cancelRequested) sendCancel(execution)
+        return true
+    }
+
+    /**
+     * 기체의 스냅숏이 이 단위의 태스크를 **단위보다 높은 리비전으로** 드는가(§15.238). 들면 이 인스턴스가 보낸 적 없는 개정이 기체에
+     * 닿은 것이다 — 다른 명령자가 그 태스크를 고쳤다. 붙으면 계획하지 않은 파라미터를 따라가고, 조회(낮은 리비전의 `StartTask` 재전송)는
+     * `OUTDATED_REVISION` 으로 단위를 실패로 적어 기체가 그 태스크를 도는 동안 실행이 다음 단위를 낸다. 그래서 붙지도 묻지도 않고 단위를
+     * 운영자 보류에 둔다. 취소가 걸린 실행은 이 길을 타지 않는다 — 키로 지은 핸들의 취소가 맡는다.
+     *
+     * @return 운영자 보류에 두었는가.
+     */
+    private fun holdRevisionAhead(execution: Execution, unit: ExecutionUnit): Boolean {
+        val view = views[execution.robotOf(unit)]?.takeIf { it.observable } ?: return false
+        if (view.tasks[unit.taskId] == null) return false
+        val held = view.taskRevisions[unit.taskId]?.takeIf { it > unit.revision } ?: return false
+        unit.annotate("IN_DOUBT: robot holds ${unit.taskId} at revision $held above unit revision ${unit.revision}; not attached, no lookup — confirm")
+        unit.state = UnitState.OPERATOR_HOLD
+        execution.notedDoubt = null
+        execution.trail(DOUBT_REVISION_AHEAD, "${unit.unitId}: 기체가 ${unit.taskId} 를 단위 리비전 ${unit.revision} 보다 높은 리비전 $held 로 든다 — 붙지 않고 운영자 판단을 기다린다")
+        execution.markIncident(unit)
         return true
     }
 
@@ -2603,6 +2637,8 @@ class Middleware(
             restoredUsed = execution.restoredRequests[unit.unitId]?.first == unit.attempt,
         )
         unit.taskId = taskIdOf(execution, unit)
+        // 재기동 뒤 다시 세운 시도는 앞 인스턴스가 다른 리비전으로 보냈을 수 있다 — 모르는 것으로 둔다.
+        unit.startedRevision = unit.revision.takeIf { execution.inherited[unit.unitId] != unit.attempt }
         unit.requestedAt = requestedAtOf(execution, unit)
         unit.lookups = 0
         unit.lastLookupAt = null
@@ -3272,6 +3308,7 @@ class Middleware(
         unit.attempt += 1
         unit.state = UnitState.PENDING
         unit.taskId = ""
+        unit.startedRevision = null
         unit.failureClass = null
         unit.verification = Verification.NOT_REQUESTED
         unit.note = "operator ordered rework"
@@ -4080,6 +4117,9 @@ class Middleware(
 
         /** 미확정 단위가 기체의 스냅숏에 보이는 태스크에 `StartTask` 없이 붙어 풀렸다는 실행 트레이스의 종류(§15.238). */
         const val DOUBT_ATTACHED = "DOUBT_ATTACHED"
+
+        /** 미확정 단위의 태스크를 기체가 단위보다 높은 리비전으로 들어 붙지 않고 운영자 보류에 두었다는 실행 트레이스의 종류(§15.238). */
+        const val DOUBT_REVISION_AHEAD = "DOUBT_REVISION_AHEAD"
 
         /** 도는 단위의 갱신 스트림이 종료 없이 영구히 닫혀 단위를 미확정으로 옮겼다는 실행 트레이스의 종류(§15.228). */
         const val WATCH_CLOSED = "WATCH_CLOSED"
