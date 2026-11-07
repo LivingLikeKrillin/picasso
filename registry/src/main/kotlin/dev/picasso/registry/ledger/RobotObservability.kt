@@ -55,7 +55,7 @@ sealed interface Observability {
  */
 class RobotObservability(
     private val db: Db,
-    private val freshness: Duration = DEFAULT_FRESHNESS,
+    private val freshness: Duration = HEARTBEAT_FRESHNESS,
     /** `HIBERNATING`에 허용하는 침묵 = [freshness] × 이 값. */
     private val hibernationFactor: Long = DEFAULT_HIBERNATION_FACTOR,
     private val now: () -> Instant = Instant::now,
@@ -151,8 +151,6 @@ class RobotObservability(
     }
 
     companion object {
-        val DEFAULT_FRESHNESS: Duration = Duration.ofHours(24)
-
         /**
          * 절전에 허용하는 침묵의 배수. **크게 잡지 않는다** — 이 창이 길수록
          * `HIBERNATING`을 보고하고 죽은 어댑터가 오래 면제되고, 그 오답은

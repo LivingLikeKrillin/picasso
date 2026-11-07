@@ -510,12 +510,12 @@ class DiagnosticsService(
         val NEEDS_HUMAN = setOf("TASK_STATE_RETRIABLE", "TASK_STATE_NEEDS_INTERVENTION")
 
         /**
-         * `RobotObservability`의 기본 창과 **같은 상수를 쓴다.** 두 곳이
+         * `RobotObservability`의 기본 창과 **같은 상수**([dev.picasso.registry.ledger.HEARTBEAT_FRESHNESS])를 쓴다. 두 곳이
          * 갈라지면 진단이 "REPORTING"이라 적힌 기체 때문에 축소가 막히고,
          * 운영자는 원장이 아니라 엉뚱한 것을 뒤진다.
          */
         val LIVENESS_WINDOW: java.time.Duration =
-            dev.picasso.registry.ledger.RobotObservability.DEFAULT_FRESHNESS
+            dev.picasso.registry.ledger.HEARTBEAT_FRESHNESS
 
         const val HIBERNATING = "CONNECTION_STATE_HIBERNATING"
 
