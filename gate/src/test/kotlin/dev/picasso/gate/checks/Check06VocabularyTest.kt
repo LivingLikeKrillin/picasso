@@ -324,9 +324,19 @@ class Check06VocabularyTest {
         // 브로커 구독이 끊긴 동안 테이블이 비면 조회가 정확히 0을 돌려준다.
         // 그것을 승인으로 읽으면 아직 쓰는 소비자가 있는 능력을 지운다.
         val r = run(profile(), profile(NAVIGATE_TO_1_0), registry = blindLedger)
-        r as CheckResult.Passed
+        assertTrue(r is CheckResult.Failed, "원장이 모른다고 답했는데 축소가 지나갔다: $r")
+        r as CheckResult.Failed
         assertEquals(setOf(Resource.REGISTRY), r.skippedParts, "관측 불가를 승인으로 읽었다")
-        assertTrue(r.findings.any { it.message.contains("관측") })
+        assertTrue(r.findings.any { it.severity == Severity.ERROR && it.message.contains("관측하지 못했다") })
+    }
+
+    @Test
+    fun `원장이 없으면 거부하지 않고 건너뜀으로 남긴다`() {
+        // CI 에는 원장이 없다(§11.1). 거기서 거부하면 모든 축소가 막혀 사람이 게이트를 끈다.
+        val r = run(profile(), profile(NAVIGATE_TO_1_0), registry = null)
+        r as CheckResult.Passed
+        assertEquals(setOf(Resource.REGISTRY), r.skippedParts)
+        assertTrue(r.findings.all { it.severity == Severity.WARNING }, r.findings.toString())
     }
 
     // ── 안전망과 잡음 억제

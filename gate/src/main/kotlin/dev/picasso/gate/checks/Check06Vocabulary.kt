@@ -344,11 +344,17 @@ class Check06Vocabulary : GateCheck {
         )
         if (unknown.isNotEmpty()) {
             // **0이 아니다.** 브로커 구독이 끊겼을 뿐 소비자는 살아 있을 수 있다.
+            //
+            // **그래서 막는다**(§15.14). 원장이 붙어 있는데 모른다고 답하면 그것은 진입 조건을 못 채운
+            // 것이다 — 경고로 두면 종료 코드가 0 이라 레지스트리가 그 개정을 검증됨으로 받는다.
+            // 원장 쪽이 «애매하면 짧은 창» 을 고른 이유(모름은 축소를 막는다)가 여기서 지켜져야 한다.
+            // 원장이 아예 없는 자리(CI, §11.1)는 위의 경고 그대로다 — 그것은 조회를 안 한 것이지
+            // 조회가 모른다고 답한 것이 아니다.
             skipped += Resource.REGISTRY
             return listOf(
                 Finding(
-                    id, Severity.WARNING,
-                    "축소로 분류됐다 — $what. 원장이 관측하지 못했다: ${unknown.joinToString("; ")}",
+                    id, Severity.ERROR,
+                    "축소가 거부됐다 — $what. 원장이 관측하지 못했다: ${unknown.joinToString("; ")}",
                     location,
                 ),
             )
