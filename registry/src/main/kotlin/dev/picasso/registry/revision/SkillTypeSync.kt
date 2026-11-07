@@ -26,7 +26,7 @@ class SkillTypeSync(private val db: Db) {
      */
     fun sync(descriptor: ByteArray, contractSemver: String, actor: String): Int =
         db.transaction { c ->
-            val index = ContractIndex.from(descriptor)
+            val index = ContractIndex.from(descriptor).requireIntact()
             var inserted = 0
 
             index.skillTypes().forEach { name ->

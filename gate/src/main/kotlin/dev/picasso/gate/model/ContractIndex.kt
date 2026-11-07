@@ -42,6 +42,14 @@ data class ParameterDef(
     val isObjectReference: Boolean = false,
 )
 
+/**
+ * 저작 실수로 색인에 넣지 못한 최상위 메시지 하나(§15.13).
+ *
+ * @param skillName 메시지가 단 스킬 이름. 중첩 배치처럼 바깥 메시지가 이름을
+ *   달지 않았으면 널이다.
+ */
+data class BrokenSkill(val protoMessage: String, val skillName: String?, val reason: String)
+
 data class SkillTypeDef(
     val name: String,
     val major: Int,
@@ -80,9 +88,17 @@ data class SkillTypeDef(
  * 미선언·repeated·도달 불가능한 since_minor·중첩 배치·(name, major) 중복은
  * 전부 proto 쪽 버그인데, 삼키면 검사 4번이 프로파일을 탓하게 되어 사람이
  * 엉뚱한 파일을 들여다본다.
+ *
+ * **저작 실수는 최상위 메시지 하나에 가둔다**(§15.13). 그 메시지는 [broken]에
+ * 사유와 함께 남고 나머지 스킬은 그대로 색인된다. 메시지 하나가 나쁘다고
+ * 색인이 통째로 실패하면 검사 4번이 다른 스킬의 대조 결과를 함께 잃는다.
+ * 디스크립터 자체가 깨진 것(파싱 실패, 없는 의존 파일, 스킬 옵션 확장의
+ * 누락)은 메시지에 가둘 수 없어 전처럼 [from]이 실패한다.
  */
 class ContractIndex private constructor(
     private val skills: List<SkillTypeDef>,
+    /** 정의가 깨져 색인에 넣지 못한 최상위 메시지들. 비어 있어야 성한 계약이다. */
+    val broken: List<BrokenSkill>,
     /** 디스크립터에 든 proto 파일 수. 0이면 디스크립터가 낡거나 깨진 것이다. */
     val scannedFiles: Int,
 ) {
@@ -102,6 +118,19 @@ class ContractIndex private constructor(
     }
 
     fun all(): List<SkillTypeDef> = skills
+
+    /**
+     * 깨진 정의가 없을 때만 자신을 돌려준다. 색인을 그대로 옮겨 적는 쪽(레지스트리
+     * 동기화)이 쓴다. 깨진 메시지를 빼고 적으면 그 스킬이 계약에서 사라진 것처럼
+     * 보인다.
+     */
+    fun requireIntact(): ContractIndex {
+        check(broken.isEmpty()) {
+            "계약에 깨진 스킬 정의가 있다: " +
+                broken.joinToString("; ") { "${it.protoMessage}: ${it.reason}" }
+        }
+        return this
+    }
 
     /**
      * 스킬이 하나도 없다. **계약이 정말 빈 것이 아니라 디스크립터가 낡거나
@@ -142,15 +171,43 @@ class ContractIndex private constructor(
             //    이것을 빠뜨리면 hasField가 전부 false로 나온다 — 오류 없이.
             val set = FileDescriptorSet.parseFrom(descriptorBytes, registry)
 
-            val skills = set.fileList.flatMap { file ->
-                // 중첩 메시지에 스킬 옵션을 달면 조용히 무시된다. 그러면
-                // 검사 4번이 "proto에 없는 스킬"이라며 프로파일을 탓하고,
-                // 진짜 버그는 proto에 있는데 사람이 엉뚱한 곳을 본다.
-                file.messageTypeList.forEach { rejectNestedSkills(file, it, extByName) }
-                file.messageTypeList.mapNotNull { msg -> toSkill(file, msg, extByName) }
+            // 옵션 확장의 누락은 메시지 하나의 실수가 아니라 계약 전체의 것이다.
+            // 메시지마다 가두면 모든 스킬이 같은 사유로 깨진 것으로 보인다.
+            if (extByName[OPT_SKILL_NAME] != null) {
+                check(extByName[OPT_SKILL_MAJOR] != null) { "$OPT_SKILL_MAJOR 확장이 계약에 없다" }
+                check(extByName[OPT_SKILL_MAX_MINOR] != null) { "$OPT_SKILL_MAX_MINOR 확장이 계약에 없다" }
             }
 
-            return ContractIndex(skills, scannedFiles = set.fileCount)
+            val broken = mutableListOf<BrokenSkill>()
+            val skills = set.fileList.flatMap { file ->
+                file.messageTypeList.mapNotNull { msg ->
+                    try {
+                        // 중첩 메시지에 스킬 옵션을 달면 조용히 무시된다. 그러면
+                        // 검사 4번이 "proto에 없는 스킬"이라며 프로파일을 탓하고,
+                        // 진짜 버그는 proto에 있는데 사람이 엉뚱한 곳을 본다.
+                        rejectNestedSkills(file, msg, extByName)
+                        toSkill(file, msg, extByName)
+                    } catch (e: IllegalStateException) {
+                        broken += BrokenSkill(
+                            protoMessage = "${file.name}:${msg.name}",
+                            skillName = skillNameOf(msg, extByName),
+                            reason = e.message ?: e.toString(),
+                        )
+                        null
+                    }
+                }
+            }
+
+            return ContractIndex(skills, broken, scannedFiles = set.fileCount)
+        }
+
+        /** 저작 실수로 색인에 못 넣은 메시지가 그래도 이름은 달고 있는가. */
+        private fun skillNameOf(
+            msg: DescriptorProto,
+            ext: Map<String, Descriptors.FieldDescriptor>,
+        ): String? {
+            val nameField = ext[OPT_SKILL_NAME] ?: return null
+            return if (msg.options.hasField(nameField)) msg.options.getField(nameField) as String else null
         }
 
         private fun buildRegistry(
