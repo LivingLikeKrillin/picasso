@@ -39,6 +39,8 @@ dependencies {
     implementation(libs.jackson.module.kotlin)
     implementation(libs.postgresql)
     implementation(libs.flyway.core)
+    // 관측 구독기(§15.34). 운영 배포만 붙고 시험은 브로커 없이 판정을 본다.
+    implementation(libs.paho.mqttv5)
     runtimeOnly(libs.flyway.postgresql)
 
     // **다른 모듈과 달리 `slf4j-nop`을 안 쓴다.** Spring Boot가 logback을

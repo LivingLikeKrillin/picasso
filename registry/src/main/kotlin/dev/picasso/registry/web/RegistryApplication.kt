@@ -11,6 +11,7 @@ import dev.picasso.registry.ledger.LedgerService
 import dev.picasso.registry.ledger.RegistryLedgerQuery
 import dev.picasso.registry.plan.ChangePlanService
 import dev.picasso.registry.plan.Preconditions
+import dev.picasso.registry.observe.MqttObservationSubscriber
 import dev.picasso.registry.observe.ObservationService
 import dev.picasso.registry.revision.RevisionValidator
 import dev.picasso.registry.store.Db
@@ -63,6 +64,17 @@ open class RegistryApplication {
 
     @Bean
     open fun observations(db: Db): ObservationService = ObservationService(db)
+
+    /**
+     * 관측 구독(§15.34). **브로커 주소가 없으면 안 붙는다** — 시험과 브로커 없는 배포가 그쪽이다. 닫힐 때 끊는다.
+     */
+    @Bean(destroyMethod = "close")
+    open fun observationSubscription(
+        @Value("\${picasso.mqtt.url:}") url: String,
+        @Value("\${picasso.mqtt.client-id:picasso-registry}") clientId: String,
+        observations: ObservationService,
+    ): AutoCloseable =
+        if (url.isBlank()) AutoCloseable {} else MqttObservationSubscriber.connect(url, clientId, MqttObservationSubscriber(observations))
 
     @Bean
     open fun ledger(db: Db): LedgerService = LedgerService(db)

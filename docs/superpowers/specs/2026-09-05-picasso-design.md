@@ -1191,6 +1191,9 @@ mimic/
 
 33. **제어 채널이 인증하지 않는다.** 루프백 바인딩이 유일한 방어이며(§6.3), 같은 호스트의 다른 프로세스는 막지 못한다. `mimic`은 시험 도구이므로 감수한다.
 34. **관측 적재에 구독기가 없다.** 3a-3은 `ObservationService`(헤더 하나를 세대 이력에, 거절 하나를 `handshake_rejection`에)까지 만들고 **그것을 부르는 MQTT 구독기는 만들지 않았다.** 이유는 위 30번과 같다 — 브로커를 붙이면 §12.1의 결정성이 깨진다. 그래서 운영에서 이 표를 채우는 것은 아직 아무도 아니며, 진단 3·4번은 **시험과 `harness`가 넣은 것만 본다.** 붙는 날 구독기가 `recordHeader`/`recordRejection`을 부르면 되고, 입력이 `MessageHeader`인 것이 그것을 가능하게 하는 경계다(`registry`가 `mimic`을 몰라도 된다).
+
+    **(닫힘, §15.290)** 항목 290이 `registry`에 MQTT 관측 구독기를 두어 `recordHeader`의 운영 경로를 만들었다. `recordRejection`은 이미 HTTP 적재가 부르고 있다. 남는 것이 없어 닫는다.
+
 35. **진단 2번이 선택 필드 차이를 본다(닫힘).** `profile_optional_field`가 없어 `optionalFields`가 `"not_tracked"`로 나갔다. §9.6의 상위 표면이 필수 선택 필드를 요구해 V7로 표를 만들었고, 진단 2번도 같은 표를 읽는다. 빈 배열로 내지 않았던 것이 옳았다 — 그랬으면 "선택 필드 차이가 없다"는 거짓말 위에서 축소가 승인됐을 것이다.
 36. **세대 이력의 접기가 사유를 키에 넣는다.** `(robot_id, epoch, profile_ref, cause)`가 같으면 한 줄로 접히므로, **같은 사유로 두 번 일어난 같은 전이는 한 번으로 보인다.** 되풀이 횟수가 진단에 필요해지면 카운터를 더해야 하며, 지금은 마지막 시각만 남는다.
 
@@ -3128,6 +3131,16 @@ mimic/
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
 
     (의도적 제외로 옮김, §15.265) «§15.156» 행은 picasso 와 picasso-ops 어디에도 그 값을 쓰는 면이 없어 의도적 제외의 새 표 «수요 없음» 으로 옮겼다.
+
+290. **`registry`에 `MqttObservationSubscriber`를 두어 기체 스트림 헤더를 `recordHeader`로 관측 적재하고 행 §15.34를 닫는다.**
+
+    옛 항목 34와 한계 레지스터 내부 행 §15.34는 관측 적재(`ObservationService`, 헤더 하나를 세대 이력 `capability_epoch_log`에, 핸드셰이크 거부 하나를 `handshake_rejection`에)를 부르는 MQTT 구독기가 없다고 적었다. 브로커를 붙이면 §12.1 결정성이 깨진다는 것이 이유였고, 해소 조건은 브로커 구독기가 `recordHeader`/`recordRejection`을 부르는 것이었다. 소유자가 내부 오픈 항목을 차례로 모두 해소하라고 지시하여 전제를 다시 쟀다. 발행 쪽은 이미 브로커에 붙어 있다. `uplink`의 `MqttPublisher`가 운영 배포와 브로커 통합 시험에서 쓰이고, `harness`의 `MqttBrokerTest`가 Mosquitto 컨테이너(`eclipse-mosquitto:2`)로 돈다. 결정성은 시험이 in-process 경로를 쓰는 것으로 지켜지고 있었다. 핸드셰이크 거부는 MQTT 스트림 셋(`state`·`event`·`connection`)에 실리지 않고 HTTP 적재(`HandshakeIngestService`)가 부르므로 `recordRejection`은 이미 운영 경로가 있었다. 운영 경로가 없던 것은 `recordHeader` 하나였다.
+
+    `registry`에 `MqttObservationSubscriber`(`registry/observe`)를 두었다. 이 계층이 읽는 메이저(`ContractIdentity.major`)의 기체 스트림 전부(`picasso/{major}/+/robot/+/+`)를 QoS 1로 구독하고, 스트림마다 메시지(`StateMessage`·`Event`·`ConnectionMessage`)를 읽어 헤더를 `recordHeader`에 적는다. 사유는 기체가 말한 것만 옮긴다: `event` 스트림의 `CapabilityChanged`가 싣는 사유 넷이 `EpochCause` 넷과 하나씩 맞고, 나머지는 `BINDING_CHANGED`다. 읽지 못한 것은 적지 않고 `dropped`로만 센다(토픽이 기체 스트림 꼴이 아님, 다른 메이저, 페이로드가 그 스트림의 메시지가 아님, 헤더 없음, 헤더의 `robot_id`가 토픽의 것과 다름, 적재 실패). 넷째 것을 적으면 세대 이력이 다른 기체의 줄이 된다. 적재 실패(등록되지 않은 기체는 세대 이력의 FK에 걸린다)도 예외를 밖으로 내지 않고 센다. 예외가 콜백 밖으로 새면 Paho가 연결을 끊고 구독이 조용히 멈추기 때문이다. 끊기면 자동으로 다시 붙고 구독을 다시 건다. `RegistryApplication`은 `picasso.mqtt.url`이 있을 때만 구독을 붙이고(없으면 붙지 않음, 시험과 브로커 없는 배포), `registry`에 `paho-mqttv5` 의존을 더했다. `registry`는 `uplink`를 모르므로(§3.2) 토픽 꼴을 따로 읽는다. 시험은 여전히 `ObservationService`를 직접 부르고 `handle`은 브로커 없이 시험하여 결정성을 지킨다. 브로커는 `harness`의 통합 시험 하나만 쓴다.
+
+    남는 것은 없다. 행 §15.34를 닫고 레지스터에서 지운다. 오픈 항목은 54개에서 53개(내부 24개에서 23개)다. 계약 proto와 계약 SemVer 0.10.0은 바뀌지 않았다.
+
+    `registry`의 `MqttObservationSubscriberTest` 6건(기체 스트림 셋의 헤더를 적고 같은 사실은 접는다, 능력 변경 이벤트의 사유를 세대 이력의 사유로 옮긴다, 토픽이 기체 스트림 꼴이 아니면 적지 않고 센다, 헤더의 기체가 토픽의 기체와 다르면 적지 않는다, 등록되지 않은 기체의 헤더는 적재가 실패해도 예외 없이 센다, 읽지 못하는 페이로드와 헤더 없는 메시지는 적지 않는다)과 `harness`의 `ObservationSubscriptionTest` 1건(발행자의 토픽으로 낸 헤더가 세대 이력에 적힌다: `uplink`의 `MqttPublisher`가 `Topics`로 만든 토픽에 발행하면 실제 브로커를 지나 구독기가 적는다)을 더해 전체 시험 수는 2,406건에서 2,413건이다. 결함 주입 5건(기체 대조를 끔, 메이저 대조를 끔, 구독 필터의 `robot`을 `robots`로, 이벤트 사유를 늘 `BINDING_CHANGED`로, 적재 실패를 밖으로 냄)을 각각 해당 시험이 잡았다.
 
 289. **`revise`가 승인된 조치 시퀀스와 승인자를 받아 다시 계획하는 첫 단위 앞에 세우도록 배선하고 개정의 연쇄 거부가 제안을 세우게 한다.**
 
