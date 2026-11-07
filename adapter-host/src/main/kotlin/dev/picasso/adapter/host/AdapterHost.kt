@@ -13,6 +13,7 @@ import io.grpc.ServerCallHandler
 import io.grpc.ServerInterceptor
 import io.grpc.ServerInterceptors
 import io.grpc.ServerServiceDefinition
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 어댑터 호스트 — [HostedRobot] 하나를 계약의 gRPC 서비스 셋(`SkillService`·`TaskService`·`EventService`) 뒤에 세운다.
@@ -63,8 +64,9 @@ class AdapterHost(
     /**
      * 이 프로세스가 드는 기체들. **플릿 뒤에는 여럿이다**(§15.106) — 계약이 요청 헤더의 `robot_id` 로 지목하며,
      * 미믹이 한 프로세스에 여럿을 호스팅하는 것과 같은 편의다(ADR 21: PoC 의 편의이지 아키텍처 주장이 아니다).
+     * 기동 뒤에 늘 수 있다([admit]).
      */
-    val robots: Map<String, HostedRobot>,
+    robots: Map<String, HostedRobot>,
     builder: ServerBuilder<*>,
     /** §5.4 의 핸드셰이크 결과 보고. 붙이지 않으면 아무 데도 안 나간다 — 미믹의 `MimicServer` 와 같은 자리다. */
     reporter: HandshakeReporter = HandshakeReporter.NONE,
@@ -83,6 +85,12 @@ class AdapterHost(
         pumpOnRead: Boolean = true,
     ) : this(mapOf(robot.robotId to robot), builder, reporter, pumpOnRead)
 
+    /**
+     * 이 호스트가 드는 기체들. **동시 맵이다** — 기동 뒤에 [admit] 이 더하고, 잠금 밖에서 도는 명령 RPC 의 라우팅이 같은 맵을
+     * 읽는다(§15.269). 빼는 길은 없다.
+     */
+    val robots: Map<String, HostedRobot> = ConcurrentHashMap(robots)
+
     /** 기체 하나를 든 호스트의 그 기체. 여럿이면 터진다 — 부르는 쪽이 자기가 무엇을 세웠는지 알아야 한다. */
     val robot: HostedRobot get() = robots.values.single()
 
@@ -92,10 +100,14 @@ class AdapterHost(
     /** 이 잠금 아래에서 [block] 을 돈다. 같은 프로세스에서 [robots] 의 기록을 읽거나 움직이는 쪽이 쓴다. */
     fun <T> exclusive(block: () -> T): T = synchronized(lock, block)
 
+    /** 기체들이 같이 쓰는 링크 잠금. 플릿 뒤에서는 링크가 하나다(§15.106). [admit] 으로 들어온 기체도 이것을 쓴다. */
+    private val link = Any()
+
+    /** [start] 가 지났는가. 지난 뒤에 들어온 기체는 [admit] 이 `ONLINE` 을 낸다. */
+    @Volatile private var started = false
+
     init {
-        // 기체들이 링크 잠금 하나를 같이 쓴다 — 플릿 뒤에서는 링크가 하나다(§15.106).
-        val link = Any()
-        robots.values.forEach {
+        this.robots.values.forEach {
             it.southbound = link
             it.host = lock
         }
@@ -105,10 +117,12 @@ class AdapterHost(
     private fun serialized(service: BindableService): ServerServiceDefinition =
         ServerInterceptors.intercept(service, Serialized(lock, RELEASED))
 
+    private val tasks = HostTaskService(this.robots, pumpOnRead)
+
     private val server: Server = builder
-        .addService(serialized(HostSkillService(robots, reporter, pumpOnRead)))
-        .addService(serialized(HostTaskService(robots, pumpOnRead)))
-        .addService(serialized(HostEventService(robots, pumpOnRead)))
+        .addService(serialized(HostSkillService(this.robots, reporter, pumpOnRead)))
+        .addService(serialized(tasks))
+        .addService(serialized(HostEventService(this.robots, pumpOnRead)))
         .build()
 
     val port: Int get() = server.port
@@ -121,7 +135,31 @@ class AdapterHost(
         robots.values.forEach { it.primeLiveness() }
         server.start()
         // 포트가 열린 뒤라 RPC 가 들어올 수 있다. 온라인 발행도 같은 잠금 아래에 둔다 — 순번 축을 RPC 와 같이 쓴다.
-        exclusive { robots.values.forEach { it.announceOnline() } }
+        exclusive {
+            robots.values.forEach { it.announceOnline() }
+            started = true
+        }
+    }
+
+    /**
+     * 기동 뒤에 기체 하나를 더 든다 — 플릿에 기체가 늘었을 때 런처의 다시 발견이 부른다(§15.292).
+     *
+     * 이미 든 `robot_id` 면 아무것도 안 하고 거짓을 낸다. 생존 보고의 내용은 [start] 처럼 호스트 잠금 밖에서 읽어 두고, 맵에
+     * 넣는 것과 `ONLINE` 은 같은 잠금 아래에서 한다 — 맵에 들어가 RPC 가 지목할 수 있게 된 뒤에 살아 있다고 알린다(§10.2 의 순서).
+     * [start] 앞이면 맵에만 넣고 [start] 가 알린다.
+     */
+    fun admit(robot: HostedRobot): Boolean {
+        if (robots.containsKey(robot.robotId)) return false
+        robot.southbound = link
+        robot.host = lock
+        robot.primeLiveness()
+        return exclusive {
+            val map = robots as ConcurrentHashMap<String, HostedRobot>
+            if (map.putIfAbsent(robot.robotId, robot) != null) return@exclusive false
+            tasks.attach(robot)
+            if (started) robot.announceOnline()
+            true
+        }
     }
 
     /**
@@ -135,6 +173,9 @@ class AdapterHost(
         val reading = robot.read(plan)
         exclusive { robot.apply(reading) }
     }
+
+    /** 서버가 내려갈 때까지 기다린다. 배치의 `main` 이 프로세스를 살려 두는 데 쓴다. */
+    fun awaitTermination() = server.awaitTermination()
 
     /** `OFFLINE` 을 남기고 닫는다 — 정상 종료는 Last Will 이 안 나가므로 여기서 말해야 한다(§4.7). */
     fun shutdown() {

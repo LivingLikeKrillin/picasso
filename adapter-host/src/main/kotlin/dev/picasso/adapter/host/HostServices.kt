@@ -114,7 +114,12 @@ internal class HostTaskService(robots: Map<String, HostedRobot>, pumpOnRead: Boo
     init {
         // **기체마다 매단다.** 스트림은 태스크 단위이고 태스크는 기체의 것이므로, 미는 쪽이 어느 기체인지 알아야
         // 헤더(세션·`profile_ref`)를 그 기체의 것으로 쓸 수 있다.
-        robots.values.forEach { hosted -> hosted.onUpdate += { task, _ -> push(hosted, task) } }
+        robots.values.forEach(::attach)
+    }
+
+    /** 기체 하나에 미는 쪽을 매단다. 기동 뒤에 들어온 기체는 호스트가 잠금 아래에서 부른다([AdapterHost.admit]). */
+    fun attach(hosted: HostedRobot) {
+        hosted.onUpdate += { task, _ -> push(hosted, task) }
     }
 
     /**
