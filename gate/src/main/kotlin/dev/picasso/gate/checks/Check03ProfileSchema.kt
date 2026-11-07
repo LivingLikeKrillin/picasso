@@ -12,6 +12,7 @@ import dev.picasso.gate.Resource
 import dev.picasso.gate.Severity
 import dev.picasso.gate.input.GateInput
 import dev.picasso.profile.ProfileDocument
+import dev.picasso.profile.structuralViolations
 import java.util.Locale
 
 /**
@@ -84,59 +85,14 @@ class Check03ProfileSchema : GateCheck {
             )
         }
 
-    /** 스키마로 표현할 수 없는 넷. 소견은 §11.2 표의 규칙 이름을 말한다. */
-    private fun structuralRules(doc: ProfileDocument): List<Finding> {
-        val out = mutableListOf<Finding>()
-
-        if (doc.publishIntervalMinSeconds > doc.publishIntervalMaxSeconds) {
-            out += Finding(
-                id, Severity.ERROR,
-                "publish_interval이 뒤집혔다: " +
-                    "min_seconds=${doc.publishIntervalMinSeconds} > " +
-                    "max_seconds=${doc.publishIntervalMaxSeconds}",
-                doc.locationOf("/publish_interval"),
-            )
+    /**
+     * 스키마로 표현할 수 없는 넷. 규칙은 `profile-model`에 있고 `mimic`의 기동도
+     * 같은 것을 본다(§15.286). 여기서는 소견으로 옮기기만 한다.
+     */
+    private fun structuralRules(doc: ProfileDocument): List<Finding> =
+        doc.structuralViolations().map { v ->
+            Finding(id, Severity.ERROR, v.message, doc.locationOf(v.pointer))
         }
-
-        doc.skills.groupingBy { it.skillType to it.major }.eachCount()
-            .filterValues { it > 1 }
-            .forEach { (key, count) ->
-                out += Finding(
-                    id, Severity.ERROR,
-                    "(skill_type, major) 중복이다: ${key.first}@${key.second} 가 ${count}번 선언됐다 " +
-                        "— 설계 §5.2가 이 쌍을 동일성으로 규정한다",
-                    doc.locationOf("/skills"),
-                )
-            }
-
-        doc.skills.forEachIndexed { i, s ->
-            s.parameters.groupingBy { it.key }.eachCount()
-                .filterValues { it > 1 }
-                .forEach { (key, count) ->
-                    out += Finding(
-                        id, Severity.ERROR,
-                        "${s.skillType}@${s.major} 안에서 파라미터 key 중복이다: " +
-                            "'$key'가 ${count}번 — 어느 선언이 유효한지 미정의가 된다",
-                        doc.locationOf("/skills/$i/parameters"),
-                    )
-                }
-
-            s.parameters.forEachIndexed { j, p ->
-                val lo = p.minValue
-                val hi = p.maxValue
-                if (lo != null && hi != null && lo > hi) {
-                    out += Finding(
-                        id, Severity.ERROR,
-                        "범위가 뒤집혔다: ${s.skillType}@${s.major}.${p.key} " +
-                            "min_value=$lo > max_value=$hi",
-                        doc.locationOf("/skills/$i/parameters/$j"),
-                    )
-                }
-            }
-        }
-
-        return out
-    }
 
     private companion object {
         /**
