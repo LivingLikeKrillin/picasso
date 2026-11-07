@@ -424,6 +424,15 @@ interface AmrFleetPort {
      */
     fun issueCancel(reference: String, handle: TransportHandle): FleetCancelIssue? = null
 
+    /**
+     * 운반 상태([status])를 **소비자의 잠금 밖에서** 미리 읽은 값(§15.237). 미들웨어가 도는 운반 단위를 볼 때 [status] 대신 이것을 먼저
+     * 묻는다. 널이면 이 포트는 미리 읽지 않는다 — 미들웨어가 [status] 를 지금 부른다. 다 읽은 값은 한 번만 준다([PrefetchingFleetPort]).
+     */
+    fun prefetchedStatus(handle: TransportHandle): FleetRead<TransportStatus>? = null
+
+    /** 찾기([find])를 **소비자의 잠금 밖에서** 미리 읽은 값(§15.237). 규칙은 [prefetchedStatus] 와 같다. */
+    fun prefetchedFind(reference: String): FleetRead<TransportHandle?>? = null
+
     object None : AmrFleetPort {
         override fun dispatch(order: TransportOrder): TransportHandle? = null
         override fun find(reference: String): TransportHandle? = null

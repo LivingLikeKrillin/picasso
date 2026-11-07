@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -150,6 +151,38 @@ class ResumeFleetCancelTest {
                 rebuilt.eventTrail.any { it.kind == Middleware.CANCEL_UNSENT && Middleware.UNATTACHED_UNSENT_CAUSE in it.detail },
                 "닿지 못한 까닭을 자취에 남기지 않았다: ${rebuilt.eventTrail}",
             )
+        }
+    }
+
+    @Test
+    fun `미리 읽는 플릿이면 붙기 전 취소는 찾기와 상태를 잠금 밖에서 읽고 다음 라운드에 붙는다`() {
+        World().use { w ->
+            val record = w.cancelUnreachedThenDie()
+            val queued = ArrayDeque<Runnable>()
+            val port = PrefetchingFleetPort(w.fleet, now = { w.harness.clock.now() }, maxAge = Duration.ofMinutes(1), executor = { queued += it })
+            val again = w.restart(port)
+            val rebuilt = again.rebuild(record)
+            fun attached() = rebuilt.eventTrail.any { it.kind == Middleware.CANCEL_ATTACHED }
+            fun read() {
+                while (queued.isNotEmpty()) queued.removeFirst().run()
+            }
+
+            again.pump()
+            assertFalse(attached(), "라운드 안에서 운반을 찾아 붙었다")
+            assertTrue(queued.isNotEmpty(), "찾기를 잠금 밖으로 걸지 않았다")
+            read()
+            again.pump()
+            assertFalse(attached(), "찾은 운반의 상태를 라운드 안에서 읽었다")
+
+            repeat(6) {
+                if (!rebuilt.physicalState.pumps) return@repeat
+                read()
+                again.pump()
+            }
+            assertTrue(attached(), "다 읽은 찾기와 상태로 붙지 않았다: ${rebuilt.eventTrail}")
+            assertEquals(TransportState.CANCELLED, w.fleet.status(TRANSPORT).state, "플릿의 운반이 멈추지 않았다")
+            assertEquals(1, w.fleet.dispatches, "멈추려고 붙는 자리에서 운반을 새로 맡겼다")
+            assertEquals(PhysicalState.ABORTED, rebuilt.physicalState)
         }
     }
 

@@ -2419,7 +2419,15 @@ class Middleware(
 
     /** @return 단위가 종착했는가. */
     private fun pumpFleetUnit(execution: Execution, unit: ExecutionUnit): Boolean {
-        val status = fleet.status(execution.transport!!)
+        val handle = execution.transport!!
+        // 미리 읽는 포트면 그 읽기를 받는다(§15.237). 읽는 중이면 이번 라운드에는 단위를 두고, 기한 넘게 답이 없으면 동기 읽기가 던지던
+        // 것과 같이 다룬다. 끝난 시각은 그 읽기가 받은 시각이다 — 받아 든 시각으로 찍으면 근거 창이 그만큼 밀린다.
+        val (status, at) = when (val read = fleet.prefetchedStatus(handle) ?: FleetRead.Read(fleet.status(handle), now(), now())) {
+            FleetRead.Pending -> return false
+            is FleetRead.Overdue -> throw IllegalStateException("운반(${handle.id}) 상태 읽기가 ${read.since} 부터 답이 없다")
+            is FleetRead.Failed -> throw read.failure
+            is FleetRead.Read -> read.value to read.receivedAt
+        }
         unit.observeHold(holdOf(status, unit))
         when (status.state) {
             TransportState.ACCEPTED, TransportState.PICKED_UP, TransportState.IN_TRANSIT -> {
@@ -2440,7 +2448,7 @@ class Middleware(
             }
 
             TransportState.DELIVERED -> {
-                beginVerify(execution, unit, reachedByDownstream = Evidence.E1, doneAt = now())
+                beginVerify(execution, unit, reachedByDownstream = Evidence.E1, doneAt = at)
                 if (unit.state == UnitState.VERIFYING) return false
             }
 
@@ -2461,7 +2469,7 @@ class Middleware(
 
             // 플릿 계약은 분류를 안 싣는다 — 프로젝트용 계약의 남은 자리이며 여기서는 UNCLASSIFIED 다.
             TransportState.FAILED -> failWithEvidenceCheck(
-                execution, unit, UNCLASSIFIED, detail = "fleet=${TransportState.FAILED.name} ${status.detail.orEmpty()}".trim(), at = now(),
+                execution, unit, UNCLASSIFIED, detail = "fleet=${TransportState.FAILED.name} ${status.detail.orEmpty()}".trim(), at = at,
             )
         }
         if (execution.cancelRequested) {
@@ -2920,15 +2928,18 @@ class Middleware(
                 execution.markIncident(unit)
                 return true
             }
-            val handle = try {
-                fleet.find(reference)
-            } catch (_: RuntimeException) {
-                return waitUnattached(execution, unit, "$reference 의 운반을 찾는 데 답이 없다 — 다음 라운드에 다시 찾는다")
+            // 미리 읽는 포트면 그 읽기를 받는다(§15.237). 읽는 중이면 답을 기다리는 것과 같다 — 같은 미확정 유예를 센다.
+            val handle = when (val read = fleet.prefetchedFind(reference) ?: findNow(reference)) {
+                FleetRead.Pending -> return waitUnattached(execution, unit, "$reference 의 운반을 읽는 중이다 — 다음 라운드에 답을 받는다")
+                is FleetRead.Overdue, is FleetRead.Failed ->
+                    return waitUnattached(execution, unit, "$reference 의 운반을 찾는 데 답이 없다 — 다음 라운드에 다시 찾는다")
+                is FleetRead.Read -> read.value
             } ?: continue
-            val status = try {
-                fleet.status(handle)
-            } catch (_: RuntimeException) {
-                return waitUnattached(execution, unit, "$reference 의 운반(${handle.id}) 상태에 답이 없다 — 다음 라운드에 다시 찾는다")
+            val status = when (val read = fleet.prefetchedStatus(handle) ?: statusNow(handle)) {
+                FleetRead.Pending -> return waitUnattached(execution, unit, "$reference 의 운반을 읽는 중이다 — 다음 라운드에 답을 받는다")
+                is FleetRead.Overdue, is FleetRead.Failed ->
+                    return waitUnattached(execution, unit, "$reference 의 운반(${handle.id}) 상태에 답이 없다 — 다음 라운드에 다시 찾는다")
+                is FleetRead.Read -> read.value
             }
             val ended = status.state in TRANSPORT_ENDED
             unit.taskId = reference
@@ -2960,6 +2971,20 @@ class Middleware(
      *
      * @return 늘 참 — 이번 라운드에 정착하지 않는다.
      */
+    /** 미리 읽지 않는 플릿에는 지금 찾는다. 던지면 [FleetRead.Failed] 다. */
+    private fun findNow(reference: String): FleetRead<TransportHandle?> = try {
+        FleetRead.Read(fleet.find(reference), now(), now())
+    } catch (e: RuntimeException) {
+        FleetRead.Failed(e)
+    }
+
+    /** 미리 읽지 않는 플릿에는 지금 읽는다. 던지면 [FleetRead.Failed] 다. */
+    private fun statusNow(handle: TransportHandle): FleetRead<TransportStatus> = try {
+        FleetRead.Read(fleet.status(handle), now(), now())
+    } catch (e: RuntimeException) {
+        FleetRead.Failed(e)
+    }
+
     private fun waitUnattached(execution: Execution, unit: ExecutionUnit, why: String): Boolean {
         val since = execution.unattachedCancelSince ?: now().also { execution.unattachedCancelSince = it }
         if (now().isBefore(since.plus(inDoubtGraceOf(execution)))) {
