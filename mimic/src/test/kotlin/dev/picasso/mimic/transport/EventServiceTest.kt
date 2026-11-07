@@ -249,6 +249,19 @@ class EventServiceTest {
     }
 
     @Test
+    fun `아직 나지 않은 번호를 물으면 SEQUENCE_EVICTED 다`() {
+        // §15.288 — 그런 커서는 다시 뜨기 전 세션의 것이다. 세션이 되풀이되면 소비자가
+        // 재시작을 못 보므로, 빈 응답을 주면 새 세션의 앞 이벤트를 조용히 건너뛴다.
+        runTask()
+        val next = host.events.nextSequence
+        assertTrue(replay(next).none { it.hasRejection() }, "다음 번호는 축출이 아니다")
+
+        val ahead = replay(next + 1)
+        assertEquals(RejectionCode.REJECTION_CODE_SEQUENCE_EVICTED, ahead.single().rejection.code)
+        assertTrue(ahead.single().rejection.detail.contains("아직 나지 않은 번호"), ahead.single().rejection.detail)
+    }
+
+    @Test
     fun `버퍼가 비면 축출이 아니다`() {
         // 아직 아무 일도 없었을 뿐이다. 축출로 답하면 소비자가 스냅샷부터
         // 다시 세우는 헛수고를 한다.

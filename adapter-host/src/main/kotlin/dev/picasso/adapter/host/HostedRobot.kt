@@ -982,8 +982,14 @@ class HostedRobot(
         }
     }
 
-    /** `ReplayEvents(from)` — 벗어났으면 널(축출), 아니면 그 번호부터. */
+    /**
+     * `ReplayEvents(from)` — 벗어났으면 널(축출), 아니면 그 번호부터.
+     *
+     * **아직 나지 않은 번호도 축출이다**(§15.288). 그런 커서는 이 호스트가 준 것이 아니라 다시 뜨기 전의 것이며,
+     * 세션이 되풀이되면 소비자가 재시작을 못 본다. 빈 목록을 주면 그 커서가 새 세션의 앞 이벤트를 조용히 건너뛴다.
+     */
     fun replay(from: Long): List<Event>? {
+        if (from > nextSequence.get()) return null
         val evicted = evictedUpTo
         if (evicted != null && from <= evicted) return null
         return buffer.filter { it.header.sequence >= from }
