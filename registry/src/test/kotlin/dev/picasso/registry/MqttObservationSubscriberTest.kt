@@ -99,6 +99,14 @@ class MqttObservationSubscriberTest {
     }
 
     @Test
+    fun `등록되지 않은 기체의 헤더는 적재가 실패해도 예외 없이 센다`() {
+        // 세대 이력의 FK 가 막는다. 예외가 콜백 밖으로 새면 브로커 연결이 끊기고 구독이 조용히 멈춘다.
+        assertNull(subscriber.handle(topic("state", robotId = "r9"), state(header(robotId = "r9"))))
+        assertEquals(1, subscriber.dropped)
+        assertEquals(Recorded.INSERTED, subscriber.handle(topic("state"), state()), "실패 뒤 다음 메시지를 못 적었다")
+    }
+
+    @Test
     fun `읽지 못하는 페이로드와 헤더 없는 메시지는 적지 않는다`() {
         assertNull(subscriber.handle(topic("state"), byteArrayOf(0x0a, 0x7f)), "깨진 페이로드를 적었다")
         assertNull(subscriber.handle(topic("state"), StateMessage.getDefaultInstance().toByteArray()), "헤더 없는 메시지를 적었다")

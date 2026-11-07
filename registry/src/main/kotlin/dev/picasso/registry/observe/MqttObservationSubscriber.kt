@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * 나머지는 [EpochCause.BINDING_CHANGED] 다 — 헤더는 지금의 세대와 `profile_ref` 만 말하고 왜 바뀌었는지는 말하지 않는다. 같은 사실의
  * 반복은 적재가 접는다. 읽지 못한 것은 적지 않고 [dropped] 로만 센다 — 토픽이 기체 스트림 꼴이 아니거나, 페이로드가 그 스트림의 메시지가
  * 아니거나, 헤더가 없거나, 헤더의 `robot_id` 가 토픽의 것과 다르면 그렇다. 마지막 것을 적으면 세대 이력이 다른 기체의 줄이 된다.
+ * **적재가 실패해도 센다**(등록되지 않은 기체는 세대 이력의 FK 에 걸린다). 예외가 콜백 밖으로 새면 Paho 가 연결을 끊고 구독이 조용히 멈춘다.
  *
  * `registry` 는 `uplink` 를 모르므로(§3.2) 토픽 꼴 `picasso/{major}/{site}/robot/{robot_id}/{stream}` 을 여기서도 읽는다. 둘이 같은지는
  * `harness` 의 통합 시험이 발행자로 대 본다.
@@ -58,7 +59,12 @@ class MqttObservationSubscriber(
             droppedCount.incrementAndGet()
             return null
         }
-        return observations.recordHeader(header, cause)
+        return try {
+            observations.recordHeader(header, cause)
+        } catch (_: Exception) {
+            droppedCount.incrementAndGet()
+            null
+        }
     }
 
     private fun headerOf(topic: String, payload: ByteArray): Pair<MessageHeader, EpochCause>? {
@@ -91,7 +97,7 @@ class MqttObservationSubscriber(
             }
         }
 
-    /** 이미 접속한 [client] 에 구독을 건다. 메시지는 [handle] 로 간다. */
+    /** 이미 접속한 [client] 에 구독을 건다. 메시지는 [handle] 로 간다. 다시 붙으면 구독을 다시 건다 — 새로 시작한 세션은 구독을 잃는다. */
     fun subscribe(client: MqttClient) {
         // **리스너 오버로드를 안 쓴다.** Paho 1.2.5의 `subscribe(String, int, IMqttMessageListener)` 가 자기를 무한 재귀 호출한다
         // (`MqttBrokerTest` 실측). 콜백으로 받는다.
@@ -103,7 +109,9 @@ class MqttObservationSubscriber(
             override fun disconnected(response: MqttDisconnectResponse?) = Unit
             override fun mqttErrorOccurred(exception: MqttException?) = Unit
             override fun deliveryComplete(token: IMqttToken?) = Unit
-            override fun connectComplete(reconnect: Boolean, serverURI: String?) = Unit
+            override fun connectComplete(reconnect: Boolean, serverURI: String?) {
+                if (reconnect) client.subscribe(filter, QOS)
+            }
             override fun authPacketArrived(reasonCode: Int, properties: MqttProperties?) = Unit
         })
         client.subscribe(filter, QOS)
@@ -117,7 +125,12 @@ class MqttObservationSubscriber(
         /** 브로커에 붙어 구독을 건다. 닫으면 끊는다. */
         fun connect(brokerUrl: String, clientId: String, subscriber: MqttObservationSubscriber): AutoCloseable {
             val client = MqttClient(brokerUrl, clientId, MemoryPersistence())
-            client.connect(MqttConnectionOptions().apply { isCleanStart = true })
+            client.connect(
+                MqttConnectionOptions().apply {
+                    isCleanStart = true
+                    isAutomaticReconnect = true
+                },
+            )
             subscriber.subscribe(client)
             return AutoCloseable {
                 if (client.isConnected) client.disconnect()
