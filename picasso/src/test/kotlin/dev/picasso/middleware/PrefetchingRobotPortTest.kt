@@ -1,6 +1,7 @@
 package dev.picasso.middleware
 
 import dev.picasso.contracts.v1.CancelTaskResponse
+import dev.picasso.contracts.v1.Capability
 import dev.picasso.contracts.v1.ConnectionState
 import dev.picasso.contracts.v1.Event
 import dev.picasso.contracts.v1.MessageHeader
@@ -14,6 +15,7 @@ import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -47,6 +49,15 @@ class PrefetchingRobotPortTest {
         var events = (10L..12L).toList()
         var readTakes: Duration = Duration.ofMillis(50)
         val replays = mutableListOf<Long>()
+        val declared: Capability = Capability.newBuilder().setModel("m1").build()
+        var capabilityReads = 0
+        var capabilityFailure: RuntimeException? = null
+
+        override fun capabilities(robotId: String): Capability? {
+            capabilityReads += 1
+            capabilityFailure?.let { throw it }
+            return declared
+        }
 
         override fun snapshot(robotId: String): RobotSnapshot? {
             clock = clock.plus(readTakes)
@@ -174,6 +185,47 @@ class PrefetchingRobotPortTest {
                 held.countDown()
             }
         }
+    }
+
+    @Test
+    fun `기체의 선언은 지금 묻지 않고 스냅숏 읽기에 이어 받은 값을 준다`() {
+        assertNull(port.capabilities(R), "읽은 적이 없는데 선언을 줬다")
+        assertEquals(0, robot.capabilityReads, "부른 쪽 스레드에서 선언을 물었다")
+        manual.run()
+        assertEquals(robot.declared, port.capabilities(R))
+        assertEquals(robot.declared, port.capabilities(R), "선언을 받아 가는 값처럼 한 번만 줬다")
+        assertEquals(1, robot.capabilityReads, "읽기 한 번에 선언을 한 번보다 많이 물었다")
+    }
+
+    @Test
+    fun `못 물어본 선언은 앞 선언을 덮지 않고 받은 지 maxAge 넘은 선언은 주지 않는다`() {
+        port.capabilities(R)
+        manual.run()
+        robot.capabilityFailure = IllegalStateException("시험: 선언에 답 없음")
+        port.prefetched(R)
+        manual.run()
+        assertEquals(robot.declared, port.capabilities(R), "못 물어본 선언이 앞 선언을 덮었다")
+
+        advance(2_100)
+        assertNull(port.capabilities(R), "받은 지 maxAge 넘은 선언을 줬다")
+    }
+
+    @Test
+    fun `선언을 아직 못 받았으면 기한 안에서만 읽는 중이라고 답하고 못 물어본 선언은 기다리지 않는다`() {
+        assertTrue(port.capabilitiesPending(R), "읽은 적이 없는데 읽는 중이 아니라고 했다")
+        assertEquals(0, robot.capabilityReads, "부른 쪽 스레드에서 선언을 물었다")
+        manual.run()
+        assertFalse(port.capabilitiesPending(R), "선언을 받았는데 읽는 중이라고 했다")
+
+        assertTrue(port.capabilitiesPending(OTHER))
+        advance(2_100)
+        assertFalse(port.capabilitiesPending(OTHER), "기한 넘게 읽는 중이라고 했다 — 출발이 끝없이 밀린다")
+
+        robot.capabilityFailure = IllegalStateException("시험: 선언에 답 없음")
+        assertTrue(port.capabilitiesPending(R), "낡은 선언을 읽는 중이 아니라고 했다")
+        manual.run()
+        assertFalse(port.capabilitiesPending(R), "물었으나 답이 없는 선언을 계속 기다렸다")
+        assertNull(port.capabilities(R))
     }
 
     private companion object {

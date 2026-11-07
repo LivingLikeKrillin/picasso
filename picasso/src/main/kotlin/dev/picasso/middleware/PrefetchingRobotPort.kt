@@ -1,5 +1,6 @@
 package dev.picasso.middleware
 
+import dev.picasso.contracts.v1.Capability
 import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
@@ -49,7 +50,10 @@ sealed interface PrefetchedRead {
  *   번호로 묻는다. 세션이 다르면 묻지 않는다 — 번호는 세션 안의 것이다.
  * - **[snapshot] 은 지금 묻지 않는다.** 실행을 다시 세우는 자리([Middleware.resume])가 부른다. 받은 지 [maxAge] 안의 값이 있으면 그것을
  *   주고(소비하지 않는다), 없으면 읽기를 걸고 널을 준다 — 미들웨어는 스냅숏을 못 읽었다고 거부하고 부른 쪽이 다시 시도한다.
- * - **명령은 그대로 지금 부른다.** [start]·[cancel]·[watch]·[capabilities] 는 위임 포트로 바로 간다. 출발을 잠금 밖으로 보내는 것은
+ * - **기체의 선언([capabilities])도 그 읽기에 잇는다.** 스냅숏을 읽을 때마다 선언도 한 번 묻고, [capabilities] 는 지금 묻지 않고 받은 지
+ *   [maxAge] 안의 마지막 선언을 준다(소비하지 않는다). 없으면 읽기를 걸고 널을 준다 — 미들웨어는 선언을 모를 때처럼 선택 파라미터를
+ *   붙이지 않는다(§15.41). 읽기 한 번에 하위 호출이 하나 늘어난다.
+ * - **명령은 그대로 지금 부른다.** [start]·[cancel]·[watch] 는 위임 포트로 바로 간다. 출발을 잠금 밖으로 보내는 것은
  *   [IssuingRobotPort] 다(§15.237). 둘 다 나머지를 위임하므로 어느 쪽으로 겹쳐 감싸도 된다.
  *
  * 위임 포트는 두 스레드에서 불린다 — 이 데코레이터의 읽기와 잠금 아래의 명령. [ClientRobotPort] 는 그것을 견딘다.
@@ -94,6 +98,15 @@ class PrefetchingRobotPort(
         var lastDoneAt: Instant? = null
 
         var hint: Hint? = null
+
+        /** 마지막으로 답이 온 선언과 그것을 받은 시각. [capabilities] 가 준다. */
+        var capabilities: Pair<Capability, Instant>? = null
+
+        /** 마지막으로 선언을 물은 시각(답이 왔든 아니든). */
+        var capabilitiesAskedAt: Instant? = null
+
+        /** [capabilitiesPending] 이 처음 참을 준 시각. 기다림은 여기서부터 [maxAge] 까지다. */
+        var capabilitiesWaitSince: Instant? = null
     }
 
     private val slots = ConcurrentHashMap<String, Slot>()
@@ -158,6 +171,42 @@ class PrefetchingRobotPort(
         return latest
     }
 
+    override fun capabilities(robotId: String): Capability? {
+        val slot = slot(robotId)
+        val launch: Boolean
+        val latest: Capability?
+        synchronized(slot) {
+            latest = slot.capabilities?.takeIf { fresh(it.second) }?.first
+            launch = latest == null && !slot.inFlight
+            if (launch) slot.inFlight = true
+        }
+        if (launch) launch(robotId, slot)
+        return latest
+    }
+
+    /**
+     * 받은 지 [maxAge] 안의 선언이 없고 그 사이 선언을 물은 적도 없으면 읽는 중이다. 기다림은 처음 참을 준 때부터 [maxAge] 까지다 —
+     * 스냅숏 읽기가 던지면 선언을 묻지 않으므로, 기한이 없으면 출발이 끝없이 밀린다.
+     */
+    override fun capabilitiesPending(robotId: String): Boolean {
+        val slot = slot(robotId)
+        var launch = false
+        val pending: Boolean
+        synchronized(slot) {
+            if (slot.capabilities?.let { fresh(it.second) } == true || fresh(slot.capabilitiesAskedAt)) {
+                slot.capabilitiesWaitSince = null
+                pending = false
+            } else {
+                val since = slot.capabilitiesWaitSince ?: now().also { slot.capabilitiesWaitSince = it }
+                pending = fresh(since)
+                launch = !slot.inFlight
+                if (launch) slot.inFlight = true
+            }
+        }
+        if (launch) launch(robotId, slot)
+        return pending
+    }
+
     private fun launch(robotId: String, slot: Slot) {
         try {
             executor.execute { read(robotId, slot) }
@@ -166,9 +215,11 @@ class PrefetchingRobotPort(
         }
     }
 
-    /** 읽기 한 번 — 스냅숏, 이어서 재생. 잠금 밖에서 돈다. */
+    /** 읽기 한 번 — 스냅숏, 이어서 재생과 선언. 잠금 밖에서 돈다. */
     private fun read(robotId: String, slot: Slot) {
         var done: Done? = null
+        var capabilities: Pair<Capability, Instant>? = null
+        var capabilitiesAskedAt: Instant? = null
         try {
             val hint = synchronized(slot) { slot.hint }
             val sentAt = now()
@@ -180,6 +231,9 @@ class PrefetchingRobotPort(
                 } else {
                     null
                 }
+                // 선언을 못 물어봤으면 앞서 받은 선언을 그대로 두고 기한이 그것을 버린다 — 널로 덮으면 한 번의 실패가 곧 «모른다» 가 된다.
+                capabilities = runCatching { delegate.capabilities(robotId) }.getOrNull()?.let { it to now() }
+                capabilitiesAskedAt = now()
                 Done(PrefetchedRead.Read(snapshot, sentAt, receivedAt), replay, receivedAt)
             } catch (e: RuntimeException) {
                 Done(PrefetchedRead.Failed(e), null, now())
@@ -192,6 +246,8 @@ class PrefetchingRobotPort(
                     slot.lastDoneAt = d.at
                     (d.read as? PrefetchedRead.Read)?.takeIf { it.snapshot != null }?.let { slot.latest = it }
                 }
+                capabilities?.let { slot.capabilities = it }
+                capabilitiesAskedAt?.let { slot.capabilitiesAskedAt = it }
             }
         }
     }
