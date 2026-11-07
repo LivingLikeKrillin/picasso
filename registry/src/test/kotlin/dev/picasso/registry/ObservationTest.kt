@@ -119,6 +119,18 @@ class ObservationTest {
     }
 
     @Test
+    fun `접힐 때마다 받은 횟수가 오르고 새 줄은 1에서 센다`() {
+        // 접기는 시각만 남겨 같은 사실을 몇 번 받았는지를 잃었다(§15.36).
+        repeat(3) { observations.recordHeader(header(), EpochCause.BINDING_CHANGED) }
+        observations.recordHeader(header(), EpochCause.RUNTIME_DEGRADED)
+
+        val counts = PostgresSupport.queryOne(
+            "SELECT string_agg(cause || '=' || seen_count, ',' ORDER BY cause) FROM capability_epoch_log",
+        ) { it.getString(1) }
+        assertEquals("BINDING_CHANGED=3,RUNTIME_DEGRADED=1", counts, "접은 횟수가 맞지 않는다")
+    }
+
+    @Test
     fun `사유가 다르면 새 줄이다`() {
         observations.recordHeader(header(), EpochCause.BINDING_CHANGED)
         assertEquals(

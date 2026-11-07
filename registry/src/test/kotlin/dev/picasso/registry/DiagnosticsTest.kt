@@ -280,6 +280,17 @@ class DiagnosticsTest {
     }
 
     @Test
+    fun `세대 이력이 같은 사실을 받은 횟수를 싣는다`() {
+        // 접힌 줄은 마지막 시각만 보이므로 몇 번 받았는지가 답에 있어야 한다(§15.36).
+        robot("r1")
+        observations.recordHeader(header("r1", 1, 1), EpochCause.BINDING_CHANGED)
+        observations.recordHeader(header("r1", 1, 1), EpochCause.BINDING_CHANGED)
+        observations.recordHeader(header("r1", 2, 1), EpochCause.BINDING_CHANGED)
+
+        assertEquals(listOf(1, 2), diag.epochs("r1").map { it.seenCount }, "받은 횟수가 답에 없다")
+    }
+
+    @Test
     fun `기체로 좁힌다`() {
         // (d).
         robot("r1"); robot("r2")

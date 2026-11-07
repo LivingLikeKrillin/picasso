@@ -1179,6 +1179,9 @@ mimic/
 34. **관측 적재에 구독기가 없다.** 3a-3은 `ObservationService`(헤더 하나를 세대 이력에, 거절 하나를 `handshake_rejection`에)까지 만들고 **그것을 부르는 MQTT 구독기는 만들지 않았다.** 이유는 위 30번과 같다 — 브로커를 붙이면 §12.1의 결정성이 깨진다. 그래서 운영에서 이 표를 채우는 것은 아직 아무도 아니며, 진단 3·4번은 **시험과 `harness`가 넣은 것만 본다.** 붙는 날 구독기가 `recordHeader`/`recordRejection`을 부르면 되고, 입력이 `MessageHeader`인 것이 그것을 가능하게 하는 경계다(`registry`가 `mimic`을 몰라도 된다).
 35. **진단 2번이 선택 필드 차이를 본다(닫힘).** `profile_optional_field`가 없어 `optionalFields`가 `"not_tracked"`로 나갔다. §9.6의 상위 표면이 필수 선택 필드를 요구해 V7로 표를 만들었고, 진단 2번도 같은 표를 읽는다. 빈 배열로 내지 않았던 것이 옳았다 — 그랬으면 "선택 필드 차이가 없다"는 거짓말 위에서 축소가 승인됐을 것이다.
 36. **세대 이력의 접기가 사유를 키에 넣는다.** `(robot_id, epoch, profile_ref, cause)`가 같으면 한 줄로 접히므로, **같은 사유로 두 번 일어난 같은 전이는 한 번으로 보인다.** 되풀이 횟수가 진단에 필요해지면 카운터를 더해야 하며, 지금은 마지막 시각만 남는다.
+
+    **(닫힘, §15.283)** 항목 283이 세대 이력에 받은 횟수 칸을 더해 접힐 때마다 올리고 진단 3번이 그 수를 싣는다. 처음 받은 시각은 여전히 남지 않는다. 행 §15.36은 닫혔다.
+
 37. **`capability_epoch_log.robot_id`에는 FK가 있고 `handshake_rejection.robot_id`에는 없다.** 후자는 등록되지 않은 기체에도 거절이 날아올 수 있고 그 사실 자체가 운영자가 알아야 할 것이기 때문이다. 대가는 오타 난 `robot_id`가 조용히 적재된다는 것이다.
 38. **HTTP 표면에 인증이 없다 — 있는 것은 역할을 가르는 거친 문 둘이다.** 진단은 read-only지만 바인딩·거절·요구 문자열이 그대로 나가며, 배포에서 망 경계로 막는 것을 전제한다.
 
@@ -3111,6 +3114,16 @@ mimic/
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
 
     (의도적 제외로 옮김, §15.265) «§15.156» 행은 picasso 와 picasso-ops 어디에도 그 값을 쓰는 면이 없어 의도적 제외의 새 표 «수요 없음» 으로 옮겼다.
+
+283. **`capability_epoch_log`에 `seen_count` 칸을 더해 접힐 때마다 받은 횟수를 올리고 진단 세대 이력 `EpochRow`에 싣는다.**
+
+    옛 항목 36과 한계 레지스터 내부 행 §15.36은 세대 이력(`capability_epoch_log`)의 접기가 `(robot_id, epoch, profile_ref, cause)`가 같으면 한 줄로 접으므로 같은 사실을 몇 번 받았는지가 사라지고 마지막 시각만 남는다고 적었다. 해소 조건은 카운터 칸 추가였다. 세대는 유효 capability가 바뀔 때마다 오르므로 같은 열쇠로 다시 오는 것은 같은 사실의 재보고(폴링과 발행의 반복)다. 소유자가 내부 오픈 항목을 차례로 모두 해소하라고 지시했다.
+
+    새 마이그레이션 `V17__epoch_log_seen_count.sql`이 `capability_epoch_log`에 `seen_count INTEGER NOT NULL DEFAULT 1`을 더한다(기존 줄은 1). `ObservationService.recordHeader`의 접기(`ON CONFLICT ... DO UPDATE`)가 시각과 함께 `seen_count`를 1 올린다. 진단 3번(`DiagnosticsService.epochs`, `GET /diag/epochs`)의 한 줄 `EpochRow`에 `seenCount`를 더해 싣는다. 필드를 더한 것이라 기존 읽는 쪽은 그대로 읽는다.
+
+    처음 받은 시각은 여전히 남지 않는다(`occurredAt`은 마지막 시각). 해소 조건이 카운터였으므로 행 §15.36을 닫고 레지스터에서 지운다. 오픈 항목은 60개에서 59개(내부 30에서 29)다. 계약 proto와 계약 SemVer 0.10.0은 바뀌지 않았다.
+
+    `ObservationTest` 1건(접힐 때마다 받은 횟수가 오르고 새 줄은 1에서 센다)과 `DiagnosticsTest` 1건(세대 이력이 같은 사실을 받은 횟수를 싣는다)을 더해 전체 2,391건에서 2,393건이다. 로컬 Docker의 Postgres로 registry 시험을 돌렸고 결함 주입 3건(접을 때 올리지 않음, 진단이 칸 대신 1을 읽음, 기본값 0)을 지정 시험이 모두 잡았다.
 
 282. **mimic의 `Progress`에 `pause`와 `resume`을 두어 멈춘 구간을 빼고 `TaskMachine.transitionTo`에서 이를 부른다.**
 
