@@ -240,8 +240,8 @@ class Check04CrossRef : GateCheck {
     private fun optionalFieldRefs(doc: ProfileDocument): List<Finding> {
         val known = doc.skills.flatMap { s -> s.parameters.map { it.key } }.toSet()
         return doc.optionalFields.mapIndexedNotNull { k, f ->
-            val key = f.parameterPath.substringAfterLast('.')
-            if (key in known) {
+            val key = f.parameterKey
+            if (key != null && key in known) {
                 null
             } else {
                 Finding(

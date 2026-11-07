@@ -210,6 +210,24 @@ class Check06VocabularyTest {
     }
 
     @Test
+    fun `끝 마디만 같은 다른 경로의 필수화를 스킬 major로 흡수하지 않는다`() {
+        // §15.18. 접미사로 맞추면 task.metadata.grip_force 가 pick_place 의
+        // grip_force 로 읽혀 "major로 흡수할 수 없다"는 소견이 사라진다.
+        val base = profile(optionalFields = supported("task.metadata.grip_force"))
+        val head = profile(optionalFields = required("task.metadata.grip_force"))
+        val r = run(base, head)
+        r as CheckResult.Failed
+        assertTrue(
+            r.findings.any { it.message.contains("task.metadata.grip_force") && it.message.contains("대응하지 않아") },
+            "파라미터가 아닌 경로를 파라미터로 읽었다: ${r.findings.map { it.message }}",
+        )
+        assertTrue(
+            r.findings.none { it.message.contains("pick_place@") },
+            "파라미터가 아닌 경로의 필수화를 스킬 major로 돌렸다: ${r.findings.map { it.message }}",
+        )
+    }
+
+    @Test
     fun `optional_fields 선언 삭제를 침묵하지 않는다`() {
         val base = profile(optionalFields = supported("task.parameters.grip_force"))
         val r = run(base, profile())
