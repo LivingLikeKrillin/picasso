@@ -13,9 +13,9 @@ import java.util.Properties
  * "계약이 무엇인지 모른다"가 "계약이 없다"로 보이고, §6.2의 메시지마다
  * 판정이 그 자리에서 무력해진다.
  *
- * §5.5는 `buf` 모듈 다이제스트라 했으나 여기 실리는 것은 protobuf 플러그인이
- * 뽑은 디스크립터 셋의 SHA-256이다. 이유와 한계는 `build.gradle.kts`와
- * §15에 있다.
+ * 다이제스트는 protobuf 플러그인이 뽑은 디스크립터 셋에서 `picasso/` 파일만
+ * 이름 순으로 이어 붙인 바이트의 SHA-256이다. 끌려 들어온 `google/` 파일은
+ * 세지 않는다. 셈법은 `build.gradle.kts`의 `contractIdentity` 태스크에 있다.
  */
 object ContractIdentity {
 
