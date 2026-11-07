@@ -280,6 +280,8 @@ class TaskMachine(
         beforeEmit()
         val from = state
         state = next
+        // 진행률의 멈춤은 상태 쓰기와 같은 자리에서 정한다(§15.26).
+        if (next == TaskState.PAUSED) progress.pause() else if (from == TaskState.PAUSED) progress.resume()
         listener.onTaskTransition(taskId, skill.skillType, from, next, revision, attempt)
         return TaskTransition.Moved(from, next)
     }
@@ -310,5 +312,6 @@ class TaskMachine(
         this.skillMachine = skill
         this.parameters = parameters
         progress.restart()
+        if (state == TaskState.PAUSED) progress.pause()
     }
 }
