@@ -173,6 +173,76 @@ class InDoubtTest {
         }
     }
 
+    /** 리비전을 싣지 않는 포트 — 스냅숏에 태스크는 있고 리비전은 비어 있다(§15.238). */
+    private class RevisionlessRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+        override fun snapshot(robotId: String): RobotSnapshot? = delegate.snapshot(robotId)?.copy(revisions = emptyMap())
+    }
+
+    /** 다른 명령자가 그 태스크를 고친 것처럼 스냅숏의 리비전을 하나씩 올려 답하는 포트(§15.238). */
+    private class RevisionAheadRobotPort(private val delegate: RobotPort) : RobotPort by delegate {
+        override fun snapshot(robotId: String): RobotSnapshot? =
+            delegate.snapshot(robotId)?.let { s -> s.copy(revisions = s.revisions.mapValues { it.value + 1 }) }
+    }
+
+    @Test
+    fun `리비전을 싣지 않는 포트에서도 한 리비전으로만 보낸 미확정 태스크에는 StartTask 없이 붙는다`() {
+        RobotWorld(drop = 1, wrap = { RevisionlessRobotPort(it) }).use { w ->
+            w.cell.program(SLOT, PART)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+
+            w.mw.pump()
+            assertEquals(UnitState.RUNNING, exec.unit().state, exec.unit().note)
+            assertEquals(1, w.port.starts, "한 리비전으로만 보낸 태스크인데 붙지 않고 StartTask 를 다시 보냈다")
+            assertTrue(exec.unit().note!!.contains("snapshot attach"), exec.unit().note)
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
+            assertEquals(1, w.tasks().size)
+        }
+    }
+
+    @Test
+    fun `리비전을 싣지 않는 포트에서 갱신을 보낸 미확정 단위는 붙지 않고 조회로 푼다`() {
+        // 출발과 갱신의 답을 둘 다 잃는다. 기체에 태스크는 보이나 어느 리비전인지 포트가 싣지 않는다 — 갱신이 닿았는지 모른다.
+        RobotWorld(drop = 2, wrap = { RevisionlessRobotPort(it) }).use { w ->
+            w.cell.program(SLOT, PART)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+            assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder().copy(version = 2), ROBOT))
+            assertEquals(2, w.port.starts, "시험의 전제: 미확정 단위에 갱신이 나갔다")
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+
+            w.mw.pump()
+            assertTrue(exec.unit().note?.contains("snapshot attach") != true, "갱신이 닿았는지 모르는데 스냅숏으로 붙었다: ${exec.unit().note}")
+
+            w.drive { exec.settled() }
+            assertEquals(PhysicalState.PHYSICALLY_DONE, exec.physicalState)
+            assertTrue(exec.unit().note!!.contains("resolved by client-reference lookup"), exec.unit().note)
+            assertEquals(3, w.port.starts)
+            assertEquals(1, w.tasks().size)
+        }
+    }
+
+    @Test
+    fun `기체가 단위보다 높은 리비전을 들면 붙지도 묻지도 않고 운영자 보류에 둔다`() {
+        RobotWorld(drop = 1, wrap = { RevisionAheadRobotPort(it) }).use { w ->
+            w.cell.program(SLOT, PART)
+            val exec = assertIs<Middleware.Submission.Accepted>(w.mw.submit(rackOrder(), ROBOT)).execution
+            w.mw.pump()
+            assertEquals(UnitState.IN_DOUBT, exec.unit().state)
+
+            w.mw.pump()
+            assertEquals(UnitState.OPERATOR_HOLD, exec.unit().state, exec.unit().note)
+            assertEquals(1, w.port.starts, "낮은 리비전의 StartTask 로 다시 물었다")
+            assertEquals(null, exec.handle, "다른 명령자가 고친 태스크에 붙었다")
+            assertTrue(exec.eventTrail.any { it.kind == Middleware.DOUBT_REVISION_AHEAD }, exec.eventTrail.toString())
+            assertEquals(1, w.tasks().size)
+        }
+    }
+
     /** 픽스처의 `pick_place` 는 취소 `NO` 다. 취소가 닿는 경로를 보려면 `YES` 인 사본이 필요하다(SequencingRackTest 와 같은 수법). */
     private fun cancellableProfile(): Path {
         val raw = Files.readString(Path.of("..", "profile", "fixtures", "minimal.json").normalize())
