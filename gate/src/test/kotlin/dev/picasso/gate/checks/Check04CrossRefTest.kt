@@ -220,4 +220,15 @@ class Check04CrossRefTest {
         r as CheckResult.Failed
         assertTrue(r.findings.any { it.message.contains("grip_forse") })
     }
+
+    @Test
+    fun `optional_fields가 파라미터 밖의 경로를 가리키면 끝 마디가 같아도 실패한다`() {
+        // §15.18. 끝 마디만 보면 task.metadata.grip_force 가 파라미터 grip_force 로 읽혀 통과한다.
+        val r = run(mutate("task.parameters.grip_force", "task.metadata.grip_force"))
+        r as CheckResult.Failed
+        assertTrue(
+            r.findings.any { it.message.contains("task.metadata.grip_force") },
+            "파라미터 밖의 경로를 통과시켰다: ${r.findings.map { it.message }}",
+        )
+    }
 }

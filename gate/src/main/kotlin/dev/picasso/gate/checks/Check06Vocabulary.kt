@@ -168,7 +168,7 @@ class Check06Vocabulary : GateCheck {
         // §5.3 — 보내지 않는 클라이언트가 핸드셰이크에서 걸린다.
         // 클라이언트에게는 필수 파라미터 추가와 같은 실패다.
         newlyRequired
-            .filter { path -> newParams.keys.any { path.endsWith(".$it") } }
+            .filter { path -> ProfileDocument.OptionalFieldEntry.parameterKeyOf(path) in newParams.keys }
             .forEach { needsMajor += "optional_fields의 '$it'가 REQUIRED가 됐다" }
 
         // 사전 조건(설계안 §6, §15.143). **추가는 축소다** — 어제 든 채로 보내던 소비자가 오늘 거절된다.
@@ -291,7 +291,7 @@ class Check06Vocabulary : GateCheck {
         val allKeys = head.skills.flatMap { s -> s.parameters.map { it.key } }.toSet()
 
         newlyRequired
-            .filterNot { path -> allKeys.any { path.endsWith(".$it") } }
+            .filterNot { path -> ProfileDocument.OptionalFieldEntry.parameterKeyOf(path) in allKeys }
             .forEach {
                 out += Finding(
                     id, Severity.ERROR,

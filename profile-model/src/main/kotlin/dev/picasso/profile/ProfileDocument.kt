@@ -179,7 +179,29 @@ class ProfileDocument private constructor(
         val parameterPath: String,
         /** SUPPORTED → REQUIRED는 축소다 */
         val support: String,
-    )
+    ) {
+        /** 이 경로가 가리키는 태스크 파라미터의 key. [parameterKeyOf]를 보라. */
+        val parameterKey: String? get() = parameterKeyOf(parameterPath)
+
+        companion object {
+            /** 태스크 파라미터를 가리키는 경로의 접두사(§7.2). key는 그 뒤 한 마디다. */
+            const val PARAMETER_PREFIX = "task.parameters."
+
+            /**
+             * 경로가 `task.parameters.<key>` 꼴이면 그 key, 아니면 널(§15.18).
+             *
+             * **끝 마디만 보지 않는다.** 접미사로 맞추면 `task.metadata.grip_force`
+             * 같은 다른 경로도 파라미터 `grip_force`로 읽혀, 검사 6이 그 필수화를
+             * 스킬의 major로 흡수할 수 있다고 오판하고 검사 4가 없는 파라미터를
+             * 가리키는 선언을 통과시킨다.
+             */
+            fun parameterKeyOf(path: String): String? {
+                if (!path.startsWith(PARAMETER_PREFIX)) return null
+                val key = path.removePrefix(PARAMETER_PREFIX)
+                return key.takeIf { it.isNotEmpty() && '.' !in it }
+            }
+        }
+    }
 
     data class DurationEntry(
         val skillType: String,
