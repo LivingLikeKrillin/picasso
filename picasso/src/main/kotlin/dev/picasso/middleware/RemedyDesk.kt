@@ -69,8 +69,8 @@ internal class RemedyDesk(
         order: JobOrder,
         rejection: Submission.Rejected,
         sourceMissing: RemedyOutcome.SourceMissing? = null,
-        /** 개정(`revise`)의 거절인가. 그러면 조치 열을 찾아도 제안을 세우지 않는다(ADR 46). */
-        revision: Boolean = false,
+        /** 이미 승인을 든 실행의 개정(`revise`) 거절인가. 그러면 조치 열을 찾아도 제안을 세우지 않는다(ADR 46, §15.175). */
+        carriesApproval: Boolean = false,
         /** 승인한 조치 열을 붙인 접수의 거절인가. 그러면 조치 열을 찾아도 서 있는 제안을 바꾸지 않는다. */
         approval: Boolean = false,
     ): Submission.Rejected {
@@ -93,12 +93,12 @@ internal class RemedyDesk(
         }
         if (remedy !is Remedy.Found || remedy.steps.isEmpty()) return rejection
 
-        // **개정의 거절은 제안을 세우지 않는다**(ADR 46). 개정은 조치 열을 싣지 못하므로(§15.175) 세워도 승인할 수
-        // 없고, 세우면 그 열쇠에 남은 소모 기록을 가린다. 탐색의 답은 그대로 적는다 — 찾은 것도 답이다.
-        if (revision) {
+        // **이미 승인을 든 실행의 개정 거절은 제안을 세우지 않는다**(ADR 46, §15.175). 판단 기록이 승인 하나만 실으므로 세워도 승인할
+        // 수 없고, 세우면 그 열쇠에 남은 소모 기록을 가린다. 탐색의 답은 그대로 적는다 — 찾은 것도 답이다.
+        if (carriesApproval) {
             note(robotId, jobOrderId, RemedyOutcome.Found(remedy.steps))
             return rejection.copy(
-                reason = "${rejection.reason} — 개정은 조치 열을 싣지 못해 제안을 세우지 않았다",
+                reason = "${rejection.reason} — 이미 승인한 조치 열을 든 실행이라 제안을 세우지 않았다",
                 remedy = null,
             )
         }

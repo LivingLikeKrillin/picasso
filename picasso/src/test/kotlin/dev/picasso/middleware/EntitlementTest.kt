@@ -580,8 +580,8 @@ class EntitlementTest {
     @Test
     fun `개정 거절은 소모를 가리지 않는다`() {
         // ★★소모된 주문의 개정판은 개정으로 가고, 기체가 아직 든 채면 사슬 거절이 난다. 그 거절이 제안을
-        //   세우면 재시도는 그 제안으로 판정되어 «이미 소모됐다» 를 영영 못 본다 — 그리고 개정은 조치 열을
-        //   싣지 못하므로 그 제안은 승인할 수도 없다(§15.175). 탐색 줄만 남기고 제안은 안 세운다(ADR 46).
+        //   세우면 재시도는 그 제안으로 판정되어 «이미 소모됐다» 를 영영 못 본다 — 그리고 판단 기록이 승인 하나만
+        //   실으므로 그 제안은 승인할 수도 없다(§15.175). 탐색 줄만 남기고 제안은 안 세운다(ADR 46).
         World(Declared(mapOf(AGENT.id to full()))).use { w ->
             w.standingProposal()
             val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
@@ -603,8 +603,8 @@ class EntitlementTest {
 
     @Test
     fun `주문이 이미 실행으로 서 있으면 승인은 조치 열을 싣지 않고 소모로도 남지 않는다`() {
-        // ★★승인의 판이 더 높으면 접수는 개정으로 가는데 개정은 조치 열을 안 받는다(§15.175). 그대로 두면 승인이
-        //   성공을 내고 조치는 안 나가며, 다른 기체에 선 실행이 승인의 판으로 바뀌고, 그 거짓이 소모 기록에
+        // ★★승인의 판이 더 높아도 실행이 다른 기체에 서 있으면 개정으로 내리지 않는다(§15.289). 내리면 조치가
+        //   제안의 기체가 아닌 곳에서 돌고, 다른 기체에 선 실행이 승인의 판으로 바뀌며, 그것이 소모 기록에
         //   남는다. 앞 판이 «v1 에서 도달 불가» 라 적은 길이다 — 버전이 거꾸로 도착하면 닿는다.
         World(Declared(mapOf(AGENT.id to full())), pair = true).use { w ->
             w.holdingRack()
@@ -625,6 +625,34 @@ class EntitlementTest {
             assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "나가지 않은 승인이 제안을 소모했다")
             assertEquals(OTHER, other.robotId, "다른 기체에 선 실행이 승인의 기체로 옮겨졌다")
             assertEquals(1, other.version, "다른 기체에 선 실행이 승인의 판으로 바뀌었다")
+        }
+    }
+
+    @Test
+    fun `개정의 거절이 세운 제안을 승인하면 조치 열이 다시 계획하는 첫 단위 앞에 선다`() {
+        // ★★§15.175 — 승인을 안 든 실행의 개정이 사슬에 걸리면 제안이 서고, 승인은 그 개정을 조치 열과 함께 내린다.
+        //   전에는 개정이 조치 열을 안 받아 승인이 성공을 내지 못했다. 조치 열은 다시 계획하는 첫 단위 앞이다 — 사슬 검사가
+        //   그 자리에서 굴렀고, 첫 접수가 계획 맨 앞에 세우는 것과 같은 모양이다.
+        World(Declared(mapOf(AGENT.id to full()))).use { w ->
+            val patrolled = assertIs<Middleware.Submission.Accepted>(w.mw.submit(patrol(), ROBOT)).execution
+            w.holdingRack()
+            val revised = assertIs<Middleware.Submission.Rejected>(w.mw.submit(twoTargets(), ROBOT), "든 채 이동을 더하는 개정이 섰다")
+            assertNotNull(revised.remedy, "개정의 거절이 조치 열을 안 내밀었다")
+            assertNotNull(w.mw.proposal(ROBOT, "PATROL-1"), "개정의 거절이 제안을 안 세웠다")
+
+            val approved = assertIs<ApprovalOutcome.Approved>(w.mw.attemptApproval(attempt()))
+            assertEquals(patrolled.executionId, approved.executionId, "승인이 다른 실행을 세웠다")
+            assertEquals(2, patrolled.version, "승인이 개정을 내리지 않았다")
+            val ids = patrolled.units.map { it.unitId }
+            val steps = approved.steps.map { it.unitId }
+            val at = ids.indexOf(steps.first())
+            assertEquals(steps, ids.subList(at, at + steps.size), "조치 열이 순서대로 붙어 서지 않았다: $ids")
+            assertEquals("PUMP-01", ids[at + steps.size], "조치 열이 다시 계획하는 첫 단위 앞에 서지 않았다: $ids")
+            assertNotNull(patrolled.approvedBy, "개정이 승인자를 안 실었다")
+
+            val again = assertIs<ApprovalOutcome.Refused>(w.mw.attemptApproval(attempt()))
+            assertEquals(ApprovalRefusal.CONSUMED, again.refusal, again.reason)
+            assertEquals(patrolled.executionId, assertNotNull(again.consumed).executionId)
         }
     }
 
@@ -833,6 +861,14 @@ class EntitlementTest {
             jobOrderId: String = "PATROL-1",
             saw: List<String> = listOf(PrepareSequencedRack.SKILL),
         ) = ApprovalAttempt(approver, ROBOT, jobOrderId, saw)
+
+        /** 점검 대상을 하나 더한 개정판. 더한 대상의 이동이 든 채라 사슬에 걸린다. */
+        private fun twoTargets() = patrol().copy(
+            version = 2,
+            equipmentRequirements = patrol().equipmentRequirements + EquipmentRequirement(
+                "PUMP-02", EquipmentUse.INSPECTION_TARGET, mapOf(EquipmentUse.PROP_LOCATION to "PUMP-ROOM-1"),
+            ),
+        )
 
         private fun patrol(jobOrderId: String = "PATROL-1") = JobOrder(
             jobOrderId = jobOrderId,
