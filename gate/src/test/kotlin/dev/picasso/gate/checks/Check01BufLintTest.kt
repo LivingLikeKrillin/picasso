@@ -12,14 +12,21 @@ import kotlin.test.assertTrue
 
 class Check01BufLintTest {
 
-    private class FakeBuf(private val result: BufResult) : BufRunner {
-        var seenArgs: List<String>? = null
-        var seenDir: Path? = null
+    private class FakeBuf(
+        private val result: BufResult,
+        private val byDir: Map<Path, BufResult> = emptyMap(),
+    ) : BufRunner {
+        val calls = mutableListOf<Pair<List<String>, Path>>()
         override fun run(args: List<String>, workingDir: Path): BufResult {
-            seenArgs = args
-            seenDir = workingDir
-            return result
+            calls += args to workingDir
+            // 기본 출력은 계약 모듈의 것이다. 제어 채널은 따로 주지 않으면 통과한다 —
+            // 앞의 시험들이 계약 모듈 하나의 출력을 다루기 때문이다.
+            return byDir[workingDir] ?: if (workingDir == CONTROL_DIR) BufResult(0, "") else result
         }
+    }
+
+    private companion object {
+        val CONTROL_DIR: Path = Path.of("/repo", "mimic")
     }
 
     private fun runWith(fake: FakeBuf) =
@@ -31,11 +38,32 @@ class Check01BufLintTest {
     }
 
     @Test
-    fun `contracts 디렉터리에서 lint를 부른다`() {
+    fun `contracts와 제어 채널 모듈에서 lint를 부른다`() {
+        // §15.287 — 제어 채널(mimic/)도 계약과 같은 규칙으로 lint 를 받는다.
         val fake = FakeBuf(BufResult(0, ""))
         runWith(fake)
-        assertEquals(listOf("lint"), fake.seenArgs)
-        assertEquals(Path.of("/repo", "contracts"), fake.seenDir)
+        assertEquals(
+            listOf(
+                listOf("lint") to Path.of("/repo", "contracts"),
+                listOf("lint") to Path.of("/repo", "mimic"),
+            ),
+            fake.calls,
+        )
+    }
+
+    @Test
+    fun `제어 채널의 lint 위반을 그 모듈 자리로 짚는다`() {
+        val violation =
+            "src/main/proto/picasso/control/v1/control.proto:25:9:Message name \"x\" should be PascalCase"
+        val r = runWith(
+            FakeBuf(BufResult(0, ""), byDir = mapOf(Path.of("/repo", "mimic") to BufResult(100, violation))),
+        )
+
+        r as CheckResult.Failed
+        assertEquals(
+            "mimic/src/main/proto/picasso/control/v1/control.proto:25",
+            r.findings.single().location,
+        )
     }
 
     @Test

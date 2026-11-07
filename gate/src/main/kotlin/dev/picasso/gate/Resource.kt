@@ -37,6 +37,13 @@ enum class Resource {
      */
     CONTRACT_BASELINE,
 
+    /**
+     * 제어 채널 buf 모듈(`mimic/`)의 파괴 검사 기준선. 검사 2번이 쓴다.
+     * 계약 기준선과 따로 둔다 — 베이스에 이 모듈이 아직 없는 PR 에서는
+     * 계약만 비교하고 이쪽은 부분 건너뜀이 된다(§15.287).
+     */
+    CONTROL_BASELINE,
+
     /** 이 PR이 바꾼 파일 목록. 검사 8번(2단계)이 쓴다 */
     CHANGED_FILES,
 

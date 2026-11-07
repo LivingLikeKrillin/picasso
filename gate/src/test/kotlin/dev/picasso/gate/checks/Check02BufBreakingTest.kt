@@ -13,19 +13,37 @@ import kotlin.test.assertTrue
 
 class Check02BufBreakingTest {
 
-    private class FakeBuf(private val result: BufResult) : BufRunner {
+    private class FakeBuf(
+        private val result: BufResult,
+        private val byDir: Map<Path, BufResult> = emptyMap(),
+    ) : BufRunner {
         var seenArgs: List<String>? = null
+        val calls = mutableListOf<Pair<List<String>, Path>>()
         override fun run(args: List<String>, workingDir: Path): BufResult {
-            seenArgs = args
-            return result
+            if (seenArgs == null) seenArgs = args
+            calls += args to workingDir
+            // 기본 출력은 계약 모듈의 것이다. 제어 채널은 따로 주지 않으면 통과한다 —
+            // 앞의 시험들이 계약 모듈 하나의 출력을 다루기 때문이다.
+            return byDir[workingDir] ?: if (workingDir == CONTROL_DIR) BufResult(0, "") else result
         }
+    }
+
+    private companion object {
+        val CONTROL_DIR: Path = Path.of("/repo", "mimic")
     }
 
     private val gitRef = "../.git#ref=abc1234,subdir=contracts"
 
-    private fun runWith(fake: FakeBuf, against: String = gitRef) =
+    private val controlRef = "../.git#ref=abc1234,subdir=mimic"
+
+    private fun runWith(fake: FakeBuf, against: String = gitRef, control: String? = controlRef) =
         Check02BufBreaking().run(
-            GateInput(repoRoot = Path.of("/repo"), buf = fake, contractBaseline = against),
+            GateInput(
+                repoRoot = Path.of("/repo"),
+                buf = fake,
+                contractBaseline = against,
+                controlBaseline = control,
+            ),
         )
 
     @Test
@@ -43,6 +61,47 @@ class Check02BufBreakingTest {
         val fake = FakeBuf(BufResult(0, ""))
         runWith(fake)
         assertEquals(listOf("breaking", "--against", gitRef), fake.seenArgs)
+    }
+
+    @Test
+    fun `제어 채널 기준선이 있으면 mimic 모듈에서도 breaking을 부른다`() {
+        // §15.287 — 제어 채널의 필드 번호 재사용도 계약과 같은 규칙으로 잡는다.
+        val fake = FakeBuf(BufResult(0, ""))
+        val r = runWith(fake)
+        assertEquals(
+            listOf(
+                listOf("breaking", "--against", gitRef) to Path.of("/repo", "contracts"),
+                listOf("breaking", "--against", controlRef) to Path.of("/repo", "mimic"),
+            ),
+            fake.calls,
+        )
+        assertTrue(r.skippedParts.isEmpty(), "기준선이 다 있는데 건너뜀을 냈다: ${r.skippedParts}")
+    }
+
+    @Test
+    fun `제어 채널 기준선이 없으면 그쪽만 부분 건너뜀이다`() {
+        // 베이스에 mimic/buf.yaml 이 없는 PR. 계약은 비교하고, 비교하지 않은 것을
+        // 통과로 숨기지 않는다.
+        val fake = FakeBuf(BufResult(0, ""))
+        val r = runWith(fake, control = null)
+        assertEquals(listOf(Path.of("/repo", "contracts")), fake.calls.map { it.second })
+        assertEquals(setOf(Resource.CONTROL_BASELINE), r.skippedParts)
+    }
+
+    @Test
+    fun `제어 채널의 파괴를 그 모듈 자리로 짚는다`() {
+        val breaking =
+            "src/main/proto/picasso/control/v1/control.proto:34:3:Field \"1\" with name " +
+                "\"duration_millis\" on message \"AdvanceClockRequest\" changed type from \"int64\" to \"string\"."
+        val r = runWith(
+            FakeBuf(BufResult(0, ""), byDir = mapOf(Path.of("/repo", "mimic") to BufResult(100, breaking))),
+        )
+
+        r as CheckResult.Failed
+        assertEquals(
+            "mimic/src/main/proto/picasso/control/v1/control.proto:34",
+            r.findings.single().location,
+        )
     }
 
     @Test

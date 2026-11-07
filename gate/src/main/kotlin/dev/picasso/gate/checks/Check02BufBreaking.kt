@@ -23,36 +23,42 @@ class Check02BufBreaking : GateCheck {
     override val requires = setOf(Resource.REPO, Resource.BUF, Resource.CONTRACT_BASELINE)
 
     override fun run(input: GateInput): CheckResult {
-        val against = input.contractBaseline!!
-        val result = input.buf!!.run(
-            listOf("breaking", "--against", against),
-            input.repoRoot!!.resolve(Check01BufLint.CONTRACTS),
-        )
+        val failures = mutableListOf<Finding>()
+        val warnings = mutableListOf<Finding>()
 
-        if (result.exitCode != 0) {
-            return CheckResult.Failed(id, Check01BufLint.findingsOf(id, result, "buf breaking"))
+        // 계약이 먼저고, 제어 채널(§10.5)은 기준선이 있을 때만 본다. 베이스에
+        // `mimic/buf.yaml` 이 없으면 호출 지점이 넘기지 않으므로 부분 건너뜀이다(§15.287).
+        val modules = buildList {
+            add(Check01BufLint.CONTRACTS to input.contractBaseline!!)
+            input.controlBaseline?.let { add(Check01BufLint.CONTROL to it) }
         }
 
-        // git 참조가 아닌 기준선은 사실상 자기 자신(또는 작업 트리)과 비교라
-        // 실패할 수 없다. 통과가 아니라 "검사가 아무것도 하지 않았다"이고,
-        // 그것이 초록불로 보이면 안 된다.
-        //
-        // 열거가 아니라 반대로 판정한다 — {".", "./"}만 막으면 ../contracts가
-        // 조용히 통과한다(실측).
-        if (!GIT_REF.containsMatchIn(against)) {
-            return CheckResult.Passed(
-                id,
-                listOf(
-                    Finding(
-                        id, Severity.WARNING,
-                        "기준선 '$against' 에 git 참조(#branch=·#ref=)가 없다 — 자기 자신이나 " +
-                            "작업 트리와 비교했을 가능성이 높다. 회귀를 막을 수 없다",
-                    ),
-                ),
+        modules.forEach { (module, against) ->
+            val result = input.buf!!.run(
+                listOf("breaking", "--against", against),
+                input.repoRoot!!.resolve(module),
             )
+            if (result.exitCode != 0) {
+                failures += Check01BufLint.findingsOf(id, result, "buf breaking", module)
+            } else if (!GIT_REF.containsMatchIn(against)) {
+                // git 참조가 아닌 기준선은 사실상 자기 자신(또는 작업 트리)과 비교라
+                // 실패할 수 없다. 통과가 아니라 "검사가 아무것도 하지 않았다"이고,
+                // 그것이 초록불로 보이면 안 된다.
+                //
+                // 열거가 아니라 반대로 판정한다 — {".", "./"}만 막으면 ../contracts가
+                // 조용히 통과한다(실측).
+                warnings += Finding(
+                    id, Severity.WARNING,
+                    "기준선 '$against' 에 git 참조(#branch=·#ref=)가 없다 — 자기 자신이나 " +
+                        "작업 트리와 비교했을 가능성이 높다. 회귀를 막을 수 없다",
+                    module,
+                )
+            }
         }
 
-        return CheckResult.Passed(id)
+        val skipped = if (input.controlBaseline == null) setOf(Resource.CONTROL_BASELINE) else emptySet()
+        return if (failures.isNotEmpty()) CheckResult.Failed(id, failures + warnings, skippedParts = skipped)
+        else CheckResult.Passed(id, warnings, skippedParts = skipped)
     }
 
     private companion object {

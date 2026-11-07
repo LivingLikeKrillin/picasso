@@ -75,6 +75,13 @@ data class GateInput(
     val contractBaseline: String? = null,
 
     /**
+     * 제어 채널 buf 모듈의 `buf breaking --against` 참조. **`mimic/` 기준 경로다.**
+     * CI는 `../.git#ref=<베이스 SHA>,subdir=mimic` 을 만들며, 베이스에
+     * `mimic/buf.yaml` 이 없으면 넘기지 않는다(§15.287).
+     */
+    val controlBaseline: String? = null,
+
+    /**
      * 파괴 검사의 기준선. **기종 좌표** → 기준선 문서 원문.
      * CI는 기본 브랜치의 파일, registry는 직전 ACTIVE 개정판의 document다
      * (설계 §11.1).
@@ -104,6 +111,7 @@ data class GateInput(
         if (repoRoot != null) add(Resource.REPO)
         if (buf != null) add(Resource.BUF)
         if (contractBaseline != null) add(Resource.CONTRACT_BASELINE)
+        if (controlBaseline != null) add(Resource.CONTROL_BASELINE)
         if (baseline != null) add(Resource.BASELINE)
         if (changed != null) add(Resource.CHANGED_FILES)
         if (registry != null) add(Resource.REGISTRY)

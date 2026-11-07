@@ -12,9 +12,8 @@ option java_package = "dev.picasso.mimic.control.v1";
 // 소비자가 손댈 수 있고 목이 계약을 오염시킨다. 별도 포트에 두며 루프백에만
 // 바인딩한다(§6.3).
 //
-// 그 대가로 이 파일은 buf lint·breaking 밖이다 — contracts/buf.yaml 의
-// 모듈이 proto/ 하나이기 때문이다. 필드 번호를 재사용해도 아무도 안 잡는다.
-// §15에 적었다. 그래서 **번호를 지금 다 예약한다.**
+// 그래서 buf 모듈이 따로 있다(mimic/buf.yaml). 게이트 검사 1·2번이 계약과
+// 같은 규칙으로 이 파일의 lint 와 breaking 을 본다(§15.287).
 // ---------------------------------------------------------------------------
 
 enum ClockMode {
@@ -253,7 +252,21 @@ message RestoreCapabilityRequest {
   string skill_type = 2;
 }
 
-message CapabilityChangeResponse {
+message RemoveCapabilityResponse {
+  // 바뀐 뒤의 세대. **되돌려도 또 오른다**(§5.5의 ETag는 되돌아가지 않는다).
+  uint64 capability_epoch = 1;
+
+  // 실제로 바뀌었으면 참. 이미 그 상태면 거짓이며 세대가 안 오른다 —
+  // 유령 세대는 소비자의 캐시를 헛되이 무효화한다.
+  bool changed = 2;
+
+  // 지금 쓸 수 있는 스킬들.
+  repeated string available_skills = 3;
+}
+
+message RestoreCapabilityResponse {
+  // RemoveCapabilityResponse 와 같은 칸이다. RPC 마다 응답 타입을 따로
+  // 두는 것은 buf lint STANDARD 의 규칙이다.
   // 바뀐 뒤의 세대. **되돌려도 또 오른다**(§5.5의 ETag는 되돌아가지 않는다).
   uint64 capability_epoch = 1;
 
@@ -274,9 +287,10 @@ message CapabilityChangeResponse {
 // 보여야 하는데, 에뮬레이터는 기본적으로 선언대로 행동하므로(§10.1) 둘이
 // 언제나 같다.
 //
-// **필드 번호를 재사용하지 않는다.** 제어 채널 proto 는 buf lint·breaking
-// 밖이라(§15.32) 번호 규율을 사람이 지켜야 한다. 이 두 메시지가 그 관례를
-// 세우는 첫 자리이며, 필드를 지우면 지운 번호를 reserved 로 남긴다.
+// **필드 번호를 재사용하지 않는다.** 처음에는 제어 채널 proto 가 buf
+// lint·breaking 밖이라 번호 규율을 사람이 지켰고, 이 두 메시지가 그 관례를
+// 세운 첫 자리다. 이제 게이트 검사 2번이 이 파일의 파괴도 보지만(§15.287)
+// 관례는 그대로다 — 필드를 지우면 지운 번호를 reserved 로 남긴다.
 // 이 기체가 아는 **사이트 이름들**을 정한다(ADR 35).
 //
 // 사이트 이름은 프로파일에 없다 — 프로파일은 기종을 기술하고 이름은 사이트가
@@ -368,8 +382,8 @@ service ControlService {
   rpc SetConnection(SetConnectionRequest) returns (SetConnectionResponse);
 
   // §8.2의 런타임 축소와 복원.
-  rpc RemoveCapability(RemoveCapabilityRequest) returns (CapabilityChangeResponse);
-  rpc RestoreCapability(RestoreCapabilityRequest) returns (CapabilityChangeResponse);
+  rpc RemoveCapability(RemoveCapabilityRequest) returns (RemoveCapabilityResponse);
+  rpc RestoreCapability(RestoreCapabilityRequest) returns (RestoreCapabilityResponse);
 
   // §10.5의 전송 장애 다섯.
   rpc InjectTransportFault(InjectTransportFaultRequest)

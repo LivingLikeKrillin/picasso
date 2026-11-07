@@ -11,8 +11,11 @@ import dev.picasso.gate.input.GateInput
 /**
  * 검사 1 — `buf lint`(설계 §11.2).
  *
- * **위임이지 판정이 아니다.** 규칙은 `contracts/buf.yaml`의 `lint.use`가
+ * **위임이지 판정이 아니다.** 규칙은 각 모듈 `buf.yaml`의 `lint.use`가
  * 정하고 이 검사는 실패를 게이트의 소견으로 옮기기만 한다.
+ *
+ * 모듈이 둘이다 — 계약(`contracts/`)과 제어 채널(`mimic/`, §10.5). 제어 채널은
+ * 계약 표면이 아니어서 모듈을 나눴고, 그래서 둘 다 돌아야 한다(§15.287).
  */
 class Check01BufLint : GateCheck {
 
@@ -21,13 +24,21 @@ class Check01BufLint : GateCheck {
     override val requires = setOf(Resource.REPO, Resource.BUF)
 
     override fun run(input: GateInput): CheckResult {
-        val result = input.buf!!.run(listOf("lint"), input.repoRoot!!.resolve(CONTRACTS))
-        return if (result.exitCode == 0) CheckResult.Passed(id)
-        else CheckResult.Failed(id, findingsOf(id, result, "buf lint"))
+        val findings = BUF_MODULES.flatMap { module ->
+            val result = input.buf!!.run(listOf("lint"), input.repoRoot!!.resolve(module))
+            if (result.exitCode == 0) emptyList() else findingsOf(id, result, "buf lint", module)
+        }
+        return if (findings.isEmpty()) CheckResult.Passed(id)
+        else CheckResult.Failed(id, findings)
     }
 
     internal companion object {
         const val CONTRACTS = "contracts"
+
+        /** 제어 채널의 buf 모듈. `mimic/buf.yaml` 이 있는 자리다. */
+        const val CONTROL = "mimic"
+
+        val BUF_MODULES = listOf(CONTRACTS, CONTROL)
 
         /** buf는 `파일:줄:열:메시지` 형태로 낸다. */
         private val LOCATED = Regex("""^([^:]+):(\d+):(\d+):(.*)$""")
@@ -45,7 +56,12 @@ class Check01BufLint : GateCheck {
          * 소견 없는 `Failed`는 `CheckResult`의 `init`이 거부하므로, 출력이
          * 비어도 하나는 남긴다.
          */
-        fun findingsOf(checkId: String, result: BufResult, what: String): List<Finding> {
+        fun findingsOf(
+            checkId: String,
+            result: BufResult,
+            what: String,
+            module: String = CONTRACTS,
+        ): List<Finding> {
             val lines = result.output.lines().filter { it.isNotBlank() }
             val located = lines.mapNotNull { LOCATED.find(it) }
 
@@ -54,7 +70,7 @@ class Check01BufLint : GateCheck {
                     Finding(
                         checkId, Severity.ERROR,
                         m.groupValues[4].trim(),
-                        "$CONTRACTS/${m.groupValues[1]}:${m.groupValues[2]}",
+                        "$module/${m.groupValues[1]}:${m.groupValues[2]}",
                     )
                 }
             }
@@ -67,6 +83,7 @@ class Check01BufLint : GateCheck {
                     } else {
                         "$what 이 종료코드 ${result.exitCode}로 실패했다:\n${lines.joinToString("\n")}"
                     },
+                    module,
                 ),
             )
         }

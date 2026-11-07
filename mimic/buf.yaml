@@ -1,0 +1,12 @@
+# 제어 채널(§10.5)의 buf 모듈. 계약 모듈(contracts/buf.yaml)과 같은 규칙을 쓴다.
+# 계약과 한 모듈로 묶지 않는 것은 제어 채널이 계약 표면이 아니기 때문이다.
+# 게이트 검사 1·2번이 이 디렉터리에서도 lint·breaking 을 돈다(§15.287).
+version: v2
+modules:
+  - path: src/main/proto
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

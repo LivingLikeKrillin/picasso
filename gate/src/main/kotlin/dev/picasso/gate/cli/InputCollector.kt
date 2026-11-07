@@ -28,6 +28,7 @@ class InputCollector(private val repoRoot: Path) {
         descriptorFile: Path? = null,
         baselineDirs: List<Path> = emptyList(),
         contractBaseline: String? = null,
+        controlBaseline: String? = null,
         buf: BufRunner? = null,
         changed: ChangedFiles? = null,
     ): GateInput {
@@ -41,6 +42,7 @@ class InputCollector(private val repoRoot: Path) {
             repoRoot = repoRoot,
             baseline = readBaseline(baselineDirs),
             contractBaseline = contractBaseline,
+            controlBaseline = controlBaseline,
             buf = buf,
             changed = changed,
         )

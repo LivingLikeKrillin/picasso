@@ -1184,6 +1184,9 @@ mimic/
     **기본 스위트는 안 바뀐다.** §12.1의 결정성 — "시드 + 가상 시계 고정 = 동일 이벤트 시퀀스" — 이 브로커를 붙이면 깨지므로 `--broker` 없이는 아무 데도 안 나가고, `mimic`의 시험은 하나도 컨테이너를 안 쓴다. 브로커 시험을 `harness`에 둔 것도 그래서다(아래 39번).
 31. **이벤트를 접는 소비자가 잠시 §4.5의 표에 없는 조합을 볼 수 있다.** 원인을 결과보다 먼저 내보내지만(스킬 `HALTED` → 태스크 `FAILED`), 두 사실을 원자적으로 발행할 수단이 없으므로 그 사이의 접힌 상태는 표 밖이다. 정착한 상태만이 §4.5의 대상이다.
 32. **제어 채널의 proto가 `buf lint`·`buf breaking` 밖이다.** `contracts/buf.yaml`의 모듈이 `proto/` 하나이고, 제어 채널은 §10.5에 따라 `mimic/` 안에 있다. 필드 번호를 재사용해도 게이트 1·2번이 잡지 않으므로 **RPC 이름과 번호를 지금 다 예약해 둔다.** 두 번째 buf 모듈을 더하면 닫히지만 Docker 호출이 하나 는다.
+
+    **(닫힘, §15.287)** 항목 287이 제어 채널을 두 번째 buf 모듈(`mimic/buf.yaml`)로 삼아 게이트 검사 1·2번이 계약과 같은 규칙으로 그 lint와 breaking을 보게 했다. 그러려고 두 RPC가 함께 쓰던 응답 타입을 나눴으며 번호를 reserved로 남기는 관례는 그대로다. 행 §15.32는 닫혔다.
+
 33. **제어 채널이 인증하지 않는다.** 루프백 바인딩이 유일한 방어이며(§6.3), 같은 호스트의 다른 프로세스는 막지 못한다. `mimic`은 시험 도구이므로 감수한다.
 34. **관측 적재에 구독기가 없다.** 3a-3은 `ObservationService`(헤더 하나를 세대 이력에, 거절 하나를 `handshake_rejection`에)까지 만들고 **그것을 부르는 MQTT 구독기는 만들지 않았다.** 이유는 위 30번과 같다 — 브로커를 붙이면 §12.1의 결정성이 깨진다. 그래서 운영에서 이 표를 채우는 것은 아직 아무도 아니며, 진단 3·4번은 **시험과 `harness`가 넣은 것만 본다.** 붙는 날 구독기가 `recordHeader`/`recordRejection`을 부르면 되고, 입력이 `MessageHeader`인 것이 그것을 가능하게 하는 경계다(`registry`가 `mimic`을 몰라도 된다).
 35. **진단 2번이 선택 필드 차이를 본다(닫힘).** `profile_optional_field`가 없어 `optionalFields`가 `"not_tracked"`로 나갔다. §9.6의 상위 표면이 필수 선택 필드를 요구해 V7로 표를 만들었고, 진단 2번도 같은 표를 읽는다. 빈 배열로 내지 않았던 것이 옳았다 — 그랬으면 "선택 필드 차이가 없다"는 거짓말 위에서 축소가 승인됐을 것이다.
@@ -3123,6 +3126,16 @@ mimic/
     **검사 9번이 결속을 어댑터 경계 안에 가둔다.** 탐색어는 결속 파일이 선언한 최상위 이름에서 유도하므로 타입을 더하면 금지도 저절로 는다. 훑는 모듈에 `registry` 와 `profile-model` 을 넣었다 — 검사 7의 목록에 그 둘이 없어서, 없다는 이유로 결속까지 새면 같은 구멍이 두 번째로 열린다.
 
     (의도적 제외로 옮김, §15.265) «§15.156» 행은 picasso 와 picasso-ops 어디에도 그 값을 쓰는 면이 없어 의도적 제외의 새 표 «수요 없음» 으로 옮겼다.
+
+287. **제어 채널 proto를 두 번째 buf 모듈로 삼아 게이트 검사 1·2번의 lint와 breaking 대상에 넣고 공유 응답 타입을 둘로 나눈다.**
+
+    옛 항목 32와 한계 레지스터 내부 행 §15.32는 제어 채널의 proto(`mimic/src/main/proto/picasso/control/v1/control.proto`, §10.5)가 `buf lint`와 `buf breaking` 밖이라고 적었다. `contracts/buf.yaml`의 모듈이 `proto/` 하나이고 제어 채널은 계약 표면이 아니어서 `mimic/` 안에 있기 때문이다. 그래서 필드 번호를 재사용해도 게이트 1·2번이 잡지 않았고 번호 규율을 사람이 지켰다. 옛 항목은 두 번째 buf 모듈을 더하면 닫히지만 Docker 호출이 하나 는다고 적었다. 해소 조건은 제어 채널용 buf 빌드 파이프라인 추가였다. 소유자가 내부 오픈 항목을 차례로 모두 해소하라고 지시했다(특정 방식을 지시하지 않았다).
+
+    `mimic/buf.yaml`을 두어 `src/main/proto`를 두 번째 buf 모듈로 삼았다. 규칙은 계약 모듈과 같다(lint STANDARD, breaking FILE). 계약과 한 모듈로 묶지 않은 것은 제어 채널이 계약 표면이 아니기 때문이다. 처음 돌린 lint가 위반 넷을 냈다. 모두 한 가지로, `RemoveCapability`와 `RestoreCapability` 두 RPC가 응답 타입 `CapabilityChangeResponse`를 함께 쓴 것이다. 같은 칸(`capability_epoch` 1, `changed` 2, `available_skills` 3)을 가진 `RemoveCapabilityResponse`와 `RestoreCapabilityResponse`로 나눴다. 메시지 이름은 전송 형식에 들지 않으므로 바이트는 같다. 다만 buf breaking의 FILE 규칙으로는 이 이름 바꿈 자체가 파괴다(메시지 삭제, RPC 응답 타입 변경, 실측). 이 변경의 베이스에는 `mimic/buf.yaml`이 없어 CI가 제어 채널 기준선을 넘기지 않으므로 이 변경은 그것에 걸리지 않으며, 이 뒤로는 같은 바꿈이 걸린다. 검사 1번은 `contracts`와 `mimic` 두 디렉터리에서 `buf lint`를 돌리고, 소견 위치를 각 모듈 기준으로 적는다. 검사 2번은 새 입력 `controlBaseline`(CLI `--control-baseline`, 자원 `CONTROL_BASELINE`)이 있으면 `mimic`에서도 `buf breaking`을 돌린다. 없으면 계약만 비교하고 그쪽을 부분 건너뜀으로 낸다(통과로 숨기지 않는다). CI는 베이스에 `mimic/buf.yaml`이 있을 때 `../.git#ref=<베이스 SHA>,subdir=mimic`을 넘긴다. Docker 호출은 검사마다 하나씩 는다.
+
+    남는 것은 없다. 행 §15.32를 닫고 레지스터에서 지운다. 오픈 항목은 56개에서 55개(내부 26개에서 25개)다. 계약 proto와 계약 SemVer 0.10.0은 바뀌지 않았다.
+
+    음성 하네스에는 케이스 둘을 더했다. `01-control-bad-message-name`(제어 채널 메시지 이름을 snake_case로, 검사 1번이 PascalCase 소견)과 `02-control-field-number-reuse`(`AdvanceClockRequest`의 필드 1번 타입을 int64에서 string으로, 검사 2번이 changed type 소견)다. 하네스가 제어 채널 기준선을 넘긴다. 이 기계에서는 Docker 바인드 마운트가 실패해 하네스의 buf 케이스를 로컬로 못 돌렸고, buf를 컨테이너에 파일을 복사하는 방식으로 직접 돌려 두 소견이 나오는 것을 확인했다. CI가 엄격 모드로 두 케이스를 돈다. `Check01BufLintTest` 1건 바꿈(두 모듈에서 lint를 부른다)과 1건 추가(제어 채널의 lint 위반을 그 모듈 자리로 짚는다), `Check02BufBreakingTest` 3건 추가(제어 채널 기준선이 있으면 mimic 모듈에서도 breaking을 부른다, 기준선이 없으면 그쪽만 부분 건너뜀이다, 제어 채널의 파괴를 그 모듈 자리로 짚는다)다. 전체 시험 수는 2,399건에서 2,403건이다. 결함 주입 5건(모듈 목록에서 제어 채널을 뺌, 위치 접두사를 늘 contracts로, 제어 채널 기준선 무시, 부분 건너뜀을 안 냄, 부분 건너뜀을 늘 냄)을 지정 시험이 모두 잡았다.
 
 286. **구조 규칙 넷을 `profile-model`의 `StructuralRules.kt`로 옮겨 게이트 검사 3번과 mimic이 함께 부르게 하고 한계 레지스터 행 §15.19를 닫는다.**
 
