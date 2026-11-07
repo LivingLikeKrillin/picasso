@@ -342,6 +342,15 @@ class Middleware(
         internal var cancelInFlight: CancelFlight? = null
 
         /**
+         * 보내는 중인 플릿 맡기기(§15.237). 포트가 잠금 밖에서 보내는 동안만 있다([AmrFleetPort.issueDispatch]). 결과는 [pumpRound]
+         * 머리(첫 맡기기)나 [resolveDoubt] 머리(미확정 조회)가 받는다. 있는 동안 이 실행은 운반 취소를 내지 않는다 — 아직 운반 핸들이 없다.
+         */
+        internal var fleetInFlight: FleetFlight? = null
+
+        /** 보내는 중인 운반 취소(§15.237, [AmrFleetPort.issueCancel]). 규칙은 [cancelInFlight] 와 같다. */
+        internal var fleetCancelInFlight: FleetCancelFlight? = null
+
+        /**
          * 운영자가 [release] 로 감수한 결함의 열쇠 — 같은 결함은 다시 막지 않는다. 새 결함은 막는다. 결함이 걷히면 열쇠를 놓으므로
          * 걷혔다가 같은 열쇠로 다시 생긴 결함도 새 결함이다([forgetAcknowledged], §15.248). 놓은 것은 트레이스에 남는다.
          */
@@ -1120,6 +1129,9 @@ class Middleware(
                         execution.deferredUpdate = execution.deferredUpdate ?: sending
                     }
                     unit
+                } else if (execution.fleetInFlight?.unitId == unit.unitId) {
+                    // **맡기는 중인 운반 단위도 바꾸지 않는다**(§15.237). 플릿 계약에 갱신이 없다 — 도는 운반과 같은 규칙이다.
+                    unit
                 } else {
                     unit.replannedAs(replanned[unit.unitId]).also { it.revision = order.version }
                 }
@@ -1542,13 +1554,18 @@ class Middleware(
             settleIssue(execution, flight, issueStart(flight))
             return
         }
+        // 플릿의 첫 맡기기도 같다. 미확정 조회는 [resolveDoubt] 가 받는다.
+        execution.fleetInFlight?.takeIf { it.kind == FleetFlight.Kind.START }?.let { flight ->
+            settleDispatch(execution, flight, issueDispatch(flight.order))
+            return
+        }
 
         // **닿지 못한 취소는 닿을 때까지 다시 보낸다.** 도는 단위의 태스크에만 의미가 있다 — 이미 끝난 태스크(검증 대기)에는 보내지
         // 않고, 그대로 끝나면 취소 응답이 닿지 못했다고 말한다([abort]). 미확정 중에는 핸들이 없고, [resolveDoubt] 가 붙으면서 보낸다.
         if (execution.cancelUnsent && execution.active?.state == UnitState.RUNNING) sendCancel(execution)
         // 다시 보낸 취소가 잠금 밖에서 나가는 중이면 이 라운드는 여기까지다. 같은 라운드에 단위가 끝나 중단을 적으면 그 답(거부 사유)
         // 없이 «닿지 못했다» 로 적는다.
-        if (execution.cancelInFlight != null) return
+        if (execution.cancelInFlight != null || execution.fleetCancelInFlight != null) return
 
         // **연결이 끊기면 도는 단위의 결과는 미확정이다.** 계약이 OFFLINE 과 CONNECTION_BROKEN 을 가른다(완료 기준 5);
         // HIBERNATING 은 침묵하지만 정상이다(§4.7). 되돌아오면 스냅샷으로 태스크 상태를 다시 세워 이어 간다 —
@@ -1987,6 +2004,11 @@ class Middleware(
             if (execution.inFlight != null) execution.physicalState = PhysicalState.IN_DOUBT
             return settled
         }
+        execution.fleetInFlight?.takeIf { it.kind == FleetFlight.Kind.LOOKUP && it.unitId == unit.unitId }?.let { flight ->
+            val settled = settleDispatch(execution, flight, issueDispatch(flight.order))
+            if (execution.fleetInFlight != null) execution.physicalState = PhysicalState.IN_DOUBT
+            return settled
+        }
         val lookup = lookupOf(unit.route)
         // ⓪ 스냅숏 부착 — 붙었으면 이 라운드는 여기까지다. 다음 라운드의 [pumpRobotUnit] 이 처음부터 되짚는다.
         if (unit.route == Route.ROBOT && attachFromSnapshot(execution, unit)) return false
@@ -2022,6 +2044,12 @@ class Middleware(
                 )
                 val settled = settleIssue(execution, flight, issueStart(flight))
                 if (execution.inFlight != null) execution.physicalState = PhysicalState.IN_DOUBT
+                return settled
+            }
+            if (unit.route == Route.FLEET) {
+                val flight = FleetFlight(FleetFlight.Kind.LOOKUP, unit.unitId, transportOrderOf(unit), restore = null)
+                val settled = settleDispatch(execution, flight, issueDispatch(flight.order))
+                if (execution.fleetInFlight != null) execution.physicalState = PhysicalState.IN_DOUBT
                 return settled
             }
             val found = try {
@@ -2294,18 +2322,7 @@ class Middleware(
             robots.start(execution.robotOf(unit), unit.taskId, unit.revision, unit.skillType, withOptionals(execution, unit, unit.parameters)),
         )
 
-        Route.FLEET -> {
-            val handle = fleet.dispatch(transportOrderOf(unit))
-            if (handle != null) {
-                execution.transport = handle
-                true
-            } else {
-                unit.state = UnitState.FAILED
-                unit.failureClass = FLEET_REJECTED
-                execution.markIncident(unit)
-                false
-            }
-        }
+        Route.FLEET -> acceptTransport(execution, unit, fleet.dispatch(transportOrderOf(unit)))
 
         // 설비 대기는 하위에 보낼 요청이 없다 — 시작이 곧 기다림의 시작이고, 읽기는 [pumpSignalUnit] 이 한다.
         Route.SIGNAL -> true
@@ -2588,6 +2605,11 @@ class Middleware(
             settleIssue(execution, flight, issueStart(flight))
             return
         }
+        if (unit.route == Route.FLEET) {
+            val flight = FleetFlight(FleetFlight.Kind.START, unit.unitId, transportOrderOf(unit), restore)
+            settleDispatch(execution, flight, issueDispatch(flight.order))
+            return
+        }
         val accepted = try {
             lookupDownstream(execution, unit)
         } catch (_: CommandNotSent) {
@@ -2666,6 +2688,81 @@ class Middleware(
                 if (!applyStartResponse(execution, unit, issue.response)) {
                     execution.active = null
                     execution.deferredUpdate = null
+                    return
+                }
+                unit.state = UnitState.RUNNING
+                execution.physicalState = if (execution.cancelRequested) PhysicalState.CANCELING else PhysicalState.RUNNING
+                if (execution.cancelRequested) sendCancel(execution)
+            }
+        }
+    }
+
+    /** 플릿이 준 운반 [handle] 을 잡는다. 널이면 플릿이 맡지 않은 것이라 단위를 실패로 적는다. @return 잡았는가. */
+    private fun acceptTransport(execution: Execution, unit: ExecutionUnit, handle: TransportHandle?): Boolean {
+        if (handle != null) {
+            execution.transport = handle
+            return true
+        }
+        unit.state = UnitState.FAILED
+        unit.failureClass = FLEET_REJECTED
+        execution.markIncident(unit)
+        return false
+    }
+
+    /**
+     * 플릿 맡기기를 보낸다 — 첫 맡기기와 미확정 조회가 함께 쓴다(§15.237). 포트가 잠금 밖에서 보내면([AmrFleetPort.issueDispatch])
+     * 기다리지 않고 그 처지를 돌려주고, 아니면 [AmrFleetPort.dispatch] 를 지금 불러 그 결과를 같은 넷으로 감싼다. 보내는 중인 맡기기의
+     * 결과를 다시 물을 때도 이것을 부른다.
+     */
+    private fun issueDispatch(order: TransportOrder): DispatchIssue =
+        fleet.issueDispatch(order) ?: try {
+            DispatchIssue.Answered(fleet.dispatch(order), sentAt = null)
+        } catch (e: CommandNotSent) {
+            DispatchIssue.NotSent(e.message ?: "not sent")
+        } catch (e: RuntimeException) {
+            DispatchIssue.InDoubt(e, sentAt = null)
+        }
+
+    /**
+     * 맡기기 송신의 처지를 적는다. 보내는 중이면 [Execution.fleetInFlight] 에 두고, 결과면 그 종류의 정리로 넘긴다. 정리는 로봇 출발과
+     * 같은 함수([startNotSent]·[startInDoubt]·[lookupFound])를 쓴다.
+     *
+     * @return 단위가 이 라운드에 종료(운영자 보류 포함)했는가 — 미확정 조회([resolveDoubt])만 쓴다.
+     */
+    private fun settleDispatch(execution: Execution, flight: FleetFlight, issue: DispatchIssue): Boolean {
+        if (issue is DispatchIssue.Pending) {
+            execution.fleetInFlight = flight
+            return false
+        }
+        execution.fleetInFlight = null
+        val unit = execution.units.first { it.unitId == flight.unitId }
+        return when (flight.kind) {
+            FleetFlight.Kind.START -> {
+                settleFleetStart(execution, unit, checkNotNull(flight.restore), issue)
+                false
+            }
+            FleetFlight.Kind.LOOKUP -> when (issue) {
+                DispatchIssue.Pending -> false
+                is DispatchIssue.NotSent -> lookupNotSent(execution, unit)
+                is DispatchIssue.InDoubt -> lookupFound(execution, unit, false)
+                is DispatchIssue.Answered -> lookupFound(execution, unit, acceptTransport(execution, unit, issue.handle))
+            }
+        }
+    }
+
+    /** 첫 맡기기의 결과. 요청 시각과 보내는 중에 걸린 취소는 로봇의 첫 출발([settleStart])과 같은 규칙이다. */
+    private fun settleFleetStart(execution: Execution, unit: ExecutionUnit, restore: StartRestore, issue: DispatchIssue) {
+        when (issue) {
+            DispatchIssue.Pending -> Unit
+            is DispatchIssue.NotSent -> startNotSent(execution, unit, restore)
+            is DispatchIssue.InDoubt -> {
+                if (!restore.restoredUsed) issue.sentAt?.let { unit.requestedAt = it }
+                startInDoubt(execution, unit)
+            }
+            is DispatchIssue.Answered -> {
+                if (!restore.restoredUsed) issue.sentAt?.let { unit.requestedAt = it }
+                if (!acceptTransport(execution, unit, issue.handle)) {
+                    execution.active = null
                     return
                 }
                 unit.state = UnitState.RUNNING
@@ -3464,7 +3561,7 @@ class Middleware(
     private fun sendCancel(execution: Execution) {
         // **보내는 중인 출발이 있으면 보내지 않는다**(§15.237). 그 결과를 받은 쪽이 보낸다 — 지금 보내면 기체에 아직 없는 태스크나 앞
         // 단위의 핸들로 나간다. 취소 요청([Execution.cancelRequested])은 그대로 남는다.
-        if (execution.inFlight != null) return
+        if (execution.inFlight != null || execution.fleetInFlight != null) return
         var failure: RuntimeException? = null
         var attempted = false
         var pending = false
@@ -3481,20 +3578,42 @@ class Middleware(
         val transport = execution.transport
         if (transport != null) {
             attempted = true
-            try {
-                fleet.cancel(transport)
-            } catch (e: RuntimeException) {
-                failure = failure ?: e
+            when (val result = cancelFleet(execution, transport)) {
+                FleetCancelIssue.Pending -> pending = true
+                is FleetCancelIssue.Answered -> Unit
+                is FleetCancelIssue.Failed -> failure = failure ?: result.failure
             }
         }
         if (!attempted) return
         if (failure != null) {
-            // 로봇 쪽이 보내는 중이어도 플릿 쪽이 실패했으면 로봇의 답만으로 «닿았다» 로 내리지 않는다.
-            if (pending) execution.cancelInFlight?.fleetFailed = true
+            // 한쪽이 보내는 중이어도 다른 쪽이 실패했으면 보내는 중인 쪽의 답만으로 «닿았다» 로 내리지 않는다.
+            if (pending) markOtherFailed(execution)
             cancelNotReached(execution, failure)
             return
         }
         if (!pending) cancelReached(execution)
+    }
+
+    /** 도는 단위의 취소([sendCancel])에서 한쪽이 실패했다 — 보내는 중인 다른 쪽이 답해도 «닿았다» 로 내리지 않게 한다. */
+    private fun markOtherFailed(execution: Execution) {
+        execution.cancelInFlight?.takeIf { it.site == CancelFlight.Site.SEND }?.otherFailed = true
+        execution.fleetCancelInFlight?.otherFailed = true
+    }
+
+    /**
+     * 플릿에 운반 취소를 보낸다([sendCancel], §15.237). 포트가 잠금 밖에서 보내면([AmrFleetPort.issueCancel]) [FleetCancelIssue.Pending]
+     * 을 받고 [Execution.fleetCancelInFlight] 에 둔다. 아니면 [AmrFleetPort.cancel] 을 지금 부른다. 이미 보내는 중이면 새로 보내지 않는다.
+     */
+    private fun cancelFleet(execution: Execution, handle: TransportHandle): FleetCancelIssue {
+        if (execution.fleetCancelInFlight != null) return FleetCancelIssue.Pending
+        val reference = execution.active?.takeIf { it.route == Route.FLEET }?.taskId ?: handle.id
+        val result = fleet.issueCancel(reference, handle) ?: try {
+            FleetCancelIssue.Answered(fleet.cancel(handle))
+        } catch (e: RuntimeException) {
+            FleetCancelIssue.Failed(e)
+        }
+        if (result == FleetCancelIssue.Pending) execution.fleetCancelInFlight = FleetCancelFlight(reference, handle)
+        return result
     }
 
     private fun cancelNotReached(execution: Execution, failure: RuntimeException) {
@@ -3542,6 +3661,30 @@ class Middleware(
      * @return 아직 보내는 중인가. 참이면 이 라운드는 진행하지 않는다.
      */
     private fun pollCancel(execution: Execution): Boolean {
+        val robot = pollRobotCancel(execution)
+        val fleet = pollFleetCancel(execution)
+        return robot || fleet
+    }
+
+    private fun pollFleetCancel(execution: Execution): Boolean {
+        val flight = execution.fleetCancelInFlight ?: return false
+        val result = fleet.issueCancel(flight.reference, flight.handle)
+            ?: FleetCancelIssue.Failed(IllegalStateException("플릿 포트가 보내는 중인 운반 ${flight.reference} 취소의 결과를 주지 않는다"))
+        if (result == FleetCancelIssue.Pending) return true
+        execution.fleetCancelInFlight = null
+        if (!execution.physicalState.pumps) return false
+        when (result) {
+            is FleetCancelIssue.Answered -> if (!flight.otherFailed && execution.cancelInFlight == null) cancelReached(execution)
+            is FleetCancelIssue.Failed -> {
+                execution.cancelInFlight?.takeIf { it.site == CancelFlight.Site.SEND }?.otherFailed = true
+                cancelNotReached(execution, result.failure)
+            }
+            FleetCancelIssue.Pending -> Unit
+        }
+        return false
+    }
+
+    private fun pollRobotCancel(execution: Execution): Boolean {
         val flight = execution.cancelInFlight ?: return false
         val result = robots.issueCancel(flight.robot, flight.handle)
             ?: CancelIssue.Failed(IllegalStateException("robot=${flight.robot} 의 포트가 보내는 중인 취소의 결과를 주지 않는다"))
@@ -3558,9 +3701,12 @@ class Middleware(
             CancelFlight.Site.SEND -> when (result) {
                 is CancelIssue.Answered -> {
                     noteRefusal(execution, result.response)
-                    if (!flight.fleetFailed) cancelReached(execution)
+                    if (!flight.otherFailed && execution.fleetCancelInFlight == null) cancelReached(execution)
                 }
-                is CancelIssue.Failed -> cancelNotReached(execution, result.failure)
+                is CancelIssue.Failed -> {
+                    execution.fleetCancelInFlight?.otherFailed = true
+                    cancelNotReached(execution, result.failure)
+                }
                 CancelIssue.Pending -> Unit
             }
             CancelFlight.Site.KEY -> {
@@ -3749,7 +3895,7 @@ class Middleware(
                 },
             )
         }
-        if (execution.cancelInFlight != null) {
+        if (execution.cancelInFlight != null || execution.fleetCancelInFlight != null) {
             return ForgetOutcome.Refused("보내는 중인 취소가 있다 — 다음 라운드에 그 결과를 받은 뒤 이빅션한다: $executionId")
         }
         val unacked = outbox.filter { it.executionId == executionId && it.ack != UpstreamAck.ACKED }
@@ -4020,9 +4166,24 @@ internal class CancelFlight(
     val stateName: String? = null,
 ) {
     /** 도는 단위의 취소에서 같은 호출의 플릿 취소가 실패했는가. 그러면 로봇이 답해도 «닿았다» 로 내리지 않는다. */
-    var fleetFailed: Boolean = false
+    var otherFailed: Boolean = false
 
     enum class Site { SEND, KEY, HELD, ATTACH }
+}
+
+/**
+ * 보내는 중인 플릿 맡기기 하나(§15.237, [Middleware.Execution.fleetInFlight]). 포트에 다시 물을 때 같은 [order] 를 쓴다.
+ *
+ * @property restore 첫 맡기기면 그 시도 앞의 자리. 보내지 못하면 이것으로 되돌린다.
+ */
+internal class FleetFlight(val kind: Kind, val unitId: String, val order: TransportOrder, val restore: StartRestore?) {
+    enum class Kind { START, LOOKUP }
+}
+
+/** 보내는 중인 운반 취소 하나(§15.237, [Middleware.Execution.fleetCancelInFlight]). 포트에 다시 물을 때 같은 참조와 핸들을 쓴다. */
+internal class FleetCancelFlight(val reference: String, val handle: TransportHandle) {
+    /** 같은 호출의 로봇 취소가 실패했는가. 그러면 플릿이 답해도 «닿았다» 로 내리지 않는다. */
+    var otherFailed: Boolean = false
 }
 
 /** 첫 출발 앞의 단위 자리. [restoredUsed] 면 이 시도의 요청 시각이 재기동 전 것이라 보낸 시각으로 고치지 않는다(§15.221). */

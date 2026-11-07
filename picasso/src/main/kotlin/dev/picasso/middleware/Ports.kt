@@ -409,6 +409,21 @@ interface AmrFleetPort {
     fun status(handle: TransportHandle): TransportStatus
     fun cancel(handle: TransportHandle): Boolean
 
+    /**
+     * 맡기기([dispatch])를 **소비자의 잠금 밖에서** 보낸다(§15.237). 미들웨어의 첫 맡기기와 미확정 조회(같은 참조의 재전송)가 [dispatch]
+     * 대신 이것을 먼저 묻는다. 널이면 이 포트는 잠금 밖에서 보내지 않는다 — 미들웨어가 [dispatch] 를 지금 부른다.
+     *
+     * 같은 [TransportOrder.reference] 로 다시 물으면 같은 송신의 처지를 준다. 처음 물으면 송신을 걸고 [DispatchIssue.Pending] 을,
+     * 보내는 동안은 [DispatchIssue.Pending] 을, 끝나면 그 결과를 **한 번** 준다. 결과를 준 뒤 같은 참조로 다시 물으면 새 송신이다.
+     */
+    fun issueDispatch(order: TransportOrder): DispatchIssue? = null
+
+    /**
+     * 운반의 취소([cancel])를 **소비자의 잠금 밖에서** 보낸다(§15.237). [reference] 는 그 운반을 맡긴 참조다 — 잠금 밖에서 보내는 포트가
+     * 같은 운반의 맡기기와 취소를 한 차선에 둔다. 널이면 미들웨어가 [cancel] 을 지금 부른다. 다시 묻는 규칙은 [issueDispatch] 와 같다.
+     */
+    fun issueCancel(reference: String, handle: TransportHandle): FleetCancelIssue? = null
+
     object None : AmrFleetPort {
         override fun dispatch(order: TransportOrder): TransportHandle? = null
         override fun find(reference: String): TransportHandle? = null
@@ -416,6 +431,39 @@ interface AmrFleetPort {
             TransportStatus(TransportState.FAILED, null, false, "플릿이 없다")
         override fun cancel(handle: TransportHandle): Boolean = false
     }
+}
+
+/**
+ * 맡기기 송신 하나의 처지([AmrFleetPort.issueDispatch], §15.237). 미들웨어가 [AmrFleetPort.dispatch] 를 동기로 부른 결과도 같은 넷으로
+ * 감싼다.
+ */
+sealed interface DispatchIssue {
+    /** 보내는 중이다. 이 라운드에는 결과가 없다. */
+    data object Pending : DispatchIssue
+
+    /** 플릿이 답했다. [handle] 이 널이면 플릿이 맡지 않았다. [sentAt] 은 실제로 보낸 시각이고, 동기로 부른 결과면 널이다. */
+    data class Answered(val handle: TransportHandle?, val sentAt: Instant?) : DispatchIssue
+
+    /** 플릿으로 보내지 않았다([CommandNotSent]). 같은 참조의 다른 명령이 보내는 중이어서 걸지 못한 것도 이것이다. */
+    data class NotSent(val reason: String) : DispatchIssue
+
+    /** 보냈는데 답을 못 받았다 — 맡겨졌는지 모른다. [sentAt] 은 [Answered] 와 같다. */
+    data class InDoubt(val failure: RuntimeException, val sentAt: Instant?) : DispatchIssue
+}
+
+/**
+ * 운반 취소 송신 하나의 처지([AmrFleetPort.issueCancel], §15.237). 로봇 취소([CancelIssue])와 같은 까닭으로 미확정을 따로 두지 않는다 —
+ * 미들웨어는 실패를 «닿지 않았다» 로 읽고 다시 보낸다.
+ */
+sealed interface FleetCancelIssue {
+    /** 보내는 중이다. 이 라운드에는 결과가 없다. */
+    data object Pending : FleetCancelIssue
+
+    /** 플릿이 답했다. [accepted] 는 [AmrFleetPort.cancel] 의 반환값이다. */
+    data class Answered(val accepted: Boolean) : FleetCancelIssue
+
+    /** 닿았는지 모른다. 같은 참조의 다른 명령이 보내는 중이어서 걸지 못한 것도 이것이다. */
+    data class Failed(val failure: RuntimeException) : FleetCancelIssue
 }
 
 // ── 독립 설비 신호 — E2
