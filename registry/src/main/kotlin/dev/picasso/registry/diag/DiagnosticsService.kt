@@ -109,6 +109,8 @@ data class EpochRow(
     val profileId: String,
     val revision: Int,
     val occurredAt: String,
+    /** 같은 사실을 받은 횟수. 접힐 때마다 오르며 [occurredAt] 은 그 마지막 시각이다(§15.36). */
+    val seenCount: Int,
 )
 
 /** 진단 4번의 한 줄. */
@@ -417,7 +419,7 @@ class DiagnosticsService(
             """
             SELECT epoch, cause,
                    profile_ref->>'profile_id', (profile_ref->>'revision')::int,
-                   occurred_at
+                   occurred_at, seen_count
             FROM capability_epoch_log
             WHERE robot_id = ?
             ORDER BY occurred_at DESC, epoch_log_id DESC
@@ -435,6 +437,7 @@ class DiagnosticsService(
                                 profileId = rs.getString(3),
                                 revision = rs.getInt(4),
                                 occurredAt = rs.getTimestamp(5).toInstant().toString(),
+                                seenCount = rs.getInt(6),
                             ),
                         )
                     }

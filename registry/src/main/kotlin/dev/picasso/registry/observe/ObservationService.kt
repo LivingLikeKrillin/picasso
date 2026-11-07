@@ -55,7 +55,8 @@ class ObservationService(private val db: Db) {
                    (robot_id, epoch, cause, profile_ref, detail, occurred_at)
             VALUES (?, ?, ?, ?::jsonb, ?::jsonb, now())
             ON CONFLICT (robot_id, epoch, profile_ref, cause)
-            DO UPDATE SET occurred_at = now()
+            DO UPDATE SET occurred_at = now(),
+                          seen_count = capability_epoch_log.seen_count + 1
             RETURNING (xmax = 0) AS inserted
             """.trimIndent(),
         ).use { s ->
