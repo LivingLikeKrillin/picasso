@@ -519,7 +519,7 @@ class Middleware(
         // **이미 있는 실행이면 카탈로그를 안 본다.** 리비전은 그 실행이 쥔 케이퍼빌리티로 계획한다 — 여기서 카탈로그를
         // 읽으면 활성 버전이 바뀐 뒤의 리비전이 새 버전의 단위를 옛 실행에 들인다.
         val existing = executions.values.firstOrNull { it.order.jobOrderId == order.jobOrderId }
-        if (existing != null) return revise(existing, order)
+        if (existing != null) return revise(existing, order, prefix, approvedBy)
 
         val active = mission ?: missions.active(order.workMasterId)
             ?: return Submission.Rejected("모르는 논리적 케이퍼빌리티다: ${order.workMasterId}")
@@ -1081,7 +1081,16 @@ class Middleware(
             it.heldInEarlierAttempt = heldInEarlierAttempt
         } ?: this
 
-    private fun revise(execution: Execution, order: JobOrder): Submission {
+    /**
+     * @param prefix 승인된 조치 열(§15.175). [commit] 만 채운다. 새 계획에서 다시 계획하는 첫 단위 앞에 서고, 사슬 검사도 그 앞에서
+     *   굴린다 — 첫 접수가 계획 맨 앞에 세우는 것과 같은 모양이다. 이미 승인을 든 실행에는 [commit] 이 부르지 않는다.
+     */
+    private fun revise(
+        execution: Execution,
+        order: JobOrder,
+        prefix: List<ExecutionUnit> = emptyList(),
+        approvedBy: Approver? = null,
+    ): Submission {
         // **실행이 쥔 케이퍼빌리티로 판정한다**(카탈로그가 아니다). 다른 WorkMaster 로 바꾸는 리비전은 그 케이퍼빌리티로
         // 계획할 수 없으므로 받지 않는다 — 새 작업 지시다.
         if (order.workMasterId != execution.order.workMasterId) {
@@ -1101,13 +1110,19 @@ class Middleware(
         // 개정판도 사슬 검사를 받는다 — 단, 이 개정이 실제로 교체·추가할 단위만(리뷰 C3). 이미 끝났거나 도는 단위를
         // 다시 재단하면 끝난 일을 되돌리라는 말이 된다.
         val fresh = execution.capability.plan(order)
-        duplicateUnitIdRefusal(fresh)?.let { return it }
+        duplicateUnitIdRefusal(prefix + fresh)?.let { return it }
         val toPlan = fresh.filter { f ->
             val current = execution.units.firstOrNull { it.unitId == f.unitId }
             current == null || current.state == UnitState.PENDING ||
                 (current.state == UnitState.FAILED && current.taskId.isEmpty())
         }
-        gate.chainRefusal(execution.robotId, toPlan)?.let { return desk.record(execution.robotId, order, it, revision = true) }
+        // **이미 승인을 든 실행의 개정은 제안을 세우지 않는다**(ADR 46, §15.175). 판단 기록이 승인 하나만 싣고, 그 열쇠에는 소모 기록이
+        // 서 있다 — 세우면 재시도가 «이미 소모됐다» 를 못 본다. 승인한 조치 열을 붙인 개정의 거절은 서 있는 제안을 바꾸지 않는다.
+        gate.chainRefusal(execution.robotId, prefix + toPlan)?.let {
+            return desk.record(
+                execution.robotId, order, it, carriesApproval = execution.approval != null, approval = approvedBy != null,
+            )
+        }
 
         // **확정된 단위 이후에만 붙는다.** 종착한 단위는 그대로(래치 — 계약이 이미 그렇게 한다),
         // 아직 안 시작한 단위는 새 계획으로 교체, 도는 단위는 계약의 갱신 규칙(§4.4)을 탄다.
@@ -1190,8 +1205,17 @@ class Middleware(
         }
         val added = replanned.values.filter { fresh -> kept.none { it.unitId == fresh.unitId } }
             .onEach { it.revision = order.version }
+        val units = (kept + added).toMutableList()
+        if (prefix.isNotEmpty()) {
+            // **다시 계획하는 첫 단위 앞에 선다.** 보내는 중인 단위는 그 결과를 기다리므로 그 뒤다. 다시 계획할 단위가 없으면 끝에 선다.
+            val replans = toPlan.map { it.unitId }.toSet() - setOfNotNull(execution.inFlight?.unitId, execution.fleetInFlight?.unitId)
+            val at = units.indexOfFirst { it.unitId in replans }.takeIf { it >= 0 } ?: units.size
+            prefix.forEach { it.revision = order.version }
+            units.addAll(at, prefix)
+            execution.approvedBy = approvedBy
+        }
         execution.units.clear()
-        execution.units.addAll(kept + added)
+        execution.units.addAll(units)
         execution.order = order
         if (execution.physicalState == PhysicalState.PARTIAL || execution.physicalState == PhysicalState.UNVERIFIED ||
             execution.physicalState == PhysicalState.FAILED
@@ -3539,12 +3563,15 @@ class Middleware(
      * ([RemedyDesk.record] 의 `approval`).
      */
     private fun commit(go: Judgment.Go): Submission {
-        // **그 주문이 이미 실행으로 서 있으면 조치 열을 실을 길이 없다**(ADR 46). 판이 같으면 접수가 멱등으로 접히고,
-        // 낮으면 지난 판으로 거절되며, 더 높으면 개정으로 가는데 개정은 조치 열을 안 받는다(§15.175). 더 높은 판이
-        // 개정을 지나가면 승인이 성공을 내고 조치는 안 나가며 그 거짓이 소모 기록에 남는다 — 버전이 거꾸로 도착하면
-        // 닿는 길이다. 판과 무관하게 여기서 접는다.
-        executions.values.firstOrNull { it.order.jobOrderId == go.order.jobOrderId }
-            ?.let { return Submission.Idempotent(it) }
+        // **그 주문이 이미 실행으로 서 있으면 개정만 조치 열을 싣는다**(§15.175). 판이 같거나 낮으면 실을 개정이 없다. 실행이 다른
+        // 기체에 서 있으면 조치가 제안의 기체가 아닌 곳에서 돈다. 이미 승인을 든 실행이면 판단 기록이 승인 하나만 싣는다. 끝난 실행에는
+        // 새 판이 안 붙는다. 넷 다 여기서 접는다 — 그대로 내리면 승인이 성공을 내고 조치는 안 나가며 그 거짓이 소모 기록에 남는다(ADR 46).
+        executions.values.firstOrNull { it.order.jobOrderId == go.order.jobOrderId }?.let { existing ->
+            val ended = existing.physicalState == PhysicalState.ABORTED || existing.physicalState == PhysicalState.PHYSICALLY_DONE
+            if (go.order.version <= existing.order.version || existing.robotId != go.robotId || existing.approval != null || ended) {
+                return Submission.Idempotent(existing)
+            }
+        }
         // 놓은 작업 지시는 아래 접수가 거부한다([forgottenRefusal]). 거부라서 제안을 지우지 않고 소모로도 남기지 않는다.
         val submission = submit(go.order, go.robotId, go.prefix, approvedBy = go.approver)
         if (submission !is Submission.Accepted) return submission

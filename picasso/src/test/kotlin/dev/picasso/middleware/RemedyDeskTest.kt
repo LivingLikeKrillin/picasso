@@ -57,12 +57,12 @@ class RemedyDeskTest {
         Middleware.Submission.Rejected("든 채다", remedy = Remedy.Found(listOf(STEP))),
     )
 
-    /** 같은 거절이 개정에서 났다 — 그 주문은 이미 실행으로 서 있다. */
+    /** 같은 거절이 이미 승인을 든 실행의 개정에서 났다 — 그 주문은 이미 실행으로 서 있다. */
     private fun RemedyDesk.revisionRefused(jobOrderId: String = JOB) = record(
         ROBOT,
         JobOrder(jobOrderId = jobOrderId, workMasterId = InspectAsset.WORK_MASTER, version = 2),
         Middleware.Submission.Rejected("든 채다", remedy = Remedy.Found(listOf(STEP))),
-        revision = true,
+        carriesApproval = true,
     )
 
     @Test
@@ -107,7 +107,7 @@ class RemedyDeskTest {
 
     @Test
     fun `개정 거절은 탐색 줄만 남기고 제안을 세우지 않는다`() {
-        // ★개정은 조치 열을 싣지 못하므로(§15.175) 세운 제안은 승인할 수 없다. 그래서 대장에 `FOUND` 가 남아도
+        // ★이미 승인을 든 실행은 판단 기록이 승인 하나만 실으므로(§15.175) 세운 제안은 승인할 수 없다. 그래서 대장에 `FOUND` 가 남아도
         //   그 열쇠의 승인은 기록으로 판정된다 — 소모된 적이 없으면 `NO_PROPOSAL` 이다.
         val d = desk()
         assertNull(d.revisionRefused().remedy, "개정 거절이 승인할 수 없는 조치 열을 내밀었다")
