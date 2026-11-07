@@ -34,6 +34,23 @@ class ProfileSourceTest {
     }
 
     @Test
+    fun `스키마는 통과해도 구조 규칙을 어기면 기동을 거부한다`() {
+        // §15.286 — 게이트 검사 3번이 거절할 프로파일로 기동하지 않는다.
+        // 뒤집힌 범위는 스키마가 표현하지 못해 스키마 검증을 통과한다.
+        val text = Files.readString(fixture)
+        assertTrue(text.contains("\"max_value\": 120"), "픽스처가 바뀌었다")
+        val broken = Files.createTempFile("inverted", ".json")
+        Files.writeString(broken, text.replace("\"max_value\": 120", "\"max_value\": -1"))
+
+        val e = assertFailsWith<ProfileRejected> { FileProfileSource(schema).load(broken) }
+        assertTrue(e.message!!.contains("구조 규칙"), e.message)
+        assertEquals(
+            listOf("/skills/0/parameters/3: 범위가 뒤집혔다: pick_place@1.grip_force min_value=0.0 > max_value=-1.0"),
+            e.findings,
+        )
+    }
+
+    @Test
     fun `JSON이 아니면 기동을 거부한다`() {
         val broken = Files.createTempFile("bad", ".json")
         Files.writeString(broken, "{ 이건 JSON이 아니다")
