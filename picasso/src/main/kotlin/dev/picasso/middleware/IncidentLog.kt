@@ -15,7 +15,15 @@ internal class IncidentLog(
     private val robots: RobotPort,
     private val now: () -> Instant,
     private val wallClock: () -> Instant,
+    /** 번들 수의 상한([Retention.incidents]). */
+    private val cap: Int = Retention().incidents,
+    /** 이 실행을 아직 구동이 돌리는가. 그 실행의 번들은 상한을 넘어도 내리지 않는다. */
+    private val live: (String) -> Boolean = { false },
 ) {
+
+    /** 상한으로 내린 번들의 수([RetentionEvictions.incidents]). */
+    var evicted = 0L
+        private set
 
     /** 열린 사건들(설계안 §4). **조회만 한다** — 이 목록이 이 층의 거동을 바꾸지 않는다. */
     private val bundles = mutableListOf<IncidentBundle>()
@@ -153,6 +161,20 @@ internal class IncidentLog(
             )
         }
         execution.pendingIncidents.clear()
+        trim()
+    }
+
+    /** 상한을 넘은 만큼 **가장 오래된 것부터** 내린다. 구동이 돌리는 실행의 번들은 건너뛴다([Retention]). */
+    private fun trim() {
+        var i = 0
+        while (bundles.size > cap && i < bundles.size) {
+            if (live(bundles[i].executionId)) {
+                i += 1
+            } else {
+                bundles.removeAt(i)
+                evicted += 1
+            }
+        }
     }
 
     /**

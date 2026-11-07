@@ -126,6 +126,11 @@ class Middleware(
      * 도는 단위는 끊지 않는다.
      */
     retirements: RetirementPort? = null,
+    /**
+     * 인시던트 번들·탐색 기록·제안·승인 소모 기록의 보존 상한(§15.166). 넘치면 오래된 것부터 내리되 구동이 돌리는 실행의 것은
+     * 남긴다. 기본값은 [Retention] 의 값이다.
+     */
+    retention: Retention = Retention(),
 ) {
     // ⚠ 생성자 인자 `missions`(널 허용)가 이 속성을 가린다 — 다른 속성의 초기화식에서 `missions` 는 인자다. 거기서는 `this.missions` 로 쓴다.
     private val missions: MissionCatalog = run {
@@ -163,10 +168,13 @@ class Middleware(
     private val issuing = IssuingGate(permits, retirements, now)
 
     /** 제안과 승인의 장부(설계안 §6.4). 승인 뒤의 접수는 [commit] 에 남고, 승인의 기록([RemedyDesk.settle])은 접수가 된 뒤에만 한다. */
-    private val desk = RemedyDesk(robots, entitlements, withholdEvery, now, wallClock, gate::liveHold)
+    private val desk = RemedyDesk(robots, entitlements, withholdEvery, now, wallClock, gate::liveHold, retention, ::pumping)
 
     /** 사건 번들의 장부(설계안 §4). 봉인은 [pump] 가 라운드 끝에 부른다. */
-    private val incidentLog = IncidentLog(robots, now, wallClock)
+    private val incidentLog = IncidentLog(robots, now, wallClock, retention.incidents, ::pumping)
+
+    /** 이 실행을 아직 구동이 돌리는가 — 보존 상한이 그 실행의 기록을 남길지 가른다([Retention]). */
+    private fun pumping(executionId: String): Boolean = executions[executionId]?.physicalState?.pumps == true
 
     /**
      * 기체 하나에 대한 이 층의 관측 — 계약 §4.8 의 소비자 패턴 그대로다. 스냅샷으로 세우고(`cursor` = 다음에 올 번호)
@@ -3600,6 +3608,9 @@ class Middleware(
     fun incidents(): List<IncidentBundle> = incidentLog.incidents()
 
     fun incident(incidentId: String): IncidentBundle? = incidentLog.incident(incidentId)
+
+    /** 보존 상한으로 내린 기록의 수(§15.166, [Retention]). */
+    fun retentionEvictions(): RetentionEvictions = desk.evictions(incidentLog.evicted)
 
     /**
      * 사람이 사건을 읽고 판정을 남긴다 — [IncidentLog.reviewIncident].
