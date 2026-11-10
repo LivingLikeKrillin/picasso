@@ -4,6 +4,9 @@
 
 # picasso — 로봇의 차이와 운영 변경을 다루는 미들웨어
 
+> 이 저장소는 2026-11-10부로 조직 저장소 [picasso-robotics/picasso](https://github.com/picasso-robotics/picasso)로 이전되었습니다.
+> 향후 모든 작업은 새 조직 저장소에서 진행되며, 본 저장소는 과거 PR과 리뷰 이력을 보존하는 용도로 계속 유지합니다.
+
 [![ci](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml/badge.svg)](https://github.com/LivingLikeKrillin/picasso/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
@@ -152,4 +155,4 @@ CLI 옵션과 프로파일 입력은 [mimic](mimic/README.md), [client](client/R
 
 [Apache License 2.0](LICENSE). 벤더 독점 SDK는 포함하지 않습니다. 어댑터의 벤더 API 인용은 심볼명과 해시 매니페스트로 관리합니다.
 
-> 마지막 대조: 2026-11-08 · sha256:fc74e07ca408 · 열림: C-3, §15.81
+> 마지막 대조: 2026-11-10 · sha256:a0a1f4068657 · 열림: C-3, §15.81
